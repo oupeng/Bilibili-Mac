@@ -24,7 +24,6 @@
   <img alt="平台 macOS 15+" src="https://img.shields.io/badge/macOS-15%2B-195CFF?style=flat">
   <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple%20Silicon-arm64-195CFF?style=flat">
   <img alt="Swift 6" src="https://img.shields.io/badge/Swift-6-FF607A?style=flat">
-  <img alt="安装包 5.5 MB" src="https://img.shields.io/badge/安装包-5.5%20MB-FF607A?style=flat">
   <a href="https://github.com/shiinayane/BiliKit-Mac/releases/latest"><img alt="最新版本" src="https://img.shields.io/github/v/release/shiinayane/BiliKit-Mac?label=版本&color=FF607A&style=flat"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/许可证-MIT-4A5568?style=flat"></a>
 </p>
@@ -42,7 +41,7 @@
 |  | 网页版 / 官方 Mac 客户端 | BiliKit |
 | --- | --- | --- |
 | 技术栈 | 官方客户端基于 Electron，本质是网页 | SwiftUI 构建界面，视频网格、评论、弹幕这些对性能敏感的地方用 AppKit，播放交给 AVPlayer |
-| 安装包 | 官方客户端约 191 MB | 5.5 MB |
+| 安装包 | 官方客户端近 200 MB | 不到 10 MB |
 | 运行内存 | 官方客户端常常上 GB | 百兆级 |
 | 推荐流 | 夹着推广、直播和各种弹窗 | 只有视频，推广卡片和非视频条目被过滤 |
 | 看完一个视频 | 新标签页越开越多，回不到刚才的列表 | 同一个窗口里返回，列表停在原来的位置 |
