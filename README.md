@@ -1,14 +1,32 @@
 <p align="center">
-  <img src="Design/AppIcon/v1/Marketing/BiliKit-AppIcon-Default-256.png" width="136" height="136" alt="BiliKit 图标">
+  <img
+    src="Design/AppIcon/v1/Marketing/BiliKit-AppIcon-Default-256.png"
+    width="136"
+    height="136"
+    alt="BiliKit App Icon Default"
+  >
+  &nbsp;&nbsp;
+  <img
+    src="Design/AppIcon/v1/Marketing/BiliKit-AppIcon-Dark-256.png"
+    width="136"
+    height="136"
+    alt="BiliKit App Icon Dark"
+  >
 </p>
 
 <h1 align="center">BiliKit</h1>
 
 <p align="center"><strong>在 Mac 上，好好看 B 站。</strong></p>
 
+<p align="center">第三方开源 B 站客户端，用 Mac 原生技术写成</p>
+
 <p align="center">
-  第三方开源 B 站客户端，用 Mac 原生技术写成<br>
-  安装包 5.5 MB · Apple Silicon · macOS 15 及以上
+  <img alt="平台 macOS 15+" src="https://img.shields.io/badge/macOS-15%2B-195CFF?style=flat">
+  <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple%20Silicon-arm64-195CFF?style=flat">
+  <img alt="Swift 6" src="https://img.shields.io/badge/Swift-6-FF607A?style=flat">
+  <img alt="安装包 5.5 MB" src="https://img.shields.io/badge/安装包-5.5%20MB-FF607A?style=flat">
+  <a href="https://github.com/shiinayane/BiliKit-Mac/releases/latest"><img alt="最新版本" src="https://img.shields.io/github/v/release/shiinayane/BiliKit-Mac?label=版本&color=FF607A&style=flat"></a>
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/许可证-MIT-4A5568?style=flat"></a>
 </p>
 
 <p align="center">
