@@ -5,7 +5,7 @@
 
 ## 来源与版本
 
-- Marketing version：`1.0.1`
+- Marketing version：`待填写`
 - Build number：`从冻结工程读取`
 - Git commit／tree clean：`待填写`
 - Bundle ID：`com.shiinayane.BiliKit`

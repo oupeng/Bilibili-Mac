@@ -103,7 +103,7 @@
 <summary>登录安全吗？</summary>
 
 登录用 B 站官方的二维码。登录信息只保存在这台 Mac 的钥匙串里，不同步到 iCloud。
-BiliKit 没有自己的服务器，也没有统计或广告 SDK，不会替你点赞、投币或关注。详见[隐私说明](PRIVACY.md)。
+除了检查更新用的更新源，BiliKit 没有自己的服务器，也没有统计或广告 SDK，不会替你点赞、投币或关注。详见[隐私说明](PRIVACY.md)。
 </details>
 
 <details>
