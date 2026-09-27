@@ -19,7 +19,7 @@ jobs:
           sw_vers
           xcodebuild -version
 
-      - name: Patch Swift 6 Compiler Quirks & Keychain Entitlements
+      - name: Apply All Patches (Warnings, Syntax, Keychain, Sandbox & Updater)
         run: |
           python3 -c '
           import os, re
@@ -39,23 +39,20 @@ jobs:
                       except Exception:
                           pass
 
-          # 2. 解决 URLSessionRangeTransport.swift 中的循环引用
+          # 2. 修复 URLSessionRangeTransport.swift 循环引用
           target_file = "Packages/BiliKitCore/Sources/BiliNetworking/Range/URLSessionRangeTransport.swift"
           if os.path.exists(target_file):
               with open(target_file, "r", encoding="utf-8") as f:
                   content = f.read()
               if "let (pending, session) = lock.withLock" in content:
-                  content = content.replace(
-                      "let (pending, session) = lock.withLock",
-                      "let (pending, activeSession) = lock.withLock"
-                  )
+                  content = content.replace("let (pending, session) = lock.withLock", "let (pending, activeSession) = lock.withLock")
                   content = content.replace("session?.finishTasksAndInvalidate()", "activeSession?.finishTasksAndInvalidate()")
                   content = content.replace("session?.invalidateAndCancel()", "activeSession?.invalidateAndCancel()")
                   content = content.replace("session.invalidateAndCancel()", "activeSession.invalidateAndCancel()")
                   with open(target_file, "w", encoding="utf-8") as f:
                       f.write(content)
 
-          # 3. 修复 AppKit NSColor.quinaryLabelColor
+          # 3. 修复 NSColor.quinaryLabelColor 重命名
           for root, dirs, files in os.walk("."):
               for file in files:
                   if file.endswith(".swift"):
@@ -70,7 +67,7 @@ jobs:
                       except Exception:
                           pass
 
-          # 4. 移除 Entitlements 中的 keychain-access-groups（消除自签名 Keychain 权限被拒问题）
+          # 4. 关键修复：关闭 App Sandbox 与 Keychain Access Groups（根除登录失败）
           for root, dirs, files in os.walk("."):
               for file in files:
                   if file.endswith(".entitlements"):
@@ -78,32 +75,34 @@ jobs:
                       try:
                           with open(path, "r", encoding="utf-8") as f:
                               ent = f.read()
-                          if "keychain-access-groups" in ent:
-                              print(f"Removing keychain-access-groups from: {path}")
-                              # 清除 keychain-access-groups 键值块
-                              ent = re.sub(r"<key>keychain-access-groups</key>\s*<array>.*?</array>", "", ent, flags=re.DOTALL)
-                              with open(path, "w", encoding="utf-8") as f:
-                                  f.write(ent)
+                          # 关闭沙盒
+                          ent = re.sub(r"<key>com.apple.security.app-sandbox</key>\s*<true/>", "<key>com.apple.security.app-sandbox</key><false/>", ent)
+                          # 移除钥匙串共享组
+                          ent = re.sub(r"<key>keychain-access-groups</key>\s*<array>.*?</array>", "", ent, flags=re.DOTALL)
+                          with open(path, "w", encoding="utf-8") as f:
+                              f.write(ent)
+                          print(f"Patched entitlements: {path}")
                       except Exception:
                           pass
 
-          # 5. 检查 WebCredentialStore.swift，若指定了 kSecAttrAccessGroup，将其清除
-          for root, dirs, files in os.walk("Packages/BiliKitCore"):
+          # 5. 关键修复：禁用 Sparkle 自动更新检查（避免自动下载纯 M 芯片版本覆盖损坏）
+          for root, dirs, files in os.walk("."):
               for file in files:
-                  if file == "WebCredentialStore.swift" or file.endswith(".swift"):
+                  if "Info.plist" in file:
                       path = os.path.join(root, file)
                       try:
                           with open(path, "r", encoding="utf-8") as f:
-                              code = f.read()
-                          if "kSecAttrAccessGroup" in code:
-                              print(f"Disabling kSecAttrAccessGroup in: {path}")
-                              code = re.sub(r'kSecAttrAccessGroup\s*as\s*String\s*:\s*[^,\n]+', 'kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock', code)
+                              plist = f.read()
+                          if "</dict>" in plist:
+                              sparkle_block = "<key>SUEnableAutomaticChecks</key><false/><key>SUAutomaticallyUpdate</key><false/>\n</dict>"
+                              plist = plist.replace("</dict>", sparkle_block, 1)
                               with open(path, "w", encoding="utf-8") as f:
-                                  f.write(code)
+                                  f.write(plist)
+                              print(f"Disabled Sparkle auto-update in: {path}")
                       except Exception:
                           pass
 
-          print("Keychain patch finished!")
+          print("All deep patches finished successfully!")
           '
 
       - name: Build BiliKitMac for Intel (x86_64)
@@ -141,10 +140,10 @@ jobs:
           echo "=== 架构验证 ==="
           lipo -info "$APP_PATH/Contents/MacOS/"*
 
-          # 寻找现有的 entitlements 文件一同签名（如果有），若无则普通深层自签名
+          # 使用修改后的 Entitlements（非沙盒）重新自签名
           ENT_FILE=$(find . -name "*.entitlements" | head -n 1)
           if [ -n "$ENT_FILE" ]; then
-              echo "Signing with entitlements: $ENT_FILE"
+              echo "Signing with non-sandbox entitlements: $ENT_FILE"
               codesign --force --deep --sign - --entitlements "$ENT_FILE" "$APP_PATH"
           else
               codesign --force --deep --sign - "$APP_PATH"
