@@ -14,12 +14,12 @@ jobs:
       - name: Select Latest Xcode Toolchain
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: 'latest-stable' # 自动切换到云端最新的 Xcode 以满足 Swift 6.2+ 要求
+          xcode-version: 'latest-stable' # 自动提供 Swift 6.2+ 编译环境
 
       - name: Build macOS App (Cross-compile for x86_64)
         run: |
           xcodebuild clean build \
-            -scheme BiliKit \
+            -scheme BiliKitMac \
             -configuration Release \
             -derivedDataPath ./build \
             -arch x86_64 \
@@ -30,7 +30,7 @@ jobs:
       - name: Compress App
         run: |
           cd build/Build/Products/Release
-          zip -r BiliKit-Intel.zip BiliKit.app
+          zip -r BiliKit-Intel.zip *.app
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
