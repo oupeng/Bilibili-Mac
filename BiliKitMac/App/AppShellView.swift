@@ -206,16 +206,18 @@ struct AppShellView: View {
         .ignoresSafeArea(.container, edges: .top)
     }
 
+    // 浏览态与播放态共用一列：ideal 只在首次布局生效，切换状态时宽度被夹进新范围，
+    // 因此进入播放时侧栏宽度等于播放态最小值；更宽由用户自行拖动。
     private var sidebarMinimumWidth: CGFloat {
-        navigationCoordinator.currentPlaybackBVID == nil ? 300 : 480
+        navigationCoordinator.currentPlaybackBVID == nil ? 300 : 520
     }
 
     private var sidebarIdealWidth: CGFloat {
-        navigationCoordinator.currentPlaybackBVID == nil ? 320 : 480
+        navigationCoordinator.currentPlaybackBVID == nil ? 320 : 520
     }
 
     private var sidebarMaximumWidth: CGFloat {
-        navigationCoordinator.currentPlaybackBVID == nil ? 320 : 520
+        navigationCoordinator.currentPlaybackBVID == nil ? 320 : 720
     }
 
     private func openCommentPictures(
@@ -324,36 +326,32 @@ private struct PlaybackDestinationView: View {
     let onSelectRelatedVideo: (String) -> Void
 
     var body: some View {
-        playbackDetail
-            .navigationTitle("播放")
-            .toolbar(removing: .title)
-            .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
-    }
-
-    private var playbackDetail: some View {
-        NativePlaybackDetailView(
-            contentIdentity: model.presentedBVID
-        ) {
-            VideoPlaybackView(
-                model: model,
-                danmakuModel: danmakuModel,
-                onRetry: onRetry,
-                onSelectRelatedVideo: onSelectRelatedVideo,
-                makeRelatedContent: {
-                    contentIdentity,
-                    presentations,
-                    onSelect in
-                    RelatedNativeShelfView(
-                        contentIdentity: contentIdentity,
-                        presentations: presentations,
-                        imagePipeline: imagePipeline,
-                        onSelect: onSelect
-                    )
-                }
-            ) {
-                playerContent
+        VideoPlaybackView(
+            model: model,
+            danmakuModel: danmakuModel,
+            onRetry: onRetry,
+            onSelectRelatedVideo: onSelectRelatedVideo,
+            makeRelatedContent: {
+                contentIdentity,
+                presentations,
+                onSelect in
+                RelatedNativeShelfView(
+                    contentIdentity: contentIdentity,
+                    presentations: presentations,
+                    imagePipeline: imagePipeline,
+                    onSelect: onSelect
+                )
             }
+        ) {
+            playerContent
         }
-        .ignoresSafeArea(.container, edges: [.top, .horizontal])
+        // 播放页压在来源页（NavigationStack 根）之上，根页面为保留状态仍在渲染；macOS 不为压栈
+        // 页面绘制底色，必须自铺不透明窗口背景，并延伸到工具栏与侧栏下方。
+        .background {
+            Color(nsColor: .windowBackgroundColor)
+                .ignoresSafeArea()
+        }
+        .navigationTitle("播放")
+        .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
     }
 }

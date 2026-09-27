@@ -7,7 +7,7 @@ protocol PlayerKeyboardFocusOwner: NSView {}
 
 /// 播放器键盘快捷键：本地 key monitor、长按临时倍速、离散快捷键与焦点让渡规则。
 ///
-/// 以 content overlay 中的捕获层为锚点取所在窗口，因此 detached 全屏窗口里同样生效。
+/// 以 content overlay 中的弹幕层为锚点取所在窗口，因此 detached 全屏窗口里同样生效。
 @MainActor
 final class PlayerKeyboardShortcutController {
     private enum KeyboardKey: Sendable {

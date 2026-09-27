@@ -4,10 +4,8 @@ import Foundation
 import SwiftUI
 
 struct VideoDetailView<PlayerContent: View, RelatedContent: View>: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.locale) private var locale
     let context: VideoContext
-    let isPreparingPlayback: Bool
     let danmakuModel: DanmakuControlsViewModel
     let relatedVideoState: RelatedVideoState
     let onSelectRelatedVideo: (String) -> Void
@@ -21,17 +19,8 @@ struct VideoDetailView<PlayerContent: View, RelatedContent: View>: View {
         ) -> RelatedContent
 
     var body: some View {
-        mainContent
-            .navigationTitle(context.detail.title)
-    }
-
-    private var mainContent: some View {
         PlaybackDetailLayout {
-            metadata
-        } player: {
             player
-        } controls: {
-            DanmakuControlsView(model: danmakuModel)
         } related: {
             RelatedVideoShelf(
                 state: shelfState,
@@ -40,6 +29,13 @@ struct VideoDetailView<PlayerContent: View, RelatedContent: View>: View {
                 onRetry: onRetryRelatedVideos,
                 makeLoadedContent: makeRelatedContent
             )
+        }
+        .navigationTitle(context.detail.title)
+        .navigationSubtitle(toolbarSubtitle)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                DanmakuControlsView(model: danmakuModel)
+            }
         }
     }
 
@@ -60,33 +56,23 @@ struct VideoDetailView<PlayerContent: View, RelatedContent: View>: View {
         }
     }
 
-    private var metadata: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(context.detail.title)
-                .font(.title.weight(.semibold))
-                .textSelection(.enabled)
-
-            VideoDetailMetadataView(
-                content: VideoDetailMetadataContent(
-                    viewCount: VideoMetadataFormatting.compactCount(
-                        context.detail.statistics.viewCount,
-                        locale: locale
-                    ),
-                    danmakuCount: VideoMetadataFormatting.compactCount(
-                        context.detail.statistics.danmakuCount,
-                        locale: locale
-                    ),
-                    publishedAt: VideoMetadataFormatting.fullPublishedDate(
-                        context.detail.publishedAt,
-                        locale: locale
-                    ),
-                    accessNotice: metadataAccessNotice
-                )
-            )
-        }
+    /// 工具栏副标题：播放 · 弹幕 · 发布时间，有访问限制时接上充电／试看提示。
+    private var toolbarSubtitle: String {
+        let statistics = context.detail.statistics
+        let viewCount = VideoMetadataFormatting.compactCount(statistics.viewCount, locale: locale)
+        let danmakuCount = VideoMetadataFormatting.compactCount(
+            statistics.danmakuCount,
+            locale: locale
+        )
+        return [
+            BrowseFeatureStrings.localized("\(viewCount)播放", locale: locale),
+            BrowseFeatureStrings.localized("\(danmakuCount)弹幕", locale: locale),
+            VideoMetadataFormatting.fullPublishedDate(context.detail.publishedAt, locale: locale),
+            accessNotice
+        ].compactMap { $0 }.joined(separator: " · ")
     }
 
-    private var metadataAccessNotice: String? {
+    private var accessNotice: String? {
         switch context.accessNotice {
         case .none:
             return nil
@@ -118,141 +104,7 @@ struct VideoDetailView<PlayerContent: View, RelatedContent: View>: View {
     }
 
     private var player: some View {
-        ZStack {
-            playerContent()
-
-            if isPreparingPlayback {
-                ZStack {
-                    Rectangle()
-                        .fill(.black)
-                    VStack(spacing: 12) {
-                        ProgressView()
-                            .progressViewStyle(.circular)
-                            .controlSize(.large)
-                            .tint(.white)
-                        Text(BrowseFeatureStrings.localized("正在准备播放…", locale: locale))
-                            .font(.title3)
-                            .foregroundStyle(.white)
-                    }
-                    .environment(\.colorScheme, .dark)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(BrowseFeatureStrings.localized("正在准备播放", locale: locale))
-                }
-                .transition(
-                    .asymmetric(
-                        insertion: .identity,
-                        removal: .opacity
-                    )
-                )
-            }
-        }
-        .animation(
-            LoadingStateTransition.animation(reduceMotion: reduceMotion),
-            value: isPreparingPlayback
-        )
-        .aspectRatio(
-            PlaybackPageLayout.playerAspectRatio,
-            contentMode: .fit
-        )
-        .frame(maxWidth: .infinity)
-        .background(.black)
+        playerContent()
+            .background(.black)
     }
-}
-
-struct VideoDetailMetadataContent {
-    let viewCount: String
-    let danmakuCount: String
-    let publishedAt: String
-    let accessNotice: String?
-
-    static let placeholder = VideoDetailMetadataContent(
-        viewCount: "888.8 万",
-        danmakuCount: "888.8 万",
-        publishedAt: "8888年88月88日 88:88:88",
-        accessNotice: "充电专属 · 可试看至 88:88 / 完整视频 88:88"
-    )
-
-    var items: [VideoDetailMetadataItem] {
-        VideoDetailMetadataSlot.allCases.map { slot in
-            VideoDetailMetadataItem(slot: slot, text: text(for: slot))
-        }
-    }
-
-    private func text(for slot: VideoDetailMetadataSlot) -> String? {
-        switch slot {
-        case .viewCount:
-            viewCount
-        case .danmakuCount:
-            danmakuCount
-        case .publishedAt:
-            publishedAt
-        case .accessNotice:
-            accessNotice
-        }
-    }
-}
-
-struct VideoDetailMetadataItem: Equatable {
-    let slot: VideoDetailMetadataSlot
-    let text: String?
-}
-
-enum VideoDetailMetadataSlot: CaseIterable, Hashable {
-    case viewCount
-    case danmakuCount
-    case publishedAt
-    case accessNotice
-
-    var systemImage: String {
-        switch self {
-        case .viewCount:
-            "play"
-        case .danmakuCount:
-            "text.bubble"
-        case .publishedAt:
-            "calendar"
-        case .accessNotice:
-            "bolt.heart"
-        }
-    }
-}
-
-struct VideoDetailMetadataView: View {
-    let content: VideoDetailMetadataContent
-    var isPlaceholder = false
-
-    var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 16) {
-                metadataItems
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                metadataItems
-            }
-        }
-        .font(.body)
-        .foregroundStyle(.secondary)
-        .redacted(reason: isPlaceholder ? .placeholder : [])
-    }
-
-    @ViewBuilder
-    private var metadataItems: some View {
-        ForEach(content.items, id: \.slot) { item in
-            if let text = item.text {
-                Label(text, systemImage: item.slot.systemImage)
-                    .foregroundStyle(
-                        item.slot == .accessNotice && !isPlaceholder
-                            ? Color.pink : Color.secondary
-                    )
-            }
-        }
-    }
-}
-
-enum PlaybackPageLayout {
-    static let horizontalContentPadding: CGFloat = 40
-    static let verticalContentPadding: CGFloat = 24
-    static let sectionSpacing: CGFloat = 18
-    static let playerAspectRatio: CGFloat = 16.0 / 9.0
 }

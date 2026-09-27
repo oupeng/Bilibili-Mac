@@ -162,48 +162,6 @@ struct PlayerHostViewIdentityTests {
         )
     }
 
-    @Test
-    @MainActor
-    func playerSurfaceForwardsOnlyVerticalWheelToDetailScroll() throws {
-        let scrollView = ScrollWheelRecordingScrollView(
-            frame: NSRect(x: 0, y: 0, width: 800, height: 600)
-        )
-        let documentView = NSView(
-            frame: NSRect(x: 0, y: 0, width: 800, height: 1_200)
-        )
-        let playerView = AVPlayerView(
-            frame: NSRect(x: 0, y: 900, width: 800, height: 300)
-        )
-        let capture = PlayerScrollWheelCaptureView(frame: playerView.bounds)
-        scrollView.documentView = documentView
-        documentView.addSubview(playerView)
-        playerView.addSubview(capture)
-
-        let vertical = try makeScrollWheelEvent(deltaX: 2, deltaY: -80)
-        let horizontal = try makeScrollWheelEvent(deltaX: -80, deltaY: 2)
-        capture.scrollWheel(with: vertical)
-        capture.scrollWheel(with: horizontal)
-
-        #expect(scrollView.receivedScrollWheelEvents == [vertical])
-    }
-
-    private func makeScrollWheelEvent(
-        deltaX: Int32,
-        deltaY: Int32
-    ) throws -> NSEvent {
-        let event = try #require(
-            CGEvent(
-                scrollWheelEvent2Source: nil,
-                units: .pixel,
-                wheelCount: 2,
-                wheel1: deltaY,
-                wheel2: deltaX,
-                wheel3: 0
-            )
-        )
-        return try #require(NSEvent(cgEvent: event))
-    }
-
     private static let emptyDanmakuConfiguration = DanmakuLaneConfiguration(
         surfaceWidth: 0,
         surfaceHeight: 0,
@@ -212,13 +170,4 @@ struct PlayerHostViewIdentityTests {
         maximumActiveCount: DanmakuLaneConfiguration.hardMaximumActiveCount,
         displayAreaFraction: 1
     )
-}
-
-@MainActor
-private final class ScrollWheelRecordingScrollView: NSScrollView {
-    private(set) var receivedScrollWheelEvents: [NSEvent] = []
-
-    override func scrollWheel(with event: NSEvent) {
-        receivedScrollWheelEvents.append(event)
-    }
 }

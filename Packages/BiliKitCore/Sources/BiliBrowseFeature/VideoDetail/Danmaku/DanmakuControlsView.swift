@@ -1,37 +1,26 @@
 import BiliApplication
 import SwiftUI
 
+/// 播放页工具栏的弹幕按钮：文字加图标，图标随开关变化（与快捷键 D 的反馈一致）；
+/// 弹出面板顶部是开关，其余设置在弹幕关闭时不可调。
 struct DanmakuControlsView: View {
     let model: DanmakuControlsViewModel
     @State private var showsSettings = false
 
     var body: some View {
-        HStack(spacing: 10) {
-            Toggle(
+        Button {
+            showsSettings.toggle()
+        } label: {
+            Label(
                 BrowseFeatureStrings.localized("弹幕"),
-                isOn: Binding(
-                    get: { model.isEnabled },
-                    set: { model.setEnabled($0) }
-                )
+                systemImage: model.isEnabled ? "text.bubble.fill" : "text.bubble"
             )
-            .toggleStyle(.switch)
-            .fixedSize()
-
-            Button {
-                showsSettings.toggle()
-            } label: {
-                Label(BrowseFeatureStrings.localized("弹幕设置"), systemImage: "slider.horizontal.3")
-                    .labelStyle(.iconOnly)
-            }
-            .buttonStyle(.bordered)
-            .help(BrowseFeatureStrings.localized("弹幕设置"))
-            .popover(isPresented: $showsSettings, arrowEdge: .bottom) {
-                DanmakuSettingsPopover(model: model)
-            }
-
-            Spacer()
+            .labelStyle(.titleAndIcon)
         }
-        .font(.title3)
+        .help(BrowseFeatureStrings.localized("弹幕设置"))
+        .popover(isPresented: $showsSettings, arrowEdge: .bottom) {
+            DanmakuSettingsPopover(model: model)
+        }
     }
 }
 
@@ -46,22 +35,37 @@ private struct DanmakuSettingsPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(BrowseFeatureStrings.localized("弹幕设置"))
-                .font(.headline)
-
-            modeSettings
+            Toggle(
+                isOn: Binding(
+                    get: { model.isEnabled },
+                    set: { model.setEnabled($0) }
+                )
+            ) {
+                Text(BrowseFeatureStrings.localized("弹幕"))
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .toggleStyle(.switch)
 
             Divider()
 
-            densitySettings
+            VStack(alignment: .leading, spacing: 16) {
+                modeSettings
 
-            Divider()
+                Divider()
 
-            speedSettings
+                densitySettings
 
-            Divider()
+                Divider()
 
-            opacitySettings
+                speedSettings
+
+                Divider()
+
+                opacitySettings
+            }
+            .disabled(!model.isEnabled)
+            .foregroundStyle(model.isEnabled ? .primary : .tertiary)
         }
         .padding(16)
         .frame(width: 360)

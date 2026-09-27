@@ -69,16 +69,13 @@ enum RelatedVideoShelfState: Equatable, Sendable {
 ///
 /// 只接收稳定展示状态与 BVID 选择意图；滚动分页、hover 控件和 Reduce Motion
 /// 封装在视图内，不拥有推荐请求、导航路径、播放器或认证生命周期。
+/// 加载、失败、空与已加载状态同高，播放页主区不随推荐状态改变视频尺寸。
 struct RelatedVideoShelf<LoadedContent: View>: View {
-    private static var cardWidth: CGFloat { 224 }
-    private static var cardSpacing: CGFloat { 16 }
-    private static var contentPadding: CGFloat { 40 }
+    private typealias Shelf = VideoCardShelfGeometry
 
     let state: RelatedVideoShelfState
     let onSelect: (String) -> Void
     let onRetry: () -> Void
-
-    private let shelfHeight: CGFloat = 232
     let contentIdentity: String
     let makeLoadedContent:
         (
@@ -109,7 +106,7 @@ struct RelatedVideoShelf<LoadedContent: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
-                .padding(.horizontal, Self.contentPadding)
+                .padding(.horizontal, Shelf.contentInset)
 
             ZStack(alignment: .topLeading) {
                 content
@@ -154,11 +151,11 @@ struct RelatedVideoShelf<LoadedContent: View>: View {
         _ items: [RelatedVideoCardPresentation]
     ) -> some View {
         makeLoadedContent(contentIdentity, items, onSelect)
-            .frame(height: shelfHeight)
+            .frame(height: Shelf.viewportHeight)
     }
 
     private var loadingShelf: some View {
-        HStack(alignment: .top, spacing: Self.cardSpacing) {
+        HStack(alignment: .top, spacing: Shelf.spacing) {
             ForEach(0..<4, id: \.self) { _ in
                 VStack(alignment: .leading, spacing: 10) {
                     RoundedRectangle(cornerRadius: 10)
@@ -171,13 +168,13 @@ struct RelatedVideoShelf<LoadedContent: View>: View {
                         .fill(.quinary)
                         .frame(width: 110, height: 14)
                 }
-                .frame(width: Self.cardWidth)
+                .frame(width: Shelf.cardWidth)
             }
         }
-        .padding(.horizontal, Self.contentPadding)
+        .padding(.horizontal, Shelf.contentInset)
         .frame(maxWidth: .infinity, alignment: .leading)
         .clipped()
-        .frame(height: shelfHeight, alignment: .topLeading)
+        .frame(height: Shelf.viewportHeight, alignment: .topLeading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(BrowseFeatureStrings.localized("正在加载相关推荐"))
     }
@@ -192,7 +189,8 @@ struct RelatedVideoShelf<LoadedContent: View>: View {
             Button(BrowseFeatureStrings.localized("重试"), action: onRetry)
                 .buttonStyle(.borderedProminent)
         }
-        .frame(maxWidth: .infinity, minHeight: 180)
+        .frame(maxWidth: .infinity)
+        .frame(height: Shelf.viewportHeight)
     }
 
     private var unavailableShelf: some View {
@@ -200,6 +198,7 @@ struct RelatedVideoShelf<LoadedContent: View>: View {
             BrowseFeatureStrings.localized("暂无相关推荐"),
             systemImage: "rectangle.stack"
         )
-        .frame(maxWidth: .infinity, minHeight: 180)
+        .frame(maxWidth: .infinity)
+        .frame(height: Shelf.viewportHeight)
     }
 }
