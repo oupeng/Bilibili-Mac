@@ -1,67 +1,70 @@
-name: Build BiliKit for Intel Mac (x86_64)
+name: Build BiliKit for Intel Mac (macOS 26)
 
 on:
-  workflow_dispatch: # 允许你在网页端随时手动点击运行
+  workflow_dispatch: # 支持网页端手动点击触发
 
 jobs:
   build:
-    runs-on: macos-26 # 使用 GitHub 官方的 macOS 26 虚拟环境
+    runs-on: macos-26 # 对应你当前的系统环境
 
     steps:
-      - name: Checkout Code
+      - name: Check out repository
         uses: actions/checkout@v4
         with:
-          submodules: recursive # 拉取可能依赖的子模块
+          submodules: recursive
+          fetch-depth: 0
 
-      - name: Check Environment
+      - name: Show toolchain version
         run: |
           sw_vers
           xcodebuild -version
 
-      - name: Build x86_64 Release Binary
+      - name: Build BiliKitMac for Intel (x86_64)
         run: |
-          mkdir -p build_output
-          
-          # 自动解析工程中的 App 主 Target / Scheme
-          SCHEME=$(xcodebuild -list -json | jq -r '(.project.schemes // .workspace.schemes // []) | .[0]')
-          if [ -z "$SCHEME" ] || [ "$SCHEME" = "null" ]; then
+          # 1. 动态确定 App 主 Scheme（优先匹配 BiliKitMac 或 BiliKit）
+          SCHEME="BiliKitMac"
+          if ! xcodebuild -list -project BiliKitMac.xcodeproj | grep -q "BiliKitMac"; then
             SCHEME="BiliKit"
           fi
-          echo "Building Scheme: $SCHEME"
+          echo "Selected App Scheme: $SCHEME"
 
-          # 强制针对 Intel 架构 (x86_64) 进行 Release 编译
-          xcodebuild clean build \
+          # 2. 编译并解决 warning 参数冲突与架构切片
+          # 注意：去除了 clean 指令以避免目录权限冲突；指定 -derivedDataPath 让 Xcode 自行管理产物路径
+          xcodebuild build \
+            -project BiliKitMac.xcodeproj \
             -scheme "$SCHEME" \
             -configuration Release \
-            -destination 'generic/platform=macOS' \
+            -destination 'platform=macOS,arch=x86_64' \
             ARCHS="x86_64" \
             ONLY_ACTIVE_ARCH=NO \
+            SWIFT_TREAT_WARNINGS_AS_ERRORS=NO \
+            GCC_TREAT_WARNINGS_AS_ERRORS=NO \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CONFIGURATION_BUILD_DIR="$(pwd)/build_output"
+            -derivedDataPath ./DerivedData
 
-      - name: Ad-hoc Sign and Compress App
+      - name: Ad-hoc Sign and Package Intel App
         run: |
-          APP_PATH=$(find build_output -maxdepth 2 -name "*.app" | head -n 1)
+          # 3. 在 DerivedData 中查找编译生成的 .app 产物
+          APP_PATH=$(find ./DerivedData/Build/Products/Release -maxdepth 2 -name "*.app" | head -n 1)
           if [ -z "$APP_PATH" ]; then
-            echo "错误：未找到生成的 .app 文件！"
+            echo "::error::未在 DerivedData 中找到编译好的 .app 文件！"
             exit 1
           fi
-          echo "Found compiled app at: $APP_PATH"
+          echo "Successfully generated App at: $APP_PATH"
 
-          # 进行本地自签名（避免缺少有效签名导致系统禁止运行）
-          codesign --force --deep --sign - "$APP_PATH"
-
-          # 验证架构确实为 x86_64
+          # 4. 打印架构信息（日志中会确认是否为 x86_64）
+          echo "=== 架构验证 ==="
           lipo -info "$APP_PATH/Contents/MacOS/"*
 
-          # 打包为 zip 格式
+          # 5. Ad-hoc 签名并压缩
+          codesign --force --deep --sign - "$APP_PATH"
           ditto -c -k --keepParent "$APP_PATH" BiliKit-macOS26-Intel.zip
 
-      - name: Upload Artifact
+      - name: Upload Intel App Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BiliKit-macOS26-Intel
+          name: BiliKit-macOS26-Intel-Client
           path: BiliKit-macOS26-Intel.zip
           retention-days: 7
