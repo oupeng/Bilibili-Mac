@@ -146,7 +146,6 @@ private struct AVPlayerContainerView: NSViewRepresentable {
         view.setPlaybackPreparationBlocked(blocksNativePlaybackInteraction)
         view.showsFullScreenToggleButton = true
         view.allowsPictureInPicturePlayback = true
-        view.installWindowScrollWheelShield()
         view.setResumeNotice(
             resumeNotice,
             restartFromBeginning: restartFromBeginning
@@ -157,7 +156,6 @@ private struct AVPlayerContainerView: NSViewRepresentable {
     }
 
     func updateNSView(_ view: DanmakuPlayerView, context: Context) {
-        view.installWindowScrollWheelShield()
         view.setPlaybackPreparationBlocked(blocksNativePlaybackInteraction)
         view.requestMomentaryPlaybackRate = beginMomentaryPlaybackRate
         view.finishMomentaryPlaybackRate = endMomentaryPlaybackRate
@@ -206,12 +204,10 @@ enum PlayerPlaybackPreparationPolicy {
 @MainActor
 final class DanmakuPlayerView: AVPlayerView {
     let danmakuOverlay: DanmakuOverlayView
-    private let scrollWheelCaptureView = PlayerScrollWheelCaptureView()
-    private let windowScrollWheelShieldView = PlayerScrollWheelShieldView()
+    private let keyboardAnchorView = PlayerKeyboardAnchorView()
     private let overlayModel = PlayerOverlayModel()
     private let overlayHostingView: PassthroughHostingView<PlayerOverlayView>
     private var installedDanmakuOverlay = false
-    private var installedWindowScrollWheelShield = false
     private var momentaryRateSessionID: UUID?
     private var momentaryRatePressID: UUID?
     private weak var observedPlayer: AVPlayer?
@@ -264,7 +260,7 @@ final class DanmakuPlayerView: AVPlayerView {
         overlayHostingView.interactiveFrame = { [overlayModel] in
             overlayModel.interactiveFrame
         }
-        let keyboardShortcuts = scrollWheelCaptureView.keyboardShortcuts
+        let keyboardShortcuts = keyboardAnchorView.keyboardShortcuts
         keyboardShortcuts.feedbackPresenter = overlayModel
         keyboardShortcuts.onKeyboardMomentaryRateBegan = {
             [weak self] rate, pressID in
@@ -312,7 +308,7 @@ final class DanmakuPlayerView: AVPlayerView {
             blocksNativePlaybackInteraction: blocked
         )
         setAccessibilityHidden(blocked)
-        scrollWheelCaptureView.keyboardShortcuts.setKeyboardInputEnabled(!blocked)
+        keyboardAnchorView.keyboardShortcuts.setKeyboardInputEnabled(!blocked)
         guard stateChanged else {
             if !blocked {
                 applyPendingInitialKeyboardFocus()
@@ -355,14 +351,8 @@ final class DanmakuPlayerView: AVPlayerView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         installDanmakuOverlayIfNeeded()
-        installWindowScrollWheelShield()
         startObservingFocusLoss()
         applyPendingInitialKeyboardFocus()
-    }
-
-    override func layout() {
-        super.layout()
-        installWindowScrollWheelShield()
     }
 
     func requestInitialKeyboardFocus(for identity: String?) {
@@ -388,33 +378,10 @@ final class DanmakuPlayerView: AVPlayerView {
     }
 
     func cancelMomentaryPlaybackRate() {
-        scrollWheelCaptureView.cancelInputSession()
+        keyboardAnchorView.cancelInputSession()
         if momentaryRateSessionID != nil {
             endMomentaryPlaybackRate()
         }
-    }
-
-    func installWindowScrollWheelShield() {
-        if !installedWindowScrollWheelShield {
-            installedWindowScrollWheelShield = true
-            windowScrollWheelShieldView.frame = bounds
-            windowScrollWheelShieldView.autoresizingMask = [.width, .height]
-        }
-        if windowScrollWheelShieldView.frame != bounds {
-            windowScrollWheelShieldView.frame = bounds
-        }
-        guard
-            windowScrollWheelShieldView.superview !== self
-                || subviews.last !== windowScrollWheelShieldView
-        else {
-            return
-        }
-        windowScrollWheelShieldView.removeFromSuperview()
-        addSubview(
-            windowScrollWheelShieldView,
-            positioned: .above,
-            relativeTo: nil
-        )
     }
 
     func startObservingPlayerItemChanges() {
@@ -472,19 +439,15 @@ final class DanmakuPlayerView: AVPlayerView {
             return
         }
         installedDanmakuOverlay = true
-        scrollWheelCaptureView.translatesAutoresizingMaskIntoConstraints = false
         danmakuOverlay.translatesAutoresizingMaskIntoConstraints = false
         contentOverlayView.addSubview(danmakuOverlay)
-        contentOverlayView.addSubview(
-            scrollWheelCaptureView,
-            positioned: .above,
-            relativeTo: danmakuOverlay
-        )
+        // 锚点不参与命中测试，只需位于 content overlay 内，随 detached 全屏移动。
+        contentOverlayView.addSubview(keyboardAnchorView)
         overlayHostingView.translatesAutoresizingMaskIntoConstraints = false
         contentOverlayView.addSubview(
             overlayHostingView,
             positioned: .above,
-            relativeTo: scrollWheelCaptureView
+            relativeTo: danmakuOverlay
         )
         NSLayoutConstraint.activate([
             overlayHostingView.leadingAnchor.constraint(
@@ -497,18 +460,6 @@ final class DanmakuPlayerView: AVPlayerView {
                 equalTo: contentOverlayView.topAnchor
             ),
             overlayHostingView.bottomAnchor.constraint(
-                equalTo: contentOverlayView.bottomAnchor
-            ),
-            scrollWheelCaptureView.leadingAnchor.constraint(
-                equalTo: contentOverlayView.leadingAnchor
-            ),
-            scrollWheelCaptureView.trailingAnchor.constraint(
-                equalTo: contentOverlayView.trailingAnchor
-            ),
-            scrollWheelCaptureView.topAnchor.constraint(
-                equalTo: contentOverlayView.topAnchor
-            ),
-            scrollWheelCaptureView.bottomAnchor.constraint(
                 equalTo: contentOverlayView.bottomAnchor
             ),
             danmakuOverlay.leadingAnchor.constraint(
@@ -592,7 +543,7 @@ final class DanmakuPlayerView: AVPlayerView {
     }
 
     func stopKeyboardMonitoring() {
-        scrollWheelCaptureView.stopKeyboardMonitoring()
+        keyboardAnchorView.stopKeyboardMonitoring()
     }
 
     @available(*, unavailable)
