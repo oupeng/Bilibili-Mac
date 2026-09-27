@@ -33,16 +33,23 @@ enum MomentaryRateRestorationPolicy {
 }
 
 final class PlaybackInteractionTracker: Sendable {
+    /// playlist `EXT-X-START` 给出的起播位置；就绪附近落在这里的系统跳变不是用户操作。
+    private let startPositionSeconds: Double
+
     private struct State {
         var revision: UInt64 = 0
         var internalSeekTarget: Double?
         var internalSeekInFlight = false
         var internalPlayStartInFlight = false
         var hasPlaybackStarted = false
-        var observedNonPausedDuringInitialSeek = false
+        var observedNonPausedDuringInternalSeek = false
     }
 
     private let state = Mutex(State())
+
+    init(startPositionSeconds: Double = 0) {
+        self.startPositionSeconds = startPositionSeconds
+    }
 
     var hasObservedInteraction: Bool {
         revision > 0
@@ -58,15 +65,7 @@ final class PlaybackInteractionTracker: Sendable {
             $0.internalSeekTarget = nil
             $0.internalSeekInFlight = false
             $0.internalPlayStartInFlight = false
-            $0.observedNonPausedDuringInitialSeek = false
-        }
-    }
-
-    func allowInternalSeek(to positionSeconds: Double) {
-        state.withLock {
-            $0.internalSeekTarget = positionSeconds
-            $0.internalSeekInFlight = true
-            $0.observedNonPausedDuringInitialSeek = false
+            $0.observedNonPausedDuringInternalSeek = false
         }
     }
 
@@ -75,7 +74,7 @@ final class PlaybackInteractionTracker: Sendable {
             $0.revision &+= 1
             $0.internalSeekTarget = positionSeconds
             $0.internalSeekInFlight = true
-            $0.observedNonPausedDuringInitialSeek = false
+            $0.observedNonPausedDuringInternalSeek = false
         }
     }
 
@@ -98,18 +97,18 @@ final class PlaybackInteractionTracker: Sendable {
             }
             if $0.internalSeekInFlight, !isPaused {
                 if isPlaying || playbackRate > 0 {
-                    $0.observedNonPausedDuringInitialSeek = true
+                    $0.observedNonPausedDuringInternalSeek = true
                 }
                 return
             }
             if $0.internalSeekInFlight,
                 isPaused,
-                $0.observedNonPausedDuringInitialSeek
+                $0.observedNonPausedDuringInternalSeek
             {
                 $0.revision &+= 1
                 $0.internalSeekTarget = nil
                 $0.internalSeekInFlight = false
-                $0.observedNonPausedDuringInitialSeek = false
+                $0.observedNonPausedDuringInternalSeek = false
                 return
             }
             guard
@@ -121,7 +120,7 @@ final class PlaybackInteractionTracker: Sendable {
             }
             $0.internalSeekTarget = nil
             $0.internalSeekInFlight = false
-            $0.observedNonPausedDuringInitialSeek = false
+            $0.observedNonPausedDuringInternalSeek = false
         }
     }
 
@@ -133,7 +132,7 @@ final class PlaybackInteractionTracker: Sendable {
         state.withLock {
             $0.internalSeekTarget = positionSeconds
             $0.internalSeekInFlight = false
-            $0.observedNonPausedDuringInitialSeek = false
+            $0.observedNonPausedDuringInternalSeek = false
         }
     }
 
@@ -141,21 +140,22 @@ final class PlaybackInteractionTracker: Sendable {
         state.withLock {
             $0.internalSeekTarget = nil
             $0.internalSeekInFlight = false
-            $0.observedNonPausedDuringInitialSeek = false
+            $0.observedNonPausedDuringInternalSeek = false
         }
     }
 
-    /// 内部首次定位允许同一目标产生一个或多个系统 time-jump；其他跳变立即记为用户意图。
+    /// 内部 seek 允许同一目标产生一个或多个系统 time-jump；item 起播时落在起播位置的系统跳变
+    /// 同样放行；其他跳变立即记为用户意图。
     func observeTimeJump(at positionSeconds: Double) {
         state.withLock {
             if $0.internalSeekInFlight {
-                // 准备阶段由 player host 禁用原生控制；受控外部 seek 会在命令入口先
-                // 推进 revision，因此这里不能按 HLS 实际落点与目标的距离猜测来源。
+                // 受控 seek 会在命令入口先推进 revision，因此这里不能按 HLS 实际落点与目标的距离
+                // 猜测来源。
                 return
             }
             if $0.revision == 0,
                 $0.internalSeekTarget == nil,
-                positionSeconds <= 0.25
+                abs(positionSeconds - startPositionSeconds) <= 0.25
             {
                 return
             }
@@ -179,8 +179,6 @@ final class AVPlayerTimelineAdapter {
     private struct PendingSeek {
         let operationID: UUID
         let targetSeconds: Double
-        /// 首次续播定位：准备期间原生控制被禁用，外部 seek 会在命令入口先取代本次操作。
-        var isInitialSeek = false
         var observedLanding = false
     }
 
@@ -220,6 +218,7 @@ final class AVPlayerTimelineAdapter {
     private var completedSeekLanding: SeekLanding?
     private var staleSeekLandings: [SeekLanding] = []
     private var interactionTracker = PlaybackInteractionTracker()
+    private var startPositionSeconds: Double = 0
 
     init(player: AVPlayer) {
         self.player = player
@@ -237,16 +236,21 @@ final class AVPlayerTimelineAdapter {
         store.observe(observer)
     }
 
+    /// `startPositionSeconds` 是 playlist 的起播位置（从头为 0），就绪时据此标记时间轴不连续。
     func begin(
         identity: PlaybackItemIdentity,
-        loadIntent: PlaybackLoadIntent = PlaybackLoadIntent()
+        loadIntent: PlaybackLoadIntent = PlaybackLoadIntent(),
+        startPositionSeconds: Double = 0
     ) {
         momentaryRateSession = nil
         observers.reset()
         pendingSeek = nil
         completedSeekLanding = nil
         staleSeekLandings.removeAll(keepingCapacity: true)
-        interactionTracker = PlaybackInteractionTracker()
+        self.startPositionSeconds = startPositionSeconds
+        interactionTracker = PlaybackInteractionTracker(
+            startPositionSeconds: startPositionSeconds
+        )
         token = store.beginItem(identity: identity, loadIntent: loadIntent)
         failedToken = nil
     }
@@ -400,6 +404,14 @@ final class AVPlayerTimelineAdapter {
             token: token,
             durationSeconds: Self.seconds(from: duration)
         )
+        // 从 playlist 起播位置开始的 item 一就绪就位于该处；标记不连续，弹幕与字幕从这里排起，
+        // 而不是把 0 到起播位置之间当作连续前进。
+        guard startPositionSeconds > 0 else { return }
+        store.markDiscontinuity(
+            token: token,
+            positionSeconds: Self.seconds(from: player.currentTime())
+                ?? startPositionSeconds
+        )
     }
 
     func markFailed() {
@@ -502,15 +514,6 @@ final class AVPlayerTimelineAdapter {
         )
     }
 
-    func prepareInitialSeek(operationID: UUID, to positionSeconds: Double) {
-        interactionTracker.allowInternalSeek(to: positionSeconds)
-        beginPendingSeek(
-            operationID: operationID,
-            to: positionSeconds,
-            isInitialSeek: true
-        )
-    }
-
     func prepareResumeRestart(operationID: UUID) {
         interactionTracker.markObservedAllowingInternalSeek(to: 0)
         beginPendingSeek(operationID: operationID, to: 0)
@@ -527,8 +530,7 @@ final class AVPlayerTimelineAdapter {
 
     private func beginPendingSeek(
         operationID: UUID,
-        to positionSeconds: Double,
-        isInitialSeek: Bool = false
+        to positionSeconds: Double
     ) {
         if let pendingSeek, !pendingSeek.observedLanding {
             appendStaleSeekLanding(
@@ -541,8 +543,7 @@ final class AVPlayerTimelineAdapter {
         }
         pendingSeek = PendingSeek(
             operationID: operationID,
-            targetSeconds: positionSeconds,
-            isInitialSeek: isInitialSeek
+            targetSeconds: positionSeconds
         )
         completedSeekLanding = nil
     }
@@ -568,9 +569,6 @@ final class AVPlayerTimelineAdapter {
                 self.pendingSeek = pendingSeek
                 return
             }
-            // 首次续播定位时 HLS 可能先报告目标所在分段的起点等中间位置；此时不可能有原生跳转，
-            // 不按距离把它当成外部操作（与 PlaybackInteractionTracker 一致），落点由 seekCompleted 记录。
-            if pendingSeek.isInitialSeek { return }
             appendStaleSeekLanding(
                 operationID: pendingSeek.operationID,
                 positionSeconds: pendingSeek.targetSeconds

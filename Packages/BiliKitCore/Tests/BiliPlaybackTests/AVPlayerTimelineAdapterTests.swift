@@ -209,7 +209,7 @@ struct AVPlayerTimelineAdapterTests {
         let transport = UUID()
         let before = timeline.currentSnapshot.discontinuityGeneration
 
-        timeline.prepareInitialSeek(operationID: initial, to: 10)
+        timeline.prepareObservedSeek(operationID: initial, to: 10)
         timeline.prepareObservedSeek(operationID: remote, to: 20)
         timeline.seekFailed(operationID: initial)
         timeline.prepareObservedSeek(operationID: transport, to: 25)
@@ -250,35 +250,26 @@ struct AVPlayerTimelineAdapterTests {
         #expect(timeline.currentSnapshot.positionSeconds == 50)
     }
 
+    /// 从 playlist 起播位置开始的 item：就绪即标记不连续，起播处的系统跳变不算用户操作。
     @Test
     @MainActor
-    func intermediateNativeJumpDoesNotSupersedeInitialResumeSeek() {
+    func playlistStartOffsetMarksReadyDiscontinuityWithoutInteraction() {
         let timeline = AVPlayerTimelineAdapter(player: AVPlayer())
         timeline.begin(
-            identity: PlaybackItemIdentity(bvid: "BVResumeIntermediate", cid: 1)
+            identity: PlaybackItemIdentity(bvid: "BVStartOffset", cid: 1),
+            startPositionSeconds: 42
         )
+        let before = timeline.currentSnapshot.discontinuityGeneration
+
         timeline.markReady(
             duration: CMTime(seconds: 100, preferredTimescale: 600)
         )
-        let operationID = UUID()
-        let before = timeline.currentSnapshot.discontinuityGeneration
-        let revisionBefore = timeline.playbackInteractionRevision
-        var supersededOperations: [UUID] = []
-        timeline.onSeekSupersededByExternalJump = {
-            supersededOperations.append($0)
-        }
+        timeline.observeTimeJump(at: 42.1)
 
-        // HLS 续播定位可能先报告目标所在分段的起点，再落到目标。
-        timeline.prepareInitialSeek(operationID: operationID, to: 42)
-        timeline.observeTimeJump(at: 36)
-        timeline.seekCompleted(operationID: operationID, at: 42)
-
-        #expect(supersededOperations.isEmpty)
-        #expect(timeline.playbackInteractionRevision == revisionBefore)
         #expect(
-            timeline.currentSnapshot.discontinuityGeneration == before + 1
+            timeline.currentSnapshot.discontinuityGeneration > before
         )
-        #expect(timeline.currentSnapshot.positionSeconds == 42)
+        #expect(!timeline.hasObservedPlaybackInteraction)
     }
 
     @Test
@@ -432,46 +423,18 @@ struct AVPlayerTimelineAdapterTests {
     }
 
     @Test
-    @MainActor
-    func resolvedInitialPositionUsesMediaBoundsInsteadOfTargetDelta() {
-        #expect(
-            AVPlayerEngine.validatedResolvedInitialPosition(
-                CMTime(seconds: 37, preferredTimescale: 600),
-                durationSeconds: 300
-            ) == 37
-        )
-        #expect(
-            AVPlayerEngine.validatedResolvedInitialPosition(
-                CMTime(seconds: 0.25, preferredTimescale: 600),
-                durationSeconds: 300
-            ) == nil
-        )
-        #expect(
-            AVPlayerEngine.validatedResolvedInitialPosition(
-                CMTime(seconds: 299.96, preferredTimescale: 600),
-                durationSeconds: 300
-            ) == nil
-        )
-        #expect(
-            AVPlayerEngine.validatedResolvedInitialPosition(
-                .indefinite,
-                durationSeconds: 300
-            ) == nil
-        )
-    }
-
-    @Test
     func interactionTrackerDoesNotInferIntentFromInFlightHLSSeekLanding() {
         let tracker = PlaybackInteractionTracker()
-        tracker.allowInternalSeek(to: 42)
+        tracker.markObservedAllowingInternalSeek(to: 42)
+        let seekRevision = tracker.revision
 
         tracker.observeTimeJump(at: 42.25)
         tracker.observeTimeJump(at: 10)
-        #expect(tracker.revision == 0)
+        #expect(tracker.revision == seekRevision)
         tracker.completeInternalSeek(at: 37)
 
         tracker.observeTimeJump(at: 10)
-        #expect(tracker.revision == 1)
+        #expect(tracker.revision == seekRevision + 1)
     }
 
     @Test
@@ -483,6 +446,19 @@ struct AVPlayerTimelineAdapterTests {
 
         #expect(tracker.revision == 0)
         tracker.observeTimeJump(at: 0.3)
+        #expect(tracker.revision == 1)
+    }
+
+    /// 从 playlist 起播位置开始的 item：落在起播位置的系统跳变不是用户操作，其他位置仍是。
+    @Test
+    func systemJumpToPlaylistStartPositionDoesNotCountAsUserSeek() {
+        let tracker = PlaybackInteractionTracker(startPositionSeconds: 42)
+
+        tracker.observeTimeJump(at: 42)
+        tracker.observeTimeJump(at: 42.2)
+        #expect(tracker.revision == 0)
+
+        tracker.observeTimeJump(at: 0)
         #expect(tracker.revision == 1)
     }
 
@@ -548,27 +524,28 @@ struct AVPlayerTimelineAdapterTests {
         #expect(tracker.revision == 1)
     }
 
-    /// 首次定位期间无论已真正播放还是仍在按请求速率等待，随后的暂停都要取消待提交断点。
+    /// 受控 seek 期间无论已真正播放还是仍在按请求速率等待，随后的暂停都算一次新的用户操作。
     @Test(arguments: [true, false])
-    func pauseAfterStartDuringInitialSeekCancelsThePendingCommit(
+    func pauseAfterStartDuringInternalSeekCountsAsInteraction(
         reachedPlaying: Bool
     ) {
         let tracker = PlaybackInteractionTracker()
-        tracker.allowInternalSeek(to: 42)
+        tracker.markObservedAllowingInternalSeek(to: 42)
+        let seekRevision = tracker.revision
 
         tracker.observeTimeControlStatus(
             isPaused: false,
             isPlaying: reachedPlaying,
             playbackRate: 1
         )
-        #expect(tracker.revision == 0)
+        #expect(tracker.revision == seekRevision)
         tracker.observeTimeControlStatus(
             isPaused: true,
             isPlaying: false,
             playbackRate: 0
         )
 
-        #expect(tracker.revision == 1)
+        #expect(tracker.revision == seekRevision + 1)
     }
 
     @Test(

@@ -709,11 +709,7 @@ struct BrowseAndVideoViewModelTests {
             playback: { _, _ in fixture.playback(resuming: metadata) }
         )
         let player = PlayerStub(
-            startOutcome: .resumed(
-                positionSeconds: 42.5,
-                token: resumeToken,
-                discontinuityGeneration: 3
-            ),
+            startOutcome: .resumed(positionSeconds: 42.5, token: resumeToken),
             restartSucceeds: true
         )
         let model = VideoViewModel(
@@ -726,7 +722,7 @@ struct BrowseAndVideoViewModelTests {
 
         #expect(model.presentedContext?.selectedPage.cid == 900_002)
         #expect(await repository.playbackRequests.map(\.cid) == [900_001, 900_002])
-        #expect(player.startedInitialPositions == [42.5])
+        #expect(player.loadedStartPositions == [42.5])
         #expect(
             model.resumeNotice
                 == PlaybackResumeNotice(
@@ -757,11 +753,7 @@ struct BrowseAndVideoViewModelTests {
             playback: { _, _ in fixture.playback(resuming: metadata) }
         )
         let player = PlayerStub(
-            startOutcome: .resumed(
-                positionSeconds: 42.5,
-                token: resumeToken,
-                discontinuityGeneration: 1
-            ),
+            startOutcome: .resumed(positionSeconds: 42.5, token: resumeToken),
             restartSucceeds: true,
             holdsRestarts: true
         )
@@ -785,30 +777,6 @@ struct BrowseAndVideoViewModelTests {
 
         player.releaseRestart(at: 1)
         await waitForObservedState { model.resumeNotice == nil }
-    }
-
-    @Test
-    @MainActor
-    func resumePreparationFailureUsesExistingPlaybackRetryState() async {
-        let fixture = ContentFixtures()
-        let player = PlayerStub(
-            startOutcome: .preparationFailed
-        )
-        let model = VideoViewModel(
-            useCase: VideoUseCase(
-                repository: VideoRepositoryStub(fixture)
-            ),
-            playback: player
-        )
-
-        model.loadVideo(fixture.bvid)
-        await waitUntilSettled(model)
-
-        #expect(
-            model.state
-                == .failed(bvid: fixture.bvid, failure: .playback)
-        )
-        #expect(model.resumeNotice == nil)
     }
 
     @Test
@@ -2473,7 +2441,7 @@ private final class PlayerStub: PlaybackControlling {
     private(set) var loadedIntents: [PlaybackLoadIntent] = []
     private(set) var startedIdentities: [PlaybackItemIdentity] = []
     private(set) var startedIntents: [PlaybackLoadIntent] = []
-    private(set) var startedInitialPositions: [Double?] = []
+    private(set) var loadedStartPositions: [Double?] = []
     private(set) var restartTokens: [PlaybackResumeToken] = []
     private(set) var stopCallCount = 0
 
@@ -2504,9 +2472,11 @@ private final class PlayerStub: PlaybackControlling {
     func load(
         _ playback: VideoPlayback,
         identity: PlaybackItemIdentity,
-        intent: PlaybackLoadIntent
+        intent: PlaybackLoadIntent,
+        startPositionSeconds: Double?
     ) async throws {
         loadedPlaybacks.append(playback)
+        loadedStartPositions.append(startPositionSeconds)
         loadedIdentities.append(identity)
         loadedIntents.append(intent)
         loadWaiters.resume(reaching: loadedIdentities.count)
@@ -2523,12 +2493,10 @@ private final class PlayerStub: PlaybackControlling {
 
     func beginPlayback(
         identity: PlaybackItemIdentity,
-        intent: PlaybackLoadIntent,
-        initialPositionSeconds: Double?
+        intent: PlaybackLoadIntent
     ) async -> PlaybackStartOutcome {
         startedIdentities.append(identity)
         startedIntents.append(intent)
-        startedInitialPositions.append(initialPositionSeconds)
         return startOutcome
     }
 
