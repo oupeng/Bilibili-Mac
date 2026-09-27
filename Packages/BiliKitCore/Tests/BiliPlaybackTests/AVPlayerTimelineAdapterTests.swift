@@ -252,6 +252,37 @@ struct AVPlayerTimelineAdapterTests {
 
     @Test
     @MainActor
+    func intermediateNativeJumpDoesNotSupersedeInitialResumeSeek() {
+        let timeline = AVPlayerTimelineAdapter(player: AVPlayer())
+        timeline.begin(
+            identity: PlaybackItemIdentity(bvid: "BVResumeIntermediate", cid: 1)
+        )
+        timeline.markReady(
+            duration: CMTime(seconds: 100, preferredTimescale: 600)
+        )
+        let operationID = UUID()
+        let before = timeline.currentSnapshot.discontinuityGeneration
+        let revisionBefore = timeline.playbackInteractionRevision
+        var supersededOperations: [UUID] = []
+        timeline.onSeekSupersededByExternalJump = {
+            supersededOperations.append($0)
+        }
+
+        // HLS 续播定位可能先报告目标所在分段的起点，再落到目标。
+        timeline.prepareInitialSeek(operationID: operationID, to: 42)
+        timeline.observeTimeJump(at: 36)
+        timeline.seekCompleted(operationID: operationID, at: 42)
+
+        #expect(supersededOperations.isEmpty)
+        #expect(timeline.playbackInteractionRevision == revisionBefore)
+        #expect(
+            timeline.currentSnapshot.discontinuityGeneration == before + 1
+        )
+        #expect(timeline.currentSnapshot.positionSeconds == 42)
+    }
+
+    @Test
+    @MainActor
     func replacedFarSeekLandingCannotSupersedeCurrentSeek() {
         let timeline = AVPlayerTimelineAdapter(player: AVPlayer())
         timeline.begin(
