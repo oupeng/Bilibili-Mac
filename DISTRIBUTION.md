@@ -5,7 +5,8 @@
 ## 系统要求
 
 - macOS 15 或更高版本；
-- Universal App，同时支持 Apple Silicon（`arm64`）和 Intel（`x86_64`）；
+- Apple Silicon（`arm64`）Mac。1.0.0 是最后一个同时支持 Intel 的 Universal 版本，Intel Mac 请继续
+  使用 1.0.0；它不会收到无法运行的更新；
 - 视频可用性、画质和接口行为取决于 Bilibili 服务、账号权限、地区和网络状态。
 
 BiliKit 是非官方第三方客户端，与哔哩哔哩不存在隶属、认可或赞助关系。
@@ -22,7 +23,7 @@ BiliKit 是非官方第三方客户端，与哔哩哔哩不存在隶属、认可
 
 Sparkle 已接入。应用菜单提供“检查更新…”、自动检查和自动下载并安装设置。
 更新元数据与完整安装包分别验签，安装包同时经过 Developer ID 签名与 Apple 公证。
-旧 build 1 不含更新器，需手动下载安装。build 2/3 为历史测试版本。
+旧 build 1 不含更新器，需手动下载安装。
 
 更新失败时先保留当前 App，从可信 GitHub Releases 下载更新版本，退出 App，
 再拖入“应用程序”覆盖安装。

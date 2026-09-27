@@ -95,30 +95,41 @@ jobs:
 
   # 较旧系统只启动发布工具链构建的 App，不编译、不跑测试：测试 bundle 依赖随 Xcode 发布的
   # Testing.framework，旧 runner 上的 Xcode 无法加载 27 构建的 bundle，而 Xcode 27 不支持 macOS 15。
-  # job 名保留 “Build and test” 以对应 release.py 的三环境检查；static 模式时跳过（视为通过）。
+  # job 名保留 “Build and test” 以对应 release.py 的三环境检查与分支保护的 required checks。
+  # 没有构建 App（static 模式）时在步骤级跳过：job 级 if 会让 matrix 不展开，按系统命名的
+  # required checks 永远停在 pending。
   launch-smoke:
     name: Build and test (${{ matrix.os }})
     needs: build-and-test
-    if: needs.build-and-test.outputs.gate-mode == 'app'
     strategy:
       fail-fast: false
       matrix:
         os: [macos-26, macos-15]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
+    env:
+      GATE_MODE: ${{ needs.build-and-test.outputs.gate-mode }}
 
     steps:
+      - name: Skip without app build
+        if: env.GATE_MODE != 'app'
+        run: echo "Gate mode ${GATE_MODE} built no app; launch smoke skipped."
+
       - name: Check out repository
+        if: env.GATE_MODE == 'app'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Show system
+        if: env.GATE_MODE == 'app'
         run: sw_vers
 
       - name: Retrieve app from this workflow
+        if: env.GATE_MODE == 'app'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: app-${{ github.sha }}
           path: ${{ runner.temp }}/app
 
       - name: Launch smoke test
+        if: env.GATE_MODE == 'app'
         run: sh Scripts/smoke-launch-app.sh "${{ runner.temp }}/app/BiliKit.app.tar"

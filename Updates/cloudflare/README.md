@@ -24,9 +24,9 @@ npm test
 2. 将工具打印的**公钥**填入本目录 `release.json` 的 `publicEDKey` 以及仓库
    `Configuration/BiliKit-Info.plist` 的 `SUPublicEDKey`。确认最终域名后，再将后者
    `BiliKitUpdaterEnabled` 改为 true。域名变更同时调整这两份配置、Wrangler route 与 `feed.py` 的 feed 契约。
-3. 在新 commit/build 上重新 Archive、Developer ID export、App/DMG 签名、公证和 staple。
-   不修改冻结的 1.0.0 (1) 候选。两个安装测试版本都必须带更新器；首次可用版本为 build 2，
-   下一测试版本至少为 build 3。每次更新同步工程 build 契约。
+3. 在新 commit/build 上重新 Archive、Developer ID export、App/DMG 签名、公证和 staple；
+   不修改已冻结的候选。用于验证更新的两个安装版本都必须带更新器，build 号逐次递增，并同步工程
+   build 契约。
 4. 把一个新版本的最终完整 DMG 放入独立 release staging 目录。不要混放其他 tag 的归档。
    用固定包中的官方工具生成并签名 appcast，例如（变量均为本机路径或公开 tag）：
 

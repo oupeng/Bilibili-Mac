@@ -8,7 +8,7 @@ Developer ID、`BiliKit-Notary` 与 Sparkle EdDSA key。GitHub Actions 只跑 ma
 ## 冻结与前提
 
 - App `BiliKit`，Bundle ID `com.shiinayane.BiliKit`，Team `2B3LZ256AG`，macOS 15+，App 主程序仅 `arm64`；
-  build 号全局递增。下一候选为 `1.0.1 (5)`。
+  build 号全局递增。已发布最高为 `1.0.1 (5)`，下一候选 build 从 6 起。
 - 每个版本只写一份更新日志 `docs/release/<版本>-notes.md`：每行一条面向用户的 `- ` 条目，不写标题或
   过程说明，冻结前随源码合并到 main。`prepare` 把它放在 DMG 旁由 Sparkle 以 Markdown 内嵌进 appcast
   （更新提示）；`draft` 把它填入固定模板 [`release-page.md`](release-page.md) 作为 GitHub Release 正文。
