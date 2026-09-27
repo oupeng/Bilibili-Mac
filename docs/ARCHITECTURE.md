@@ -116,8 +116,8 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   横向内容边距也不含安全区，只能靠测量 frame 模拟。
 - 播放页压在 NavigationStack 根（来源页）之上，根页面为保留状态仍在渲染；macOS 不为压栈页面绘制
   底色，播放页必须自铺不透明窗口背景并延伸到工具栏与侧栏下，不寄托在某个子视图顺带画出的背景上。
-- 播放器上的滚轮不再拦截，交给 AVKit 原生处理。键盘快捷键的窗口锚点是 content overlay 中不参与
-  命中测试的 `PlayerKeyboardAnchorView`；AVKit detached 全屏只携带 content overlay，锚点必须留在其中。
+- 播放器上的滚轮不再拦截，交给 AVKit 原生处理。键盘快捷键以 content overlay 中弹幕层所在窗口为准；
+  AVKit detached 全屏只携带 content overlay，锚点必须是其中的视图。
 - 播放态侧栏替换导航侧栏，不另开右侧 inspector：播放期间导航使用率低，双栏把宽度留给视频。两种状态
   共用一列，`ideal` 只在首次布局生效，切换时宽度被夹进新范围，进入播放时即为播放态最小宽度。
 

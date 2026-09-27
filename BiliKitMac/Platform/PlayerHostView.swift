@@ -204,7 +204,7 @@ enum PlayerPlaybackPreparationPolicy {
 @MainActor
 final class DanmakuPlayerView: AVPlayerView {
     let danmakuOverlay: DanmakuOverlayView
-    private let keyboardAnchorView = PlayerKeyboardAnchorView()
+    private let keyboardShortcuts = PlayerKeyboardShortcutController()
     private let overlayModel = PlayerOverlayModel()
     private let overlayHostingView: PassthroughHostingView<PlayerOverlayView>
     private var installedDanmakuOverlay = false
@@ -260,7 +260,6 @@ final class DanmakuPlayerView: AVPlayerView {
         overlayHostingView.interactiveFrame = { [overlayModel] in
             overlayModel.interactiveFrame
         }
-        let keyboardShortcuts = keyboardAnchorView.keyboardShortcuts
         keyboardShortcuts.feedbackPresenter = overlayModel
         keyboardShortcuts.onKeyboardMomentaryRateBegan = {
             [weak self] rate, pressID in
@@ -308,7 +307,7 @@ final class DanmakuPlayerView: AVPlayerView {
             blocksNativePlaybackInteraction: blocked
         )
         setAccessibilityHidden(blocked)
-        keyboardAnchorView.keyboardShortcuts.setKeyboardInputEnabled(!blocked)
+        keyboardShortcuts.setKeyboardInputEnabled(!blocked)
         guard stateChanged else {
             if !blocked {
                 applyPendingInitialKeyboardFocus()
@@ -378,7 +377,7 @@ final class DanmakuPlayerView: AVPlayerView {
     }
 
     func cancelMomentaryPlaybackRate() {
-        keyboardAnchorView.cancelInputSession()
+        keyboardShortcuts.cancelInputSession()
         if momentaryRateSessionID != nil {
             endMomentaryPlaybackRate()
         }
@@ -441,8 +440,9 @@ final class DanmakuPlayerView: AVPlayerView {
         installedDanmakuOverlay = true
         danmakuOverlay.translatesAutoresizingMaskIntoConstraints = false
         contentOverlayView.addSubview(danmakuOverlay)
-        // 锚点不参与命中测试，只需位于 content overlay 内，随 detached 全屏移动。
-        contentOverlayView.addSubview(keyboardAnchorView)
+        // 快捷键以弹幕层所在窗口为准：AVKit detached 全屏只携带 content overlay，弹幕层随之移动。
+        keyboardShortcuts.anchorView = danmakuOverlay
+        keyboardShortcuts.startMonitoring()
         overlayHostingView.translatesAutoresizingMaskIntoConstraints = false
         contentOverlayView.addSubview(
             overlayHostingView,
@@ -516,11 +516,15 @@ final class DanmakuPlayerView: AVPlayerView {
         overlayModel.endMomentaryRate()
     }
 
+    /// App 失活或任一窗口失去 key 时结束长按临时倍速。
+    ///
+    /// 不只观察宿主所在窗口：detached 全屏时按键发生在 AVKit 的全屏窗口里。长按要求持续按住，
+    /// 窗口焦点一变这次长按就应结束，因此不区分是哪个窗口。
     private func startObservingFocusLoss() {
         focusLossObservers.removeAll()
         guard requestMomentaryPlaybackRate != nil,
             finishMomentaryPlaybackRate != nil,
-            let window
+            window != nil
         else {
             return
         }
@@ -532,7 +536,7 @@ final class DanmakuPlayerView: AVPlayerView {
         }
         focusLossObservers.observe(
             NSWindow.didResignKeyNotification,
-            object: window
+            object: nil
         ) { [weak self] in
             self?.cancelMomentaryPlaybackRate()
         }
@@ -543,7 +547,8 @@ final class DanmakuPlayerView: AVPlayerView {
     }
 
     func stopKeyboardMonitoring() {
-        keyboardAnchorView.stopKeyboardMonitoring()
+        keyboardShortcuts.cancelInputSession()
+        keyboardShortcuts.stopMonitoring()
     }
 
     @available(*, unavailable)
