@@ -21,8 +21,7 @@ struct PlaybackDetailLayout<Player: View, Related: View>: View {
         VStack(spacing: PlaybackPageLayout.sectionSpacing) {
             player
                 // 加载阶段切换带动画时，新建的 AVPlayerView 会从初始 frame 动画到最终位置，
-                // 看起来像“飞入”。视频区只随窗口即时变化，不参与任何布局动画；
-                // 其内部“正在准备播放”遮罩的淡出由自身的 `.animation(value:)` 控制。
+                // 看起来像“飞入”。视频区只随窗口即时变化，不参与任何布局动画。
                 .transaction { $0.animation = nil }
                 .aspectRatio(PlaybackPageLayout.playerAspectRatio, contentMode: .fit)
                 .padding(.horizontal, PlaybackPageLayout.horizontalContentPadding)

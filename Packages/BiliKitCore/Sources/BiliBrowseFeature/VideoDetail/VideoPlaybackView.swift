@@ -107,7 +107,6 @@ public struct VideoPlaybackView<PlayerContent: View, RelatedContent: View>: View
         if let currentContext {
             VideoDetailView(
                 context: currentContext,
-                isPreparingPlayback: showsPlaybackActivity,
                 danmakuModel: danmakuModel,
                 relatedVideoState: model.relatedVideoState,
                 onSelectRelatedVideo: onSelectRelatedVideo,
@@ -132,15 +131,6 @@ public struct VideoPlaybackView<PlayerContent: View, RelatedContent: View>: View
 
     private var currentContext: VideoContext? {
         model.presentedContext
-    }
-
-    private var showsPlaybackActivity: Bool {
-        switch model.state {
-        case .loadingPage, .preparingPlayback:
-            true
-        case .idle, .loading, .ready, .failed, .failedPage:
-            false
-        }
     }
 
     private var blocksRetainedContext: Bool {

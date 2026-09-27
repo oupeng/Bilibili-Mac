@@ -4,10 +4,8 @@ import Foundation
 import SwiftUI
 
 struct VideoDetailView<PlayerContent: View, RelatedContent: View>: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.locale) private var locale
     let context: VideoContext
-    let isPreparingPlayback: Bool
     let danmakuModel: DanmakuControlsViewModel
     let relatedVideoState: RelatedVideoState
     let onSelectRelatedVideo: (String) -> Void
@@ -106,38 +104,7 @@ struct VideoDetailView<PlayerContent: View, RelatedContent: View>: View {
     }
 
     private var player: some View {
-        ZStack {
-            playerContent()
-
-            if isPreparingPlayback {
-                ZStack {
-                    Rectangle()
-                        .fill(.black)
-                    VStack(spacing: 12) {
-                        ProgressView()
-                            .progressViewStyle(.circular)
-                            .controlSize(.large)
-                            .tint(.white)
-                        Text(BrowseFeatureStrings.localized("正在准备播放…", locale: locale))
-                            .font(.title3)
-                            .foregroundStyle(.white)
-                    }
-                    .environment(\.colorScheme, .dark)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(BrowseFeatureStrings.localized("正在准备播放", locale: locale))
-                }
-                .transition(
-                    .asymmetric(
-                        insertion: .identity,
-                        removal: .opacity
-                    )
-                )
-            }
-        }
-        .animation(
-            LoadingStateTransition.animation(reduceMotion: reduceMotion),
-            value: isPreparingPlayback
-        )
-        .background(.black)
+        playerContent()
+            .background(.black)
     }
 }
