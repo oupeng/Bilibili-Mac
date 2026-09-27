@@ -111,9 +111,6 @@ struct RelatedVideoShelf<LoadedContent: View>: View {
             ZStack(alignment: .topLeading) {
                 content
             }
-            .transaction { transaction in
-                transaction.disablesAnimations = true
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
