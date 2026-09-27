@@ -1,0 +1,34 @@
+name: Build Intel Release
+
+on:
+  workflow_dispatch: # 支持手动点击按钮触发
+
+jobs:
+  build:
+    runs-on: macos-15 # 使用 macOS 15 环境，提供 Xcode 16+ SDK 支持
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Build macOS App (Cross-compile for x86_64)
+        run: |
+          xcodebuild clean build \
+            -scheme BiliKit \
+            -configuration Release \
+            -derivedDataPath ./build \
+            -arch x86_64 \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Compress App
+        run: |
+          cd build/Build/Products/Release
+          zip -r BiliKit-Intel.zip BiliKit.app
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BiliKit-Intel-Mac
+          path: build/Build/Products/Release/BiliKit-Intel.zip
