@@ -39,37 +39,26 @@ jobs:
                       except Exception:
                           pass
 
-          # 2. 精准修复 URLSessionRangeTransport.swift 闭包花括号结构
+          # 2. 彻底解决 URLSessionRangeTransport.swift 中的 session 同名循环引用 Bug
           target_file = "Packages/BiliKitCore/Sources/BiliNetworking/Range/URLSessionRangeTransport.swift"
           if os.path.exists(target_file):
               with open(target_file, "r", encoding="utf-8") as f:
                   content = f.read()
 
-              target_str = "let (pending, session) = lock.withLock"
-              idx = content.find(target_str)
-              if idx != -1:
-                  brace_start = content.find("{", idx)
-                  brace_count = 0
-                  brace_end = -1
-                  for i in range(brace_start, len(content)):
-                      if content[i] == "{":
-                          brace_count += 1
-                      elif content[i] == "}":
-                          brace_count -= 1
-                          if brace_count == 0:
-                              brace_end = i
-                              break
-
-                  if brace_end != -1:
-                      before = content[:idx] + "let _lockPair = lock.withLock"
-                      closure_body = content[idx + len(target_str) : brace_end + 1]
-                      after = content[brace_end + 1 :]
-                      # 将解构语句准确放置在闭包结束的大括号之后
-                      new_content = before + closure_body + "\n        let (pending, session) = (_lockPair.0, _lockPair.1)" + after
-
-                      with open(target_file, "w", encoding="utf-8") as f:
-                          f.write(new_content)
-                      print("Successfully and cleanly patched URLSessionRangeTransport.swift!")
+              # 将解构的 session 局部变量重命名为 activeSession，打破循环作用域冲突
+              if "let (pending, session) = lock.withLock" in content:
+                  content = content.replace(
+                      "let (pending, session) = lock.withLock",
+                      "let (pending, activeSession) = lock.withLock"
+                  )
+                  # 同步将锁外使用的 session?. 改为 activeSession?.
+                  content = content.replace("session?.finishTasksAndInvalidate()", "activeSession?.finishTasksAndInvalidate()")
+                  content = content.replace("session?.invalidateAndCancel()", "activeSession?.invalidateAndCancel()")
+                  content = content.replace("session.invalidateAndCancel()", "activeSession.invalidateAndCancel()")
+                  
+                  with open(target_file, "w", encoding="utf-8") as f:
+                      f.write(content)
+                  print("Successfully resolved circular reference in URLSessionRangeTransport.swift!")
           '
 
       - name: Build BiliKitMac for Intel (x86_64)
