@@ -179,6 +179,8 @@ final class AVPlayerTimelineAdapter {
     private struct PendingSeek {
         let operationID: UUID
         let targetSeconds: Double
+        /// 首次续播定位：准备期间原生控制被禁用，外部 seek 会在命令入口先取代本次操作。
+        var isInitialSeek = false
         var observedLanding = false
     }
 
@@ -502,7 +504,11 @@ final class AVPlayerTimelineAdapter {
 
     func prepareInitialSeek(operationID: UUID, to positionSeconds: Double) {
         interactionTracker.allowInternalSeek(to: positionSeconds)
-        beginPendingSeek(operationID: operationID, to: positionSeconds)
+        beginPendingSeek(
+            operationID: operationID,
+            to: positionSeconds,
+            isInitialSeek: true
+        )
     }
 
     func prepareResumeRestart(operationID: UUID) {
@@ -521,7 +527,8 @@ final class AVPlayerTimelineAdapter {
 
     private func beginPendingSeek(
         operationID: UUID,
-        to positionSeconds: Double
+        to positionSeconds: Double,
+        isInitialSeek: Bool = false
     ) {
         if let pendingSeek, !pendingSeek.observedLanding {
             appendStaleSeekLanding(
@@ -534,7 +541,8 @@ final class AVPlayerTimelineAdapter {
         }
         pendingSeek = PendingSeek(
             operationID: operationID,
-            targetSeconds: positionSeconds
+            targetSeconds: positionSeconds,
+            isInitialSeek: isInitialSeek
         )
         completedSeekLanding = nil
     }
@@ -560,6 +568,9 @@ final class AVPlayerTimelineAdapter {
                 self.pendingSeek = pendingSeek
                 return
             }
+            // 首次续播定位时 HLS 可能先报告目标所在分段的起点等中间位置；此时不可能有原生跳转，
+            // 不按距离把它当成外部操作（与 PlaybackInteractionTracker 一致），落点由 seekCompleted 记录。
+            if pendingSeek.isInitialSeek { return }
             appendStaleSeekLanding(
                 operationID: pendingSeek.operationID,
                 positionSeconds: pendingSeek.targetSeconds
