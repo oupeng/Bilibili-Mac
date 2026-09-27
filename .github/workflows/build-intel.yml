@@ -5,7 +5,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-15 # 使用 macOS 15 环境，提供 Xcode 16+ SDK 支持
+    runs-on: macos-27 # 升级至支持 Swift 6.2+ 的环境
 
     steps:
       - name: Checkout Code
