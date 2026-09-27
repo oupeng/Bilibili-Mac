@@ -1,39 +1,67 @@
-name: Build Intel Release
+name: Build BiliKit for Intel Mac (x86_64)
 
 on:
-  workflow_dispatch: # 支持手动点击按钮触发
+  workflow_dispatch: # 允许你在网页端随时手动点击运行
 
 jobs:
   build:
-    runs-on: macos-15 # 使用 GitHub 官方公共服务器
+    runs-on: macos-26 # 使用 GitHub 官方的 macOS 26 虚拟环境
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-
-      - name: Select Latest Xcode Toolchain
-        uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: 'latest-stable' # 自动提供 Swift 6.2+ 编译环境
+          submodules: recursive # 拉取可能依赖的子模块
 
-      - name: Build macOS App (Cross-compile for x86_64)
+      - name: Check Environment
         run: |
+          sw_vers
+          xcodebuild -version
+
+      - name: Build x86_64 Release Binary
+        run: |
+          mkdir -p build_output
+          
+          # 自动解析工程中的 App 主 Target / Scheme
+          SCHEME=$(xcodebuild -list -json | jq -r '(.project.schemes // .workspace.schemes // []) | .[0]')
+          if [ -z "$SCHEME" ] || [ "$SCHEME" = "null" ]; then
+            SCHEME="BiliKit"
+          fi
+          echo "Building Scheme: $SCHEME"
+
+          # 强制针对 Intel 架构 (x86_64) 进行 Release 编译
           xcodebuild clean build \
-            -scheme BiliKitMac \
+            -scheme "$SCHEME" \
             -configuration Release \
-            -derivedDataPath ./build \
-            -arch x86_64 \
+            -destination 'generic/platform=macOS' \
+            ARCHS="x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
+            CONFIGURATION_BUILD_DIR="$(pwd)/build_output"
 
-      - name: Compress App
+      - name: Ad-hoc Sign and Compress App
         run: |
-          cd build/Build/Products/Release
-          zip -r BiliKit-Intel.zip *.app
+          APP_PATH=$(find build_output -maxdepth 2 -name "*.app" | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "错误：未找到生成的 .app 文件！"
+            exit 1
+          fi
+          echo "Found compiled app at: $APP_PATH"
+
+          # 进行本地自签名（避免缺少有效签名导致系统禁止运行）
+          codesign --force --deep --sign - "$APP_PATH"
+
+          # 验证架构确实为 x86_64
+          lipo -info "$APP_PATH/Contents/MacOS/"*
+
+          # 打包为 zip 格式
+          ditto -c -k --keepParent "$APP_PATH" BiliKit-macOS26-Intel.zip
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BiliKit-Intel-Mac
-          path: build/Build/Products/Release/BiliKit-Intel.zip
+          name: BiliKit-macOS26-Intel
+          path: BiliKit-macOS26-Intel.zip
+          retention-days: 7
