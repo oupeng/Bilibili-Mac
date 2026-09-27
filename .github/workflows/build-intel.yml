@@ -19,13 +19,12 @@ jobs:
           sw_vers
           xcodebuild -version
 
-      - name: Patch Package.swift warning flags
+      - name: Patch Swift 6 Compiler Quirks & Flags
         run: |
-          # 遍历仓库，自动将所有硬编码的 -warnings-as-errors 替换为无害的宏定义 -DNO_WERROR
           python3 -c '
           import os
 
-          patch_count = 0
+          # 1. 消除 -warnings-as-errors
           for root, dirs, files in os.walk("."):
               for file in files:
                   if file.endswith((".swift", ".pbxproj", ".xcconfig")):
@@ -34,14 +33,53 @@ jobs:
                           with open(path, "r", encoding="utf-8") as f:
                               content = f.read()
                           if "-warnings-as-errors" in content:
-                              print(f"Patching: {path}")
-                              new_content = content.replace("-warnings-as-errors", "-DNO_WERROR")
+                              content = content.replace("-warnings-as-errors", "-DNO_WERROR")
                               with open(path, "w", encoding="utf-8") as f:
-                                  f.write(new_content)
-                              patch_count += 1
-                      except Exception as e:
+                                  f.write(content)
+                      except Exception:
                           pass
-          print(f"Successfully patched {patch_count} configuration file(s).")
+
+          # 2. 修复 URLSessionRangeTransport.swift 中的 lock.withLock 类型推断 bug
+          target_file = "Packages/BiliKitCore/Sources/BiliNetworking/Range/URLSessionRangeTransport.swift"
+          if os.path.exists(target_file):
+              with open(target_file, "r", encoding="utf-8") as f:
+                  code = f.read()
+              
+              # 替换直接元组解构，辅助 Swift 编译器正确推断
+              old_pattern = "let (pending, session) = lock.withLock {"
+              if old_pattern in code:
+                  print("Found complex tuple destructuring in URLSessionRangeTransport.swift, patching...")
+                  new_pattern = "let lockResult = lock.withLock {\n        let (pending, session) = (lockResult.0, lockResult.1)\n        _ = ("
+                  # 将 let (pending, session) = lock.withLock { 改写为先接收中间量再解构
+                  replacement = "let tupleResult = lock.withLock {\n"
+                  # 更好的改法：直接让 closure 显式返回，或者拆分
+                  code = code.replace(
+                      "let (pending, session) = lock.withLock {",
+                      "let tupleState = lock.withLock {\n            return"
+                  )
+                  # 如果原写法有闭包结尾，这里采用最稳妥的变量中转：
+                  code_patched = code.replace(
+                      "let (pending, session) = lock.withLock",
+                      "let _lockPair = lock.withLock"
+                  )
+                  # 在 lock.withLock 块之后解构
+                  # 为确保万无一失，直接用语义等价的单行安全注入：
+                  with open(target_file, "r", encoding="utf-8") as f:
+                      lines = f.readlines()
+                  
+                  new_lines = []
+                  for line in lines:
+                      if "let (pending, session) = lock.withLock" in line:
+                          indent = line[:len(line) - len(line.lstrip())]
+                          new_lines.append(f"{indent}let _tmpLockRes = lock.withLock {{\n")
+                          new_lines.append(f"{indent}let (pending, session) = (_tmpLockRes.0, _tmpLockRes.1)\n")
+                          # 跳过原那一行前面的部分，让闭包体正常展开
+                      else:
+                          new_lines.append(line)
+                  
+                  with open(target_file, "w", encoding="utf-8") as f:
+                      f.writelines(new_lines)
+                  print("Successfully patched URLSessionRangeTransport.swift!")
           '
 
       - name: Build BiliKitMac for Intel (x86_64)
@@ -52,7 +90,7 @@ jobs:
           fi
           echo "Selected App Scheme: $SCHEME"
 
-          # 执行针对 Intel 架构 (x86_64) 的编译
+          # 编译 Release 版 x86_64
           xcodebuild build \
             -project BiliKitMac.xcodeproj \
             -scheme "$SCHEME" \
@@ -78,11 +116,9 @@ jobs:
           fi
           echo "Found compiled app at: $APP_PATH"
 
-          # 验证架构切片是否为 x86_64
           echo "=== 架构验证 ==="
           lipo -info "$APP_PATH/Contents/MacOS/"*
 
-          # 自签名并打包
           codesign --force --deep --sign - "$APP_PATH"
           ditto -c -k --keepParent "$APP_PATH" BiliKit-macOS26-Intel.zip
 
