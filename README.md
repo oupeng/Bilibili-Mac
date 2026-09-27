@@ -24,7 +24,7 @@
   <img alt="平台 macOS 15+" src="https://img.shields.io/badge/macOS-15%2B-195CFF?style=flat">
   <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple%20Silicon-arm64-195CFF?style=flat">
   <img alt="Swift 6" src="https://img.shields.io/badge/Swift-6-FF607A?style=flat">
-  <a href="https://github.com/shiinayane/BiliKit-Mac/releases/latest"><img alt="最新版本" src="https://img.shields.io/github/v/release/shiinayane/BiliKit-Mac?label=版本&color=FF607A&style=flat"></a>
+  <a href="https://github.com/shiinayane/BiliKit-Mac/releases/latest"><img alt="最新版本" src="https://img.shields.io/github/v/release/shiinayane/BiliKit-Mac?label=%E7%89%88%E6%9C%AC&color=FF607A&style=flat"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/许可证-MIT-4A5568?style=flat"></a>
 </p>
 
@@ -47,7 +47,6 @@
 | 看完一个视频 | 新标签页越开越多，回不到刚才的列表 | 同一个窗口里返回，列表停在原来的位置 |
 | 播放器 | 网页播放器 | 系统播放器：画中画、全屏、媒体键、控制中心 |
 | 不登录时 | 清晰度受限 | 可以选 720P 和 1080P |
-| 账号 | 容易误点关注、投币 | 只读，唯一会写入的是观看进度 |
 
 <sub>官方客户端的技术栈与安装包大小取自其官方下载地址（`pc_electron_mac/bili_mac.dmg`，2026 年 9 月）。</sub>
 
