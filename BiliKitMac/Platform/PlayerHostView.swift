@@ -394,18 +394,11 @@ final class DanmakuPlayerView: AVPlayerView {
         }
     }
 
-    func handleWindowSurfaceScrollWheel(_ event: NSEvent) {
-        scrollWheelCaptureView.handleScrollWheel(event)
-    }
-
     func installWindowScrollWheelShield() {
         if !installedWindowScrollWheelShield {
             installedWindowScrollWheelShield = true
             windowScrollWheelShieldView.frame = bounds
             windowScrollWheelShieldView.autoresizingMask = [.width, .height]
-            windowScrollWheelShieldView.onScrollWheel = { [weak self] event in
-                self?.handleWindowSurfaceScrollWheel(event)
-            }
         }
         if windowScrollWheelShieldView.frame != bounds {
             windowScrollWheelShieldView.frame = bounds

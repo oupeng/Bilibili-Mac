@@ -164,7 +164,7 @@ struct PlayerHostViewIdentityTests {
 
     @Test
     @MainActor
-    func playerSurfaceForwardsOnlyVerticalWheelToDetailScroll() throws {
+    func playerSurfaceSwallowsWheelInsteadOfScrollingItsContainer() throws {
         let scrollView = ScrollWheelRecordingScrollView(
             frame: NSRect(x: 0, y: 0, width: 800, height: 600)
         )
@@ -184,7 +184,8 @@ struct PlayerHostViewIdentityTests {
         capture.scrollWheel(with: vertical)
         capture.scrollWheel(with: horizontal)
 
-        #expect(scrollView.receivedScrollWheelEvents == [vertical])
+        // 播放页主区不滚动：播放器上的纵向与横向滚轮都不交给外层，也不交给 AVKit。
+        #expect(scrollView.receivedScrollWheelEvents.isEmpty)
     }
 
     private func makeScrollWheelEvent(
