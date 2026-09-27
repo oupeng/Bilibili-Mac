@@ -20,9 +20,6 @@ struct PlaybackDetailLayout<Player: View, Related: View>: View {
     var body: some View {
         VStack(spacing: PlaybackPageLayout.sectionSpacing) {
             player
-                // 加载阶段切换带动画时，新建的 AVPlayerView 会从初始 frame 动画到最终位置，
-                // 看起来像“飞入”。视频区只随窗口即时变化，不参与任何布局动画。
-                .transaction { $0.animation = nil }
                 .aspectRatio(PlaybackPageLayout.playerAspectRatio, contentMode: .fit)
                 .padding(.horizontal, PlaybackPageLayout.horizontalContentPadding)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -31,6 +28,9 @@ struct PlaybackDetailLayout<Player: View, Related: View>: View {
         }
         .padding(.top, PlaybackPageLayout.verticalContentPadding)
         .padding(.bottom, PlaybackPageLayout.relatedBottomPadding)
+        // 骨架与内容共用这套几何，加载阶段切换只在外层交叉淡化，布局内部不参与任何动画：
+        // 新建的 AppKit 视图（播放器、推荐横排）否则会从初始 frame 动画到最终位置，看起来像“飞入”。
+        .transaction { $0.animation = nil }
     }
 }
 
