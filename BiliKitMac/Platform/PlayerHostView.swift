@@ -208,6 +208,7 @@ final class DanmakuPlayerView: AVPlayerView {
     private let overlayModel = PlayerOverlayModel()
     private let overlayHostingView: PassthroughHostingView<PlayerOverlayView>
     private var installedDanmakuOverlay = false
+    private var isPresentingFullScreen = false
     private var momentaryRateSessionID: UUID?
     private var momentaryRatePressID: UUID?
     private weak var observedPlayer: AVPlayer?
@@ -252,6 +253,7 @@ final class DanmakuPlayerView: AVPlayerView {
             rootView: PlayerOverlayView(model: overlayModel)
         )
         super.init(frame: .zero)
+        delegate = self
         updatesNowPlayingInfoCenter = false
         overlayHostingView.sizingOptions = []
         // 浮层与 content overlay 等大；不按窗口安全区缩进，否则播放器滚到工具栏下或全屏时提示位置
@@ -288,7 +290,24 @@ final class DanmakuPlayerView: AVPlayerView {
             }
             return await toggleSubtitles()
         }
+        keyboardShortcuts.onToggleFullScreen = { [weak self] in
+            self?.toggleFullScreen()
+        }
         installDanmakuOverlayIfNeeded()
+    }
+
+    /// F 键切换 AVKit 全屏，与控制条全屏按钮走同一路径。
+    ///
+    /// AVKit 没有公开进入／退出全屏的方法；`enterFullScreen:`／`exitFullScreen:` 是本项目唯一使用的
+    /// 私有 AVKit 接口。先确认响应再调用：系统移除后按 F 静默无效，全屏按钮不受影响。
+    /// 是否处于全屏由公开的 `AVPlayerViewDelegate` 回调记录，不读私有状态。
+    func toggleFullScreen() {
+        guard showsFullScreenToggleButton, !blocksNativePlaybackInteraction else { return }
+        let selector = NSSelectorFromString(
+            isPresentingFullScreen ? "exitFullScreen:" : "enterFullScreen:"
+        )
+        guard responds(to: selector) else { return }
+        perform(selector, with: nil)
     }
 
     override var acceptsFirstResponder: Bool {
@@ -554,5 +573,15 @@ final class DanmakuPlayerView: AVPlayerView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         nil
+    }
+}
+
+extension DanmakuPlayerView: AVPlayerViewDelegate {
+    func playerViewWillEnterFullScreen(_ playerView: AVPlayerView) {
+        isPresentingFullScreen = true
+    }
+
+    func playerViewWillExitFullScreen(_ playerView: AVPlayerView) {
+        isPresentingFullScreen = false
     }
 }
