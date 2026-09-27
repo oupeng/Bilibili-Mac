@@ -28,7 +28,7 @@ private struct NativeSubtitleSelectionPreference: Sendable {
 private enum SeekPolicy {
     static let timescale: CMTimeScale = 600
     /// transport 相对跳转允许落在最近的可解码位置。
-    static let resumeTolerance = CMTime(seconds: 0.25, preferredTimescale: timescale)
+    static let relativeSeekTolerance = CMTime(seconds: 0.25, preferredTimescale: timescale)
     /// 就绪位置不超过该值视为从头开始，否则按续播报告。
     static let beginningThresholdSeconds = 0.25
     /// “从头播放”的落点不超过该位置才算成功。
@@ -518,7 +518,7 @@ public final class AVPlayerEngine:
         )
         issueSeek(
             to: operation.targetSeconds,
-            tolerance: SeekPolicy.resumeTolerance,
+            tolerance: SeekPolicy.relativeSeekTolerance,
             generation: generation,
             item: item
         ) { engine, finished in
