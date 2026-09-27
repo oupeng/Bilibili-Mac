@@ -299,7 +299,8 @@ public final class AVPlayerEngine:
                     videos: videos,
                     audioTracks: audioTracks,
                     headers: request.mediaHeaders,
-                    subtitleSource: subtitleSource
+                    subtitleSource: subtitleSource,
+                    startPositionSeconds: request.startPositionSeconds
                 )
             }
         }

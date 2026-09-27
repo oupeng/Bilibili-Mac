@@ -6,13 +6,19 @@ import Foundation
 public struct PlaybackRequest: Sendable, Equatable {
     public let media: PlaybackMedia
     public let mediaHeaders: [String: String]
+    /// DASH 起播位置，item 就绪时即位于该处。
+    ///
+    /// 写入 master playlist 的 `EXT-X-START`；progressive 单文件没有 playlist，忽略此值、从头播放。
+    public let startPositionSeconds: Double?
 
     public init(
         media: PlaybackMedia,
-        mediaHeaders: [String: String] = [:]
+        mediaHeaders: [String: String] = [:],
+        startPositionSeconds: Double? = nil
     ) {
         self.media = media
         self.mediaHeaders = mediaHeaders
+        self.startPositionSeconds = startPositionSeconds
     }
 }
 

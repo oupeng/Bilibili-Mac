@@ -120,7 +120,8 @@ public struct DASHToHLSBridge: Sendable {
         videos: [MediaRepresentation],
         audioTracks: [SelectedPlaybackAudioTrack],
         headers: [String: String],
-        subtitleSource: NativeSubtitleSource?
+        subtitleSource: NativeSubtitleSource?,
+        startPositionSeconds: Double? = nil
     ) async throws -> PreparedPlaybackAsset {
         guard !videos.isEmpty else {
             throw DASHToHLSBridgeError.missingVideoRepresentation
@@ -356,7 +357,8 @@ public struct DASHToHLSBridge: Sendable {
                     audioRenditions: hlsAudioRenditions,
                     subtitleRenditions: subtitleRenditions,
                     iFrameVariants: iFrameVariants,
-                    localizedRenditionNamesURI: localizedRenditionNamesURL
+                    localizedRenditionNamesURI: localizedRenditionNamesURL,
+                    startOffsetSeconds: startPositionSeconds
                 )
                 localizedSubtitleCatalog = subtitleCatalog
             } catch {
@@ -365,7 +367,8 @@ public struct DASHToHLSBridge: Sendable {
                     videoVariants: variants,
                     audioRenditions: hlsAudioRenditions,
                     iFrameVariants: iFrameVariants,
-                    localizedRenditionNamesURI: localizedRenditionNamesURL
+                    localizedRenditionNamesURI: localizedRenditionNamesURL,
+                    startOffsetSeconds: startPositionSeconds
                 )
                 localizedSubtitleCatalog = []
             }

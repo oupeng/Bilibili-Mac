@@ -109,6 +109,32 @@ struct HLSPlaylistBuilderTests {
 
         #expect(playlist.contains("#EXT-X-VERSION:7\n"))
         #expect(playlist.contains("#EXT-X-INDEPENDENT-SEGMENTS\n"))
+        #expect(!playlist.contains("#EXT-X-START"))
+
+        // 续播位置写成精确起播点；非正数不写。
+        for (offset, expected) in [
+            (42.5, "#EXT-X-START:TIME-OFFSET=42.500000,PRECISE=YES\n"),
+            (0, nil)
+        ] as [(Double, String?)] {
+            let startPlaylist = try HLSMasterPlaylistBuilder().build(
+                videoVariants: [try makeVideoVariant(video, index: videoIndex)],
+                audioRenditions: [
+                    try makeAudioRendition(
+                        representation: makeAudio(),
+                        channelCount: 2,
+                        bitDepth: 16,
+                        sampleRate: 48_000,
+                        index: audioIndex
+                    )
+                ],
+                startOffsetSeconds: offset
+            )
+            if let expected {
+                #expect(startPlaylist.contains(expected))
+            } else {
+                #expect(!startPlaylist.contains("#EXT-X-START"))
+            }
+        }
         #expect(
             playlist.contains(
                 #"#EXT-X-SESSION-DATA:DATA-ID="_hls.localized-rendition-names",URI="bilikit-playlist://metadata/localized-rendition-names.json""#

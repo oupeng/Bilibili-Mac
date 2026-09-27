@@ -12,6 +12,80 @@ private typealias Comment = Testing.Comment
 
 @Suite(.serialized, .timeLimit(.minutes(2)))
 struct AVPlayerEngineLifecycleTests {
+    /// `EXT-X-START` 让 DASH→HLS item 就绪时即精确位于起播位置（含非分段边界），可继续播放与回到开头。
+    @Test
+    @MainActor
+    func dashItemStartsAtPlaylistStartOffset() async throws {
+        let videoData = try fixtureBase64Data(
+            named: "video-avc-256x144-4s-global-sidx.mp4"
+        )
+        let audioData = try fixtureBase64Data(
+            named: "audio-aac-4s-global-sidx.mp4"
+        )
+        let videoURL = try #require(
+            URL(string: "https://start-offset.fixture.bilivideo.com/video")
+        )
+        let audioURL = try #require(
+            URL(string: "https://start-offset.fixture.bilivideo.com/audio")
+        )
+        let video = try makeFixtureTrack(
+            id: 80,
+            kind: .video,
+            codecs: "avc1.4d400c",
+            bandwidth: 100_000,
+            data: videoData,
+            primaryURL: videoURL,
+            videoAttributes: try VideoRepresentationAttributes(
+                width: 256,
+                height: 144,
+                frameRate: 24
+            )
+        ).representation
+        let audio = try makeFixtureTrack(
+            id: 30_280,
+            kind: .audio,
+            codecs: "mp4a.40.2",
+            bandwidth: 32_000,
+            data: audioData,
+            primaryURL: audioURL
+        ).representation
+        let transport = FixtureRangeTransport(
+            media: [videoURL: videoData, audioURL: audioData]
+        )
+        let engine = AVPlayerEngine(bridge: makeFixtureBridge(transport))
+        engine.player.isMuted = true
+        defer { engine.stop() }
+        let identity = PlaybackItemIdentity(bvid: "BV1StartOffset", cid: 900_010)
+
+        for offset in [2.5, 1.37] {
+            engine.stop()
+            let request = PlaybackRequest(
+                media: .dash(
+                    PlaybackManifest(
+                        videoRepresentations: [video],
+                        originalAudioRepresentations: [audio]
+                    )
+                ),
+                startPositionSeconds: offset
+            )
+            let intent = PlaybackLoadIntent()
+            try await engine.load(request, identity: identity, intent: intent)
+            #expect(abs(engine.player.currentTime().seconds - offset) < 0.05)
+
+            engine.play()
+            try await waitUntilTimeControlStatus(of: engine.player, is: .playing)
+            try await waitForTimeline(of: engine) { snapshot in
+                snapshot.positionSeconds > offset + 0.2
+            }
+        }
+
+        // 从起播位置回到开头仍按普通 seek 工作。
+        #expect(engine.requestSeek(to: .zero))
+        try await waitForTimeline(of: engine) { snapshot in
+            snapshot.positionSeconds < 0.3
+        }
+    }
+
     @Test
     @MainActor
     func engineBeginPlaybackIsIntentGuardedAndRestartsOnce() async throws {

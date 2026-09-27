@@ -268,7 +268,8 @@ public struct HLSMasterPlaylistBuilder: Sendable {
         audioRenditions: [HLSAudioRendition],
         subtitleRenditions: [HLSSubtitleRendition] = [],
         iFrameVariants: [HLSIFrameVariant] = [],
-        localizedRenditionNamesURI: URL? = nil
+        localizedRenditionNamesURI: URL? = nil,
+        startOffsetSeconds: Double? = nil
     ) throws -> String {
         guard !videoVariants.isEmpty else {
             throw HLSPlaylistBuilderError.noVideoVariants
@@ -303,6 +304,11 @@ public struct HLSMasterPlaylistBuilder: Sendable {
         let allIndices = videoVariants.map(\.index) + audioRenditions.map(\.index)
         if allIndices.allSatisfy(isIndependent) {
             lines.append("#EXT-X-INDEPENDENT-SEGMENTS")
+        }
+        if let startOffsetSeconds, startOffsetSeconds.isFinite, startOffsetSeconds > 0 {
+            lines.append(
+                "#EXT-X-START:TIME-OFFSET=\(formattedPlaylistDuration(startOffsetSeconds)),PRECISE=YES"
+            )
         }
         if let localizedRenditionNamesURI {
             lines.append(
