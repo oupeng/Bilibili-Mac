@@ -19,10 +19,10 @@ jobs:
           sw_vers
           xcodebuild -version
 
-      - name: Patch Swift 6 Compiler Quirks & Flags
+      - name: Patch Swift 6 Compiler Quirks & Keychain Entitlements
         run: |
           python3 -c '
-          import os
+          import os, re
 
           # 1. 消除 -warnings-as-errors 冲突
           for root, dirs, files in os.walk("."):
@@ -44,7 +44,6 @@ jobs:
           if os.path.exists(target_file):
               with open(target_file, "r", encoding="utf-8") as f:
                   content = f.read()
-
               if "let (pending, session) = lock.withLock" in content:
                   content = content.replace(
                       "let (pending, session) = lock.withLock",
@@ -53,12 +52,10 @@ jobs:
                   content = content.replace("session?.finishTasksAndInvalidate()", "activeSession?.finishTasksAndInvalidate()")
                   content = content.replace("session?.invalidateAndCancel()", "activeSession?.invalidateAndCancel()")
                   content = content.replace("session.invalidateAndCancel()", "activeSession.invalidateAndCancel()")
-                  
                   with open(target_file, "w", encoding="utf-8") as f:
                       f.write(content)
-                  print("Successfully resolved circular reference in URLSessionRangeTransport.swift!")
 
-          # 3. 修复 AppKit NSColor.quinaryLabelColor 重命名问题
+          # 3. 修复 AppKit NSColor.quinaryLabelColor
           for root, dirs, files in os.walk("."):
               for file in files:
                   if file.endswith(".swift"):
@@ -67,13 +64,46 @@ jobs:
                           with open(path, "r", encoding="utf-8") as f:
                               c = f.read()
                           if "quinaryLabelColor" in c:
-                              print(f"Fixing quinaryLabelColor in {path}")
                               c = c.replace("quinaryLabelColor", "quinaryLabel")
                               with open(path, "w", encoding="utf-8") as f:
                                   f.write(c)
                       except Exception:
                           pass
-          print("All patches applied successfully!")
+
+          # 4. 移除 Entitlements 中的 keychain-access-groups（消除自签名 Keychain 权限被拒问题）
+          for root, dirs, files in os.walk("."):
+              for file in files:
+                  if file.endswith(".entitlements"):
+                      path = os.path.join(root, file)
+                      try:
+                          with open(path, "r", encoding="utf-8") as f:
+                              ent = f.read()
+                          if "keychain-access-groups" in ent:
+                              print(f"Removing keychain-access-groups from: {path}")
+                              # 清除 keychain-access-groups 键值块
+                              ent = re.sub(r"<key>keychain-access-groups</key>\s*<array>.*?</array>", "", ent, flags=re.DOTALL)
+                              with open(path, "w", encoding="utf-8") as f:
+                                  f.write(ent)
+                      except Exception:
+                          pass
+
+          # 5. 检查 WebCredentialStore.swift，若指定了 kSecAttrAccessGroup，将其清除
+          for root, dirs, files in os.walk("Packages/BiliKitCore"):
+              for file in files:
+                  if file == "WebCredentialStore.swift" or file.endswith(".swift"):
+                      path = os.path.join(root, file)
+                      try:
+                          with open(path, "r", encoding="utf-8") as f:
+                              code = f.read()
+                          if "kSecAttrAccessGroup" in code:
+                              print(f"Disabling kSecAttrAccessGroup in: {path}")
+                              code = re.sub(r'kSecAttrAccessGroup\s*as\s*String\s*:\s*[^,\n]+', 'kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock', code)
+                              with open(path, "w", encoding="utf-8") as f:
+                                  f.write(code)
+                      except Exception:
+                          pass
+
+          print("Keychain patch finished!")
           '
 
       - name: Build BiliKitMac for Intel (x86_64)
@@ -84,7 +114,6 @@ jobs:
           fi
           echo "Selected App Scheme: $SCHEME"
 
-          # 编译 Release 版 x86_64
           xcodebuild build \
             -project BiliKitMac.xcodeproj \
             -scheme "$SCHEME" \
@@ -108,12 +137,19 @@ jobs:
             echo "::error::未在 DerivedData 中找到编译生成的 .app 文件！"
             exit 1
           fi
-          echo "Found compiled app at: $APP_PATH"
 
           echo "=== 架构验证 ==="
           lipo -info "$APP_PATH/Contents/MacOS/"*
 
-          codesign --force --deep --sign - "$APP_PATH"
+          # 寻找现有的 entitlements 文件一同签名（如果有），若无则普通深层自签名
+          ENT_FILE=$(find . -name "*.entitlements" | head -n 1)
+          if [ -n "$ENT_FILE" ]; then
+              echo "Signing with entitlements: $ENT_FILE"
+              codesign --force --deep --sign - --entitlements "$ENT_FILE" "$APP_PATH"
+          else
+              codesign --force --deep --sign - "$APP_PATH"
+          fi
+
           ditto -c -k --keepParent "$APP_PATH" BiliKit-macOS26-Intel.zip
 
       - name: Upload Intel App Artifact
