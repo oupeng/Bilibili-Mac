@@ -39,19 +39,17 @@ jobs:
                       except Exception:
                           pass
 
-          # 2. 彻底解决 URLSessionRangeTransport.swift 中的 session 同名循环引用 Bug
+          # 2. 解决 URLSessionRangeTransport.swift 中的循环引用
           target_file = "Packages/BiliKitCore/Sources/BiliNetworking/Range/URLSessionRangeTransport.swift"
           if os.path.exists(target_file):
               with open(target_file, "r", encoding="utf-8") as f:
                   content = f.read()
 
-              # 将解构的 session 局部变量重命名为 activeSession，打破循环作用域冲突
               if "let (pending, session) = lock.withLock" in content:
                   content = content.replace(
                       "let (pending, session) = lock.withLock",
                       "let (pending, activeSession) = lock.withLock"
                   )
-                  # 同步将锁外使用的 session?. 改为 activeSession?.
                   content = content.replace("session?.finishTasksAndInvalidate()", "activeSession?.finishTasksAndInvalidate()")
                   content = content.replace("session?.invalidateAndCancel()", "activeSession?.invalidateAndCancel()")
                   content = content.replace("session.invalidateAndCancel()", "activeSession.invalidateAndCancel()")
@@ -59,6 +57,23 @@ jobs:
                   with open(target_file, "w", encoding="utf-8") as f:
                       f.write(content)
                   print("Successfully resolved circular reference in URLSessionRangeTransport.swift!")
+
+          # 3. 修复 AppKit NSColor.quinaryLabelColor 重命名问题
+          for root, dirs, files in os.walk("."):
+              for file in files:
+                  if file.endswith(".swift"):
+                      path = os.path.join(root, file)
+                      try:
+                          with open(path, "r", encoding="utf-8") as f:
+                              c = f.read()
+                          if "quinaryLabelColor" in c:
+                              print(f"Fixing quinaryLabelColor in {path}")
+                              c = c.replace("quinaryLabelColor", "quinaryLabel")
+                              with open(path, "w", encoding="utf-8") as f:
+                                  f.write(c)
+                      except Exception:
+                          pass
+          print("All patches applied successfully!")
           '
 
       - name: Build BiliKitMac for Intel (x86_64)
