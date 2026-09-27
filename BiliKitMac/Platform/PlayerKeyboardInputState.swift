@@ -35,6 +35,7 @@ enum PlayerKeyboardShortcut: Equatable, Hashable, Sendable {
     case playback
     case danmaku
     case subtitles
+    case fullScreen
 }
 
 struct PlayerKeyboardInputState: Equatable, Sendable {
@@ -51,6 +52,7 @@ struct PlayerKeyboardInputState: Equatable, Sendable {
         case togglePlayback
         case toggleDanmaku
         case toggleSubtitles
+        case toggleFullScreen
     }
 
     private struct HorizontalPress: Equatable, Sendable {
@@ -159,6 +161,7 @@ struct PlayerKeyboardInputState: Equatable, Sendable {
         case .playback: [.togglePlayback]
         case .danmaku: [.toggleDanmaku]
         case .subtitles: [.toggleSubtitles]
+        case .fullScreen: [.toggleFullScreen]
         }
     }
 

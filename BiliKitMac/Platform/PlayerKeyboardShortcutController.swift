@@ -41,6 +41,7 @@ final class PlayerKeyboardShortcutController {
     var onVolumeStep: (Float) -> Float? = { _ in nil }
     var onTogglePlayback: () -> Bool? = { nil }
     var onToggleDanmaku: () -> Bool? = { nil }
+    var onToggleFullScreen: () -> Void = {}
     var onToggleSubtitles: () async -> NativeSubtitleToggleResult = {
         .unavailable
     }
@@ -206,6 +207,9 @@ final class PlayerKeyboardShortcutController {
                     self.subtitleToggleTask = nil
                     self.feedbackPresenter?.showFeedback(.subtitles(result))
                 }
+            case .toggleFullScreen:
+                // 全屏过渡本身就是反馈，不再显示徽标。
+                onToggleFullScreen()
             }
         }
     }
@@ -258,6 +262,7 @@ final class PlayerKeyboardShortcutController {
             case " ": key = .shortcut(.playback)
             case "d": key = .shortcut(.danmaku)
             case "c": key = .shortcut(.subtitles)
+            case "f": key = .shortcut(.fullScreen)
             default: return nil
             }
         }

@@ -72,7 +72,8 @@ struct PlayerKeyboardInputStateTests {
         let cases: [(PlayerKeyboardShortcut, PlayerKeyboardInputState.Action)] = [
             (.playback, .togglePlayback),
             (.danmaku, .toggleDanmaku),
-            (.subtitles, .toggleSubtitles)
+            (.subtitles, .toggleSubtitles),
+            (.fullScreen, .toggleFullScreen)
         ]
         for (shortcut, action) in cases {
             #expect(state.shortcutKeyDown(shortcut, isRepeat: false) == [action])
