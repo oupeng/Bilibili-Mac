@@ -83,6 +83,13 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
 表达卡顿、暂停、倍速和 seek。字幕作为原生 subtitle rendition 进入同一 `AVPlayerItem`，由系统字幕
 菜单选择。
 
+- 续播位置在 load 时写入 master playlist 的 `#EXT-X-START:TIME-OFFSET=…,PRECISE=YES`，item 就绪即
+  精确位于该处，不再“先就绪、再内部 seek”：少一次 seek、少下载开头分段，也没有 seek 期间辨认
+  time-jump 来源的竞态。`beginPlayback` 只按就绪位置报告续播或从头开始；“从头播放”仍是 seek 到 0。
+- 时间轴与交互记录器在 item 开始时得知起播位置：就绪时据此标记一次 discontinuity，弹幕从起播位置
+  排起；落在起播位置的系统 time-jump 不算用户操作，否则会拒绝自动开播。
+- progressive 单文件（充电试看）没有 playlist，不续播，一律从头播放。
+
 ### 弹幕
 
 - 分段是 protobuf。`BiliAPI` 以 exact 1.38.1 依赖 SwiftProtobuf（Apache 2.0 + runtime exception），

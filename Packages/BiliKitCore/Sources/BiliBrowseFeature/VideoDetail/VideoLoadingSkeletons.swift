@@ -8,9 +8,10 @@ struct VideoDetailSkeleton: View {
             Rectangle()
                 .fill(.black)
                 .overlay {
+                    // macOS 的不确定进度转圈忽略 tint；在黑底上用深色外观才会画成浅色、看得见。
                     ProgressView()
-                        .controlSize(.small)
-                        .tint(.white)
+                        .controlSize(.large)
+                        .environment(\.colorScheme, .dark)
                 }
         } related: {
             RelatedVideoShelf<EmptyView>(

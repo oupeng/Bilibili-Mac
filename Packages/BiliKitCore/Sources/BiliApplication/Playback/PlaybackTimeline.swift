@@ -37,13 +37,8 @@ public struct PlaybackResumeToken: Sendable, Hashable {
 
 public enum PlaybackStartOutcome: Sendable, Equatable {
     case rejected
-    case preparationFailed
     case startedAtBeginning
-    case resumed(
-        positionSeconds: Double,
-        token: PlaybackResumeToken,
-        discontinuityGeneration: UInt64
-    )
+    case resumed(positionSeconds: Double, token: PlaybackResumeToken)
 }
 
 public enum PlaybackResumePolicy {
@@ -135,16 +130,18 @@ public protocol PlaybackTimelineProviding: AnyObject {
 public protocol PlaybackControlling: AnyObject {
     /// 只发布 adapter 已按当前 item token／generation 验证过的终态失败。
     func playbackFailureEvents() -> AsyncStream<PlaybackFailureEvent>
+    /// 准备并安装播放项目；`startPositionSeconds` 为续播位置，就绪时 item 即位于该处
+    /// （不支持起播位置的媒体忽略它、从头播放）。
     func load(
         _ playback: VideoPlayback,
         identity: PlaybackItemIdentity,
-        intent: PlaybackLoadIntent
+        intent: PlaybackLoadIntent,
+        startPositionSeconds: Double?
     ) async throws
-    /// 为当前 load intent 原子完成可选首次定位与开播；用户意图可在任一 await 后否决提交。
+    /// 为当前 load intent 开播一次，并按就绪位置报告续播或从头开始；已有用户操作时拒绝。
     func beginPlayback(
         identity: PlaybackItemIdentity,
-        intent: PlaybackLoadIntent,
-        initialPositionSeconds: Double?
+        intent: PlaybackLoadIntent
     ) async -> PlaybackStartOutcome
     /// 仅允许当前断点浮层把仍匹配的 item 定位到 0 秒并继续播放。
     func restartFromBeginning(

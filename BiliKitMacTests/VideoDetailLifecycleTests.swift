@@ -811,7 +811,8 @@ private final class LifecyclePlayback: PlaybackControlling {
     func load(
         _ playback: VideoPlayback,
         identity: PlaybackItemIdentity,
-        intent: PlaybackLoadIntent
+        intent: PlaybackLoadIntent,
+        startPositionSeconds: Double?
     ) async throws {
         loadedIdentities.append(identity)
         loadWaiters.resume(reaching: loadedIdentities.count)
@@ -823,8 +824,7 @@ private final class LifecyclePlayback: PlaybackControlling {
 
     func beginPlayback(
         identity: PlaybackItemIdentity,
-        intent: PlaybackLoadIntent,
-        initialPositionSeconds: Double?
+        intent: PlaybackLoadIntent
     ) async -> PlaybackStartOutcome {
         startedIdentities.append(identity)
         return .startedAtBeginning

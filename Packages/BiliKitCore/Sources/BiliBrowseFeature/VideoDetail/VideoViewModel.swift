@@ -46,8 +46,6 @@ public struct PlaybackResumeNotice: Sendable, Equatable {
     }
 }
 
-private struct PlaybackStartPreparationFailure: Error {}
-
 @MainActor
 @Observable
 /// 拥有单个视频准备意图，并把内容准备与播放器安装串成同一个可替换的 Task。
@@ -95,7 +93,7 @@ public final class VideoViewModel {
     {
         collectionEpisodes.pageStates
     }
-    /// 只在当前 item 已完成首次定位并开始播放后出现。
+    /// 只在当前 item 从续播位置就绪并开始播放后出现。
     public private(set) var resumeNotice: PlaybackResumeNotice?
 
     @ObservationIgnored private let useCase: VideoUseCase
@@ -399,20 +397,17 @@ public final class VideoViewModel {
         try await playback.load(
             context.playback,
             identity: identity,
-            intent: intent
+            intent: intent,
+            startPositionSeconds: context.resumePositionSeconds
         )
         try Task.checkCancellation()
         guard isCurrent() else { return false }
         let startOutcome = await playback.beginPlayback(
             identity: identity,
-            intent: intent,
-            initialPositionSeconds: context.resumePositionSeconds
+            intent: intent
         )
         try Task.checkCancellation()
         guard isCurrent() else { return false }
-        if startOutcome == .preparationFailed {
-            throw PlaybackStartPreparationFailure()
-        }
         applyResumeNotice(from: startOutcome)
         return true
     }
@@ -478,12 +473,12 @@ public final class VideoViewModel {
 
     private func applyResumeNotice(from outcome: PlaybackStartOutcome) {
         switch outcome {
-        case .resumed(let positionSeconds, let token, _):
+        case .resumed(let positionSeconds, let token):
             resumeNotice = PlaybackResumeNotice(
                 positionSeconds: positionSeconds,
                 token: token
             )
-        case .rejected, .preparationFailed, .startedAtBeginning:
+        case .rejected, .startedAtBeginning:
             resumeNotice = nil
         }
     }

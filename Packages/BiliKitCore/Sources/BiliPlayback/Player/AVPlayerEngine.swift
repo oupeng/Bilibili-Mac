@@ -24,15 +24,13 @@ private struct NativeSubtitleSelectionPreference: Sendable {
     let propertyListData: Data?
 }
 
-/// 断点续播与 seek 的时间策略。
+/// 起播判定与 seek 的时间策略。
 private enum SeekPolicy {
     static let timescale: CMTimeScale = 600
-    /// 断点续播与 transport 相对跳转允许落在最近的可解码位置。
-    static let resumeTolerance = CMTime(seconds: 0.25, preferredTimescale: timescale)
-    /// 不超过该位置视为仍在开头：可自动起播，也不值得作为续播落点。
+    /// transport 相对跳转允许落在最近的可解码位置。
+    static let relativeSeekTolerance = CMTime(seconds: 0.25, preferredTimescale: timescale)
+    /// 就绪位置不超过该值视为从头开始，否则按续播报告。
     static let beginningThresholdSeconds = 0.25
-    /// 续播落点离结尾至少保留的余量。
-    static let endMarginSeconds = 0.05
     /// “从头播放”的落点不超过该位置才算成功。
     static let restartLandingLimitSeconds = 0.5
 }
@@ -232,12 +230,14 @@ public final class AVPlayerEngine:
     public func load(
         _ playback: VideoPlayback,
         identity: PlaybackItemIdentity,
-        intent: PlaybackLoadIntent
+        intent: PlaybackLoadIntent,
+        startPositionSeconds: Double?
     ) async throws {
         try await load(
             PlaybackRequest(
                 media: playback.media,
-                mediaHeaders: playback.mediaHeaders
+                mediaHeaders: playback.mediaHeaders,
+                startPositionSeconds: startPositionSeconds
             ),
             identity: identity,
             intent: intent
@@ -271,9 +271,17 @@ public final class AVPlayerEngine:
         }
         try Task.checkCancellation()
 
+        // 只有 DASH→HLS 能经 playlist 的 EXT-X-START 从续播位置起播；progressive 从头播放。
+        let startPositionSeconds = request.startPositionSeconds.flatMap {
+            progressiveSource == nil && $0.isFinite && $0 > 0 ? $0 : nil
+        }
         releaseCurrentPlayback(nextGeneration: generation, nextIntent: intent)
         let pendingSubtitleReset = enqueueSubtitleReset()
-        timeline.begin(identity: identity, loadIntent: intent)
+        timeline.begin(
+            identity: identity,
+            loadIntent: intent,
+            startPositionSeconds: startPositionSeconds ?? 0
+        )
 
         await pendingSubtitleReset?.value
         try Task.checkCancellation()
@@ -299,7 +307,8 @@ public final class AVPlayerEngine:
                     videos: videos,
                     audioTracks: audioTracks,
                     headers: request.mediaHeaders,
-                    subtitleSource: subtitleSource
+                    subtitleSource: subtitleSource,
+                    startPositionSeconds: startPositionSeconds
                 )
             }
         }
@@ -366,81 +375,30 @@ public final class AVPlayerEngine:
         resetToIdle()
     }
 
-    /// 当前 item 保持暂停，先完成受 intent 和交互 revision 保护的首次定位，再开始播放。
+    /// 为当前 load intent 开播一次。
+    ///
+    /// 续播位置已由 playlist 的 `EXT-X-START` 在就绪前就位，这里不再 seek：按就绪位置报告续播
+    /// 或从头开始。过期 intent／identity、已开播或已观察到用户操作（暂停、seek）时拒绝。
     public func beginPlayback(
         identity: PlaybackItemIdentity,
-        intent: PlaybackLoadIntent,
-        initialPositionSeconds: Double?
+        intent: PlaybackLoadIntent
     ) async -> PlaybackStartOutcome {
         guard loadIntent == intent,
             timeline.currentSnapshot.identity == identity,
             !timeline.hasObservedPlaybackInteraction,
-            player.currentTime().seconds.isFinite,
-            player.currentTime().seconds >= 0,
-            player.currentTime().seconds <= SeekPolicy.beginningThresholdSeconds,
             timeline.currentSnapshot.state == .ready
                 || timeline.currentSnapshot.state == .paused,
-            let item = player.currentItem
+            player.currentItem != nil,
+            let positionSeconds = Self.validSeconds(player.currentTime())
         else { return .rejected }
-
-        let currentGeneration = loadGeneration
-        let interactionRevision = timeline.playbackInteractionRevision
-        guard let initialPositionSeconds,
-            let durationSeconds = Self.validSeconds(item.duration),
-            initialPositionSeconds.isFinite,
-            initialPositionSeconds > 0,
-            initialPositionSeconds < durationSeconds - SeekPolicy.endMarginSeconds
-        else {
+        play()
+        guard positionSeconds > SeekPolicy.beginningThresholdSeconds else {
             activeResumeToken = nil
-            play()
             return .startedAtBeginning
         }
-
-        let operation = UUID()
-        activeSeekOperationID = operation
-        timeline.prepareInitialSeek(
-            operationID: operation,
-            to: initialPositionSeconds
-        )
-        let didSeek = await seek(
-            to: initialPositionSeconds,
-            tolerance: SeekPolicy.resumeTolerance
-        )
-        let settlement = settleSeek(
-            operation,
-            didSeek: didSeek,
-            isOwned: activeSeekOperationID == operation,
-            item: item,
-            contextIsValid: loadGeneration == currentGeneration
-                && loadIntent == intent
-                && player.currentItem === item
-                && timeline.currentSnapshot.identity == identity
-                && timeline.playbackInteractionRevision == interactionRevision
-                && (timeline.currentSnapshot.state == .ready
-                    || timeline.currentSnapshot.state == .paused
-                    || timeline.currentSnapshot.state == .buffering)
-        ) {
-            Self.validatedResolvedInitialPosition(
-                player.currentTime(),
-                durationSeconds: durationSeconds
-            )
-        }
-        switch settlement {
-        case .superseded, .contextChanged:
-            return .rejected
-        case .failed:
-            return .preparationFailed
-        case .landed(let resolvedPosition):
-            let token = PlaybackResumeToken()
-            activeResumeToken = token
-            timeline.playAfterInternalSeek()
-            return .resumed(
-                positionSeconds: resolvedPosition,
-                token: token,
-                discontinuityGeneration:
-                    timeline.currentSnapshot.discontinuityGeneration
-            )
-        }
+        let token = PlaybackResumeToken()
+        activeResumeToken = token
+        return .resumed(positionSeconds: positionSeconds, token: token)
     }
 
     public func restartFromBeginning(
@@ -560,7 +518,7 @@ public final class AVPlayerEngine:
         )
         issueSeek(
             to: operation.targetSeconds,
-            tolerance: SeekPolicy.resumeTolerance,
+            tolerance: SeekPolicy.relativeSeekTolerance,
             generation: generation,
             item: item
         ) { engine, finished in
@@ -818,18 +776,6 @@ public final class AVPlayerEngine:
         if clearPreference {
             lastSubtitleSelection = nil
         }
-    }
-
-    static func validatedResolvedInitialPosition(
-        _ time: CMTime,
-        durationSeconds: Double
-    ) -> Double? {
-        guard let positionSeconds = validSeconds(time),
-            durationSeconds.isFinite,
-            positionSeconds > SeekPolicy.beginningThresholdSeconds,
-            positionSeconds < durationSeconds - SeekPolicy.endMarginSeconds
-        else { return nil }
-        return positionSeconds
     }
 
     private func handleCurrentItemFailure() {
