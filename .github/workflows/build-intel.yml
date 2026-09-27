@@ -24,7 +24,7 @@ jobs:
           python3 -c '
           import os
 
-          # 1. 消除 -warnings-as-errors
+          # 1. 消除 -warnings-as-errors 冲突
           for root, dirs, files in os.walk("."):
               for file in files:
                   if file.endswith((".swift", ".pbxproj", ".xcconfig")):
@@ -39,47 +39,37 @@ jobs:
                       except Exception:
                           pass
 
-          # 2. 修复 URLSessionRangeTransport.swift 中的 lock.withLock 类型推断 bug
+          # 2. 精准修复 URLSessionRangeTransport.swift 闭包花括号结构
           target_file = "Packages/BiliKitCore/Sources/BiliNetworking/Range/URLSessionRangeTransport.swift"
           if os.path.exists(target_file):
               with open(target_file, "r", encoding="utf-8") as f:
-                  code = f.read()
-              
-              # 替换直接元组解构，辅助 Swift 编译器正确推断
-              old_pattern = "let (pending, session) = lock.withLock {"
-              if old_pattern in code:
-                  print("Found complex tuple destructuring in URLSessionRangeTransport.swift, patching...")
-                  new_pattern = "let lockResult = lock.withLock {\n        let (pending, session) = (lockResult.0, lockResult.1)\n        _ = ("
-                  # 将 let (pending, session) = lock.withLock { 改写为先接收中间量再解构
-                  replacement = "let tupleResult = lock.withLock {\n"
-                  # 更好的改法：直接让 closure 显式返回，或者拆分
-                  code = code.replace(
-                      "let (pending, session) = lock.withLock {",
-                      "let tupleState = lock.withLock {\n            return"
-                  )
-                  # 如果原写法有闭包结尾，这里采用最稳妥的变量中转：
-                  code_patched = code.replace(
-                      "let (pending, session) = lock.withLock",
-                      "let _lockPair = lock.withLock"
-                  )
-                  # 在 lock.withLock 块之后解构
-                  # 为确保万无一失，直接用语义等价的单行安全注入：
-                  with open(target_file, "r", encoding="utf-8") as f:
-                      lines = f.readlines()
-                  
-                  new_lines = []
-                  for line in lines:
-                      if "let (pending, session) = lock.withLock" in line:
-                          indent = line[:len(line) - len(line.lstrip())]
-                          new_lines.append(f"{indent}let _tmpLockRes = lock.withLock {{\n")
-                          new_lines.append(f"{indent}let (pending, session) = (_tmpLockRes.0, _tmpLockRes.1)\n")
-                          # 跳过原那一行前面的部分，让闭包体正常展开
-                      else:
-                          new_lines.append(line)
-                  
-                  with open(target_file, "w", encoding="utf-8") as f:
-                      f.writelines(new_lines)
-                  print("Successfully patched URLSessionRangeTransport.swift!")
+                  content = f.read()
+
+              target_str = "let (pending, session) = lock.withLock"
+              idx = content.find(target_str)
+              if idx != -1:
+                  brace_start = content.find("{", idx)
+                  brace_count = 0
+                  brace_end = -1
+                  for i in range(brace_start, len(content)):
+                      if content[i] == "{":
+                          brace_count += 1
+                      elif content[i] == "}":
+                          brace_count -= 1
+                          if brace_count == 0:
+                              brace_end = i
+                              break
+
+                  if brace_end != -1:
+                      before = content[:idx] + "let _lockPair = lock.withLock"
+                      closure_body = content[idx + len(target_str) : brace_end + 1]
+                      after = content[brace_end + 1 :]
+                      # 将解构语句准确放置在闭包结束的大括号之后
+                      new_content = before + closure_body + "\n        let (pending, session) = (_lockPair.0, _lockPair.1)" + after
+
+                      with open(target_file, "w", encoding="utf-8") as f:
+                          f.write(new_content)
+                      print("Successfully and cleanly patched URLSessionRangeTransport.swift!")
           '
 
       - name: Build BiliKitMac for Intel (x86_64)
