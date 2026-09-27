@@ -206,16 +206,18 @@ struct AppShellView: View {
         .ignoresSafeArea(.container, edges: .top)
     }
 
+    // 浏览态与播放态共用一列：ideal 只在首次布局生效，切换状态时宽度被夹进新范围，
+    // 因此进入播放时侧栏宽度等于播放态最小值；更宽由用户自行拖动。
     private var sidebarMinimumWidth: CGFloat {
-        navigationCoordinator.currentPlaybackBVID == nil ? 300 : 480
+        navigationCoordinator.currentPlaybackBVID == nil ? 300 : 520
     }
 
     private var sidebarIdealWidth: CGFloat {
-        navigationCoordinator.currentPlaybackBVID == nil ? 320 : 480
+        navigationCoordinator.currentPlaybackBVID == nil ? 320 : 520
     }
 
     private var sidebarMaximumWidth: CGFloat {
-        navigationCoordinator.currentPlaybackBVID == nil ? 320 : 520
+        navigationCoordinator.currentPlaybackBVID == nil ? 320 : 720
     }
 
     private func openCommentPictures(
