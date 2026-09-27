@@ -324,36 +324,32 @@ private struct PlaybackDestinationView: View {
     let onSelectRelatedVideo: (String) -> Void
 
     var body: some View {
-        playbackDetail
-            .navigationTitle("播放")
-            .toolbar(removing: .title)
-            .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
-    }
-
-    private var playbackDetail: some View {
-        NativePlaybackDetailView(
-            contentIdentity: model.presentedBVID
-        ) {
-            VideoPlaybackView(
-                model: model,
-                danmakuModel: danmakuModel,
-                onRetry: onRetry,
-                onSelectRelatedVideo: onSelectRelatedVideo,
-                makeRelatedContent: {
-                    contentIdentity,
-                    presentations,
-                    onSelect in
-                    RelatedNativeShelfView(
-                        contentIdentity: contentIdentity,
-                        presentations: presentations,
-                        imagePipeline: imagePipeline,
-                        onSelect: onSelect
-                    )
-                }
-            ) {
-                playerContent
+        VideoPlaybackView(
+            model: model,
+            danmakuModel: danmakuModel,
+            onRetry: onRetry,
+            onSelectRelatedVideo: onSelectRelatedVideo,
+            makeRelatedContent: {
+                contentIdentity,
+                presentations,
+                onSelect in
+                RelatedNativeShelfView(
+                    contentIdentity: contentIdentity,
+                    presentations: presentations,
+                    imagePipeline: imagePipeline,
+                    onSelect: onSelect
+                )
             }
+        ) {
+            playerContent
         }
-        .ignoresSafeArea(.container, edges: [.top, .horizontal])
+        // 播放页压在来源页（NavigationStack 根）之上，根页面为保留状态仍在渲染；macOS 不为压栈
+        // 页面绘制底色，必须自铺不透明窗口背景，并延伸到工具栏与侧栏下方。
+        .background {
+            Color(nsColor: .windowBackgroundColor)
+                .ignoresSafeArea()
+        }
+        .navigationTitle("播放")
+        .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
     }
 }

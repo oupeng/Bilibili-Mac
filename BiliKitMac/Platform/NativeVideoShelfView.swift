@@ -2,26 +2,22 @@ import AppKit
 import BiliUI
 import SwiftUI
 
+/// 横排的分页与滚动换算；尺寸常量来自 `VideoCardShelfGeometry`。
 enum NativeVideoShelfGeometry {
-    static let cardWidth: CGFloat = 224
-    static let cardHeight = VideoCardGeometry.height(forWidth: cardWidth)
-    static let spacing: CGFloat = 16
-    static let contentInset: CGFloat = 40
-    static let bottomInset: CGFloat = 22
-    static let viewportHeight: CGFloat = 232
+    private typealias Shelf = VideoCardShelfGeometry
 
-    static var stride: CGFloat { cardWidth + spacing }
+    static var stride: CGFloat { Shelf.cardWidth + Shelf.spacing }
 
     static func pageCapacity(viewportWidth: CGFloat) -> Int {
-        let availableWidth = max(cardWidth, viewportWidth - contentInset * 2)
-        return max(1, Int(floor((availableWidth + spacing) / stride)))
+        let availableWidth = max(Shelf.cardWidth, viewportWidth - Shelf.contentInset * 2)
+        return max(1, Int(floor((availableWidth + Shelf.spacing) / stride)))
     }
 
     static func documentWidth(itemCount: Int) -> CGFloat {
         guard itemCount > 0 else { return 0 }
-        return contentInset * 2
-            + CGFloat(itemCount) * cardWidth
-            + CGFloat(itemCount - 1) * spacing
+        return Shelf.contentInset * 2
+            + CGFloat(itemCount) * Shelf.cardWidth
+            + CGFloat(itemCount - 1) * Shelf.spacing
     }
 
     static func offset(for index: Int) -> CGFloat {
@@ -138,16 +134,16 @@ struct NativeVideoShelfView: NSViewRepresentable {
         func makeScrollView() -> NativeVideoShelfScrollView {
             layout.scrollDirection = .horizontal
             layout.itemSize = NSSize(
-                width: NativeVideoShelfGeometry.cardWidth,
-                height: NativeVideoShelfGeometry.cardHeight
+                width: VideoCardShelfGeometry.cardWidth,
+                height: VideoCardShelfGeometry.cardHeight
             )
-            layout.minimumInteritemSpacing = NativeVideoShelfGeometry.spacing
-            layout.minimumLineSpacing = NativeVideoShelfGeometry.spacing
+            layout.minimumInteritemSpacing = VideoCardShelfGeometry.spacing
+            layout.minimumLineSpacing = VideoCardShelfGeometry.spacing
             layout.sectionInset = NSEdgeInsets(
                 top: 0,
-                left: NativeVideoShelfGeometry.contentInset,
-                bottom: NativeVideoShelfGeometry.bottomInset,
-                right: NativeVideoShelfGeometry.contentInset
+                left: VideoCardShelfGeometry.contentInset,
+                bottom: VideoCardShelfGeometry.bottomInset,
+                right: VideoCardShelfGeometry.contentInset
             )
 
             collectionView.collectionViewLayout = layout
@@ -370,7 +366,7 @@ struct NativeVideoShelfView: NSViewRepresentable {
                     viewport.width,
                     NativeVideoShelfGeometry.documentWidth(itemCount: contents.orderedIDs.count)
                 ),
-                height: max(viewport.height, NativeVideoShelfGeometry.viewportHeight)
+                height: max(viewport.height, VideoCardShelfGeometry.viewportHeight)
             )
             let sizeChanged =
                 abs(collectionView.frame.width - targetSize.width) > 0.5
@@ -419,7 +415,7 @@ struct NativeVideoShelfView: NSViewRepresentable {
             )
             let capacity = NativeVideoShelfGeometry.pageCapacity(
                 viewportWidth: max(
-                    NativeVideoShelfGeometry.cardWidth,
+                    VideoCardShelfGeometry.cardWidth,
                     scrollView.contentSize.width
                         - max(0, scrollView.contentInsets.left)
                         - max(0, scrollView.contentInsets.right)
