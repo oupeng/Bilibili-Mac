@@ -19,129 +19,83 @@ jobs:
           sw_vers
           xcodebuild -version
 
-      - name: Install Dependencies for Icon Processing
+      - name: Prepare macOS 26 Liquid Glass App Icon
         run: |
-          python3 -m pip install pillow --break-system-packages --quiet
-
-      - name: Process Custom Icon & Generate macOS Dark Mode Assets
-        run: |
-          python3 -c '
-          import os, sys, glob, json, shutil, subprocess
+          python3 - <<'PY'
+          import os
+          import shutil
+          import subprocess
+          import json
 
           icon_icns = "custom_icon.icns"
           iconset_dir = "temp_custom.iconset"
-          generated_xcassets = "generated_appicon.xcassets/AppIcon.appiconset"
+          icon_bundle = "generated_appicon.icon"
+          assets_dir = os.path.join(icon_bundle, "Assets")
+          icon_json = os.path.join(icon_bundle, "icon.json")
 
-          if os.path.exists(icon_icns):
-              print("Found custom_icon.icns, generating icon assets...")
-              os.makedirs(iconset_dir, exist_ok=True)
-              subprocess.run(["iconutil", "-c", "iconset", icon_icns, "-o", iconset_dir], check=True)
-              
-              from PIL import Image, ImageEnhance
+          if not os.path.isfile(icon_icns):
+              raise SystemExit("::error:: custom_icon.icns not found in repository root")
 
-              all_pngs = sorted(glob.glob(os.path.join(iconset_dir, "*.png")), key=lambda x: os.path.getsize(x), reverse=True)
-              base_img = Image.open(all_pngs[0]).convert("RGBA") if all_pngs else None
+          print("=== Preparing custom icon for macOS 26 Icon Composer ===")
 
-              spec_list = [
-                  (16, "1x", "icon_16x16.png", "icon_16x16_dark.png"),
-                  (32, "2x", "icon_16x16@2x.png", "icon_16x16@2x_dark.png"),
-                  (32, "1x", "icon_32x32.png", "icon_32x32_dark.png"),
-                  (64, "2x", "icon_32x32@2x.png", "icon_32x32@2x_dark.png"),
-                  (128, "1x", "icon_128x128.png", "icon_128x128_dark.png"),
-                  (256, "2x", "icon_128x128@2x.png", "icon_128x128@2x_dark.png"),
-                  (256, "1x", "icon_256x256.png", "icon_256x256_dark.png"),
-                  (512, "2x", "icon_256x256@2x.png", "icon_256x256@2x_dark.png"),
-                  (512, "1x", "icon_512x512.png", "icon_512x512_dark.png"),
-                  (1024, "2x", "icon_512x512@2x.png", "icon_512x512@2x_dark.png"),
-              ]
+          shutil.rmtree(iconset_dir, ignore_errors=True)
+          shutil.rmtree(icon_bundle, ignore_errors=True)
 
-              def create_dark_variant(src_img):
-                  r, g, b, a = src_img.split()
-                  rgb = Image.merge("RGB", (r, g, b))
-                  dark_rgb = ImageEnhance.Brightness(rgb).enhance(0.72)
-                  dark_rgb = ImageEnhance.Contrast(dark_rgb).enhance(1.1)
-                  dr, dg, db = dark_rgb.split()
-                  return Image.merge("RGBA", (dr, dg, db, a))
+          # Extract the existing ICNS into standard-resolution PNGs.
+          subprocess.run(
+              ["iconutil", "--convert", "iconset", icon_icns, "--output", iconset_dir],
+              check=True
+          )
 
-              images_json = []
+          # Use the 1024px source as the single artwork layer.
+          source_png = os.path.join(iconset_dir, "icon_512x512@2x.png")
+          if not os.path.isfile(source_png):
+              raise SystemExit(
+                  "::error:: custom_icon.icns does not contain icon_512x512@2x.png"
+              )
 
-              for px, scale, light_fn, dark_fn in spec_list:
-                  light_path = os.path.join(iconset_dir, light_fn)
-                  dark_path = os.path.join(iconset_dir, dark_fn)
+          os.makedirs(assets_dir, exist_ok=True)
+          shutil.copy2(source_png, os.path.join(assets_dir, "BiliKit.png"))
 
-                  if os.path.exists(light_path):
-                      img_light = Image.open(light_path).convert("RGBA")
-                  else:
-                      img_light = base_img.resize((px, px), Image.Resampling.LANCZOS)
-                      img_light.save(light_path, "PNG")
-
-                  img_dark = create_dark_variant(img_light)
-                  img_dark.save(dark_path, "PNG")
-
-                  divisor = 2 if scale == "2x" else 1
-                  dim = px // divisor
-                  size_str = f"{dim}x{dim}"
-                  
-                  images_json.append({
-                      "size": size_str,
-                      "idiom": "mac",
-                      "filename": light_fn,
-                      "scale": scale
-                  })
-                  images_json.append({
-                      "size": size_str,
-                      "idiom": "mac",
-                      "filename": dark_fn,
-                      "scale": scale,
-                      "appearances": [
+          # A single-layer .icon is intentionally used here because the only
+          # supplied artwork is a flattened ICNS. Icon Composer applies the
+          # macOS 26 Liquid Glass material, masking, lighting and appearance
+          # treatment at runtime.
+          icon_definition = {
+              "fill": "none",
+              "groups": [
+                  {
+                      "layers": [
                           {
-                              "appearance": "luminosity",
-                              "value": "dark"
+                              "image-name": "BiliKit.png",
+                              "name": "BiliKit",
+                              "glass": True
                           }
-                      ]
-                  })
-
-              contents_json = {
-                  "images": images_json,
-                  "info": {
-                      "author": "xcode",
-                      "version": 1
+                      ],
+                      "lighting": "individual",
+                      "shadow": {
+                          "kind": "neutral",
+                          "opacity": 0.5
+                      },
+                      "specular": True,
+                      "translucency": {
+                          "enabled": True,
+                          "value": 0.5
+                      }
                   }
+              ],
+              "supported-platforms": {
+                  "squares": ["macOS"]
               }
+          }
 
-              # 创建准备后续覆盖使用的 AppIcon.appiconset 目录
-              os.makedirs(generated_xcassets, exist_ok=True)
-              for fname in os.listdir(iconset_dir):
-                  if fname.endswith(".png"):
-                      shutil.copy2(os.path.join(iconset_dir, fname), os.path.join(generated_xcassets, fname))
-              with open(os.path.join(generated_xcassets, "Contents.json"), "w", encoding="utf-8") as f:
-                  json.dump(contents_json, f, indent=2)
+          with open(icon_json, "w", encoding="utf-8") as f:
+              json.dump(icon_definition, f, indent=2)
 
-              # 顺带同步更新项目中现有的所有 .xcassets
-              for root, dirs, files in os.walk("."):
-                  for d in dirs:
-                      if d.endswith(".xcassets") and "generated_appicon.xcassets" not in root:
-                          appicon_dir = os.path.join(root, d, "AppIcon.appiconset")
-                          os.makedirs(appicon_dir, exist_ok=True)
-                          for f in os.listdir(appicon_dir):
-                              os.remove(os.path.join(appicon_dir, f))
-                          for fname in os.listdir(iconset_dir):
-                              if fname.endswith(".png"):
-                                  shutil.copy2(os.path.join(iconset_dir, fname), os.path.join(appicon_dir, fname))
-                          with open(os.path.join(appicon_dir, "Contents.json"), "w", encoding="utf-8") as f:
-                              json.dump(contents_json, f, indent=2)
-
-              # 替换源码中所有残留的 .icns
-              for root, dirs, files in os.walk("."):
-                  for file in files:
-                      if file.endswith(".icns") and file != "custom_icon.icns":
-                          target_icns = os.path.join(root, file)
-                          shutil.copy2(icon_icns, target_icns)
-                          print(f"Replaced source ICNS: {target_icns}")
-          else:
-              print("::error:: custom_icon.icns not found in root directory!")
-              sys.exit(1)
-          '
+          print("Generated:", icon_bundle)
+          print("Artwork:", os.path.join(assets_dir, "BiliKit.png"))
+          print("Icon Composer manifest:", icon_json)
+          PY
 
       - name: Apply All Patches (Warnings, Syntax, Keychain, Sandbox & Updater)
         run: |
@@ -261,60 +215,66 @@ jobs:
             exit 1
           fi
 
-          echo "=== 强制重构应用包图标资源 ==="
-          if [ -f "custom_icon.icns" ]; then
-              # 1. 替换 Resources 目录下所有的 .icns 文件
-              find "$APP_PATH/Contents/Resources" -name "*.icns" -exec cp custom_icon.icns {} \;
-              cp custom_icon.icns "$APP_PATH/Contents/Resources/AppIcon.icns"
+          echo "=== Install macOS 26 Icon Composer icon ==="
 
-              # 2. 关键修复：彻底删除 xcodebuild 从 AppIcon.icon 编译出的旧 Assets.car
-              rm -f "$APP_PATH/Contents/Resources/Assets.car"
-
-              # 3. 收集所有 .xcassets，一次性调用 actool 重新编译出全新的 Assets.car
-              XCASSETS_ARGS=""
-              for xcas in $(find . -name "*.xcassets"); do
-                  XCASSETS_ARGS="$XCASSETS_ARGS $xcas"
-              done
-              echo "Recompiling pristine Assets.car with:$XCASSETS_ARGS"
-
-              xcrun actool $XCASSETS_ARGS \
-                --compile "$APP_PATH/Contents/Resources" \
-                --platform macosx \
-                --target-device mac \
-                --minimum-deployment-target 11.0 \
-                --app-icon AppIcon \
-                --output-format human-readable-text
-
-              # 4. 修正 Info.plist 保证 100% 匹配
-              PLIST_PATH="$APP_PATH/Contents/Info.plist"
-              if [ -f "$PLIST_PATH" ]; then
-                  python3 -c '
-                  import plistlib, sys
-                  plist_path = sys.argv[1]
-                  with open(plist_path, "rb") as f:
-                      data = plistlib.load(f)
-                  data["CFBundleIconFile"] = "AppIcon"
-                  data["CFBundleIconName"] = "AppIcon"
-                  with open(plist_path, "wb") as f:
-                      plistlib.dump(data, f)
-                  print("Info.plist icon keys updated successfully.")
-                  ' "$PLIST_PATH"
-              fi
+          if [ ! -d "generated_appicon.icon" ]; then
+            echo "::error::generated_appicon.icon not found!"
+            exit 1
           fi
 
-          # 5. 刷新包修改时间，强制 macOS Finder 重新读取缓存
-          touch "$APP_PATH"
+          # xcodebuild may already have produced a legacy Assets.car/.icns.
+          # Remove those icon resources so macOS 26 resolves the icon from
+          # the Icon Composer asset instead of the legacy CFBundleIconFile path.
+          rm -f "$APP_PATH/Contents/Resources/Assets.car"
+          find "$APP_PATH/Contents/Resources" -maxdepth 1 -name "*.icns" -delete
 
-          echo "=== 架构验证 ==="
+          # Compile the Xcode 26 Icon Composer package directly into Assets.car.
+          xcrun actool "generated_appicon.icon" \
+            --compile "$APP_PATH/Contents/Resources" \
+            --platform macosx \
+            --target-device mac \
+            --minimum-deployment-target 26.0 \
+            --app-icon AppIcon \
+            --output-format human-readable-text
+
+          # macOS 26 uses the asset-catalog Icon Composer representation.
+          # Do NOT set CFBundleIconFile: that legacy key points macOS at an
+          # ICNS and bypasses the dynamic Icon Composer appearance.
+          PLIST_PATH="$APP_PATH/Contents/Info.plist"
+          if [ -f "$PLIST_PATH" ]; then
+            python3 - "$PLIST_PATH" <<'PY'
+          import plistlib
+          import sys
+
+          plist_path = sys.argv[1]
+          with open(plist_path, "rb") as f:
+              data = plistlib.load(f)
+
+          data.pop("CFBundleIconFile", None)
+          data.pop("CFBundleIconFiles", None)
+          data["CFBundleIconName"] = "AppIcon"
+
+          with open(plist_path, "wb") as f:
+              plistlib.dump(data, f)
+
+          print("Info.plist updated: CFBundleIconName=AppIcon; legacy icon keys removed.")
+          PY
+          fi
+
+          # Invalidate Finder/Dock icon cache heuristics.
+          touch "$APP_PATH"
+          touch "$APP_PATH/Contents/Info.plist"
+
+          echo "=== Architecture verification ==="
           lipo -info "$APP_PATH/Contents/MacOS/"*
 
-          # 使用修改后的 Entitlements（非沙盒）重新自签名
+          # Use the modified entitlements (non-sandbox) to ad-hoc sign.
           ENT_FILE=$(find . -name "*.entitlements" | head -n 1)
           if [ -n "$ENT_FILE" ]; then
-              echo "Signing with non-sandbox entitlements: $ENT_FILE"
-              codesign --force --deep --sign - --entitlements "$ENT_FILE" "$APP_PATH"
+            echo "Signing with non-sandbox entitlements: $ENT_FILE"
+            codesign --force --deep --sign - --entitlements "$ENT_FILE" "$APP_PATH"
           else
-              codesign --force --deep --sign - "$APP_PATH"
+            codesign --force --deep --sign - "$APP_PATH"
           fi
 
           ditto -c -k --keepParent "$APP_PATH" BiliKit-macOS26-Intel.zip
