@@ -180,7 +180,7 @@ jobs:
                       except Exception:
                           pass
 
-          # 6. 注入系统主题监听器：根据深色/浅色模式实时切换 Dock 图标
+          # 6. 注入系统主题监听器与类声明（确保类定义与调用同时存在）
           app_file = "BiliKitMac/App/BiliKitMacApp.swift"
           if os.path.exists(app_file):
               with open(app_file, "r", encoding="utf-8") as f:
@@ -211,16 +211,22 @@ jobs:
               }
               """
 
-              if "ThemeIconSwitcher" not in app_code:
+              # 1. 确保在 init 中启动
+              if "ThemeIconSwitcher.shared.start()" not in app_code:
                   if "init()" in app_code:
                       app_code = app_code.replace("init() {", "init() {\n        ThemeIconSwitcher.shared.start()\n")
                   else:
                       app_code = app_code.rstrip()
                       if app_code.endswith("}"):
-                          app_code = app_code[:-1] + "\n    init() {\n        ThemeIconSwitcher.shared.start()\n    }\n}\n" + helper_class
-                  with open(app_file, "w", encoding="utf-8") as f:
-                      f.write(app_code)
-                  print("Injected ThemeIconSwitcher into BiliKitMacApp.swift successfully!")
+                          app_code = app_code[:-1] + "\n    init() {\n        ThemeIconSwitcher.shared.start()\n    }\n}\n"
+
+              # 2. 确保类定义无条件追加到文件尾部（顶层类型）
+              if "final class ThemeIconSwitcher" not in app_code:
+                  app_code = app_code.strip() + "\n\n" + helper_class + "\n"
+
+              with open(app_file, "w", encoding="utf-8") as f:
+                  f.write(app_code)
+              print("Injected ThemeIconSwitcher safely!")
           EOF
           python3 patch_all.py
 
