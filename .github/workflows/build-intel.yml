@@ -261,25 +261,31 @@ jobs:
             exit 1
           fi
 
-          echo "=== 覆盖产物中的图标（覆写 Assets.car 与 .icns）==="
+          echo "=== 强制重构应用包图标资源 ==="
           if [ -f "custom_icon.icns" ]; then
-              # 1. 替换 Resources 下的所有 .icns 文件
+              # 1. 替换 Resources 目录下所有的 .icns 文件
               find "$APP_PATH/Contents/Resources" -name "*.icns" -exec cp custom_icon.icns {} \;
               cp custom_icon.icns "$APP_PATH/Contents/Resources/AppIcon.icns"
 
-              # 2. 强行使用 actool 重新编译 Assets.car，覆盖由 AppIcon.icon 生成的默认 Asset 缓存
-              if [ -d "generated_appicon.xcassets" ]; then
-                  echo "Force recompiling Assets.car with generated_appicon.xcassets..."
-                  xcrun actool generated_appicon.xcassets \
-                    --compile "$APP_PATH/Contents/Resources" \
-                    --platform macosx \
-                    --target-device mac \
-                    --minimum-deployment-target 11.0 \
-                    --app-icon AppIcon \
-                    --output-format human-readable-text
-              fi
+              # 2. 关键修复：彻底删除 xcodebuild 从 AppIcon.icon 编译出的旧 Assets.car
+              rm -f "$APP_PATH/Contents/Resources/Assets.car"
 
-              # 3. 补全/校对 Info.plist 关联属性
+              # 3. 收集所有 .xcassets，一次性调用 actool 重新编译出全新的 Assets.car
+              XCASSETS_ARGS=""
+              for xcas in $(find . -name "*.xcassets"); do
+                  XCASSETS_ARGS="$XCASSETS_ARGS $xcas"
+              done
+              echo "Recompiling pristine Assets.car with:$XCASSETS_ARGS"
+
+              xcrun actool $XCASSETS_ARGS \
+                --compile "$APP_PATH/Contents/Resources" \
+                --platform macosx \
+                --target-device mac \
+                --minimum-deployment-target 11.0 \
+                --app-icon AppIcon \
+                --output-format human-readable-text
+
+              # 4. 修正 Info.plist 保证 100% 匹配
               PLIST_PATH="$APP_PATH/Contents/Info.plist"
               if [ -f "$PLIST_PATH" ]; then
                   python3 -c '
@@ -291,12 +297,12 @@ jobs:
                   data["CFBundleIconName"] = "AppIcon"
                   with open(plist_path, "wb") as f:
                       plistlib.dump(data, f)
-                  print("Info.plist icon keys updated.")
+                  print("Info.plist icon keys updated successfully.")
                   ' "$PLIST_PATH"
               fi
           fi
 
-          # 4. 刷新包修改时间，强制 macOS 重新刷新 Finder 图标缓存
+          # 5. 刷新包修改时间，强制 macOS Finder 重新读取缓存
           touch "$APP_PATH"
 
           echo "=== 架构验证 ==="
