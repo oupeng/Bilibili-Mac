@@ -21,12 +21,10 @@ jobs:
 
       - name: Install Pillow for Image Processing
         run: |
-          # 加上 --break-system-packages 绕过 Homebrew 的 PEP 668 外部环境锁定
           python3 -m pip install pillow --break-system-packages
 
       - name: Unpack and Generate Dark/Light Icons
         run: |
-          # 1. 如果根目录下存在 custom_icon.icns，使用 macOS 原生 iconutil 无损解包
           if [ -f "custom_icon.icns" ]; then
               echo "Found custom_icon.icns, unpacking..."
               rm -rf custom.iconset
@@ -35,13 +33,11 @@ jobs:
               echo "Warning: custom_icon.icns not found in root, using existing AppIcon."
           fi
 
-          # 2. Python 提取最高清原图并算法生成深色模式版本
-          python3 -c '
+          cat << 'EOF' > generate_icons.py
           import os, glob
           from PIL import Image
           from collections import deque
 
-          # 查找解包出的最高分辨率 PNG (优先 512x512@2x 即 1024x1024)
           src_png = None
           for candidate in ["custom.iconset/icon_512x512@2x.png", "custom.iconset/icon_512x512.png"]:
               if os.path.exists(candidate):
@@ -58,16 +54,15 @@ jobs:
               light_img = Image.open(src_png).convert("RGBA")
               light_img.save("icon_light.png")
 
-              # 算法生成深色模式版：通过广度优先搜索(BFS)仅将小电视外部的白色底替换为暗夜灰
+              # 算法生成深色模式版：通过 BFS 仅将小电视外部的白底替换为暗夜灰
               dark_img = light_img.copy()
               w, h = dark_img.size
               pixels = dark_img.load()
 
-              target_dark = (32, 32, 36) # macOS 暗色系统质感灰
+              target_dark = (32, 32, 36)
               visited = set()
               queue = deque()
 
-              # 从外围 4 个角落与边缘采样（位于外部圆角背景区域，在粉色小电视边框之外）
               seeds = [
                   (int(w * 0.15), int(h * 0.15)),
                   (int(w * 0.85), int(h * 0.15)),
@@ -101,11 +96,12 @@ jobs:
 
               dark_img.save("icon_dark.png")
               print("Successfully generated icon_light.png and icon_dark.png!")
-          '
+          EOF
+          python3 generate_icons.py
 
       - name: Apply All Patches (Syntax, Compiler, Sandbox & Dynamic Icon Switcher)
         run: |
-          python3 -c '
+          cat << 'EOF' > patch_all.py
           import os, re
 
           # 1. 消除 -warnings-as-errors 冲突
@@ -114,3 +110,182 @@ jobs:
                   if file.endswith((".swift", ".pbxproj", ".xcconfig")):
                       path = os.path.join(root, file)
                       try:
+                          with open(path, "r", encoding="utf-8") as f:
+                              content = f.read()
+                          if "-warnings-as-errors" in content:
+                              content = content.replace("-warnings-as-errors", "-DNO_WERROR")
+                              with open(path, "w", encoding="utf-8") as f:
+                                  f.write(content)
+                      except Exception:
+                          pass
+
+          # 2. 修复 URLSessionRangeTransport.swift 循环引用
+          target_file = "Packages/BiliKitCore/Sources/BiliNetworking/Range/URLSessionRangeTransport.swift"
+          if os.path.exists(target_file):
+              with open(target_file, "r", encoding="utf-8") as f:
+                  content = f.read()
+              if "let (pending, session) = lock.withLock" in content:
+                  content = content.replace("let (pending, session) = lock.withLock", "let (pending, activeSession) = lock.withLock")
+                  content = content.replace("session?.finishTasksAndInvalidate()", "activeSession?.finishTasksAndInvalidate()")
+                  content = content.replace("session?.invalidateAndCancel()", "activeSession?.invalidateAndCancel()")
+                  content = content.replace("session.invalidateAndCancel()", "activeSession.invalidateAndCancel()")
+                  with open(target_file, "w", encoding="utf-8") as f:
+                      f.write(content)
+
+          # 3. 修复 NSColor.quinaryLabelColor 重命名
+          for root, dirs, files in os.walk("."):
+              for file in files:
+                  if file.endswith(".swift"):
+                      path = os.path.join(root, file)
+                      try:
+                          with open(path, "r", encoding="utf-8") as f:
+                              c = f.read()
+                          if "quinaryLabelColor" in c:
+                              c = c.replace("quinaryLabelColor", "quinaryLabel")
+                              with open(path, "w", encoding="utf-8") as f:
+                                  f.write(c)
+                      except Exception:
+                          pass
+
+          # 4. 移除 App Sandbox 与 Keychain Access Groups（防止钥匙串拦截）
+          for root, dirs, files in os.walk("."):
+              for file in files:
+                  if file.endswith(".entitlements"):
+                      path = os.path.join(root, file)
+                      try:
+                          with open(path, "r", encoding="utf-8") as f:
+                              ent = f.read()
+                          ent = re.sub(r"<key>com.apple.security.app-sandbox</key>\s*<true/>", "<key>com.apple.security.app-sandbox</key><false/>", ent)
+                          ent = re.sub(r"<key>keychain-access-groups</key>\s*<array>.*?</array>", "", ent, flags=re.DOTALL)
+                          with open(path, "w", encoding="utf-8") as f:
+                              f.write(ent)
+                          print(f"Patched entitlements: {path}")
+                      except Exception:
+                          pass
+
+          # 5. 禁用 Sparkle 自动更新检查
+          for root, dirs, files in os.walk("."):
+              for file in files:
+                  if "Info.plist" in file:
+                      path = os.path.join(root, file)
+                      try:
+                          with open(path, "r", encoding="utf-8") as f:
+                              plist = f.read()
+                          if "</dict>" in plist:
+                              sparkle_block = "<key>SUEnableAutomaticChecks</key><false/><key>SUAutomaticallyUpdate</key><false/>\n</dict>"
+                              plist = plist.replace("</dict>", sparkle_block, 1)
+                              with open(path, "w", encoding="utf-8") as f:
+                                  f.write(plist)
+                              print(f"Disabled Sparkle auto-update in: {path}")
+                      except Exception:
+                          pass
+
+          # 6. 注入系统主题监听器：根据深色/浅色模式实时切换 Dock 图标
+          app_file = "BiliKitMac/App/BiliKitMacApp.swift"
+          if os.path.exists(app_file):
+              with open(app_file, "r", encoding="utf-8") as f:
+                  app_code = f.read()
+
+              helper_class = """
+              @MainActor
+              final class ThemeIconSwitcher: NSObject {
+                  static let shared = ThemeIconSwitcher()
+                  func start() {
+                      update()
+                      DistributedNotificationCenter.default().addObserver(
+                          forName: Notification.Name("AppleInterfaceThemeChangedNotification"),
+                          object: nil,
+                          queue: .main
+                      ) { [weak self] _ in
+                          self?.update()
+                      }
+                  }
+                  func update() {
+                      let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                      let file = isDark ? "icon_dark.png" : "icon_light.png"
+                      if let path = Bundle.main.path(forResource: file, ofType: nil),
+                         let image = NSImage(contentsOfFile: path) {
+                          NSApp.applicationIconImage = image
+                      }
+                  }
+              }
+              """
+
+              if "ThemeIconSwitcher" not in app_code:
+                  if "init()" in app_code:
+                      app_code = app_code.replace("init() {", "init() {\n        ThemeIconSwitcher.shared.start()\n")
+                  else:
+                      app_code = app_code.rstrip()
+                      if app_code.endswith("}"):
+                          app_code = app_code[:-1] + "\n    init() {\n        ThemeIconSwitcher.shared.start()\n    }\n}\n" + helper_class
+                  with open(app_file, "w", encoding="utf-8") as f:
+                      f.write(app_code)
+                  print("Injected ThemeIconSwitcher into BiliKitMacApp.swift successfully!")
+          EOF
+          python3 patch_all.py
+
+      - name: Build BiliKitMac for Intel (x86_64)
+        run: |
+          SCHEME="BiliKitMac"
+          if ! xcodebuild -list -project BiliKitMac.xcodeproj | grep -q "BiliKitMac"; then
+            SCHEME="BiliKit"
+          fi
+          echo "Selected App Scheme: $SCHEME"
+
+          xcodebuild build \
+            -project BiliKitMac.xcodeproj \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination 'platform=macOS,arch=x86_64' \
+            ARCHS="x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
+            SWIFT_SUPPRESS_WARNINGS=NO \
+            GCC_WARN_INHIBIT_ALL_WARNINGS=NO \
+            SWIFT_TREAT_WARNINGS_AS_ERRORS=NO \
+            GCC_TREAT_WARNINGS_AS_ERRORS=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            -derivedDataPath ./DerivedData
+
+      - name: Replace Bundle Icons & Ad-hoc Sign App
+        run: |
+          APP_PATH=$(find ./DerivedData/Build/Products/Release -maxdepth 2 -name "*.app" | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::未在 DerivedData 中找到编译生成的 .app 文件！"
+            exit 1
+          fi
+
+          # 1. 替换默认的 AppIcon.icns
+          if [ -f "custom_icon.icns" ]; then
+              cp -f custom_icon.icns "$APP_PATH/Contents/Resources/AppIcon.icns"
+              echo "Replaced AppIcon.icns with custom_icon.icns."
+          fi
+
+          # 2. 将浅色和深色 PNG 图标拷入 App Bundle（供运行时随系统主题切换）
+          if [ -f "icon_light.png" ] && [ -f "icon_dark.png" ]; then
+              cp -f icon_light.png "$APP_PATH/Contents/Resources/icon_light.png"
+              cp -f icon_dark.png "$APP_PATH/Contents/Resources/icon_dark.png"
+              echo "Bundled dynamic light and dark theme icons."
+          fi
+
+          # 3. 架构验证
+          echo "=== 架构验证 ==="
+          lipo -info "$APP_PATH/Contents/MacOS/"*
+
+          # 4. 签名与打包
+          ENT_FILE=$(find . -name "*.entitlements" | head -n 1)
+          if [ -n "$ENT_FILE" ]; then
+              codesign --force --deep --sign - --entitlements "$ENT_FILE" "$APP_PATH"
+          else
+              codesign --force --deep --sign - "$APP_PATH"
+          fi
+
+          ditto -c -k --keepParent "$APP_PATH" BiliKit-macOS26-Intel.zip
+
+      - name: Upload Intel App Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BiliKit-macOS26-Intel-Client
+          path: BiliKit-macOS26-Intel.zip
+          retention-days: 7
