@@ -19,6 +19,116 @@ jobs:
           sw_vers
           xcodebuild -version
 
+      - name: Install Dependencies for Icon Processing
+        run: |
+          python3 -m pip install pillow --quiet
+
+      - name: Process Custom Icon & Generate macOS Dark Mode Assets
+        run: |
+          python3 -c '
+          import os, sys, glob, json, shutil, subprocess
+
+          icon_icns = "custom_icon.icns"
+          iconset_dir = "temp_custom.iconset"
+
+          if os.path.exists(icon_icns):
+              print("Found custom_icon.icns, processing light and dark icon assets...")
+              os.makedirs(iconset_dir, exist_ok=True)
+              subprocess.run(["iconutil", "-x", icon_icns, "-o", iconset_dir], check=True)
+              
+              from PIL import Image, ImageEnhance
+
+              all_pngs = sorted(glob.glob(os.path.join(iconset_dir, "*.png")), key=lambda x: os.path.getsize(x), reverse=True)
+              base_img = Image.open(all_pngs[0]).convert("RGBA") if all_pngs else None
+
+              spec_list = [
+                  (16, "1x", "icon_16x16.png", "icon_16x16_dark.png"),
+                  (32, "2x", "icon_16x16@2x.png", "icon_16x16@2x_dark.png"),
+                  (32, "1x", "icon_32x32.png", "icon_32x32_dark.png"),
+                  (64, "2x", "icon_32x32@2x.png", "icon_32x32@2x_dark.png"),
+                  (128, "1x", "icon_128x128.png", "icon_128x128_dark.png"),
+                  (256, "2x", "icon_128x128@2x.png", "icon_128x128@2x_dark.png"),
+                  (256, "1x", "icon_256x256.png", "icon_256x256_dark.png"),
+                  (512, "2x", "icon_256x256@2x.png", "icon_256x256@2x_dark.png"),
+                  (512, "1x", "icon_512x512.png", "icon_512x512_dark.png"),
+                  (1024, "2x", "icon_512x512@2x.png", "icon_512x512@2x_dark.png"),
+              ]
+
+              def create_dark_variant(src_img):
+                  r, g, b, a = src_img.split()
+                  rgb = Image.merge("RGB", (r, g, b))
+                  dark_rgb = ImageEnhance.Brightness(rgb).enhance(0.72)
+                  dark_rgb = ImageEnhance.Contrast(dark_rgb).enhance(1.1)
+                  dr, dg, db = dark_rgb.split()
+                  return Image.merge("RGBA", (dr, dg, db, a))
+
+              images_json = []
+
+              for px, scale, light_fn, dark_fn in spec_list:
+                  light_path = os.path.join(iconset_dir, light_fn)
+                  dark_path = os.path.join(iconset_dir, dark_fn)
+
+                  if os.path.exists(light_path):
+                      img_light = Image.open(light_path).convert("RGBA")
+                  else:
+                      img_light = base_img.resize((px, px), Image.Resampling.LANCZOS)
+                      img_light.save(light_path, "PNG")
+
+                  img_dark = create_dark_variant(img_light)
+                  img_dark.save(dark_path, "PNG")
+
+                  divisor = 2 if scale == "2x" else 1
+                  dim = px // divisor
+                  size_str = f"{dim}x{dim}"
+                  
+                  images_json.append({
+                      "size": size_str,
+                      "idiom": "mac",
+                      "filename": light_fn,
+                      "scale": scale
+                  })
+                  images_json.append({
+                      "size": size_str,
+                      "idiom": "mac",
+                      "filename": dark_fn,
+                      "scale": scale,
+                      "appearances": [
+                          {
+                              "appearance": "luminosity",
+                              "value": "dark"
+                          }
+                      ]
+                  })
+
+              contents_json = {
+                  "images": images_json,
+                  "info": {
+                      "author": "xcode",
+                      "version": 1
+                  }
+              }
+
+              for root, dirs, files in os.walk("."):
+                  for d in dirs:
+                      if d.endswith("AppIcon.appiconset"):
+                          target_dir = os.path.join(root, d)
+                          print(f"Updating AppIcon asset catalog at: {target_dir}")
+                          for fname in os.listdir(iconset_dir):
+                              if fname.endswith(".png"):
+                                  shutil.copy2(os.path.join(iconset_dir, fname), os.path.join(target_dir, fname))
+                          with open(os.path.join(target_dir, "Contents.json"), "w", encoding="utf-8") as f:
+                              json.dump(contents_json, f, indent=2)
+
+              for root, dirs, files in os.walk("."):
+                  for file in files:
+                      if file.endswith(".icns") and file != "custom_icon.icns":
+                          target_icns = os.path.join(root, file)
+                          shutil.copy2(icon_icns, target_icns)
+                          print(f"Replaced source ICNS: {target_icns}")
+          else:
+              print("::warning:: custom_icon.icns not found in root directory!")
+          '
+
       - name: Apply All Patches (Warnings, Syntax, Keychain, Sandbox & Updater)
         run: |
           python3 -c '
@@ -135,6 +245,11 @@ jobs:
           if [ -z "$APP_PATH" ]; then
             echo "::error::未在 DerivedData 中找到编译生成的 .app 文件！"
             exit 1
+          fi
+
+          if [ -f "custom_icon.icns" ]; then
+              echo "Replacing compiled bundle ICNS resources..."
+              find "$APP_PATH/Contents/Resources" -name "*.icns" -exec cp custom_icon.icns {} \;
           fi
 
           echo "=== 架构验证 ==="
