@@ -34,7 +34,7 @@ jobs:
           if os.path.exists(icon_icns):
               print("Found custom_icon.icns, processing light and dark icon assets...")
               os.makedirs(iconset_dir, exist_ok=True)
-              subprocess.run(["iconutil", "-x", icon_icns, "-o", iconset_dir], check=True)
+              subprocess.run(["iconutil", "-c", "iconset", icon_icns, "-o", iconset_dir], check=True)
               
               from PIL import Image, ImageEnhance
 
