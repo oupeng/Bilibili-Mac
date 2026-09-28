@@ -21,7 +21,7 @@ jobs:
 
       - name: Install Dependencies for Icon Processing
         run: |
-          python3 -m pip install pillow --quiet
+          python3 -m pip install pillow --break-system-packages --quiet
 
       - name: Process Custom Icon & Generate macOS Dark Mode Assets
         run: |
