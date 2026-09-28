@@ -30,9 +30,10 @@ jobs:
 
           icon_icns = "custom_icon.icns"
           iconset_dir = "temp_custom.iconset"
+          generated_xcassets = "generated_appicon.xcassets/AppIcon.appiconset"
 
           if os.path.exists(icon_icns):
-              print("Found custom_icon.icns, processing light and dark icon assets...")
+              print("Found custom_icon.icns, generating icon assets...")
               os.makedirs(iconset_dir, exist_ok=True)
               subprocess.run(["iconutil", "-c", "iconset", icon_icns, "-o", iconset_dir], check=True)
               
@@ -108,17 +109,29 @@ jobs:
                   }
               }
 
+              # 创建准备后续覆盖使用的 AppIcon.appiconset 目录
+              os.makedirs(generated_xcassets, exist_ok=True)
+              for fname in os.listdir(iconset_dir):
+                  if fname.endswith(".png"):
+                      shutil.copy2(os.path.join(iconset_dir, fname), os.path.join(generated_xcassets, fname))
+              with open(os.path.join(generated_xcassets, "Contents.json"), "w", encoding="utf-8") as f:
+                  json.dump(contents_json, f, indent=2)
+
+              # 顺带同步更新项目中现有的所有 .xcassets
               for root, dirs, files in os.walk("."):
                   for d in dirs:
-                      if d.endswith("AppIcon.appiconset"):
-                          target_dir = os.path.join(root, d)
-                          print(f"Updating AppIcon asset catalog at: {target_dir}")
+                      if d.endswith(".xcassets") and "generated_appicon.xcassets" not in root:
+                          appicon_dir = os.path.join(root, d, "AppIcon.appiconset")
+                          os.makedirs(appicon_dir, exist_ok=True)
+                          for f in os.listdir(appicon_dir):
+                              os.remove(os.path.join(appicon_dir, f))
                           for fname in os.listdir(iconset_dir):
                               if fname.endswith(".png"):
-                                  shutil.copy2(os.path.join(iconset_dir, fname), os.path.join(target_dir, fname))
-                          with open(os.path.join(target_dir, "Contents.json"), "w", encoding="utf-8") as f:
+                                  shutil.copy2(os.path.join(iconset_dir, fname), os.path.join(appicon_dir, fname))
+                          with open(os.path.join(appicon_dir, "Contents.json"), "w", encoding="utf-8") as f:
                               json.dump(contents_json, f, indent=2)
 
+              # 替换源码中所有残留的 .icns
               for root, dirs, files in os.walk("."):
                   for file in files:
                       if file.endswith(".icns") and file != "custom_icon.icns":
@@ -126,7 +139,8 @@ jobs:
                           shutil.copy2(icon_icns, target_icns)
                           print(f"Replaced source ICNS: {target_icns}")
           else:
-              print("::warning:: custom_icon.icns not found in root directory!")
+              print("::error:: custom_icon.icns not found in root directory!")
+              sys.exit(1)
           '
 
       - name: Apply All Patches (Warnings, Syntax, Keychain, Sandbox & Updater)
@@ -247,10 +261,43 @@ jobs:
             exit 1
           fi
 
+          echo "=== 覆盖产物中的图标（覆写 Assets.car 与 .icns）==="
           if [ -f "custom_icon.icns" ]; then
-              echo "Replacing compiled bundle ICNS resources..."
+              # 1. 替换 Resources 下的所有 .icns 文件
               find "$APP_PATH/Contents/Resources" -name "*.icns" -exec cp custom_icon.icns {} \;
+              cp custom_icon.icns "$APP_PATH/Contents/Resources/AppIcon.icns"
+
+              # 2. 强行使用 actool 重新编译 Assets.car，覆盖由 AppIcon.icon 生成的默认 Asset 缓存
+              if [ -d "generated_appicon.xcassets" ]; then
+                  echo "Force recompiling Assets.car with generated_appicon.xcassets..."
+                  xcrun actool generated_appicon.xcassets \
+                    --compile "$APP_PATH/Contents/Resources" \
+                    --platform macosx \
+                    --target-device mac \
+                    --minimum-deployment-target 11.0 \
+                    --app-icon AppIcon \
+                    --output-format human-readable-text
+              fi
+
+              # 3. 补全/校对 Info.plist 关联属性
+              PLIST_PATH="$APP_PATH/Contents/Info.plist"
+              if [ -f "$PLIST_PATH" ]; then
+                  python3 -c '
+                  import plistlib, sys
+                  plist_path = sys.argv[1]
+                  with open(plist_path, "rb") as f:
+                      data = plistlib.load(f)
+                  data["CFBundleIconFile"] = "AppIcon"
+                  data["CFBundleIconName"] = "AppIcon"
+                  with open(plist_path, "wb") as f:
+                      plistlib.dump(data, f)
+                  print("Info.plist icon keys updated.")
+                  ' "$PLIST_PATH"
+              fi
           fi
+
+          # 4. 刷新包修改时间，强制 macOS 重新刷新 Finder 图标缓存
+          touch "$APP_PATH"
 
           echo "=== 架构验证 ==="
           lipo -info "$APP_PATH/Contents/MacOS/"*
