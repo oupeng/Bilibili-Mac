@@ -25,14 +25,18 @@ jobs:
 
       - name: Unpack and Generate Dark/Light Icons
         run: |
-          if [ -f "custom_icon.icns" ]; then
-              echo "Found custom_icon.icns, unpacking..."
+          # 1. 自动搜索仓库根目录及一级子目录下的任何 .icns 文件
+          CUSTOM_ICNS=$(find . -maxdepth 2 -name "*.icns" ! -path "*/DerivedData/*" ! -path "*/.git/*" | head -n 1)
+          if [ -n "$CUSTOM_ICNS" ] && [ -f "$CUSTOM_ICNS" ]; then
+              echo "Found custom icon at: $CUSTOM_ICNS"
+              cp -f "$CUSTOM_ICNS" custom_icon.icns
               rm -rf custom.iconset
               iconutil -c iconset custom_icon.icns -o custom.iconset
           else
-              echo "Warning: custom_icon.icns not found in root, using existing AppIcon."
+              echo "Warning: No custom .icns found, using default."
           fi
 
+          # 2. 提取并生成深色暗夜底图层
           cat << 'EOF' > generate_icons.py
           import os, glob
           from PIL import Image
@@ -54,7 +58,6 @@ jobs:
               light_img = Image.open(src_png).convert("RGBA")
               light_img.save("icon_light.png")
 
-              # 算法生成深色模式版：通过 BFS 仅将小电视外部的白底替换为暗夜灰
               dark_img = light_img.copy()
               w, h = dark_img.size
               pixels = dark_img.load()
@@ -84,7 +87,6 @@ jobs:
 
               while queue:
                   x, y = queue.popleft()
-                  r, g, b, a = pixels[x, y]
                   pixels[x, y] = (target_dark[0], target_dark[1], target_dark[2], a)
                   for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
                       nx, ny = x + dx, y + dy
@@ -180,7 +182,7 @@ jobs:
                       except Exception:
                           pass
 
-          # 6. 注入系统主题监听器与类声明（确保类定义与调用同时存在）
+          # 6. 注入系统主题监听器与类声明
           app_file = "BiliKitMac/App/BiliKitMacApp.swift"
           if os.path.exists(app_file):
               with open(app_file, "r", encoding="utf-8") as f:
@@ -211,7 +213,6 @@ jobs:
               }
               """
 
-              # 1. 确保在 init 中启动
               if "ThemeIconSwitcher.shared.start()" not in app_code:
                   if "init()" in app_code:
                       app_code = app_code.replace("init() {", "init() {\n        ThemeIconSwitcher.shared.start()\n")
@@ -220,7 +221,6 @@ jobs:
                       if app_code.endswith("}"):
                           app_code = app_code[:-1] + "\n    init() {\n        ThemeIconSwitcher.shared.start()\n    }\n}\n"
 
-              # 2. 确保类定义无条件追加到文件尾部（顶层类型）
               if "final class ThemeIconSwitcher" not in app_code:
                   app_code = app_code.strip() + "\n\n" + helper_class + "\n"
 
@@ -254,7 +254,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             -derivedDataPath ./DerivedData
 
-      - name: Replace Bundle Icons & Ad-hoc Sign App
+      - name: Force Custom Icon & Ad-hoc Sign App
         run: |
           APP_PATH=$(find ./DerivedData/Build/Products/Release -maxdepth 2 -name "*.app" | head -n 1)
           if [ -z "$APP_PATH" ]; then
@@ -262,24 +262,30 @@ jobs:
             exit 1
           fi
 
-          # 1. 替换默认的 AppIcon.icns
+          # 1. 核心重点：从 Info.plist 移除 CFBundleIconName，彻底打破 Assets.car 对旧图标的优先控制权
+          echo "Removing CFBundleIconName to bypass Assets.car icon priority..."
+          /usr/libexec/PlistBuddy -c "Delete :CFBundleIconName" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile AppIcon" "$APP_PATH/Contents/Info.plist" 2>/dev/null || \
+          /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$APP_PATH/Contents/Info.plist"
+
+          # 2. 覆盖 Resources 目录下的 AppIcon.icns
           if [ -f "custom_icon.icns" ]; then
               cp -f custom_icon.icns "$APP_PATH/Contents/Resources/AppIcon.icns"
-              echo "Replaced AppIcon.icns with custom_icon.icns."
+              echo "Replaced AppIcon.icns with custom icon."
           fi
 
-          # 2. 将浅色和深色 PNG 图标拷入 App Bundle（供运行时随系统主题切换）
+          # 3. 拷入浅色与深色 PNG 图标供运行时随系统主题实时切换
           if [ -f "icon_light.png" ] && [ -f "icon_dark.png" ]; then
               cp -f icon_light.png "$APP_PATH/Contents/Resources/icon_light.png"
               cp -f icon_dark.png "$APP_PATH/Contents/Resources/icon_dark.png"
               echo "Bundled dynamic light and dark theme icons."
           fi
 
-          # 3. 架构验证
+          # 4. 架构验证
           echo "=== 架构验证 ==="
           lipo -info "$APP_PATH/Contents/MacOS/"*
 
-          # 4. 签名与打包
+          # 5. 重新签名并打包
           ENT_FILE=$(find . -name "*.entitlements" | head -n 1)
           if [ -n "$ENT_FILE" ]; then
               codesign --force --deep --sign - --entitlements "$ENT_FILE" "$APP_PATH"
