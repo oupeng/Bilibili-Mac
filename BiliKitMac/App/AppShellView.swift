@@ -16,6 +16,8 @@ struct AppShellView: View {
     let danmakuModel: DanmakuControlsViewModel
     let authenticationModel: AuthenticationViewModel
     let historyModel: WatchHistoryViewModel
+    let watchLaterModel: WatchLaterViewModel
+    let favoritesModel: FavoritesViewModel
     let playerContent: AnyView
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentVideoLinkResolver: CommentVideoLinkResolver
@@ -163,7 +165,9 @@ struct AppShellView: View {
             .home: browseModel.successfulRefreshGeneration(for: .recommendation),
             .popular: browseModel.successfulRefreshGeneration(for: .popular),
             .search: browseModel.successfulRefreshGeneration(for: .search),
-            .history: historyModel.successfulReloadGeneration
+            .history: historyModel.successfulReloadGeneration,
+            .watchLater: watchLaterModel.successfulReloadGeneration,
+            .favorites: favoritesModel.successfulReloadGeneration
         ]
     }
 
@@ -294,6 +298,38 @@ struct AppShellView: View {
                 },
                 onAuthenticationRequired: {
                     historyModel.reset()
+                    authenticationModel.revalidate()
+                }
+            )
+        case .watchLater:
+            WatchLaterTabRoot(
+                model: watchLaterModel,
+                accountState: authenticationModel.accountPresentationState,
+                scrollOffsetY: gridScrollBinding(.watchLater).offsetY,
+                scrollReset: gridScrollBinding(.watchLater).reset,
+                imagePipeline: imagePipeline,
+                onSelect: navigationCoordinator.openPlayback,
+                onPresentAuthentication: {
+                    isAuthenticationPresented = true
+                },
+                onAuthenticationRequired: {
+                    watchLaterModel.reset()
+                    authenticationModel.revalidate()
+                }
+            )
+        case .favorites:
+            FavoritesTabRoot(
+                model: favoritesModel,
+                accountState: authenticationModel.accountPresentationState,
+                scrollOffsetY: gridScrollBinding(.favorites).offsetY,
+                scrollReset: gridScrollBinding(.favorites).reset,
+                imagePipeline: imagePipeline,
+                onSelect: navigationCoordinator.openPlayback,
+                onPresentAuthentication: {
+                    isAuthenticationPresented = true
+                },
+                onAuthenticationRequired: {
+                    favoritesModel.reset()
                     authenticationModel.revalidate()
                 }
             )

@@ -28,6 +28,12 @@ struct AppNavigationSidebar: View {
 
             Label("观看历史", systemImage: "clock.arrow.circlepath")
                 .tag(AppTab.history)
+
+            Label("稍后再看", systemImage: "clock")
+                .tag(AppTab.watchLater)
+
+            Label("我的收藏", systemImage: "star")
+                .tag(AppTab.favorites)
         }
         .listStyle(.sidebar)
     }

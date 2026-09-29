@@ -98,6 +98,8 @@ struct AppRootView: View {
             danmakuModel: danmakuModel,
             authenticationModel: authenticationModel,
             historyModel: historyModel,
+            watchLaterModel: watchLaterModel,
+            favoritesModel: favoritesModel,
             playerContent: playerContent,
             commentAssetURLResolver: windowOwner.commentAssetURLResolver,
             commentVideoLinkResolver: windowOwner.commentVideoLinkResolver,
@@ -149,6 +151,8 @@ struct AppRootView: View {
             )
             navigationCoordinator.closePlaybackForAuthenticationChange()
             historyModel.reset()
+            watchLaterModel.reset()
+            favoritesModel.reset()
             if case .signedIn = scope,
                 navigationCoordinator.selectedTab == .history
             {
@@ -195,6 +199,8 @@ struct AppRootView: View {
             browseModel.reset()
             authenticationModel.cancelTransientWork()
             historyModel.reset()
+            watchLaterModel.reset()
+            favoritesModel.reset()
             commentsModel?.reset()
             windowOwner.close()
         }
@@ -230,6 +236,14 @@ struct AppRootView: View {
 
     private var historyModel: WatchHistoryViewModel {
         windowOwner.historyModel
+    }
+
+    private var watchLaterModel: WatchLaterViewModel {
+        windowOwner.watchLaterModel
+    }
+
+    private var favoritesModel: FavoritesViewModel {
+        windowOwner.favoritesModel
     }
 
     private var historyAccountScope: AccountSessionScope {
@@ -330,7 +344,7 @@ struct AppRootView: View {
             return .popular
         case .search:
             return .search(criteria: submittedSearchCriteria)
-        case .history:
+        case .history, .watchLater, .favorites:
             return .inactive
         }
     }
