@@ -2,15 +2,15 @@ import BiliModels
 import BiliUI
 import SwiftUI
 
-public struct LoadedFavoritesContent: Sendable {
+public struct LoadedFavoritesContent {
     public let folders: [FavoriteFolder]
     public let selectedFolderID: Int64?
     public let items: [FavoriteCardPresentation]
     public let hasMore: Bool
     public let isLoadingMore: Bool
-    public let selectFolder: @Sendable (Int64) -> Void
-    public let loadMore: @Sendable () -> Void
-    public let selectItem: @Sendable (String) -> Void
+    public let selectFolder: (Int64) -> Void
+    public let loadMore: () -> Void
+    public let selectItem: (String) -> Void
 
     public init(
         folders: [FavoriteFolder],
@@ -18,9 +18,9 @@ public struct LoadedFavoritesContent: Sendable {
         items: [FavoriteCardPresentation],
         hasMore: Bool,
         isLoadingMore: Bool,
-        selectFolder: @escaping @Sendable (Int64) -> Void,
-        loadMore: @escaping @Sendable () -> Void,
-        selectItem: @escaping @Sendable (String) -> Void
+        selectFolder: @escaping (Int64) -> Void,
+        loadMore: @escaping () -> Void,
+        selectItem: @escaping (String) -> Void
     ) {
         self.folders = folders
         self.selectedFolderID = selectedFolderID
@@ -37,14 +37,14 @@ public struct FavoritesView<LoadedContent: View>: View {
     private let model: FavoritesViewModel
     private let userMID: Int64
     private let makeLoadedContent: (LoadedFavoritesContent) -> LoadedContent
-    private let onSelect: @Sendable (String) -> Void
+    private let onSelect: (String) -> Void
     private let onAuthenticationRequired: () -> Void
 
     public init(
         model: FavoritesViewModel,
         userMID: Int64,
         @ViewBuilder makeLoadedContent: @escaping (LoadedFavoritesContent) -> LoadedContent,
-        onSelect: @escaping @Sendable (String) -> Void,
+        onSelect: @escaping (String) -> Void,
         onAuthenticationRequired: @escaping () -> Void
     ) {
         self.model = model
@@ -79,7 +79,7 @@ struct FavoritesContentView<LoadedContent: View>: View {
     let model: FavoritesViewModel
     let userMID: Int64
     let makeLoadedContent: (LoadedFavoritesContent) -> LoadedContent
-    let onSelect: @Sendable (String) -> Void
+    let onSelect: (String) -> Void
 
     var body: some View {
         ZStack {
