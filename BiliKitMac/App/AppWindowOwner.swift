@@ -112,8 +112,8 @@ final class AppWindowOwner {
         danmakuModel: DanmakuControlsViewModel,
         authenticationModel: AuthenticationViewModel,
         historyModel: WatchHistoryViewModel,
-        watchLaterModel: WatchLaterViewModel? = nil,
-        favoritesModel: FavoritesViewModel? = nil,
+        watchLaterModel: WatchLaterViewModel,
+        favoritesModel: FavoritesViewModel,
         playerContent: AnyView,
         commentAssetURLResolver: @escaping CommentAssetURLResolver = { _ in nil },
         commentVideoLinkResolver: @escaping CommentVideoLinkResolver = { _ in nil },
@@ -134,8 +134,8 @@ final class AppWindowOwner {
         self.danmakuModel = danmakuModel
         self.authenticationModel = authenticationModel
         self.historyModel = historyModel
-        self.watchLaterModel = watchLaterModel ?? WatchLaterViewModel(useCase: WatchLaterUseCase(repository: DummyWatchLaterRepository()))
-        self.favoritesModel = favoritesModel ?? FavoritesViewModel(useCase: FavoritesUseCase(repository: DummyFavoritesRepository()))
+        self.watchLaterModel = watchLaterModel
+        self.favoritesModel = favoritesModel
         self.playerContent = playerContent
         self.commentAssetURLResolver = commentAssetURLResolver
         self.commentVideoLinkResolver = commentVideoLinkResolver
@@ -189,16 +189,4 @@ final class AppWindowOwner {
         }
         watchProgressConnection?.setReportingAccess(isSignedIn)
     }
-}
-
-private struct DummyWatchLaterRepository: WatchLaterRepository {
-    func watchLaterList() async throws -> WatchLaterPage { WatchLaterPage(items: [], count: 0) }
-    func addToWatchLater(bvid: String, aid: Int64?) async throws {}
-    func removeFromWatchLater(bvid: String, aid: Int64?) async throws {}
-}
-
-private struct DummyFavoritesRepository: FavoritesRepository {
-    func createdFolders(upMID: Int64, targetAID: Int64?) async throws -> [FavFolder] { [] }
-    func folderItems(mediaID: Int64, page: Int, pageSize: Int) async throws -> FavFolderPage { FavFolderPage(info: nil, items: [], pageNumber: 1, hasMore: false) }
-    func dealFavorites(aid: Int64, addMediaIDs: [Int64], delMediaIDs: [Int64]) async throws {}
 }

@@ -6,8 +6,6 @@ enum AppTab: Hashable {
     case home
     case popular
     case history
-    case watchLater
-    case favorites
 }
 
 struct PlaybackDestination: Hashable {

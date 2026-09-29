@@ -60,6 +60,8 @@ struct AppRootView: View {
         danmakuModel: DanmakuControlsViewModel,
         authenticationModel: AuthenticationViewModel,
         historyModel: WatchHistoryViewModel,
+        watchLaterModel: WatchLaterViewModel,
+        favoritesModel: FavoritesViewModel,
         playerContent: AnyView,
         commentAssetURLResolver: @escaping CommentAssetURLResolver = { _ in nil },
         commentVideoLinkResolver: @escaping CommentVideoLinkResolver = { _ in nil },
@@ -79,6 +81,8 @@ struct AppRootView: View {
                     danmakuModel: danmakuModel,
                     authenticationModel: authenticationModel,
                     historyModel: historyModel,
+                    watchLaterModel: watchLaterModel,
+                    favoritesModel: favoritesModel,
                     playerContent: playerContent,
                     commentAssetURLResolver: commentAssetURLResolver,
                     commentVideoLinkResolver: commentVideoLinkResolver,
@@ -98,8 +102,6 @@ struct AppRootView: View {
             danmakuModel: danmakuModel,
             authenticationModel: authenticationModel,
             historyModel: historyModel,
-            watchLaterModel: watchLaterModel,
-            favoritesModel: favoritesModel,
             playerContent: playerContent,
             commentAssetURLResolver: windowOwner.commentAssetURLResolver,
             commentVideoLinkResolver: windowOwner.commentVideoLinkResolver,
@@ -151,8 +153,6 @@ struct AppRootView: View {
             )
             navigationCoordinator.closePlaybackForAuthenticationChange()
             historyModel.reset()
-            watchLaterModel.reset()
-            favoritesModel.reset()
             if case .signedIn = scope,
                 navigationCoordinator.selectedTab == .history
             {
@@ -199,8 +199,6 @@ struct AppRootView: View {
             browseModel.reset()
             authenticationModel.cancelTransientWork()
             historyModel.reset()
-            watchLaterModel.reset()
-            favoritesModel.reset()
             commentsModel?.reset()
             windowOwner.close()
         }
@@ -236,14 +234,6 @@ struct AppRootView: View {
 
     private var historyModel: WatchHistoryViewModel {
         windowOwner.historyModel
-    }
-
-    private var watchLaterModel: WatchLaterViewModel {
-        windowOwner.watchLaterModel
-    }
-
-    private var favoritesModel: FavoritesViewModel {
-        windowOwner.favoritesModel
     }
 
     private var historyAccountScope: AccountSessionScope {
@@ -344,7 +334,7 @@ struct AppRootView: View {
             return .popular
         case .search:
             return .search(criteria: submittedSearchCriteria)
-        case .history, .watchLater, .favorites:
+        case .history:
             return .inactive
         }
     }
