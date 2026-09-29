@@ -8,9 +8,9 @@ public struct LoadedFavoritesContent: Sendable {
     public let items: [FavoriteCardPresentation]
     public let hasMore: Bool
     public let isLoadingMore: Bool
-    public let selectFolder: (Int64) -> Void
-    public let loadMore: () -> Void
-    public let selectItem: (String) -> Void
+    public let selectFolder: @Sendable (Int64) -> Void
+    public let loadMore: @Sendable () -> Void
+    public let selectItem: @Sendable (String) -> Void
 
     public init(
         folders: [FavoriteFolder],
@@ -18,9 +18,9 @@ public struct LoadedFavoritesContent: Sendable {
         items: [FavoriteCardPresentation],
         hasMore: Bool,
         isLoadingMore: Bool,
-        selectFolder: @escaping (Int64) -> Void,
-        loadMore: @escaping () -> Void,
-        selectItem: @escaping (String) -> Void
+        selectFolder: @escaping @Sendable (Int64) -> Void,
+        loadMore: @escaping @Sendable () -> Void,
+        selectItem: @escaping @Sendable (String) -> Void
     ) {
         self.folders = folders
         self.selectedFolderID = selectedFolderID

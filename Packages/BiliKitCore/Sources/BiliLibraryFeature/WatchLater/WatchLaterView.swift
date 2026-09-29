@@ -3,11 +3,11 @@ import SwiftUI
 
 public struct LoadedWatchLaterContent: Sendable {
     public let items: [WatchLaterCardPresentation]
-    public let select: (String) -> Void
+    public let select: @Sendable (String) -> Void
 
     public init(
         items: [WatchLaterCardPresentation],
-        select: @escaping (String) -> Void
+        select: @escaping @Sendable (String) -> Void
     ) {
         self.items = items
         self.select = select
@@ -91,7 +91,7 @@ struct WatchLaterContentView<LoadedContent: View>: View {
                     select: onSelect
                 )
             )
-        case .failed(let error):
+        case .failed:
             ContentUnavailableView {
                 Label(
                     LibraryFeatureStrings.localized("无法加载稍后再看", locale: locale),
