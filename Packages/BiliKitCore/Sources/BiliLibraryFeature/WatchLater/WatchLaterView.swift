@@ -1,13 +1,13 @@
 import BiliUI
 import SwiftUI
 
-public struct LoadedWatchLaterContent {
+public struct LoadedWatchLaterContent: Sendable {
     public let items: [WatchLaterCardPresentation]
-    public let select: (String) -> Void
+    public let select: @Sendable (String) -> Void
 
     public init(
         items: [WatchLaterCardPresentation],
-        select: @escaping (String) -> Void
+        select: @escaping @Sendable (String) -> Void
     ) {
         self.items = items
         self.select = select
@@ -17,13 +17,13 @@ public struct LoadedWatchLaterContent {
 public struct WatchLaterView<LoadedContent: View>: View {
     private let model: WatchLaterViewModel
     private let makeLoadedContent: (LoadedWatchLaterContent) -> LoadedContent
-    private let onSelect: (String) -> Void
+    private let onSelect: @Sendable (String) -> Void
     private let onAuthenticationRequired: () -> Void
 
     public init(
         model: WatchLaterViewModel,
         @ViewBuilder makeLoadedContent: @escaping (LoadedWatchLaterContent) -> LoadedContent,
-        onSelect: @escaping (String) -> Void,
+        onSelect: @escaping @Sendable (String) -> Void,
         onAuthenticationRequired: @escaping () -> Void
     ) {
         self.model = model
@@ -55,7 +55,7 @@ struct WatchLaterContentView<LoadedContent: View>: View {
     @Environment(\.locale) private var locale
     let model: WatchLaterViewModel
     let makeLoadedContent: (LoadedWatchLaterContent) -> LoadedContent
-    let onSelect: (String) -> Void
+    let onSelect: @Sendable (String) -> Void
 
     var body: some View {
         ZStack {
