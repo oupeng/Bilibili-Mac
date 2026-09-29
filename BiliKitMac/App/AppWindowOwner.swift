@@ -17,6 +17,8 @@ final class AppWindowOwner {
     let danmakuModel: DanmakuControlsViewModel
     let authenticationModel: AuthenticationViewModel
     let historyModel: WatchHistoryViewModel
+    let watchLaterModel: WatchLaterViewModel
+    let favoritesModel: FavoritesViewModel
     let playerContent: AnyView
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentVideoLinkResolver: CommentVideoLinkResolver
@@ -63,6 +65,8 @@ final class AppWindowOwner {
             danmakuModel: danmakuModel,
             authenticationModel: environment.makeAuthenticationViewModel(),
             historyModel: environment.makeWatchHistoryViewModel(),
+            watchLaterModel: environment.makeWatchLaterViewModel(),
+            favoritesModel: environment.makeFavoritesViewModel(),
             playerContent: environment.makePlayerView(
                 videoModel: videoModel,
                 danmakuModel: danmakuModel
@@ -108,6 +112,8 @@ final class AppWindowOwner {
         danmakuModel: DanmakuControlsViewModel,
         authenticationModel: AuthenticationViewModel,
         historyModel: WatchHistoryViewModel,
+        watchLaterModel: WatchLaterViewModel,
+        favoritesModel: FavoritesViewModel,
         playerContent: AnyView,
         commentAssetURLResolver: @escaping CommentAssetURLResolver = { _ in nil },
         commentVideoLinkResolver: @escaping CommentVideoLinkResolver = { _ in nil },
@@ -128,6 +134,8 @@ final class AppWindowOwner {
         self.danmakuModel = danmakuModel
         self.authenticationModel = authenticationModel
         self.historyModel = historyModel
+        self.watchLaterModel = watchLaterModel
+        self.favoritesModel = favoritesModel
         self.playerContent = playerContent
         self.commentAssetURLResolver = commentAssetURLResolver
         self.commentVideoLinkResolver = commentVideoLinkResolver

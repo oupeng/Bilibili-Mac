@@ -34,6 +34,8 @@ struct AppEnvironment {
     let commentVideoLinkResolver: CommentVideoLinkResolver
     let commentLinkURLResolver: CommentLinkURLResolver
     private let historyRepository: any WatchHistoryRepository
+    private let watchLaterRepository: any WatchLaterRepository
+    private let favoriteRepository: any FavoriteRepository
     private let watchProgressRepository: (any WatchProgressRepository)?
     private let danmakuSession: DanmakuSession
     private let danmakuController: DanmakuPresentationController
@@ -54,6 +56,8 @@ struct AppEnvironment {
         commentVideoLinkResolver: @escaping CommentVideoLinkResolver,
         commentLinkURLResolver: @escaping CommentLinkURLResolver,
         historyRepository: any WatchHistoryRepository,
+        watchLaterRepository: any WatchLaterRepository,
+        favoriteRepository: any FavoriteRepository,
         watchProgressRepository: (any WatchProgressRepository)?,
         danmakuRepository: any DanmakuSegmentRepository,
         playerEngine: AVPlayerEngine,
@@ -77,6 +81,8 @@ struct AppEnvironment {
         self.commentVideoLinkResolver = commentVideoLinkResolver
         self.commentLinkURLResolver = commentLinkURLResolver
         self.historyRepository = historyRepository
+        self.watchLaterRepository = watchLaterRepository
+        self.favoriteRepository = favoriteRepository
         self.watchProgressRepository = watchProgressRepository
         self.playerEngine = playerEngine
         self.playbackPreferencesController = playbackPreferencesController
@@ -204,6 +210,18 @@ struct AppEnvironment {
         )
     }
 
+    func makeWatchLaterViewModel() -> WatchLaterViewModel {
+        WatchLaterViewModel(
+            useCase: WatchLaterUseCase(repository: watchLaterRepository)
+        )
+    }
+
+    func makeFavoritesViewModel() -> FavoritesViewModel {
+        FavoritesViewModel(
+            useCase: FavoriteUseCase(repository: favoriteRepository)
+        )
+    }
+
     func makeWatchProgressConnection(
         videoModel: VideoViewModel
     ) -> WatchProgressWindowConnection? {
@@ -321,6 +339,8 @@ struct AppEnvironment {
                 commentLinkResolver.externalURL(for: target)
             },
             historyRepository: BiliWatchHistoryRepository(client: api),
+            watchLaterRepository: BiliWatchLaterRepository(client: api),
+            favoriteRepository: BiliFavoriteRepository(client: api),
             watchProgressRepository: accountSessionCoordinator.watchProgressRepository,
             danmakuRepository: BiliDanmakuRepository(client: api),
             playerEngine: playerEngine,
@@ -353,6 +373,9 @@ struct AppEnvironment {
         "/x/web-interface/archive/related",
         "/x/web-interface/card",
         "/x/web-interface/history/cursor",
+        "/x/v2/history/toview",
+        "/x/v3/fav/folder/created/list-all",
+        "/x/v3/fav/resource/list",
         "/x/web-interface/popular",
         "/x/web-interface/view",
         "/x/web-interface/wbi/index/top/feed/rcmd",

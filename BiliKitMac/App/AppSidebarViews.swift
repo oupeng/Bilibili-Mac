@@ -26,6 +26,12 @@ struct AppNavigationSidebar: View {
             Label("热门", systemImage: "flame")
                 .tag(AppTab.popular)
 
+            Label("稍后再看", systemImage: "clock")
+                .tag(AppTab.watchLater)
+
+            Label("收藏", systemImage: "star")
+                .tag(AppTab.favorites)
+
             Label("观看历史", systemImage: "clock.arrow.circlepath")
                 .tag(AppTab.history)
         }
