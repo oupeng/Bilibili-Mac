@@ -16,6 +16,8 @@ struct AppShellView: View {
     let danmakuModel: DanmakuControlsViewModel
     let authenticationModel: AuthenticationViewModel
     let historyModel: WatchHistoryViewModel
+    let watchLaterModel: WatchLaterViewModel
+    let favoritesModel: FavoritesViewModel
     let playerContent: AnyView
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentVideoLinkResolver: CommentVideoLinkResolver
@@ -111,7 +113,7 @@ struct AppShellView: View {
             else {
                 return
             }
-            scrollToTop(.home, .search, .history)
+            scrollToTop(.home, .search, .history, .watchLater, .favorites)
         }
         .onChange(of: navigationCoordinator.currentPlaybackBVID) {
             previousBVID,
@@ -280,6 +282,38 @@ struct AppShellView: View {
                 scrollReset: gridScrollBinding(.popular).reset,
                 imagePipeline: imagePipeline,
                 onSelect: navigationCoordinator.openPlayback
+            )
+        case .watchLater:
+            WatchLaterTabRoot(
+                model: watchLaterModel,
+                accountState: authenticationModel.accountPresentationState,
+                scrollOffsetY: gridScrollBinding(.watchLater).offsetY,
+                scrollReset: gridScrollBinding(.watchLater).reset,
+                imagePipeline: imagePipeline,
+                onSelect: navigationCoordinator.openPlayback,
+                onPresentAuthentication: {
+                    isAuthenticationPresented = true
+                },
+                onAuthenticationRequired: {
+                    watchLaterModel.reset()
+                    authenticationModel.revalidate()
+                }
+            )
+        case .favorites:
+            FavoritesTabRoot(
+                model: favoritesModel,
+                accountState: authenticationModel.accountPresentationState,
+                scrollOffsetY: gridScrollBinding(.favorites).offsetY,
+                scrollReset: gridScrollBinding(.favorites).reset,
+                imagePipeline: imagePipeline,
+                onSelect: navigationCoordinator.openPlayback,
+                onPresentAuthentication: {
+                    isAuthenticationPresented = true
+                },
+                onAuthenticationRequired: {
+                    favoritesModel.reset()
+                    authenticationModel.revalidate()
+                }
             )
         case .history:
             HistoryTabRoot(

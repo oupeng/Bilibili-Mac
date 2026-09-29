@@ -5,6 +5,8 @@ enum AppTab: Hashable {
     case search
     case home
     case popular
+    case watchLater
+    case favorites
     case history
 }
 

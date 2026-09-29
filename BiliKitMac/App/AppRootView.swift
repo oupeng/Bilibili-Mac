@@ -60,6 +60,8 @@ struct AppRootView: View {
         danmakuModel: DanmakuControlsViewModel,
         authenticationModel: AuthenticationViewModel,
         historyModel: WatchHistoryViewModel,
+        watchLaterModel: WatchLaterViewModel,
+        favoritesModel: FavoritesViewModel,
         playerContent: AnyView,
         commentAssetURLResolver: @escaping CommentAssetURLResolver = { _ in nil },
         commentVideoLinkResolver: @escaping CommentVideoLinkResolver = { _ in nil },
@@ -79,6 +81,8 @@ struct AppRootView: View {
                     danmakuModel: danmakuModel,
                     authenticationModel: authenticationModel,
                     historyModel: historyModel,
+                    watchLaterModel: watchLaterModel,
+                    favoritesModel: favoritesModel,
                     playerContent: playerContent,
                     commentAssetURLResolver: commentAssetURLResolver,
                     commentVideoLinkResolver: commentVideoLinkResolver,
@@ -98,6 +102,8 @@ struct AppRootView: View {
             danmakuModel: danmakuModel,
             authenticationModel: authenticationModel,
             historyModel: historyModel,
+            watchLaterModel: watchLaterModel,
+            favoritesModel: favoritesModel,
             playerContent: playerContent,
             commentAssetURLResolver: windowOwner.commentAssetURLResolver,
             commentVideoLinkResolver: windowOwner.commentVideoLinkResolver,
@@ -149,22 +155,42 @@ struct AppRootView: View {
             )
             navigationCoordinator.closePlaybackForAuthenticationChange()
             historyModel.reset()
-            if case .signedIn = scope,
-                navigationCoordinator.selectedTab == .history
-            {
-                historyModel.loadIfNeeded()
+            watchLaterModel.reset()
+            favoritesModel.reset()
+            if case .signedIn = scope {
+                switch navigationCoordinator.selectedTab {
+                case .history:
+                    historyModel.loadIfNeeded()
+                case .watchLater:
+                    watchLaterModel.loadIfNeeded()
+                case .favorites:
+                    if case .signedIn(let account) = authenticationModel.accountPresentationState {
+                        favoritesModel.loadIfNeeded(mid: account.id)
+                    }
+                default:
+                    break
+                }
             }
         }
         .task(id: accountSessionCoordinator.generation) {
             await synchronizeProcessAccountSession()
         }
         .onChange(of: authenticationModel.resolutionPhase) { previousPhase, phase in
-            guard previousPhase == .restoring,
-                navigationCoordinator.selectedTab == .history
-            else { return }
+            guard previousPhase == .restoring else { return }
             switch phase {
             case .signedIn:
-                historyModel.loadIfNeeded()
+                switch navigationCoordinator.selectedTab {
+                case .history:
+                    historyModel.loadIfNeeded()
+                case .watchLater:
+                    watchLaterModel.loadIfNeeded()
+                case .favorites:
+                    if case .signedIn(let account) = authenticationModel.accountPresentationState {
+                        favoritesModel.loadIfNeeded(mid: account.id)
+                    }
+                default:
+                    break
+                }
             case .failed:
                 historyModel.reportAuthenticationRevalidationFailure()
             default:
@@ -195,6 +221,8 @@ struct AppRootView: View {
             browseModel.reset()
             authenticationModel.cancelTransientWork()
             historyModel.reset()
+            watchLaterModel.reset()
+            favoritesModel.reset()
             commentsModel?.reset()
             windowOwner.close()
         }
@@ -230,6 +258,14 @@ struct AppRootView: View {
 
     private var historyModel: WatchHistoryViewModel {
         windowOwner.historyModel
+    }
+
+    private var watchLaterModel: WatchLaterViewModel {
+        windowOwner.watchLaterModel
+    }
+
+    private var favoritesModel: FavoritesViewModel {
+        windowOwner.favoritesModel
     }
 
     private var historyAccountScope: AccountSessionScope {
@@ -330,7 +366,7 @@ struct AppRootView: View {
             return .popular
         case .search:
             return .search(criteria: submittedSearchCriteria)
-        case .history:
+        case .history, .watchLater, .favorites:
             return .inactive
         }
     }
@@ -372,6 +408,8 @@ struct AppRootView: View {
         }
         navigationCoordinator.closePlaybackForAuthenticationChange()
         historyModel.reset()
+        watchLaterModel.reset()
+        favoritesModel.reset()
         authenticationModel.revalidateAfterExternalSessionChange()
         await authenticationModel.waitForCurrentTask()
         guard accountSessionCoordinator.generation == processGeneration else {
