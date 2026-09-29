@@ -2,15 +2,15 @@ import BiliModels
 import BiliUI
 import SwiftUI
 
-public struct LoadedFavoritesContent: Sendable {
+public struct LoadedFavoritesContent {
     public let folders: [FavoriteFolder]
     public let selectedFolderID: Int64?
     public let items: [FavoriteCardPresentation]
     public let hasMore: Bool
     public let isLoadingMore: Bool
-    public let selectFolder: @Sendable (Int64) -> Void
-    public let loadMore: @Sendable () -> Void
-    public let selectItem: @Sendable (String) -> Void
+    public let selectFolder: (Int64) -> Void
+    public let loadMore: () -> Void
+    public let selectItem: (String) -> Void
 
     public init(
         folders: [FavoriteFolder],
@@ -18,9 +18,9 @@ public struct LoadedFavoritesContent: Sendable {
         items: [FavoriteCardPresentation],
         hasMore: Bool,
         isLoadingMore: Bool,
-        selectFolder: @escaping @Sendable (Int64) -> Void,
-        loadMore: @escaping @Sendable () -> Void,
-        selectItem: @escaping @Sendable (String) -> Void
+        selectFolder: @escaping (Int64) -> Void,
+        loadMore: @escaping () -> Void,
+        selectItem: @escaping (String) -> Void
     ) {
         self.folders = folders
         self.selectedFolderID = selectedFolderID

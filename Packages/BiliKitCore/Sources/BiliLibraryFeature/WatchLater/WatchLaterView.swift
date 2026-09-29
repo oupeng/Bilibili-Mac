@@ -1,13 +1,13 @@
 import BiliUI
 import SwiftUI
 
-public struct LoadedWatchLaterContent: Sendable {
+public struct LoadedWatchLaterContent {
     public let items: [WatchLaterCardPresentation]
-    public let select: @Sendable (String) -> Void
+    public let select: (String) -> Void
 
     public init(
         items: [WatchLaterCardPresentation],
-        select: @escaping @Sendable (String) -> Void
+        select: @escaping (String) -> Void
     ) {
         self.items = items
         self.select = select
