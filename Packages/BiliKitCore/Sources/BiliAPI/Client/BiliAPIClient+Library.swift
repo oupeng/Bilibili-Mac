@@ -7,7 +7,8 @@ extension BiliAPIClient {
     public func watchLater() async throws -> [WatchLaterItem] {
         let payload: WatchLaterPayload = try await get(
             url: try endpoint(
-                path: "/x/v2/history/toview"
+                path: "/x/v2/history/toview",
+                queryItems: []
             ),
             referer: "https://www.bilibili.com/watchlater/",
             access: .accountRead(
