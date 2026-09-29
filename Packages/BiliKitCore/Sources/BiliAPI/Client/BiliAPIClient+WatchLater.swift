@@ -7,7 +7,8 @@ extension BiliAPIClient {
     public func watchLaterList() async throws -> WatchLaterPage {
         let payload: WatchLaterListPayload = try await get(
             url: try endpoint(
-                path: "/x/v2/history/toview/web"
+                path: "/x/v2/history/toview/web",
+                queryItems: []
             ),
             referer: "https://www.bilibili.com/watchlater/",
             access: .accountRead(
@@ -26,7 +27,7 @@ extension BiliAPIClient {
         if let aid, aid > 0 {
             fields.append(("aid", String(aid)))
         }
-        let url = try endpoint(path: "/x/v2/history/toview/add")
+        let url = try endpoint(path: "/x/v2/history/toview/add", queryItems: [])
         let authorizedResponse = try await response(
             baseRequest: HTTPRequest(
                 url: url,
@@ -45,7 +46,7 @@ extension BiliAPIClient {
             ),
             maximumResponseSize: 16 * 1024
         )
-        try Self.verifyStatusEnvelope(authorizedResponse.response.body)
+        try Self.verifyStatusEnvelope(authorizedResponse.response)
     }
 
     public func removeFromWatchLater(bvid: String, aid: Int64? = nil) async throws {
@@ -56,7 +57,7 @@ extension BiliAPIClient {
         if let aid, aid > 0 {
             fields.append(("aid", String(aid)))
         }
-        let url = try endpoint(path: "/x/v2/history/toview/del")
+        let url = try endpoint(path: "/x/v2/history/toview/del", queryItems: [])
         let authorizedResponse = try await response(
             baseRequest: HTTPRequest(
                 url: url,
@@ -75,7 +76,7 @@ extension BiliAPIClient {
             ),
             maximumResponseSize: 16 * 1024
         )
-        try Self.verifyStatusEnvelope(authorizedResponse.response.body)
+        try Self.verifyStatusEnvelope(authorizedResponse.response)
     }
 
     private static func formBody(_ fields: [(String, String)]) throws -> Data {
@@ -87,14 +88,14 @@ extension BiliAPIClient {
         return Data(encoded.utf8)
     }
 
-    private static func verifyStatusEnvelope(_ body: Data) throws {
-        guard body.looksLikeJSON(allowsTopLevelArray: true) else {
+    private static func verifyStatusEnvelope(_ response: HTTPResponse) throws {
+        guard response.looksLikeJSON(allowsTopLevelArray: true) else {
             throw BiliAPIError.nonJSONResponse
         }
         let decoder = JSONDecoder()
         let status: APIStatusEnvelope
         do {
-            status = try decoder.decode(APIStatusEnvelope.self, from: body)
+            status = try decoder.decode(APIStatusEnvelope.self, from: response.body)
         } catch {
             throw BiliAPIError.decodingFailed
         }

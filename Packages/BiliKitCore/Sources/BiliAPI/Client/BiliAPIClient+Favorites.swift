@@ -62,7 +62,7 @@ extension BiliAPIClient {
             ("add_media_ids", addStr),
             ("del_media_ids", delStr)
         ]
-        let url = try endpoint(path: "/x/v3/fav/resource/deal")
+        let url = try endpoint(path: "/x/v3/fav/resource/deal", queryItems: [])
         let authorizedResponse = try await response(
             baseRequest: HTTPRequest(
                 url: url,
@@ -81,7 +81,7 @@ extension BiliAPIClient {
             ),
             maximumResponseSize: 16 * 1024
         )
-        try Self.verifyStatusEnvelope(authorizedResponse.response.body)
+        try Self.verifyStatusEnvelope(authorizedResponse.response)
     }
 
     private static func formBody(_ fields: [(String, String)]) throws -> Data {
@@ -93,14 +93,14 @@ extension BiliAPIClient {
         return Data(encoded.utf8)
     }
 
-    private static func verifyStatusEnvelope(_ body: Data) throws {
-        guard body.looksLikeJSON(allowsTopLevelArray: true) else {
+    private static func verifyStatusEnvelope(_ response: HTTPResponse) throws {
+        guard response.looksLikeJSON(allowsTopLevelArray: true) else {
             throw BiliAPIError.nonJSONResponse
         }
         let decoder = JSONDecoder()
         let status: APIStatusEnvelope
         do {
-            status = try decoder.decode(APIStatusEnvelope.self, from: body)
+            status = try decoder.decode(APIStatusEnvelope.self, from: response.body)
         } catch {
             throw BiliAPIError.decodingFailed
         }
