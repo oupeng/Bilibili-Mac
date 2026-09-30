@@ -44,7 +44,11 @@ public final class SponsorBlockController {
     }
 
     deinit {
-        timelineObservationCancel?()
+        if let timelineObservationCancel {
+            Task { @MainActor in
+                timelineObservationCancel()
+            }
+        }
         currentTask?.cancel()
         for continuation in skipEventContinuations.values {
             continuation.finish()
@@ -92,7 +96,7 @@ public final class SponsorBlockController {
         }
 
         guard snapshot.state == .playing || snapshot.state == .ready else { return }
-        guard let identity = snapshot.identity, !currentSegments.isEmpty else { return }
+        guard snapshot.identity != nil, !currentSegments.isEmpty else { return }
 
         let currentPosition = snapshot.positionSeconds
 
