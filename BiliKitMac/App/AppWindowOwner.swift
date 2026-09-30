@@ -17,8 +17,6 @@ final class AppWindowOwner {
     let danmakuModel: DanmakuControlsViewModel
     let authenticationModel: AuthenticationViewModel
     let historyModel: WatchHistoryViewModel
-    let watchLaterModel: WatchLaterViewModel
-    let favoritesModel: FavoritesViewModel
     let playerContent: AnyView
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentVideoLinkResolver: CommentVideoLinkResolver
@@ -29,6 +27,7 @@ final class AppWindowOwner {
     private let playbackPreferencesController: PlaybackPreferencesController?
     private let systemNowPlayingCoordinator: SystemNowPlayingWindowCoordinator?
     private let watchProgressConnection: WatchProgressWindowConnection?
+    private let sponsorBlockConnection: SponsorBlockWindowConnection?
     private let openEnvironment: (@MainActor @Sendable () -> Void)?
     private let closeEnvironment: (@MainActor @Sendable () -> Void)?
     private var isOpen = false
@@ -45,6 +44,7 @@ final class AppWindowOwner {
         let watchProgressConnection = environment.makeWatchProgressConnection(
             videoModel: videoModel
         )
+        let sponsorBlockConnection = environment.makeSponsorBlockConnection()
         let navigationCoordinator = AppNavigationCoordinator(
             startPlayback: { intent in
                 AppWindowOwner.handlePlaybackSelection(
@@ -65,8 +65,6 @@ final class AppWindowOwner {
             danmakuModel: danmakuModel,
             authenticationModel: environment.makeAuthenticationViewModel(),
             historyModel: environment.makeWatchHistoryViewModel(),
-            watchLaterModel: environment.makeWatchLaterViewModel(),
-            favoritesModel: environment.makeFavoritesViewModel(),
             playerContent: environment.makePlayerView(
                 videoModel: videoModel,
                 danmakuModel: danmakuModel
@@ -79,6 +77,7 @@ final class AppWindowOwner {
             systemNowPlayingConnection:
                 environment.makeSystemNowPlayingPlaybackConnection(),
             watchProgressConnection: watchProgressConnection,
+            sponsorBlockConnection: sponsorBlockConnection,
             openEnvironment: environment.open,
             closeEnvironment: environment.close
         )
@@ -112,8 +111,6 @@ final class AppWindowOwner {
         danmakuModel: DanmakuControlsViewModel,
         authenticationModel: AuthenticationViewModel,
         historyModel: WatchHistoryViewModel,
-        watchLaterModel: WatchLaterViewModel,
-        favoritesModel: FavoritesViewModel,
         playerContent: AnyView,
         commentAssetURLResolver: @escaping CommentAssetURLResolver = { _ in nil },
         commentVideoLinkResolver: @escaping CommentVideoLinkResolver = { _ in nil },
@@ -124,6 +121,7 @@ final class AppWindowOwner {
         systemNowPlayingController: SystemNowPlayingController? = nil,
         systemNowPlayingConnection: SystemNowPlayingPlaybackConnection? = nil,
         watchProgressConnection: WatchProgressWindowConnection? = nil,
+        sponsorBlockConnection: SponsorBlockWindowConnection? = nil,
         openEnvironment: (@MainActor @Sendable () -> Void)? = nil,
         closeEnvironment: (@MainActor @Sendable () -> Void)? = nil
     ) {
@@ -134,8 +132,6 @@ final class AppWindowOwner {
         self.danmakuModel = danmakuModel
         self.authenticationModel = authenticationModel
         self.historyModel = historyModel
-        self.watchLaterModel = watchLaterModel
-        self.favoritesModel = favoritesModel
         self.playerContent = playerContent
         self.commentAssetURLResolver = commentAssetURLResolver
         self.commentVideoLinkResolver = commentVideoLinkResolver
@@ -153,6 +149,7 @@ final class AppWindowOwner {
             systemNowPlayingCoordinator = nil
         }
         self.watchProgressConnection = watchProgressConnection
+        self.sponsorBlockConnection = sponsorBlockConnection
         self.openEnvironment = openEnvironment
         self.closeEnvironment = closeEnvironment
     }
@@ -162,6 +159,7 @@ final class AppWindowOwner {
         isOpen = true
         openEnvironment?()
         watchProgressConnection?.start()
+        sponsorBlockConnection?.start()
         systemNowPlayingCoordinator?.start()
     }
 
@@ -169,6 +167,7 @@ final class AppWindowOwner {
         guard !isClosed else { return }
         isClosed = true
         watchProgressConnection?.stop()
+        sponsorBlockConnection?.stop()
         systemNowPlayingCoordinator?.close()
         imagePipelineOwner.shutdown()
         if isOpen {

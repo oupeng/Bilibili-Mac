@@ -174,16 +174,6 @@ struct VideoDetailLifecycleTests {
                 danmakuModel: danmakuModel,
                 authenticationModel: authenticationModel,
                 historyModel: historyModel,
-                watchLaterModel: WatchLaterViewModel(
-                    useCase: WatchLaterUseCase(
-                        repository: EmptyLifecycleWatchLaterRepository()
-                    )
-                ),
-                favoritesModel: FavoritesViewModel(
-                    useCase: FavoritesUseCase(
-                        repository: EmptyLifecycleFavoritesRepository()
-                    )
-                ),
                 playerContent: AnyView(EmptyView()),
                 watchProgressConnection: watchProgressProbe.connection
             )
@@ -329,16 +319,6 @@ struct VideoDetailLifecycleTests {
                         repository: EmptyLifecycleHistoryRepository()
                     )
                 ),
-                watchLaterModel: WatchLaterViewModel(
-                    useCase: WatchLaterUseCase(
-                        repository: EmptyLifecycleWatchLaterRepository()
-                    )
-                ),
-                favoritesModel: FavoritesViewModel(
-                    useCase: FavoritesUseCase(
-                        repository: EmptyLifecycleFavoritesRepository()
-                    )
-                ),
                 playerContent: AnyView(EmptyView())
             )
         )
@@ -482,16 +462,6 @@ struct VideoDetailLifecycleTests {
                 historyModel: WatchHistoryViewModel(
                     useCase: WatchHistoryUseCase(
                         repository: EmptyLifecycleHistoryRepository()
-                    )
-                ),
-                watchLaterModel: WatchLaterViewModel(
-                    useCase: WatchLaterUseCase(
-                        repository: EmptyLifecycleWatchLaterRepository()
-                    )
-                ),
-                favoritesModel: FavoritesViewModel(
-                    useCase: FavoritesUseCase(
-                        repository: EmptyLifecycleFavoritesRepository()
                     )
                 ),
                 playerContent: AnyView(EmptyView())
@@ -1027,22 +997,4 @@ private struct EmptyLifecycleHistoryRepository: WatchHistoryRepository {
     ) async throws -> WatchHistoryPage {
         WatchHistoryPage(items: [], continuation: nil)
     }
-}
-
-private struct EmptyLifecycleWatchLaterRepository: WatchLaterRepository {
-    func watchLaterList() async throws -> WatchLaterPage {
-        WatchLaterPage(items: [], count: 0)
-    }
-    func addToWatchLater(bvid: String, aid: Int64?) async throws {}
-    func removeFromWatchLater(bvid: String, aid: Int64?) async throws {}
-}
-
-private struct EmptyLifecycleFavoritesRepository: FavoritesRepository {
-    func createdFolders(upMID: Int64, targetAID: Int64?) async throws -> [FavFolder] {
-        []
-    }
-    func folderItems(mediaID: Int64, page: Int, pageSize: Int) async throws -> FavFolderPage {
-        FavFolderPage(info: nil, items: [], pageNumber: 1, hasMore: false)
-    }
-    func dealFavorites(aid: Int64, addMediaIDs: [Int64], delMediaIDs: [Int64]) async throws {}
 }

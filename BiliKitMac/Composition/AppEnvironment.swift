@@ -23,6 +23,7 @@ typealias CommentLinkURLResolver = @Sendable (CommentLinkTarget) -> URL?
 /// 这里刻意同时看见 API、认证、播放和弹幕实现。一个环境只创建一个 `AVPlayerEngine`，
 /// 原生字幕、弹幕、视频模型与 AppKit player host 必须共享它的播放 identity 和时间线。
 struct AppEnvironment {
+    private let apiClient: BiliAPIClient
     private let playerEngine: AVPlayerEngine
     let playbackPreferencesController: PlaybackPreferencesController
     private let feedRepository: any FeedRepository
@@ -45,6 +46,7 @@ struct AppEnvironment {
     let close: @MainActor @Sendable () -> Void
 
     init(
+        apiClient: BiliAPIClient,
         feedRepository: any FeedRepository,
         videoRepository: any VideoRepository,
         relatedVideoRepository: any RelatedVideoRepository,
@@ -68,6 +70,7 @@ struct AppEnvironment {
             playerEngine.nativeSubtitlesEnabled,
             "AVPlayerEngine must own native subtitle presentation"
         )
+        self.apiClient = apiClient
         self.feedRepository = feedRepository
         self.videoRepository = videoRepository
         self.relatedVideoRepository = relatedVideoRepository
@@ -212,6 +215,16 @@ struct AppEnvironment {
         }
     }
 
+    func makeSponsorBlockConnection() -> SponsorBlockWindowConnection {
+        .live(
+            apiClient: apiClient,
+            timeline: playerEngine,
+            performSeek: { [playerEngine] positionSeconds in
+                playerEngine.requestSeek(to: .seconds(positionSeconds))
+            }
+        )
+    }
+
     static func liveAppSettingsModel(
         accountSessionCoordinator: AccountSessionCoordinator
     ) -> AppSettingsModel {
@@ -305,6 +318,7 @@ struct AppEnvironment {
         let commentAssetResolver = BiliCommentAssetResolver()
         let commentLinkResolver = BiliCommentLinkResolver()
         return AppEnvironment(
+            apiClient: api,
             feedRepository: contentRepository,
             videoRepository: contentRepository,
             relatedVideoRepository: contentRepository,
