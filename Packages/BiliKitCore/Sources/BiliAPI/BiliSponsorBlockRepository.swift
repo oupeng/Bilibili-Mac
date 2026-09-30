@@ -31,13 +31,11 @@ public final class BiliSponsorBlockRepository: SponsorBlockRepositoryPort, Senda
             return []
         }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.timeoutInterval = 10.0
+        let httpRequest = HTTPRequest(url: url, method: .get)
 
         let response: HTTPResponse
         do {
-            response = try await httpClient.send(request)
+            response = try await httpClient.send(httpRequest)
         } catch {
             return []
         }
@@ -46,7 +44,7 @@ public final class BiliSponsorBlockRepository: SponsorBlockRepositoryPort, Senda
             return []
         }
 
-        return parseSegments(from: response.data, matchingBvid: bvid)
+        return parseSegments(from: response.body, matchingBvid: bvid)
     }
 
     private func parseSegments(from data: Data, matchingBvid bvid: String) -> [SponsorSegment] {
