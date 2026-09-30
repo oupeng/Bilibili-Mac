@@ -1,3 +1,4 @@
+import BiliModels
 import BiliPlayback
 import Foundation
 import SwiftUI
@@ -21,6 +22,34 @@ struct PlaybackSourceSettingsView: View {
                     Text("此功能依赖系统未文档化的 HLS 音频处理行为，可能随系统更新失效；失效或缺少安全元数据时保持原始响度。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                }
+            }
+
+            Section("SponsorBlock (跳过片段)") {
+                Toggle("启用 SponsorBlock 自动跳过", isOn: sponsorBlockEnabled)
+
+                TextField("服务器地址", text: sponsorBlockServerURL)
+                    .textFieldStyle(.roundedBorder)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("自动跳过的片段分类：")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    ForEach(SponsorBlockCategory.allCases) { category in
+                        Toggle(category.displayName, isOn: Binding(
+                            get: { model.sponsorBlockSettings.enabledCategories.contains(category) },
+                            set: { isSelected in
+                                var current = model.sponsorBlockSettings
+                                if isSelected {
+                                    current.enabledCategories.insert(category)
+                                } else {
+                                    current.enabledCategories.remove(category)
+                                }
+                                model.sponsorBlockSettings = current
+                            }
+                        ))
+                    }
                 }
             }
 
@@ -105,6 +134,28 @@ struct PlaybackSourceSettingsView: View {
         .formStyle(.grouped)
         .frame(minWidth: 560, minHeight: 520)
         .onDisappear { model.closeSettings() }
+    }
+
+    private var sponsorBlockEnabled: Binding<Bool> {
+        Binding(
+            get: { model.sponsorBlockSettings.isEnabled },
+            set: {
+                var current = model.sponsorBlockSettings
+                current.isEnabled = $0
+                model.sponsorBlockSettings = current
+            }
+        )
+    }
+
+    private var sponsorBlockServerURL: Binding<String> {
+        Binding(
+            get: { model.sponsorBlockSettings.serverURL },
+            set: {
+                var current = model.sponsorBlockSettings
+                current.serverURL = $0
+                model.sponsorBlockSettings = current
+            }
+        )
     }
 
     private var selection: Binding<PlaybackSourceSelection> {

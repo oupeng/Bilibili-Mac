@@ -36,6 +36,7 @@ enum PlayerShortcutFeedback: Equatable {
     case playback(Bool)
     case danmaku(Bool)
     case subtitles(NativeSubtitleToggleResult)
+    case sponsorBlockSkipped(category: String)
 
     var label: String {
         switch self {
@@ -52,6 +53,7 @@ enum PlayerShortcutFeedback: Equatable {
         case .subtitles(.enabled(let label)): AppStrings.localized("字幕 \(label)")
         case .subtitles(.disabled): AppStrings.localized("字幕 关")
         case .subtitles(.unavailable): AppStrings.localized("无可用字幕")
+        case .sponsorBlockSkipped(let category): AppStrings.localized("已跳过 \(category)")
         }
     }
 
@@ -69,6 +71,7 @@ enum PlayerShortcutFeedback: Equatable {
         case .subtitles(.enabled): "captions.bubble.fill"
         case .subtitles(.disabled), .subtitles(.unavailable):
             "captions.bubble"
+        case .sponsorBlockSkipped: "forward.end.fill"
         }
     }
 
@@ -87,6 +90,7 @@ enum PlayerShortcutFeedback: Equatable {
         case .subtitles(.enabled(let label)): AppStrings.localized("字幕已开启，\(label)")
         case .subtitles(.disabled): AppStrings.localized("字幕已关闭")
         case .subtitles(.unavailable): AppStrings.localized("当前视频没有可用字幕")
+        case .sponsorBlockSkipped(let category): AppStrings.localized("已自动跳过\(category)片段")
         }
     }
 }

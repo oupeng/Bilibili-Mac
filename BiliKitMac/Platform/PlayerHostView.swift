@@ -16,6 +16,7 @@ struct PlayerHostView: View {
     let danmakuRenderer: CoreAnimationDanmakuRenderer
     let danmakuController: DanmakuPresentationController
     let videoModel: VideoViewModel?
+    let sponsorBlockController: SponsorBlockController?
     let beginMomentaryPlaybackRate: ((Float) -> UUID?)?
     let endMomentaryPlaybackRate: ((UUID) -> Void)?
     let seekByTransportOffset: ((Double) -> Bool)?
@@ -30,6 +31,7 @@ struct PlayerHostView: View {
         danmakuRenderer: CoreAnimationDanmakuRenderer,
         danmakuController: DanmakuPresentationController,
         videoModel: VideoViewModel? = nil,
+        sponsorBlockController: SponsorBlockController? = nil,
         beginMomentaryPlaybackRate: ((Float) -> UUID?)? = nil,
         endMomentaryPlaybackRate: ((UUID) -> Void)? = nil,
         seekByTransportOffset: ((Double) -> Bool)? = nil,
@@ -43,6 +45,7 @@ struct PlayerHostView: View {
         self.danmakuRenderer = danmakuRenderer
         self.danmakuController = danmakuController
         self.videoModel = videoModel
+        self.sponsorBlockController = sponsorBlockController
         self.beginMomentaryPlaybackRate = beginMomentaryPlaybackRate
         self.endMomentaryPlaybackRate = endMomentaryPlaybackRate
         self.seekByTransportOffset = seekByTransportOffset
@@ -69,7 +72,8 @@ struct PlayerHostView: View {
             togglePlayback: togglePlayback,
             toggleDanmaku: toggleDanmaku,
             toggleSubtitles: toggleSubtitles,
-            focusIdentity: videoModel?.presentedBVID
+            focusIdentity: videoModel?.presentedBVID,
+            sponsorBlockController: sponsorBlockController
         )
         .task(id: previewProjectionIdentity) {
             previewEndedNotice = nil
@@ -128,6 +132,7 @@ private struct AVPlayerContainerView: NSViewRepresentable {
     let toggleDanmaku: (() -> Bool)?
     let toggleSubtitles: (() async -> NativeSubtitleToggleResult)?
     let focusIdentity: String?
+    let sponsorBlockController: SponsorBlockController?
 
     func makeNSView(context: Context) -> DanmakuPlayerView {
         let view = DanmakuPlayerView(
@@ -152,6 +157,7 @@ private struct AVPlayerContainerView: NSViewRepresentable {
         )
         view.setPreviewEndedNotice(previewEndedNotice)
         view.requestInitialKeyboardFocus(for: focusIdentity)
+        view.startObservingSponsorBlockEvents(sponsorBlockController)
         return view
     }
 
@@ -170,6 +176,7 @@ private struct AVPlayerContainerView: NSViewRepresentable {
         )
         view.setPreviewEndedNotice(previewEndedNotice)
         view.requestInitialKeyboardFocus(for: focusIdentity)
+        view.startObservingSponsorBlockEvents(sponsorBlockController)
         if view.player !== player {
             view.cancelMomentaryPlaybackRate()
             view.player = player
@@ -219,6 +226,8 @@ final class DanmakuPlayerView: AVPlayerView {
     private var lastInitialFocusIdentity: String?
     private var pendingInitialFocusIdentity: String?
     private var focusLossObservers = NativeVideoNotificationObservers()
+    private var sponsorBlockTask: Task<Void, Never>?
+    private weak var observedSponsorBlockController: SponsorBlockController?
     var requestMomentaryPlaybackRate: ((Float) -> UUID?)?
     var finishMomentaryPlaybackRate: ((UUID) -> Void)?
     var seekByTransportOffset: ((Double) -> Bool)?
@@ -371,6 +380,22 @@ final class DanmakuPlayerView: AVPlayerView {
         installDanmakuOverlayIfNeeded()
         startObservingFocusLoss()
         applyPendingInitialKeyboardFocus()
+    }
+
+    func startObservingSponsorBlockEvents(_ controller: SponsorBlockController?) {
+        guard observedSponsorBlockController !== controller else { return }
+        sponsorBlockTask?.cancel()
+        observedSponsorBlockController = controller
+        guard let controller else { return }
+
+        sponsorBlockTask = Task { [weak self, weak controller] in
+            guard let controller else { return }
+            for await event in controller.skipEvents() {
+                guard !Task.isCancelled, let self else { return }
+                let categoryName = event.segment.category.displayName
+                self.overlayModel.showFeedback(.sponsorBlockSkipped(category: categoryName))
+            }
+        }
     }
 
     func requestInitialKeyboardFocus(for identity: String?) {
