@@ -14,6 +14,28 @@ public struct WatchHistoryCardPresentation: Sendable, Equatable {
     public let footerTrailingText: String
     public let accessibilityLabel: String
 
+    public init(
+        bvid: String,
+        title: String,
+        coverURL: URL?,
+        avatarURL: URL?,
+        showsAvatar: Bool,
+        progressText: String,
+        footerLeadingText: String,
+        footerTrailingText: String,
+        accessibilityLabel: String
+    ) {
+        self.bvid = bvid
+        self.title = title
+        self.coverURL = coverURL
+        self.avatarURL = avatarURL
+        self.showsAvatar = showsAvatar
+        self.progressText = progressText
+        self.footerLeadingText = footerLeadingText
+        self.footerTrailingText = footerTrailingText
+        self.accessibilityLabel = accessibilityLabel
+    }
+
     public init(item: WatchHistoryItem, locale: Locale = .current) {
         let progress = WatchHistoryCardFormatting.progress(
             progressSeconds: item.progressSeconds,
@@ -21,29 +43,31 @@ public struct WatchHistoryCardPresentation: Sendable, Equatable {
             locale: locale
         )
         let viewedAt = WatchHistoryCardFormatting.viewedAt(item.viewedAt, locale: locale)
-        bvid = item.bvid
-        title = item.title
-        coverURL = optimizedHistoryImageURL(
-            item.coverURL,
-            width: 640,
-            height: 360
-        )
-        avatarURL = optimizedHistoryImageURL(
-            item.owner.avatarURL,
-            width: 96,
-            height: 96
-        )
-        showsAvatar = item.owner.avatarURL != nil
-        progressText = progress
-        footerLeadingText = item.owner.name
-        footerTrailingText = viewedAt
-        accessibilityLabel = ListFormatter.localizedString(
-            byJoining: [
-                item.title,
-                item.owner.name,
-                LibraryFeatureStrings.localized("观看进度 \(progress)", locale: locale),
-                viewedAt
-            ]
+        self.init(
+            bvid: item.bvid,
+            title: item.title,
+            coverURL: optimizedHistoryImageURL(
+                item.coverURL,
+                width: 640,
+                height: 360
+            ),
+            avatarURL: optimizedHistoryImageURL(
+                item.owner.avatarURL,
+                width: 96,
+                height: 96
+            ),
+            showsAvatar: item.owner.avatarURL != nil,
+            progressText: progress,
+            footerLeadingText: item.owner.name,
+            footerTrailingText: viewedAt,
+            accessibilityLabel: ListFormatter.localizedString(
+                byJoining: [
+                    item.title,
+                    item.owner.name,
+                    LibraryFeatureStrings.localized("观看进度 \(progress)", locale: locale),
+                    viewedAt
+                ]
+            )
         )
     }
 }
