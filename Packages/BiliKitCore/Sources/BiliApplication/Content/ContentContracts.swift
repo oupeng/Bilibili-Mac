@@ -34,6 +34,15 @@ public protocol RelatedVideoRepository: Sendable {
     func relatedVideos(to bvid: String) async throws -> [RelatedVideo]
 }
 
+/// UP 主空间投稿列表的只读 port；只按账户读取，本地无凭据时失败，不退回匿名请求。
+public protocol UploaderVideoRepository: Sendable {
+    func uploaderVideos(
+        ownerID: Int64,
+        order: UploaderVideoOrder,
+        page: Int
+    ) async throws -> UploaderVideoPage
+}
+
 /// 播放页只读 UP 主签名所需的独立 port；具体账户读取策略由 adapter 隐藏。
 public protocol UploaderSignatureRepository: Sendable {
     func signature(for ownerID: Int64) async throws -> String?

@@ -2,7 +2,7 @@ import BiliApplication
 import BiliModels
 
 public struct BiliContentRepository: FeedRepository, VideoRepository,
-    RelatedVideoRepository, UploaderSignatureRepository
+    RelatedVideoRepository, UploaderSignatureRepository, UploaderVideoRepository
 {
     private let client: BiliAPIClient
 
@@ -45,6 +45,16 @@ public struct BiliContentRepository: FeedRepository, VideoRepository,
     public func signature(for ownerID: Int64) async throws -> String? {
         try await mapError {
             try await client.uploaderSignature(for: ownerID)
+        }
+    }
+
+    public func uploaderVideos(
+        ownerID: Int64,
+        order: UploaderVideoOrder,
+        page: Int
+    ) async throws -> UploaderVideoPage {
+        try await mapError {
+            try await client.uploaderVideos(ownerID: ownerID, order: order, page: page)
         }
     }
 

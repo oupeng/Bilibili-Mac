@@ -347,6 +347,7 @@ struct AppEnvironment {
     static let mainAccountReadAllowedPaths: Set<String> = [
         "/x/player/wbi/playurl",
         "/x/player/wbi/v2",
+        "/x/space/wbi/arc/search",
         "/x/v2/dm/wbi/web/seg.so",
         "/x/v2/reply/reply",
         "/x/v2/reply/wbi/main",
