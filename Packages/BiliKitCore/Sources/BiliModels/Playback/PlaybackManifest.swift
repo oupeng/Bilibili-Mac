@@ -42,7 +42,8 @@ public enum MediaKind: String, Sendable, Equatable {
 
 /// 服务端对一条语义音轨给出的静态 BS.1770 响度测量与目标。
 ///
-/// 这里不保存 endpoint 专属的 offset 或场景参数；所有值仍会在播放策略边界再次校验。
+/// 这里不保存 endpoint 专属的 offset 或场景参数；所有值在 API 解码边界完整校验，播放策略只再防住
+/// 自己用到的值。
 public struct PlaybackLoudnessMetadata: Sendable, Equatable {
     public let measuredIntegratedLUFS: Double
     public let measuredLoudnessRangeLU: Double

@@ -2,7 +2,7 @@
 import BiliModels
 import Foundation
 
-/// 实验性响度均一化（仅 macOS 26）的 item 级 owner：安装 tap，并随系统音轨选择更新增益。
+/// 响度均一化（macOS 27 起）的 item 级 owner：安装 tap，并随系统音轨选择更新增益。
 ///
 /// `clear` 让在途的音轨选择更新全部失效；元数据缺失、音轨无法唯一映射或查询失败时保持 unity。
 @MainActor
@@ -21,19 +21,15 @@ final class LoudnessNormalizationController {
         }
     }
 
-    /// 在 item 交给 AVPlayer 前安装 tap；运行时、开关或元数据不满足时保持原样。
+    /// 在 item 交给 AVPlayer 前安装 tap；系统版本、开关或元数据不满足时保持原样。
     func install(
         on item: AVPlayerItem,
         audioTracks: [SelectedPlaybackAudioTrack],
         enabled: Bool
     ) {
-        guard
-            LoudnessNormalizationRuntimePolicy.shouldInstall(
-                enabled: enabled,
-                hasMetadata: audioTracks.contains {
-                    $0.track.loudnessMetadata != nil
-                }
-            ),
+        guard #available(macOS 27.0, *),
+            enabled,
+            audioTracks.contains(where: { $0.track.loudnessMetadata != nil }),
             let defaultTrack = audioTracks.first(where: { $0.track.isDefault }),
             let tap = LoudnessProcessingTap.make(
                 initialGain: LoudnessNormalizationPolicy().linearGain(
@@ -138,8 +134,9 @@ final class LoudnessNormalizationController {
                 track.role == .original
                 ? "public.original-content" : "public.machine-generated"
         )
-        return option.displayName == track.displayName
-            && actualLanguage == expectedLanguage
+        // displayName 是系统本地化后的界面名称（macOS 27 会加上语言与“原始”等标注），不能用来
+        // 匹配；原声只有一条、机器配音每种语言一条，语言加角色已能唯一确定音轨。
+        return actualLanguage == expectedLanguage
             && option.hasMediaCharacteristic(characteristic)
     }
 }
