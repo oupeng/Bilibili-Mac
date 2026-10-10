@@ -98,7 +98,7 @@ private final class NativePlaybackSidebarUploaderView: NSView {
 
         signatureLoadingBar.wantsLayer = true
         signatureLoadingBar.layer?.cornerRadius = 3
-        signatureLoadingBar.layer?.backgroundColor = NSColor.quaternaryLabelColor.cgColor
+        refreshLoadingBarColor()
 
         signatureLabel.setAccessibilityLabel(AppStrings.localized("UP 主签名"))
 
@@ -117,6 +117,16 @@ private final class NativePlaybackSidebarUploaderView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         nil
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshLoadingBarColor()
+    }
+
+    private func refreshLoadingBarColor() {
+        signatureLoadingBar.layer?.backgroundColor =
+            NSColor.quaternaryLabelColor.cgColor(for: effectiveAppearance)
     }
 
     func configure(

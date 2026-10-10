@@ -449,6 +449,8 @@ final class NativeVideoCardView: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsLayout = true
+        // 悬停与键盘选中的描边、底色是按外观解析后写进 layer 的，换主题时要重新解析。
+        updateInteractionAppearance(animated: false)
     }
 
     override func layout() {
@@ -578,11 +580,9 @@ final class NativeVideoCardView: NSView {
         let surfaceOpacity: CGFloat = isPressed ? 0.14 : (isHovered ? 0.08 : 0)
         let showsStroke = isHovered || keyboardSelected
         let targetBackground = NSColor.labelColor
-            .withAlphaComponent(surfaceOpacity).cgColor
-        let targetBorder =
-            keyboardSelected
-            ? NSColor.controlAccentColor.cgColor
-            : NSColor.secondaryLabelColor.cgColor
+            .withAlphaComponent(surfaceOpacity).cgColor(for: effectiveAppearance)
+        let targetBorder = (keyboardSelected ? NSColor.controlAccentColor : .secondaryLabelColor)
+            .cgColor(for: effectiveAppearance)
         let targetBorderWidth: CGFloat =
             showsStroke
             ? (NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast ? 2 : 1)

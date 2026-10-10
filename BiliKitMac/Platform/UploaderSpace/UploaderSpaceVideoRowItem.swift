@@ -341,14 +341,13 @@ final class UploaderSpaceVideoRowView: NSView {
     }
 
     private func refreshBackground() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            let fill: NSColor =
-                isCurrent
-                ? .controlAccentColor.withAlphaComponent(0.15)
-                : isHovered ? .labelColor.withAlphaComponent(0.06) : .clear
-            layer?.backgroundColor = fill.cgColor
-            collaborationLabel.layer?.borderColor = NSColor.secondaryLabelColor.cgColor
-        }
+        let fill: NSColor =
+            isCurrent
+            ? .controlAccentColor.withAlphaComponent(0.15)
+            : isHovered ? .labelColor.withAlphaComponent(0.06) : .clear
+        layer?.backgroundColor = fill.cgColor(for: effectiveAppearance)
+        collaborationLabel.layer?.borderColor =
+            NSColor.secondaryLabelColor.cgColor(for: effectiveAppearance)
     }
 }
 

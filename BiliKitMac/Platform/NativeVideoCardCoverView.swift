@@ -159,7 +159,7 @@ final class NativeVideoMergedCoverView: NSView {
         wantsLayer = true
         layer?.cornerRadius = VideoCardGeometry.coverCornerRadius
         layer?.masksToBounds = true
-        layer?.backgroundColor = Self.backgroundColor
+        layer?.backgroundColor = Self.backgroundColor.cgColor(for: effectiveAppearance)
 
         placeholderLayer.contentsGravity = .center
         placeholderLayer.actions = Self.imageLayerActions
@@ -290,7 +290,7 @@ final class NativeVideoMergedCoverView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        layer?.backgroundColor = Self.backgroundColor
+        layer?.backgroundColor = Self.backgroundColor.cgColor(for: effectiveAppearance)
         refreshPlaceholderImage()
         refreshMetricIcons()
     }
@@ -441,8 +441,8 @@ final class NativeVideoMergedCoverView: NSView {
         "position": NSNull()
     ]
 
-    private static var backgroundColor: CGColor {
-        NSColor.secondaryLabelColor.withAlphaComponent(0.12).cgColor
+    private static var backgroundColor: NSColor {
+        NSColor.secondaryLabelColor.withAlphaComponent(0.12)
     }
 }
 
