@@ -59,14 +59,9 @@ struct VideoDetailView<PlayerContent: View, RelatedContent: View>: View {
     /// 工具栏副标题：播放 · 弹幕 · 发布时间，有访问限制时接上充电／试看提示。
     private var toolbarSubtitle: String {
         let statistics = context.detail.statistics
-        let viewCount = VideoMetadataFormatting.compactCount(statistics.viewCount, locale: locale)
-        let danmakuCount = VideoMetadataFormatting.compactCount(
-            statistics.danmakuCount,
-            locale: locale
-        )
         return [
-            BrowseFeatureStrings.localized("\(viewCount)播放", locale: locale),
-            BrowseFeatureStrings.localized("\(danmakuCount)弹幕", locale: locale),
+            VideoMetadataFormatting.viewCountText(statistics.viewCount, locale: locale),
+            VideoMetadataFormatting.danmakuCountText(statistics.danmakuCount, locale: locale),
             VideoMetadataFormatting.fullPublishedDate(context.detail.publishedAt, locale: locale),
             accessNotice
         ].compactMap { $0 }.joined(separator: " · ")

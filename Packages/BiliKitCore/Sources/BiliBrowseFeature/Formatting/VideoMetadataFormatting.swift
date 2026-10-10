@@ -1,6 +1,18 @@
 import Foundation
 
 enum VideoMetadataFormatting {
+    /// “12万播放”：播放数与单位文字的本地化组合。
+    static func viewCountText(_ count: Int64, locale: Locale = .current) -> String {
+        let count = compactCount(count, locale: locale)
+        return BrowseFeatureStrings.localized("\(count)播放", locale: locale)
+    }
+
+    /// “3000弹幕”：弹幕数与单位文字的本地化组合。
+    static func danmakuCountText(_ count: Int64, locale: Locale = .current) -> String {
+        let count = compactCount(count, locale: locale)
+        return BrowseFeatureStrings.localized("\(count)弹幕", locale: locale)
+    }
+
     static func compactCount(_ count: Int64, locale: Locale = .current) -> String {
         let normalizedCount = max(0, count)
         if locale.language.languageCode?.identifier == "en" {
