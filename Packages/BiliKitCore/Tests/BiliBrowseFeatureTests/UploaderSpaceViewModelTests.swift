@@ -198,6 +198,92 @@ struct UploaderSpaceViewModelTests {
         #expect(model.pageCount == 1)
     }
 
+    @Test
+    func reopeningTheSameOwnerRefreshesProfileAndRetriesAFailure() async {
+        let repository = UploaderVideoRepositoryStub(failingPages: [1: .transportFailure])
+        let model = makeModel(repository)
+        model.open(owner: owner)
+        await waitForObservedState { model.state == .failed(page: 1, error: .transportFailure) }
+        await repository.setFailure(nil, page: 1)
+        let renamed = VideoOwner(id: owner.id, name: "改名后的作者")
+
+        model.open(owner: renamed)
+        await waitForLoaded(model, page: 1)
+
+        #expect(model.owner == renamed)
+        #expect(await repository.calls.map(\.page) == [1, 1])
+    }
+
+    @Test
+    func requestingThePageThatIsLoadingSendsNothingButAnotherPageReplacesIt() async throws {
+        let gate = TestGate()
+        let repository = UploaderVideoRepositoryStub(gate: gate, gatedPages: [2])
+        let model = makeModel(repository)
+        model.open(owner: owner)
+        await waitForLoaded(model, page: 1)
+
+        model.showPage(2)
+        try await gate.waitForEntries()
+        model.showPage(2)
+        #expect(await repository.calls.map(\.page) == [1, 2])
+
+        model.showPage(3)
+        try await gate.waitForCancellations()
+        await waitForLoaded(model, page: 3)
+        await gate.open()
+
+        #expect(await repository.calls.map(\.page) == [1, 2, 3])
+    }
+
+    @Test
+    func reloadWhileLoadingRestartsTheSamePage() async throws {
+        let gate = TestGate()
+        let repository = UploaderVideoRepositoryStub(gate: gate, gatedPages: [2])
+        let model = makeModel(repository)
+        model.open(owner: owner)
+        await waitForLoaded(model, page: 1)
+        model.showPage(2)
+        try await gate.waitForEntries()
+
+        model.reload()
+        try await gate.waitForCancellations()
+        await gate.open()
+        await waitForLoaded(model, page: 2)
+
+        #expect(await repository.calls.map(\.page) == [1, 2, 2])
+    }
+
+    @Test
+    func shrinkingTotalFallsBackToTheLastPage() async {
+        let repository = UploaderVideoRepositoryStub()
+        let model = makeModel(repository)
+        model.open(owner: owner)
+        await waitForLoaded(model, page: 1)
+        await repository.setTotalCount(59)
+
+        model.showPage(3)
+        await waitForLoaded(model, page: 2)
+
+        #expect(model.pageCount == 2)
+        #expect(model.currentPage <= model.pageCount)
+        #expect(await repository.calls.map(\.page) == [1, 3, 2])
+    }
+
+    @Test
+    func sessionChangeDuringARequestClosesTheSpace() async {
+        let repository = UploaderVideoRepositoryStub()
+        let model = makeModel(repository)
+        model.open(owner: owner)
+        await waitForLoaded(model, page: 1)
+        await repository.cancelBySessionChange(page: 2)
+
+        model.showPage(2)
+        await waitForObservedState { model.state == .closed }
+
+        #expect(model.owner == nil)
+        #expect(model.pageCount == 1)
+    }
+
     private func makeModel(_ repository: UploaderVideoRepositoryStub) -> UploaderSpaceViewModel {
         UploaderSpaceViewModel(useCase: UploaderVideoUseCase(repository: repository))
     }
@@ -219,7 +305,8 @@ actor UploaderVideoRepositoryStub: UploaderVideoRepository {
     }
 
     private(set) var calls: [Call] = []
-    private let totalCount: Int
+    private var totalCount: Int
+    private var cancellingPages: Set<Int> = []
     private var failingPages: [Int: ContentApplicationError]
     private let gate: TestGate?
     private let gatedPages: Set<Int>
@@ -235,6 +322,15 @@ actor UploaderVideoRepositoryStub: UploaderVideoRepository {
         self.failingPages = failingPages
         self.gate = gate
         self.gatedPages = gatedPages
+    }
+
+    func setTotalCount(_ count: Int) {
+        totalCount = count
+    }
+
+    /// 模拟认证会话在请求途中切换：API 层抛出 CancellationError，而调用方 Task 并未被取消。
+    func cancelBySessionChange(page: Int) {
+        cancellingPages.insert(page)
     }
 
     func setFailure(_ error: ContentApplicationError?, page: Int) {
@@ -255,6 +351,9 @@ actor UploaderVideoRepositoryStub: UploaderVideoRepository {
             await gate.pass()
         }
         defer { Task { await completions.signal() } }
+        if cancellingPages.contains(page) {
+            throw CancellationError()
+        }
         if let error = failingPages[page] {
             throw error
         }

@@ -14,16 +14,26 @@ public enum UploaderSpaceState: Sendable, Equatable {
 @Observable
 /// 拥有侧栏 UP 主空间层的 UP 主、排序、页码与最新请求 Task。
 ///
-/// 按页替换，不追加；同一 UP 主再次打开保持当前状态。总页数与投稿数取自最近一次成功的页，
-/// 翻页加载或失败期间保留，页码条不会消失。
+/// 按页替换，不追加；同一 UP 主再次打开保持当前页。总页数与投稿数取自最近一次成功的页，
+/// 翻页加载或失败期间保留，页码条不会消失。账户会话在请求途中切换时直接关闭空间，
+/// 不把上一个身份的状态带给下一个身份。
 public final class UploaderSpaceViewModel {
     public private(set) var owner: VideoOwner?
     public private(set) var order: UploaderVideoOrder = .newest
     public private(set) var state: UploaderSpaceState = .closed
-    public private(set) var pageCount = 1
-    public private(set) var totalCount = 0
     /// 凭据失效（而非未登录）时递增，由 App 触发账户复核。
     public private(set) var authenticationRevalidationGeneration: UInt64 = 0
+
+    /// 最近一次成功的页；换 UP 主或排序时清空。
+    private var lastLoadedPage: UploaderVideoPage?
+
+    public var pageCount: Int {
+        lastLoadedPage?.pageCount ?? 1
+    }
+
+    public var totalCount: Int {
+        lastLoadedPage?.totalCount ?? 0
+    }
 
     public var currentPage: Int {
         switch state {
@@ -50,11 +60,18 @@ public final class UploaderSpaceViewModel {
         self.useCase = useCase
     }
 
+    /// 同一 UP 主再次打开时只更新资料（名字、头像可能已变），失败状态顺带重试。
     public func open(owner: VideoOwner) {
-        guard self.owner?.id != owner.id else { return }
+        guard self.owner?.id != owner.id else {
+            self.owner = owner
+            if case .failed = state {
+                reload()
+            }
+            return
+        }
         self.owner = owner
         order = .newest
-        resetPagination()
+        lastLoadedPage = nil
         load(page: 1)
     }
 
@@ -62,7 +79,7 @@ public final class UploaderSpaceViewModel {
         loadTask.cancel()
         owner = nil
         order = .newest
-        resetPagination()
+        lastLoadedPage = nil
         state = .closed
     }
 
@@ -70,11 +87,11 @@ public final class UploaderSpaceViewModel {
     public func setOrder(_ order: UploaderVideoOrder) {
         guard owner != nil, self.order != order else { return }
         self.order = order
-        resetPagination()
+        lastLoadedPage = nil
         load(page: 1)
     }
 
-    /// 页码超出已知范围、或请求当前已显示的页时不发请求；失败的页可以再次请求。
+    /// 页码超出已知范围、或请求正在显示／正在加载的页时不发请求；失败的页可以再次请求。
     public func showPage(_ page: Int) {
         guard owner != nil, (1...pageCount).contains(page) else { return }
         if case .loaded(let loaded) = state, loaded.pageNumber == page { return }
@@ -88,11 +105,6 @@ public final class UploaderSpaceViewModel {
         load(page: currentPage)
     }
 
-    private func resetPagination() {
-        pageCount = 1
-        totalCount = 0
-    }
-
     private func load(page: Int) {
         guard let ownerID = owner?.id else { return }
         let order = order
@@ -104,8 +116,12 @@ public final class UploaderSpaceViewModel {
                 result = .success(
                     try await useCase.page(ownerID: ownerID, order: order, page: page)
                 )
+            } catch is CancellationError {
+                // 本任务未被取消却收到取消：认证会话在请求途中切换，空间属于上一个身份，直接关闭。
+                guard let self, isCurrent() else { return }
+                close()
+                return
             } catch {
-                // 本任务未被取消却收到取消，说明认证会话在请求途中切换；给出可重试终态而不是停在 loading。
                 result = .failure(error as? ContentApplicationError ?? .unavailable)
             }
             guard let self, isCurrent() else { return }
@@ -116,8 +132,12 @@ public final class UploaderSpaceViewModel {
     private func apply(_ result: Result<UploaderVideoPage, ContentApplicationError>, page: Int) {
         switch result {
         case .success(let loaded):
-            pageCount = loaded.pageCount
-            totalCount = loaded.totalCount
+            lastLoadedPage = loaded
+            // 总数在翻页期间变少（投稿被删或隐藏），请求的页已超出范围：退回最后一页。
+            if loaded.pageNumber > loaded.pageCount {
+                load(page: loaded.pageCount)
+                return
+            }
             state = .loaded(loaded)
         case .failure(let error):
             if error == .authenticationInvalid {

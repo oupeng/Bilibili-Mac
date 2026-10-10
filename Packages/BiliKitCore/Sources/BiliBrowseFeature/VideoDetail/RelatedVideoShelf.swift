@@ -48,8 +48,8 @@ public struct RelatedVideoCardPresentation: Identifiable, Equatable, Sendable {
         var components = [
             video.title,
             video.ownerName,
-            VideoMetadataFormatting.viewCountText(video.viewCount, locale: locale),
-            VideoMetadataFormatting.danmakuCountText(video.danmakuCount, locale: locale)
+            VideoMetadataFormatting.viewCountText(compactText: viewCountText, locale: locale),
+            VideoMetadataFormatting.danmakuCountText(compactText: danmakuCountText, locale: locale)
         ]
         if let durationText {
             components.append(BrowseFeatureStrings.localized("时长\(durationText)", locale: locale))
