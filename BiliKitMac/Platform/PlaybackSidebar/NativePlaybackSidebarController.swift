@@ -390,7 +390,9 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
                 onOpenLink: { [weak self] in self?.actions.openCommentLink($0) },
                 onOpenPictures: { [weak self] in
                     self?.actions.openCommentPictures($0)
-                }
+                },
+                onOpenAuthorSpace: actions.openCommentAuthorSpace == nil
+                    ? nil : { [weak self] in self?.actions.openCommentAuthorSpace?($0) }
             )
             return item
         case .commentsFooter:

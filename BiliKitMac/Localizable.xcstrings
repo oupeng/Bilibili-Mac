@@ -3725,30 +3725,30 @@
         }
       }
     },
-    "查看 UP 主投稿" : {
+    "查看空间" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "View uploader's videos"
+            "value" : "View channel"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "投稿者の動画を見る"
+            "value" : "チャンネルを見る"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "查看 UP 主投稿"
+            "value" : "查看空间"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "查看 UP 主投稿"
+            "value" : "查看空間"
           }
         }
       }
