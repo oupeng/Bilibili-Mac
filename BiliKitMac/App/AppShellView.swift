@@ -16,6 +16,7 @@ struct AppShellView: View {
     let danmakuModel: DanmakuControlsViewModel
     let authenticationModel: AuthenticationViewModel
     let historyModel: WatchHistoryViewModel
+    let uploaderSpaceModel: UploaderSpaceViewModel?
     let playerContent: AnyView
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentVideoLinkResolver: CommentVideoLinkResolver
@@ -31,25 +32,41 @@ struct AppShellView: View {
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var gridScroll = SourceGridScrollStates()
     @State private var commentImagePreview: NativeCommentImagePreviewRequest?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         @Bindable var navigationCoordinator = navigationCoordinator
 
         NavigationSplitView(columnVisibility: guardedColumnVisibility) {
-            Group {
-                if navigationCoordinator.currentPlaybackBVID != nil {
-                    playbackSidebar
-                } else {
-                    AppNavigationSidebar(
-                        selection: $navigationCoordinator.selectedTab,
-                        accountState: authenticationModel.accountPresentationState,
-                        onPresentAuthentication: {
-                            isAuthenticationPresented = true
-                        }
-                    )
+            // 侧栏 = 底层（导航或播放详情）+ 可选的上下文层（UP 主空间）。两层并列叠放，各自按安全区布局；
+            // 上下文层打开时底层保留状态（关闭后评论位置还在），但不可见、不可点、对辅助功能隐藏。
+            ZStack {
+                Group {
+                    if navigationCoordinator.currentPlaybackBVID != nil {
+                        playbackSidebar
+                    } else {
+                        AppNavigationSidebar(
+                            selection: $navigationCoordinator.selectedTab,
+                            accountState: authenticationModel.accountPresentationState,
+                            onPresentAuthentication: {
+                                isAuthenticationPresented = true
+                            }
+                        )
+                    }
                 }
+                .id(sidebarContextID)
+                .opacity(isSidebarContextOpen ? 0 : 1)
+                .allowsHitTesting(!isSidebarContextOpen)
+                .accessibilityHidden(isSidebarContextOpen)
+
+                // 只给上下文层自己的插入／移除加动画；底层立即隐藏，不参与这次 transaction，
+                // 否则底层的 AppKit 集合视图会把布局变化也做成动画而跳动。
+                ZStack { sidebarContextLayer }
+                    .animation(
+                        reduceMotion ? nil : .snappy(duration: 0.28),
+                        value: isSidebarContextOpen
+                    )
             }
-            .id(sidebarContextID)
             .navigationSplitViewColumnWidth(
                 min: sidebarMinimumWidth,
                 ideal: sidebarIdealWidth,
@@ -201,9 +218,33 @@ struct AppShellView: View {
                     openURL(url)
                 }
             },
-            onOpenCommentPictures: openCommentPictures
+            onOpenCommentPictures: openCommentPictures,
+            onOpenUploaderSpace: uploaderSpaceModel.map { model in
+                { owner in model.open(owner: owner) }
+            },
+            isObscured: isSidebarContextOpen
         )
         .ignoresSafeArea(.container, edges: .top)
+    }
+
+    private var isSidebarContextOpen: Bool {
+        uploaderSpaceModel?.owner != nil
+    }
+
+    @ViewBuilder
+    private var sidebarContextLayer: some View {
+        if let uploaderSpaceModel, uploaderSpaceModel.owner != nil {
+            UploaderSpaceSidebarView(
+                model: uploaderSpaceModel,
+                currentBVID: navigationCoordinator.currentPlaybackBVID,
+                imagePipeline: imagePipeline,
+                onSelect: navigationCoordinator.openPlaybackFromSidebarContext,
+                onLogin: { isAuthenticationPresented = true }
+            )
+            .transition(
+                reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity)
+            )
+        }
     }
 
     // 浏览态与播放态共用一列：ideal 只在首次布局生效，切换状态时宽度被夹进新范围，

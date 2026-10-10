@@ -289,7 +289,9 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
                 content: content.uploader,
                 signatureExpanded: signatureExpanded,
                 imagePipeline: imagePipeline,
-                onToggleSignature: { [weak self] in self?.toggleSignature() }
+                onToggleSignature: { [weak self] in self?.toggleSignature() },
+                onOpenSpace: actions.openUploaderSpace == nil
+                    ? nil : { [weak self] in self?.actions.openUploaderSpace?() }
             )
             return item
         case .summary:

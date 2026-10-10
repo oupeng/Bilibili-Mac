@@ -19,14 +19,16 @@ final class NativePlaybackSidebarUploaderItem: NSCollectionViewItem {
         content: VideoUploaderHeaderContent,
         signatureExpanded: Bool,
         imagePipeline: NativeVideoImagePipeline,
-        onToggleSignature: @escaping () -> Void
+        onToggleSignature: @escaping () -> Void,
+        onOpenSpace: (() -> Void)?
     ) {
         representedObject = content
         contentView.configure(
             content: content,
             signatureExpanded: signatureExpanded,
             imagePipeline: imagePipeline,
-            onToggleSignature: onToggleSignature
+            onToggleSignature: onToggleSignature,
+            onOpenSpace: onOpenSpace
         )
     }
 
@@ -53,6 +55,16 @@ private final class NativePlaybackSidebarUploaderView: NSView {
     )
     private let signatureLoadingBar = NSView()
     private let signatureButton = NSButton()
+    /// 整行可点进入 UP 主空间；右侧箭头同时是给键盘与 VoiceOver 的显式按钮。
+    private let spaceButton = NSButton(
+        image: NSImage(
+            systemSymbolName: "chevron.right",
+            accessibilityDescription: AppStrings.localized("查看 UP 主投稿")
+        ) ?? NSImage(),
+        target: nil,
+        action: nil
+    )
+    private var onOpenSpace: (() -> Void)?
     private var imageTask: Task<Void, Never>?
     private var generation: UInt64 = 0
     private var content: VideoUploaderHeaderContent?
@@ -73,7 +85,18 @@ private final class NativePlaybackSidebarUploaderView: NSView {
         nameLabel.font = NativePlaybackUploaderGeometry.nameFont
         nameLabel.lineBreakMode = .byTruncatingTail
         nameLabel.maximumNumberOfLines = 1
-        nameLabel.isSelectable = true
+        // 整行可点，名字不再可选中复制，否则文本框会吃掉点击。
+        nameLabel.isSelectable = false
+
+        spaceButton.isBordered = false
+        spaceButton.imagePosition = .imageOnly
+        spaceButton.contentTintColor = .tertiaryLabelColor
+        spaceButton.target = self
+        spaceButton.action = #selector(openSpace)
+        spaceButton.toolTip = AppStrings.localized("查看 UP 主投稿")
+        spaceButton.setAccessibilityLabel(AppStrings.localized("查看 UP 主投稿"))
+        spaceButton.isHidden = true
+        addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(openSpace)))
 
         signatureLoadingBar.wantsLayer = true
         signatureLoadingBar.layer?.cornerRadius = 3
@@ -90,7 +113,8 @@ private final class NativePlaybackSidebarUploaderView: NSView {
             nameLabel,
             signatureText,
             signatureLoadingBar,
-            signatureButton
+            signatureButton,
+            spaceButton
         ] {
             addSubview(subview)
         }
@@ -106,8 +130,11 @@ private final class NativePlaybackSidebarUploaderView: NSView {
         content: VideoUploaderHeaderContent,
         signatureExpanded: Bool,
         imagePipeline: NativeVideoImagePipeline,
-        onToggleSignature: @escaping () -> Void
+        onToggleSignature: @escaping () -> Void,
+        onOpenSpace: (() -> Void)?
     ) {
+        self.onOpenSpace = onOpenSpace
+        spaceButton.isHidden = onOpenSpace == nil
         let avatarChanged = self.content?.avatarURL != content.avatarURL
         self.content = content
         self.signatureExpanded = signatureExpanded
@@ -150,6 +177,16 @@ private final class NativePlaybackSidebarUploaderView: NSView {
             updateSignatureText(signature, geometry: geometry)
         }
         nameLabel.frame = geometry.nameFrame
+        if !spaceButton.isHidden {
+            let buttonSize = NativePlaybackUploaderGeometry.spaceButtonSize
+            nameLabel.frame.size.width = max(0, geometry.nameFrame.width - buttonSize - 8)
+            spaceButton.frame = NSRect(
+                x: bounds.width - buttonSize,
+                y: geometry.nameFrame.midY - buttonSize / 2,
+                width: buttonSize,
+                height: buttonSize
+            )
+        }
         signatureText.frame = geometry.signatureTextFrame
         signatureLoadingBar.frame = geometry.loadingBarFrame
         signatureButton.frame = geometry.signatureToggleFrame
@@ -170,6 +207,8 @@ private final class NativePlaybackSidebarUploaderView: NSView {
         cancelImageRequest()
         content = nil
         onToggleSignature = nil
+        onOpenSpace = nil
+        spaceButton.isHidden = true
         avatar.image = nil
         nameLabel.stringValue = ""
         signatureText.string = ""
@@ -241,6 +280,10 @@ private final class NativePlaybackSidebarUploaderView: NSView {
 
     @objc private func toggleSignature() {
         onToggleSignature?()
+    }
+
+    @objc private func openSpace() {
+        onOpenSpace?()
     }
 }
 

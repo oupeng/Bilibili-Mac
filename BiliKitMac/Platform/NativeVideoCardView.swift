@@ -103,7 +103,7 @@ struct NativeVideoSingleLineWidthCache {
 }
 
 @MainActor
-final class NativeVideoCollectionItem: NSCollectionViewItem {
+final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHoverableCollectionItem {
     private enum ImagePhase: Equatable {
         case idle
         case loading(URL)

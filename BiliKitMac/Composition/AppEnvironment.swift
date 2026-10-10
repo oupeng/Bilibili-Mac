@@ -29,6 +29,7 @@ struct AppEnvironment {
     private let videoRepository: any VideoRepository
     private let relatedVideoRepository: any RelatedVideoRepository
     private let uploaderSignatureRepository: any UploaderSignatureRepository
+    private let uploaderVideoRepository: any UploaderVideoRepository
     private let commentRepository: any CommentRepository
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentVideoLinkResolver: CommentVideoLinkResolver
@@ -49,6 +50,7 @@ struct AppEnvironment {
         videoRepository: any VideoRepository,
         relatedVideoRepository: any RelatedVideoRepository,
         uploaderSignatureRepository: any UploaderSignatureRepository,
+        uploaderVideoRepository: any UploaderVideoRepository,
         commentRepository: any CommentRepository,
         commentAssetURLResolver: @escaping CommentAssetURLResolver,
         commentVideoLinkResolver: @escaping CommentVideoLinkResolver,
@@ -72,6 +74,7 @@ struct AppEnvironment {
         self.videoRepository = videoRepository
         self.relatedVideoRepository = relatedVideoRepository
         self.uploaderSignatureRepository = uploaderSignatureRepository
+        self.uploaderVideoRepository = uploaderVideoRepository
         self.commentRepository = commentRepository
         self.commentAssetURLResolver = commentAssetURLResolver
         self.commentVideoLinkResolver = commentVideoLinkResolver
@@ -121,6 +124,12 @@ struct AppEnvironment {
             uploaderSignatureUseCase: UploaderSignatureUseCase(
                 repository: uploaderSignatureRepository
             )
+        )
+    }
+
+    func makeUploaderSpaceViewModel() -> UploaderSpaceViewModel {
+        UploaderSpaceViewModel(
+            useCase: UploaderVideoUseCase(repository: uploaderVideoRepository)
         )
     }
 
@@ -309,6 +318,7 @@ struct AppEnvironment {
             videoRepository: contentRepository,
             relatedVideoRepository: contentRepository,
             uploaderSignatureRepository: contentRepository,
+            uploaderVideoRepository: contentRepository,
             commentRepository: BiliCommentRepository(client: api),
             commentAssetURLResolver: { reference in
                 commentAssetResolver.imageURL(for: reference)

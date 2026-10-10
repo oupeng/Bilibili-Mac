@@ -13,6 +13,11 @@ struct NativePlaybackSidebarView: View {
     let onSelectPlayback: (String, Int64?) -> Void
     let onOpenCommentLink: (CommentLinkTarget) -> Void
     let onOpenCommentPictures: (NativePlaybackCommentPictureGallery) -> Void
+    /// 点击 UP 主行进入空间；nil 时不显示入口。
+    var onOpenUploaderSpace: ((VideoOwner) -> Void)? = nil
+    /// 被空间层盖住时真正隐藏原生视图：SwiftUI 的透明度与 hit testing 管不到 AppKit 的
+    /// cursor rect 与 tracking area，只设透明会让评论正文继续改变指针形状。
+    var isObscured = false
 
     var body: some View {
         let presentation = presentation
@@ -20,6 +25,7 @@ struct NativePlaybackSidebarView: View {
             presentation: presentation,
             commentAssetURLResolver: commentAssetURLResolver,
             commentImagePipeline: commentImagePipeline,
+            isObscured: isObscured,
             actions: NativePlaybackSidebarActions(
                 selectEpisode: selectEpisode,
                 selectPage: selectPage,
@@ -35,7 +41,13 @@ struct NativePlaybackSidebarView: View {
                 nextReplyPage: { commentsModel?.showNextReplyPage(for: $0) },
                 retryReplies: { commentsModel?.retryReplies(for: $0) },
                 openCommentLink: onOpenCommentLink,
-                openCommentPictures: onOpenCommentPictures
+                openCommentPictures: onOpenCommentPictures,
+                openUploaderSpace: onOpenUploaderSpace.map { open in
+                    {
+                        guard let owner = model.presentedContext?.detail.owner else { return }
+                        open(owner)
+                    }
+                }
             )
         )
         .overlay {
@@ -146,12 +158,14 @@ struct NativePlaybackSidebarActions {
     let retryReplies: (CommentID) -> Void
     let openCommentLink: (CommentLinkTarget) -> Void
     let openCommentPictures: (NativePlaybackCommentPictureGallery) -> Void
+    var openUploaderSpace: (() -> Void)? = nil
 }
 
 private struct NativePlaybackSidebarRepresentable: NSViewRepresentable {
     let presentation: NativePlaybackSidebarPresentation
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentImagePipeline: NativeVideoImagePipeline
+    let isObscured: Bool
     let actions: NativePlaybackSidebarActions
 
     func makeCoordinator() -> NativePlaybackSidebarController {
@@ -163,6 +177,7 @@ private struct NativePlaybackSidebarRepresentable: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NativePlaybackSidebarRootView {
         context.coordinator.update(presentation: presentation, actions: actions)
+        context.coordinator.rootView.isHidden = isObscured
         return context.coordinator.rootView
     }
 
@@ -171,6 +186,9 @@ private struct NativePlaybackSidebarRepresentable: NSViewRepresentable {
         context: Context
     ) {
         context.coordinator.update(presentation: presentation, actions: actions)
+        if view.isHidden != isObscured {
+            view.isHidden = isObscured
+        }
     }
 
     static func dismantleNSView(
@@ -183,8 +201,10 @@ private struct NativePlaybackSidebarRepresentable: NSViewRepresentable {
 
 @MainActor
 final class NativePlaybackSidebarRootView: NSView {
-    let scrollView = NativePlaybackSidebarScrollView()
-    var commentsTopButton: NSButton { scrollView.commentsTopButton }
+    let scrollView = NativeScrollToTopScrollView(
+        topButtonLabel: AppStrings.localized("返回评论区顶部")
+    )
+    var commentsTopButton: NSButton { scrollView.topButton }
     var viewportSizeDidChange: ((CGSize) -> Void)?
 
     override init(frame frameRect: NSRect) {
@@ -199,18 +219,6 @@ final class NativePlaybackSidebarRootView: NSView {
         scrollView.horizontalScrollElasticity = .none
         scrollView.automaticallyAdjustsContentInsets = true
         addSubview(scrollView)
-        commentsTopButton.imagePosition = .imageOnly
-        commentsTopButton.imageScaling = .scaleProportionallyDown
-        commentsTopButton.controlSize = .large
-        if #available(macOS 26.0, *) {
-            commentsTopButton.bezelStyle = .glass
-        } else {
-            commentsTopButton.bezelStyle = .circular
-        }
-        commentsTopButton.setAccessibilityLabel(AppStrings.localized("返回评论区顶部"))
-        commentsTopButton.toolTip = AppStrings.localized("返回评论区顶部")
-        commentsTopButton.isHidden = true
-        scrollView.addSubview(commentsTopButton)
     }
 
     @available(*, unavailable)
@@ -222,35 +230,6 @@ final class NativePlaybackSidebarRootView: NSView {
         scrollView.frame = bounds
         super.layout()
         viewportSizeDidChange?(scrollView.contentSize)
-    }
-}
-
-@MainActor
-final class NativePlaybackSidebarScrollView: NSScrollView {
-    let commentsTopButton = NSButton(
-        image: NSImage(
-            systemSymbolName: "arrow.up",
-            accessibilityDescription: AppStrings.localized("返回评论区顶部")
-        ) ?? NSImage(),
-        target: nil,
-        action: nil
-    )
-    var onContentInsetsChange: ((NSEdgeInsets, NSEdgeInsets) -> Void)?
-    private var viewportTracker = NativeScrollViewportTracker()
-
-    override func layout() {
-        super.layout()
-        let safeTrailing = max(contentInsets.right, safeAreaInsets.right)
-        let safeBottom = max(contentInsets.bottom, safeAreaInsets.bottom)
-        let bottomAlignedY = max(16, bounds.height - safeBottom - 60)
-        commentsTopButton.frame = NSRect(
-            x: max(16, bounds.width - safeTrailing - 60),
-            y: isFlipped ? bottomAlignedY : safeBottom + 16,
-            width: 44,
-            height: 44
-        )
-        guard let previousInsets = viewportTracker.update(for: self).previousInsets else { return }
-        onContentInsetsChange?(previousInsets, contentInsets)
     }
 }
 

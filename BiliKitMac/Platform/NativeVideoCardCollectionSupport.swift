@@ -75,13 +75,21 @@ enum NativeVideoCardDataSource {
     }
 }
 
-/// 指针悬停的唯一 owner：同一时刻最多一张卡片处于悬停外观。
+/// 可被 `NativeVideoHoverTracker` 管理悬停外观的集合项（网格卡片、UP 主空间投稿行）。
+@MainActor
+protocol NativeHoverableCollectionItem: NSCollectionViewItem {
+    func setHovered(_ hovered: Bool)
+    func clearHover()
+    func invalidateImageRequests()
+}
+
+/// 指针悬停的唯一 owner：同一时刻最多一个集合项处于悬停外观。
 @MainActor
 final class NativeVideoHoverTracker {
-    private(set) weak var hoveredItem: NativeVideoCollectionItem?
+    private(set) weak var hoveredItem: (any NativeHoverableCollectionItem)?
 
     /// 由 Coordinator 主动决定悬停目标（滚动、布局、窗口变化后）。
-    func setHoveredItem(_ item: NativeVideoCollectionItem?) {
+    func setHoveredItem(_ item: (any NativeHoverableCollectionItem)?) {
         guard hoveredItem !== item else { return }
         let previous = hoveredItem
         hoveredItem = item
@@ -90,7 +98,7 @@ final class NativeVideoHoverTracker {
     }
 
     /// 卡片自身的 tracking area 报告的悬停变化；卡片已自行更新外观，这里只撤销前一张。
-    func itemDidChangeHover(_ item: NativeVideoCollectionItem, isHovered: Bool) {
+    func itemDidChangeHover(_ item: any NativeHoverableCollectionItem, isHovered: Bool) {
         if isHovered {
             guard hoveredItem !== item else { return }
             let previous = hoveredItem
@@ -112,7 +120,7 @@ final class NativeVideoHoverTracker {
     }
 
     /// 离屏卡片可能立即被复用给其他视频，必须同时丢弃引用、图片请求与悬停外观。
-    func itemDidEndDisplaying(_ item: NativeVideoCollectionItem) {
+    func itemDidEndDisplaying(_ item: any NativeHoverableCollectionItem) {
         if hoveredItem === item { hoveredItem = nil }
         item.invalidateImageRequests()
         item.clearHover()
@@ -120,7 +128,7 @@ final class NativeVideoHoverTracker {
 
     private static func itemUnderPointer(
         in collectionView: NSCollectionView
-    ) -> NativeVideoCollectionItem? {
+    ) -> (any NativeHoverableCollectionItem)? {
         guard let windowPoint = collectionView.window?.mouseLocationOutsideOfEventStream
         else { return nil }
         let collectionPoint = collectionView.convert(windowPoint, from: nil)
@@ -128,7 +136,7 @@ final class NativeVideoHoverTracker {
             collectionView.visibleRect.contains(collectionPoint),
             let indexPath = collectionView.indexPathForItem(at: collectionPoint)
         else { return nil }
-        return collectionView.item(at: indexPath) as? NativeVideoCollectionItem
+        return collectionView.item(at: indexPath) as? any NativeHoverableCollectionItem
     }
 }
 
