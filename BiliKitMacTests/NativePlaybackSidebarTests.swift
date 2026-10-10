@@ -88,7 +88,7 @@ struct NativePlaybackSidebarTests {
         let withoutSignature = NativePlaybackUploaderGeometry(
             content: VideoUploaderHeaderContent(
                 owner: VideoOwner(id: 1, name: "UP 主"),
-                signatureState: .loaded(nil)
+                profileState: .loaded(UploaderProfile())
             ),
             width: 520
         )
@@ -101,6 +101,45 @@ struct NativePlaybackSidebarTests {
 
         #expect(withoutSignature.nameFrame.midY == avatarCenter)
         #expect(withSignature.nameFrame.minY == 0)
+    }
+
+    /// 名片加载完成前名字保持默认色，不会先粉后灰地闪一下；大会员同时告知 VoiceOver。
+    @Test(
+        arguments: [
+            (VideoUploaderProfileState.loading, false),
+            (.loaded(UploaderProfile(isVIP: false)), false),
+            (.loaded(UploaderProfile(isVIP: true)), true)
+        ]
+    )
+    @MainActor
+    func uploaderNameColorOnlyReflectsLoadedVIPState(
+        profileState: VideoUploaderProfileState,
+        expectsVIP: Bool
+    ) throws {
+        let name = "测试 UP"
+        let item = NativePlaybackSidebarUploaderItem()
+        item.view.frame = NSRect(x: 0, y: 0, width: 408, height: 60)
+        item.configure(
+            content: VideoUploaderHeaderContent(
+                owner: VideoOwner(id: 1, name: name),
+                profileState: profileState
+            ),
+            imagePipeline: NativeVideoImagePipeline(),
+            onOpenSpace: nil
+        )
+
+        let nameLabel = try #require(
+            descendants(of: item.view).compactMap { $0 as? NSTextField }.first {
+                $0.stringValue == name
+            }
+        )
+        #expect(nameLabel.textColor == (expectsVIP ? .systemPink : .labelColor))
+        #expect(
+            nameLabel.accessibilityLabel()
+                == (expectsVIP
+                    ? AppStrings.localized("UP 主，\(name)，大会员")
+                    : AppStrings.localized("UP 主，\(name)"))
+        )
     }
 
     @Test
@@ -206,6 +245,73 @@ struct NativePlaybackSidebarTests {
                 == [.uploader(bvid: content.bvid)]
         )
         #expect(overlayOnly.changedItemIDs(comparedTo: original).isEmpty)
+    }
+
+    /// 只有同一行原地从“名片加载中”变为结果时淡入；首次配置、复用与已加载后的变化照常立即生效。
+    @Test
+    @MainActor
+    func onlyArrivingUploaderProfileFadesIn() {
+        func content(_ state: VideoUploaderProfileState) -> VideoUploaderHeaderContent {
+            VideoUploaderHeaderContent(
+                owner: VideoOwner(id: 1, name: "UP 主"),
+                profileState: state
+            )
+        }
+        let loading = content(.loading)
+        let loaded = content(.loaded(UploaderProfile(signature: "签名", isVIP: true)))
+        let reloaded = content(.loaded(UploaderProfile(signature: "新签名")))
+
+        #expect(NativePlaybackUploaderProfileReveal.fades(from: loading, to: loaded))
+        #expect(!NativePlaybackUploaderProfileReveal.fades(from: nil, to: loaded))
+        #expect(!NativePlaybackUploaderProfileReveal.fades(from: loaded, to: reloaded))
+        #expect(!NativePlaybackUploaderProfileReveal.fades(from: loaded, to: loading))
+    }
+
+    /// 过渡只覆盖 UP 主行的前提：名片各状态下行高相同，下方行不会位移。
+    @Test(
+        arguments: [
+            VideoUploaderProfileState.loaded(UploaderProfile()),
+            .loaded(UploaderProfile(signature: String(repeating: "签名", count: 40)))
+        ]
+    )
+    @MainActor
+    func uploaderRowKeepsItsHeightWhenProfileArrives(loaded: VideoUploaderProfileState) {
+        func height(_ state: VideoUploaderProfileState) -> CGFloat {
+            NativePlaybackUploaderGeometry(
+                content: VideoUploaderHeaderContent(
+                    owner: VideoOwner(id: 1, name: "UP 主"),
+                    profileState: state
+                ),
+                width: 408
+            ).height
+        }
+
+        #expect(height(.loading) == height(loaded))
+    }
+
+    /// 认证优先于大会员，个人与机构认证分开，普通用户没有角标。
+    @Test(
+        arguments: [
+            (.personal(description: nil), false, .personalVerification),
+            (.personal(description: nil), true, .personalVerification),
+            (.organization(description: nil), true, .organizationVerification),
+            (nil, true, .vip),
+            (nil, false, nil)
+        ] as [(CommentVerification?, Bool, NativeCommentAvatarMark?)]
+    )
+    func commentAvatarMarkPrefersVerificationOverVIP(
+        verification: CommentVerification?,
+        isVIP: Bool,
+        expected: NativeCommentAvatarMark?
+    ) {
+        let author = CommentAuthor(
+            id: CommentAuthorID(rawValue: "author"),
+            name: "昵称",
+            isVIP: isVIP,
+            verification: verification
+        )
+
+        #expect(NativeCommentAvatarMark(author: author) == expected)
     }
 
     @Test
@@ -1737,7 +1843,9 @@ struct NativePlaybackSidebarTests {
                 bvid: bvid,
                 uploader: VideoUploaderHeaderContent(
                     owner: context.detail.owner,
-                    signatureState: .loaded(context.detail.owner.signature)
+                    profileState: .loaded(
+                        UploaderProfile(signature: context.detail.owner.signature)
+                    )
                 ),
                 summary: context.detail.summary,
                 selection: selectionProjection(context: context),

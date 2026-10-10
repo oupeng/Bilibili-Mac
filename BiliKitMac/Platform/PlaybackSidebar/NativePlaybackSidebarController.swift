@@ -265,6 +265,35 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
         rootView.scrollView.documentView = collectionView
     }
 
+    private func configureUploader(
+        _ item: NativePlaybackSidebarUploaderItem,
+        content: VideoUploaderHeaderContent
+    ) {
+        item.configure(
+            content: content,
+            imagePipeline: imagePipeline,
+            onOpenSpace: actions.openUploaderSpace == nil
+                ? nil : { [weak self] in self?.actions.openUploaderSpace?() }
+        )
+    }
+
+    /// 同一视频内可见的 UP 主行原地更新、不整项重载，返回已处理的项。
+    ///
+    /// 重载会换掉视图，名片到达时就没有旧画面可淡出（见 `NativePlaybackUploaderProfileReveal`）。
+    private func reconfigureVisibleUploader(
+        in changedItemIDs: Set<NativePlaybackSidebarItemID>
+    ) -> Set<NativePlaybackSidebarItemID> {
+        guard let content = presentation.content else { return [] }
+        let uploaderID = NativePlaybackSidebarItemID.uploader(bvid: content.bvid)
+        guard changedItemIDs.contains(uploaderID),
+            let indexPath = dataSource?.indexPath(for: uploaderID),
+            let item = collectionView.item(at: indexPath)
+                as? NativePlaybackSidebarUploaderItem
+        else { return [] }
+        configureUploader(item, content: content.uploader)
+        return [uploaderID]
+    }
+
     private func makeItem(
         collectionView: NSCollectionView,
         indexPath: IndexPath,
@@ -279,12 +308,7 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
                     for: indexPath
                 ) as? NativePlaybackSidebarUploaderItem
             else { return nil }
-            item.configure(
-                content: content.uploader,
-                imagePipeline: imagePipeline,
-                onOpenSpace: actions.openUploaderSpace == nil
-                    ? nil : { [weak self] in self?.actions.openUploaderSpace?() }
-            )
+            configureUploader(item, content: content.uploader)
             return item
         case .summary:
             guard
@@ -455,8 +479,11 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
         if strategy == .reloadChangedItems {
             snapshotGeneration &+= 1
             updateLayoutEntries(invalidating: changedItemIDs)
+            let reloadedItemIDs = changedItemIDs.subtracting(
+                reconfigureVisibleUploader(in: changedItemIDs)
+            )
             let indexPaths = Set(
-                changedItemIDs.compactMap { dataSource.indexPath(for: $0) }
+                reloadedItemIDs.compactMap { dataSource.indexPath(for: $0) }
             )
             if !indexPaths.isEmpty {
                 collectionView.reloadItems(at: indexPaths)

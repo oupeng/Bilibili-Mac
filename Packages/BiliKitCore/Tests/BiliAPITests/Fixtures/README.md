@@ -5,7 +5,7 @@
 - 标识符、标题、详情、作者和统计数据为虚构值。
 - 图片地址只使用 `example.invalid`；媒体地址必须通过生产 CDN allowlist，使用虚构的 `*.fixture.bilivideo.com`。
 - 不包含 Cookie、token、WBI 签名、实时响应 body 或带签名媒体 URL。
-- `uploader-card.json` 只包含虚构身份与自写签名，用于固定公开 card DTO 边界。
+- `uploader-card.json` 只包含虚构身份、自写签名与有效大会员状态，用于固定公开 card DTO 边界。
 - `uploader-videos.json` 是 UP 主空间投稿列表的最小形状：字符串时长、`"--"` 隐藏统计、联合投稿与
   一条无效 BV，内容均为虚构值。
 - 热门、详情、分 P、playurl、nav WBI key 与搜索字段形状依据 2026-07-21 的匿名接口响应重新核对，但内容不是线上响应副本。

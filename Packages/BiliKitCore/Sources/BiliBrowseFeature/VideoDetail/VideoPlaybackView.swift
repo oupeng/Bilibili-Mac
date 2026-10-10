@@ -79,27 +79,9 @@ public struct VideoPlaybackView<PlayerContent: View, RelatedContent: View>: View
 
     private var detailSurface: some View {
         detailSurfaceContent
-            .overlay(alignment: .topLeading) {
-                if currentContext != nil, isLoadingReplacement {
-                    replacementLoadingOverlay
-                        .frame(
-                            maxWidth: .infinity,
-                            maxHeight: .infinity,
-                            alignment: .topLeading
-                        )
-                        .transition(.opacity)
-                }
-            }
             .overlay {
                 replacementFailureOverlay
             }
-    }
-
-    private var isLoadingReplacement: Bool {
-        if case .loading = model.state {
-            return true
-        }
-        return false
     }
 
     @ViewBuilder
@@ -188,23 +170,6 @@ public struct VideoPlaybackView<PlayerContent: View, RelatedContent: View>: View
         case .preparingPlayback, .ready:
             EmptyView()
         }
-    }
-
-    @ViewBuilder
-    private var replacementLoadingOverlay: some View {
-        HStack(spacing: 10) {
-            ProgressView()
-                .controlSize(.small)
-            Text(BrowseFeatureStrings.localized("正在加载所选视频"))
-                .font(.callout.weight(.medium))
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.ultraThinMaterial, in: Capsule())
-        .padding(.top, 24)
-        .frame(maxWidth: .infinity, alignment: .top)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(BrowseFeatureStrings.localized("正在加载所选视频"))
     }
 
     @ViewBuilder

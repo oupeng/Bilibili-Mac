@@ -1597,34 +1597,6 @@
         }
       }
     },
-    "正在加载所选视频" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Loading the selected video"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "選択した動画を読み込み中"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在加载所选视频"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在載入所選影片"
-          }
-        }
-      }
-    },
     "正在加载更多搜索结果" : {
       "localizations" : {
         "en" : {

@@ -289,7 +289,7 @@ private final class NativePlaybackCommentRowView: NSView {
                 loader: avatarLoader
             )
             authorLabel.stringValue = details.author.name
-            authorLabel.textColor = Self.authorColor(details.author)
+            authorLabel.textColor = NativeMemberNameColor.color(isVIP: details.author.isVIP)
             authorLabel.setAccessibilityLabel(
                 Self.authorAccessibility(details.author)
             )
@@ -381,10 +381,6 @@ private final class NativePlaybackCommentRowView: NSView {
         likeLabel.stringValue = ""
         provenanceBadges.reset()
         pictures.reset()
-    }
-
-    private static func authorColor(_ author: CommentAuthor) -> NSColor {
-        author.isVIP ? .systemPink : .labelColor
     }
 
     private static func metadataLeading(_ details: CommentDetails) -> String {

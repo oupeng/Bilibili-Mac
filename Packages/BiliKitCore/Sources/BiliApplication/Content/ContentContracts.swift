@@ -45,7 +45,7 @@ public protocol UploaderVideoRepository: Sendable {
     ) async throws -> UploaderVideoPage
 }
 
-/// 播放页只读 UP 主签名所需的独立 port；具体账户读取策略由 adapter 隐藏。
-public protocol UploaderSignatureRepository: Sendable {
-    func signature(for ownerID: Int64) async throws -> String?
+/// 播放页只读 UP 主名片（签名与大会员状态）所需的独立 port；具体账户读取策略由 adapter 隐藏。
+public protocol UploaderProfileRepository: Sendable {
+    func uploaderProfile(for ownerID: Int64) async throws -> UploaderProfile
 }

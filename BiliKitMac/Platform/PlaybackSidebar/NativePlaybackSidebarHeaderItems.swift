@@ -73,6 +73,7 @@ private final class NativePlaybackSidebarUploaderView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         avatar.imageScaling = .scaleProportionallyUpOrDown
+        avatar.contentTintColor = NativeAvatarPlaceholder.tintColor
         avatar.wantsLayer = true
         avatar.layer?.cornerRadius = NativePlaybackSidebarItemMeasurement.avatarSize / 2
         avatar.layer?.masksToBounds = true
@@ -97,7 +98,7 @@ private final class NativePlaybackSidebarUploaderView: NSView {
 
         signatureLoadingBar.wantsLayer = true
         signatureLoadingBar.layer?.cornerRadius = 3
-        signatureLoadingBar.layer?.backgroundColor = NSColor.quaternaryLabelColor.cgColor
+        refreshLoadingBarColor()
 
         signatureLabel.setAccessibilityLabel(AppStrings.localized("UP 主签名"))
 
@@ -118,6 +119,16 @@ private final class NativePlaybackSidebarUploaderView: NSView {
         nil
     }
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshLoadingBarColor()
+    }
+
+    private func refreshLoadingBarColor() {
+        signatureLoadingBar.layer?.backgroundColor =
+            NSColor.quaternaryLabelColor.cgColor(for: effectiveAppearance)
+    }
+
     func configure(
         content: VideoUploaderHeaderContent,
         imagePipeline: NativeVideoImagePipeline,
@@ -126,9 +137,17 @@ private final class NativePlaybackSidebarUploaderView: NSView {
         self.onOpenSpace = onOpenSpace
         spaceButton.isHidden = onOpenSpace == nil
         let avatarChanged = self.content?.avatarURL != content.avatarURL
+        if NativePlaybackUploaderProfileReveal.fades(from: self.content, to: content) {
+            NativePlaybackUploaderProfileReveal.apply(to: self)
+        }
         self.content = content
         nameLabel.stringValue = content.name
-        nameLabel.setAccessibilityLabel(AppStrings.localized("UP 主，\(content.name)"))
+        nameLabel.textColor = NativeMemberNameColor.color(isVIP: content.isVIP)
+        nameLabel.setAccessibilityLabel(
+            content.isVIP
+                ? AppStrings.localized("UP 主，\(content.name)，大会员")
+                : AppStrings.localized("UP 主，\(content.name)")
+        )
 
         switch content.signature {
         case .loading:
@@ -231,7 +250,7 @@ private final class NativePlaybackSidebarUploaderView: NSView {
     ) {
         cancelImageRequest()
         avatar.image = NSImage(
-            systemSymbolName: "person.crop.circle.fill",
+            systemSymbolName: NativeAvatarPlaceholder.systemSymbolName,
             accessibilityDescription: nil
         )
         guard let url else { return }

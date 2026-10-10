@@ -102,10 +102,12 @@ struct UploaderCardDataPayload: Decodable, Sendable {
 struct UploaderCardPayload: Decodable, Sendable {
     let mid: Int64
     let sign: String
+    let vip: MemberVIPPayload?
 
     private enum CodingKeys: String, CodingKey {
         case mid
         case sign
+        case vip
     }
 
     init(from decoder: any Decoder) throws {
@@ -124,6 +126,12 @@ struct UploaderCardPayload: Decodable, Sendable {
             mid = numericMID
         }
         sign = try container.decode(String.self, forKey: .sign)
+        // 大会员只决定名字颜色，字段异常时按非大会员处理，不拖累签名。
+        vip = try? container.decodeIfPresent(MemberVIPPayload.self, forKey: .vip)
+    }
+
+    func model() -> UploaderProfile {
+        UploaderProfile(signature: sign, isVIP: vip?.isActive == true)
     }
 }
 

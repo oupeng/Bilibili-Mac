@@ -84,18 +84,18 @@ struct VideoDetailLifecycleTests {
 
     @Test(.timeLimit(.minutes(1)))
     @MainActor
-    func backCancelsPendingUploaderSignatureRequest()
+    func backCancelsPendingUploaderProfileRequest()
         async throws
     {
         let fixture = VideoDetailLifecycleFixture()
-        let signatureRepository = PendingLifecycleUploaderSignatureRepository()
+        let profileRepository = PendingLifecycleUploaderProfileRepository()
         let videoModel = VideoViewModel(
             useCase: VideoUseCase(
                 repository: LifecycleVideoRepository(fixtures: [fixture])
             ),
             playback: LifecyclePlayback(),
-            uploaderSignatureUseCase: UploaderSignatureUseCase(
-                repository: signatureRepository
+            uploaderProfileUseCase: UploaderProfileUseCase(
+                repository: profileRepository
             )
         )
         let coordinator = AppNavigationCoordinator(
@@ -112,16 +112,16 @@ struct VideoDetailLifecycleTests {
 
         coordinator.openPlayback(fixture.bvid)
         await waitUntilSettled(videoModel)
-        try await signatureRepository.waitForRequest()
-        #expect(videoModel.uploaderSignatureState == .loading)
+        try await profileRepository.waitForRequest()
+        #expect(videoModel.uploaderProfileState == .loading)
 
         coordinator.playbackPath = []
-        await signatureRepository.releaseLateResult()
-        try await signatureRepository.waitForCompletion()
+        await profileRepository.releaseLateResult()
+        try await profileRepository.waitForCompletion()
 
         #expect(videoModel.state == .idle)
         #expect(videoModel.presentedContext == nil)
-        #expect(videoModel.uploaderSignatureState == .loaded(nil))
+        #expect(videoModel.uploaderProfileState == .loaded(UploaderProfile()))
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -746,16 +746,16 @@ private struct PageSelectionRoutingFixture: Sendable {
     }
 }
 
-private actor PendingLifecycleUploaderSignatureRepository:
-    UploaderSignatureRepository
+private actor PendingLifecycleUploaderProfileRepository:
+    UploaderProfileRepository
 {
     private var requestStarted = false
     private var requestWaiters: [CheckedContinuation<Void, Never>] = []
-    private var resultContinuation: CheckedContinuation<String?, Never>?
+    private var resultContinuation: CheckedContinuation<UploaderProfile, Never>?
     private var requestCompleted = false
     private var completionWaiters: [CheckedContinuation<Void, Never>] = []
 
-    func signature(for ownerID: Int64) async throws -> String? {
+    func uploaderProfile(for ownerID: Int64) async throws -> UploaderProfile {
         requestStarted = true
         requestWaiters.resumeAll()
         let result = await withCheckedContinuation { continuation in
@@ -774,7 +774,7 @@ private actor PendingLifecycleUploaderSignatureRepository:
     }
 
     func releaseLateResult() {
-        resultContinuation?.resume(returning: "迟到签名")
+        resultContinuation?.resume(returning: UploaderProfile(signature: "迟到签名", isVIP: true))
         resultContinuation = nil
     }
 

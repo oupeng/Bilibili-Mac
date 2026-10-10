@@ -62,7 +62,7 @@ struct NativePlaybackSidebarView: View {
                 bvid: context.detail.bvid,
                 uploader: VideoUploaderHeaderContent(
                     owner: context.detail.owner,
-                    signatureState: model.uploaderSignatureState
+                    profileState: model.uploaderProfileState
                 ),
                 summary: context.detail.summary,
                 selection: selectionProjection(context),
