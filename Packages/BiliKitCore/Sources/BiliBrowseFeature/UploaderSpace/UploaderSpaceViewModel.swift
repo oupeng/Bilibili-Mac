@@ -22,7 +22,7 @@ public final class UploaderSpaceViewModel {
     public private(set) var order: UploaderVideoOrder = .newest
     public private(set) var state: UploaderSpaceState = .closed
     /// 凭据失效（而非未登录）时递增，由 App 触发账户复核。
-    public private(set) var authenticationRevalidationGeneration: UInt64 = 0
+    public private(set) var authenticationRevalidationGeneration = 0
 
     /// 最近一次成功的页；换 UP 主或排序时清空。
     private var lastLoadedPage: UploaderVideoPage?
@@ -75,7 +75,9 @@ public final class UploaderSpaceViewModel {
         load(page: 1)
     }
 
+    /// 协调器每次换视频都会调用；已经关闭时不再写入，避免无谓地通知观察者。
     public func close() {
+        guard owner != nil || state != .closed else { return }
         loadTask.cancel()
         owner = nil
         order = .newest
@@ -141,7 +143,7 @@ public final class UploaderSpaceViewModel {
             state = .loaded(loaded)
         case .failure(let error):
             if error == .authenticationInvalid {
-                authenticationRevalidationGeneration &+= 1
+                authenticationRevalidationGeneration += 1
             }
             state = .failed(page: page, error: error)
         }

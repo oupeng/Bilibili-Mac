@@ -98,6 +98,7 @@ struct AppRootView: View {
             danmakuModel: danmakuModel,
             authenticationModel: authenticationModel,
             historyModel: historyModel,
+            uploaderSpaceModel: windowOwner.uploaderSpaceModel,
             playerContent: playerContent,
             commentAssetURLResolver: windowOwner.commentAssetURLResolver,
             commentVideoLinkResolver: windowOwner.commentVideoLinkResolver,
@@ -276,7 +277,8 @@ struct AppRootView: View {
             videoModel.authenticationRevalidationGeneration,
             browseModel.authenticationRevalidationGeneration,
             danmakuModel.authenticationRevalidationGeneration,
-            commentsModel?.authenticationRevalidationGeneration ?? 0
+            commentsModel?.authenticationRevalidationGeneration ?? 0,
+            windowOwner.uploaderSpaceModel?.authenticationRevalidationGeneration ?? 0
         ]
     }
 

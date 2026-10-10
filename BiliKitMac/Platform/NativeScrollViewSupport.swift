@@ -67,10 +67,30 @@ struct NativeScrollViewportTracker {
     }
 }
 
+/// 用户主动触发的跳转（“返回顶部”）的滚动动画时长。
+private let nativeUserScrollAnimationDuration: TimeInterval = 0.25
+
 extension NSScrollView {
     func scrollVertically(toPhysicalOffset offsetY: CGFloat) {
         contentView.scroll(to: NSPoint(x: 0, y: offsetY))
         reflectScrolledClipView(contentView)
+    }
+
+    /// 用户主动触发的跳转带动画。
+    ///
+    /// “减弱动态效果”开启或 `animated` 为 false 时直接跳转；程序内部的定位（换内容回到顶部、
+    /// 恢复滚动位置）始终不加动画。
+    func scrollVertically(toPhysicalOffset offsetY: CGFloat, animated: Bool) {
+        guard animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            scrollVertically(toPhysicalOffset: offsetY)
+            return
+        }
+        let clipView = contentView
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = nativeUserScrollAnimationDuration
+            clipView.animator().setBoundsOrigin(NSPoint(x: 0, y: offsetY))
+        }
+        reflectScrolledClipView(clipView)
     }
 
     /// contentInsets 变化后保持逻辑纵向位置不变。

@@ -61,7 +61,6 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
         [NativePlaybackSidebarItemID: NativePlaybackCommentThreadPresentation] = [:]
     private var commentRenderRevisions: [NativePlaybackSidebarItemID: UInt64] = [:]
     private var summaryExpanded = false
-    private var signatureExpanded = false
     private var browsedSectionID: VideoCollectionSectionIdentity?
     private var lastSelectedEpisodeID: VideoCollectionEpisodeIdentity?
     private var measuredViewportWidth: CGFloat = 0
@@ -92,8 +91,8 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
         }
         super.init()
         configureCollectionView()
-        rootView.commentsTopButton.target = self
-        rootView.commentsTopButton.action = #selector(scrollCommentsToTop)
+        rootView.scrollView.topButton.target = self
+        rootView.scrollView.topButton.action = #selector(scrollToTopFromButton)
         rootView.scrollView.contentView.postsBoundsChangedNotifications = true
         observers.observeScrolling(of: rootView.scrollView) { [weak self] in
             self?.viewportDidScroll()
@@ -146,14 +145,9 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
             )
         if changesIdentity {
             summaryExpanded = false
-            signatureExpanded = false
             browsedSectionID = nil
             lastSelectedEpisodeID = nil
             commentsPagination.reset()
-        } else if previousPresentation.content?.uploader.signature
-            != presentation.content?.uploader.signature
-        {
-            signatureExpanded = false
         }
         if changesCommentSort {
             commentsPagination.reset()
@@ -287,9 +281,9 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
             else { return nil }
             item.configure(
                 content: content.uploader,
-                signatureExpanded: signatureExpanded,
                 imagePipeline: imagePipeline,
-                onToggleSignature: { [weak self] in self?.toggleSignature() }
+                onOpenSpace: actions.openUploaderSpace == nil
+                    ? nil : { [weak self] in self?.actions.openUploaderSpace?() }
             )
             return item
         case .summary:
@@ -537,7 +531,7 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
         synchronizeDocumentFrame()
         applyPendingViewportIntent(fallbackAnchor: anchor)
         scheduleRefinement()
-        updateCommentsTopButton()
+        updateTopButton()
         scheduleNextCommentsPageIfNeeded()
     }
 
@@ -586,7 +580,6 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
         switch itemID {
         case .uploader:
             hasher.combine(String(reflecting: content.uploader))
-            hasher.combine(signatureExpanded)
         case .summary:
             hasher.combine(content.summary)
             hasher.combine(summaryExpanded)
@@ -615,11 +608,7 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
     ) -> CGFloat {
         switch itemID {
         case .uploader:
-            return NativePlaybackSidebarItemMeasurement.uploader(
-                content.uploader,
-                width: width,
-                signatureExpanded: signatureExpanded
-            )
+            return NativePlaybackSidebarItemMeasurement.uploader(content.uploader, width: width)
         case .summary:
             return NativePlaybackSidebarItemMeasurement.summary(
                 content.summary,
@@ -668,12 +657,6 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
     private func toggleSummary() {
         mutateItem(.summary(bvid: presentation.content?.bvid ?? "")) {
             summaryExpanded.toggle()
-        }
-    }
-
-    private func toggleSignature() {
-        mutateItem(.uploader(bvid: presentation.content?.bvid ?? "")) {
-            signatureExpanded.toggle()
         }
     }
 
@@ -740,7 +723,7 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
         synchronizeDocumentFrame()
         if let anchor { restore(anchor) }
         scheduleRefinement()
-        updateCommentsTopButton()
+        updateTopButton()
         scheduleNextCommentsPageIfNeeded()
     }
 
@@ -878,27 +861,19 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
         }
     }
 
-    private func updateCommentsTopButton() {
-        guard !presentation.overlay.blocksContent,
-            let itemID = itemIDs.first(where: {
-                if case .commentsHeader = $0 { return true }
-                return false
-            }), let indexPath = dataSource?.indexPath(for: itemID),
-            let attributes = layout.layoutAttributesForItem(at: indexPath)
-        else {
-            rootView.commentsTopButton.isHidden = true
-            return
-        }
-        let viewport = rootView.scrollView.documentVisibleRect
-        rootView.commentsTopButton.isHidden =
-            attributes.frame.minY - viewport.minY >= -280
+    private func updateTopButton() {
+        rootView.scrollView.updateTopButtonVisibility(
+            isBlocked: presentation.overlay.blocksContent
+        )
     }
 
-    @objc private func scrollCommentsToTop() {
-        scrollToCommentsHeader()
+    /// “返回顶部”回到侧栏最上面（UP 主信息），而不只是评论区。
+    @objc private func scrollToTopFromButton() {
+        scroll(to: 0, animated: true)
     }
 
-    func scroll(to y: CGFloat) {
+    /// 只有用户点“返回顶部”时 `animated` 为 true；其余程序内部定位直接跳转。
+    func scroll(to y: CGFloat, animated: Bool = false) {
         synchronizeDocumentFrame()
         let maximumY = NativeVideoScrollCoordinateSpace.maximumLogicalOffset(
             documentLength: layout.collectionViewContentSize.height,
@@ -911,7 +886,8 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
             toPhysicalOffset: NativeVideoScrollCoordinateSpace.physicalOffset(
                 logicalOffset: logicalTarget,
                 leadingInset: rootView.scrollView.contentInsets.top
-            )
+            ),
+            animated: animated
         )
     }
 
@@ -923,7 +899,7 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
         rootView.scrollView.setAccessibilityHidden(blocked)
         rootView.scrollView.isHidden = false
         collectionView.isHidden = blocked
-        updateCommentsTopButton()
+        updateTopButton()
     }
 
     private func releaseCollectionFirstResponder() {
@@ -980,7 +956,7 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
     }
 
     private func viewportDidScroll() {
-        updateCommentsTopButton()
+        updateTopButton()
         scheduleNextCommentsPageIfNeeded()
     }
 

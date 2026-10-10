@@ -12,16 +12,8 @@ enum NativePlaybackSidebarItemMeasurement {
     static let dividerInset: CGFloat = 8
     static let sectionTopInset: CGFloat = 13
 
-    static func uploader(
-        _ content: VideoUploaderHeaderContent,
-        width: CGFloat,
-        signatureExpanded: Bool
-    ) -> CGFloat {
-        NativePlaybackUploaderGeometry(
-            content: content,
-            width: width,
-            signatureExpanded: signatureExpanded
-        ).height
+    static func uploader(_ content: VideoUploaderHeaderContent, width: CGFloat) -> CGFloat {
+        NativePlaybackUploaderGeometry(content: content, width: width).height
     }
 
     static func summary(
@@ -76,9 +68,9 @@ enum NativePlaybackSidebarItemMeasurement {
 @MainActor
 struct NativePlaybackUploaderGeometry {
     static let textLeading = NativePlaybackSidebarItemMeasurement.avatarSize + 12
-    static let signatureToggleWidth: CGFloat = 48
-    static let signatureToggleHeight: CGFloat = 20
-    static let signatureToggleGap: CGFloat = 4
+    /// 名字行右侧“查看 UP 主投稿”箭头按钮的边长，以及它与名字之间的间距。
+    static let spaceButtonSize: CGFloat = 16
+    static let spaceButtonSpacing: CGFloat = 8
     static let loadingBarInset: CGFloat = 2
     static let loadingBarHeight: CGFloat = 14
     static let loadingBarMaximumWidth: CGFloat = 196
@@ -91,45 +83,34 @@ struct NativePlaybackUploaderGeometry {
     static var signatureFont: NSFont { .preferredFont(forTextStyle: .callout) }
 
     let nameFrame: NSRect
+    /// 签名固定一行，超出部分省略，完整文字由系统 expansion tooltip 显示。
     let signatureTextFrame: NSRect
     let loadingBarFrame: NSRect
-    let signatureToggleFrame: NSRect
-    /// 签名超过一行时显示展开／收起按钮；收起时只显示一行。
-    let signatureOverflows: Bool
-    let signatureMaximumLines: Int?
     let height: CGFloat
 
-    init(content: VideoUploaderHeaderContent, width: CGFloat, signatureExpanded: Bool) {
+    init(content: VideoUploaderHeaderContent, width: CGFloat) {
         let textWidth = max(40, width - Self.textLeading)
         let nameHeight = ceil(Self.nameFont.pointSize * 1.35)
         let signatureY = nameHeight + NativePlaybackSidebarItemMeasurement.textSpacing
-        var overflows = false
-        var maximumLines: Int?
+        // 没有签名时名字与头像上下居中，否则名字贴顶、签名在下。
+        let nameY =
+            content.signature == .hidden
+            ? max(0, (NativePlaybackSidebarItemMeasurement.avatarSize - nameHeight) / 2)
+            : 0
         let signatureHeight: CGFloat
         switch content.signature {
         case .hidden:
             signatureHeight = 0
         case .loading:
             signatureHeight = Self.loadingBarInset + Self.loadingBarHeight
-        case .text(let signature):
-            overflows =
-                NativePlaybackSidebarTextLayout.singleLineWidth(signature, font: Self.signatureFont)
-                > textWidth
-            maximumLines = overflows && !signatureExpanded ? 1 : nil
-            signatureHeight = NativePlaybackSidebarTextLayout.height(
-                signature,
-                width: Self.signatureTextWidth(textWidth: textWidth, overflows: overflows),
-                font: Self.signatureFont,
-                maximumLines: maximumLines
-            )
+        case .text:
+            signatureHeight = Self.signatureLineHeight
         }
-        signatureOverflows = overflows
-        signatureMaximumLines = maximumLines
-        nameFrame = NSRect(x: Self.textLeading, y: 0, width: textWidth, height: nameHeight)
+        nameFrame = NSRect(x: Self.textLeading, y: nameY, width: textWidth, height: nameHeight)
         signatureTextFrame = NSRect(
             x: Self.textLeading,
             y: signatureY,
-            width: Self.signatureTextWidth(textWidth: textWidth, overflows: overflows),
+            width: textWidth,
             height: signatureHeight
         )
         loadingBarFrame = NSRect(
@@ -138,13 +119,6 @@ struct NativePlaybackUploaderGeometry {
             width: min(Self.loadingBarMaximumWidth, textWidth),
             height: Self.loadingBarHeight
         )
-        let toggleWidth = overflows ? Self.signatureToggleWidth : 0
-        signatureToggleFrame = NSRect(
-            x: width - toggleWidth,
-            y: signatureY,
-            width: toggleWidth,
-            height: Self.signatureToggleHeight
-        )
         let textHeight =
             nameHeight
             + (signatureHeight > 0
@@ -152,10 +126,27 @@ struct NativePlaybackUploaderGeometry {
         height = max(NativePlaybackSidebarItemMeasurement.avatarSize, textHeight)
     }
 
-    private static func signatureTextWidth(textWidth: CGFloat, overflows: Bool) -> CGFloat {
-        overflows
-            ? max(1, textWidth - signatureToggleWidth - signatureToggleGap)
-            : textWidth
+    /// 签名标签：一行，超出省略，被截断时由系统原地浮出完整文字（expansion tooltip）。
+    ///
+    /// 真实标签与测量用标签都由这里创建，保证行高测量与实际绘制一致。
+    static func makeSignatureLabel() -> NSTextField {
+        let label = NSTextField(labelWithString: "")
+        label.font = signatureFont
+        label.textColor = .secondaryLabelColor
+        label.lineBreakMode = .byTruncatingTail
+        label.maximumNumberOfLines = 1
+        label.isSelectable = false
+        label.allowsExpansionToolTips = true
+        return label
+    }
+
+    private static let signatureSizingLabel = makeSignatureLabel()
+
+    /// 单行签名标签的高度；测量与布局共用，测量标签复用同一个实例。
+    static var signatureLineHeight: CGFloat {
+        signatureSizingLabel.font = signatureFont
+        signatureSizingLabel.stringValue = "Ag签"
+        return ceil(signatureSizingLabel.fittingSize.height)
     }
 }
 

@@ -17,16 +17,14 @@ final class NativePlaybackSidebarUploaderItem: NSCollectionViewItem {
 
     func configure(
         content: VideoUploaderHeaderContent,
-        signatureExpanded: Bool,
         imagePipeline: NativeVideoImagePipeline,
-        onToggleSignature: @escaping () -> Void
+        onOpenSpace: (() -> Void)?
     ) {
         representedObject = content
         contentView.configure(
             content: content,
-            signatureExpanded: signatureExpanded,
             imagePipeline: imagePipeline,
-            onToggleSignature: onToggleSignature
+            onOpenSpace: onOpenSpace
         )
     }
 
@@ -47,20 +45,30 @@ private final class NativePlaybackSidebarUploaderView: NSView {
 
     private let avatar = NSImageView()
     private let nameLabel = NSTextField(labelWithString: "")
-    private let signatureText = NativePlaybackSidebarReadOnlyTextView(
-        font: .preferredFont(forTextStyle: .callout),
-        color: .secondaryLabelColor
-    )
+    /// 签名只显示一行，超出省略；被截断时指针移上去由系统原地浮出完整文字（expansion tooltip）。
+    private let signatureLabel = NativePlaybackUploaderGeometry.makeSignatureLabel()
     private let signatureLoadingBar = NSView()
-    private let signatureButton = NSButton()
+    /// 头像与名字这一行可点进入 UP 主空间；右侧箭头同时是给键盘与 VoiceOver 的显式按钮。
+    private let spaceButton = NSButton(
+        image: NSImage(
+            systemSymbolName: "chevron.right",
+            accessibilityDescription: AppStrings.localized("查看 UP 主投稿")
+        ) ?? NSImage(),
+        target: nil,
+        action: nil
+    )
+    private var onOpenSpace: (() -> Void)?
+    /// 上次登记给窗口的手形指针区域；只有区域变化时才让窗口重建 cursor rect。
+    private var appliedSpaceHitRect: NSRect = .zero
+    /// 只认头像与名字这一行：父视图的点击手势也会收到子视图的点击，不限定区域的话，
+    /// 点签名也会误进空间。
+    private lazy var spaceClickRecognizer = NSClickGestureRecognizer(
+        target: self,
+        action: #selector(openSpace)
+    )
     private var imageTask: Task<Void, Never>?
     private var generation: UInt64 = 0
     private var content: VideoUploaderHeaderContent?
-    private var signatureExpanded = false
-    private var onToggleSignature: (() -> Void)?
-    private var configuredSignature: String?
-    private var configuredSignatureMaximumLines: Int?
-    private var hasConfiguredSignatureText = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -73,24 +81,32 @@ private final class NativePlaybackSidebarUploaderView: NSView {
         nameLabel.font = NativePlaybackUploaderGeometry.nameFont
         nameLabel.lineBreakMode = .byTruncatingTail
         nameLabel.maximumNumberOfLines = 1
-        nameLabel.isSelectable = true
+        // 名字这一行可点，名字不再可选中复制，否则文本框会吃掉点击。
+        nameLabel.isSelectable = false
+
+        spaceButton.isBordered = false
+        spaceButton.imagePosition = .imageOnly
+        spaceButton.contentTintColor = .tertiaryLabelColor
+        spaceButton.target = self
+        spaceButton.action = #selector(openSpace)
+        spaceButton.toolTip = AppStrings.localized("查看 UP 主投稿")
+        spaceButton.setAccessibilityLabel(AppStrings.localized("查看 UP 主投稿"))
+        spaceButton.isHidden = true
+        spaceClickRecognizer.delegate = self
+        addGestureRecognizer(spaceClickRecognizer)
 
         signatureLoadingBar.wantsLayer = true
         signatureLoadingBar.layer?.cornerRadius = 3
         signatureLoadingBar.layer?.backgroundColor = NSColor.quaternaryLabelColor.cgColor
 
-        signatureButton.isBordered = false
-        signatureButton.font = .preferredFont(forTextStyle: .caption1)
-        signatureButton.contentTintColor = .linkColor
-        signatureButton.target = self
-        signatureButton.action = #selector(toggleSignature)
+        signatureLabel.setAccessibilityLabel(AppStrings.localized("UP 主签名"))
 
         for subview in [
             avatar,
             nameLabel,
-            signatureText,
+            signatureLabel,
             signatureLoadingBar,
-            signatureButton
+            spaceButton
         ] {
             addSubview(subview)
         }
@@ -104,33 +120,32 @@ private final class NativePlaybackSidebarUploaderView: NSView {
 
     func configure(
         content: VideoUploaderHeaderContent,
-        signatureExpanded: Bool,
         imagePipeline: NativeVideoImagePipeline,
-        onToggleSignature: @escaping () -> Void
+        onOpenSpace: (() -> Void)?
     ) {
+        self.onOpenSpace = onOpenSpace
+        spaceButton.isHidden = onOpenSpace == nil
         let avatarChanged = self.content?.avatarURL != content.avatarURL
         self.content = content
-        self.signatureExpanded = signatureExpanded
-        self.onToggleSignature = onToggleSignature
         nameLabel.stringValue = content.name
         nameLabel.setAccessibilityLabel(AppStrings.localized("UP 主，\(content.name)"))
 
         switch content.signature {
         case .loading:
-            signatureText.isHidden = true
+            signatureLabel.isHidden = true
             signatureLoadingBar.isHidden = false
-            signatureButton.isHidden = true
             signatureLoadingBar.setAccessibilityElement(true)
             signatureLoadingBar.setAccessibilityLabel(AppStrings.localized("签名正在加载"))
         case .hidden:
-            signatureText.isHidden = true
+            signatureLabel.isHidden = true
             signatureLoadingBar.isHidden = true
-            signatureButton.isHidden = true
-        case .text:
-            signatureText.isHidden = false
+        case .text(let signature):
+            signatureLabel.stringValue = signature
+            signatureLabel.isHidden = false
             signatureLoadingBar.isHidden = true
         }
         needsLayout = true
+        refreshCursorRectsIfNeeded()
         if avatarChanged || avatar.image == nil {
             loadAvatar(content.avatarURL, imagePipeline: imagePipeline)
         }
@@ -141,18 +156,50 @@ private final class NativePlaybackSidebarUploaderView: NSView {
         let avatarSize = NativePlaybackSidebarItemMeasurement.avatarSize
         avatar.frame = NSRect(x: 0, y: 0, width: avatarSize, height: avatarSize)
         guard let content else { return }
-        let geometry = NativePlaybackUploaderGeometry(
-            content: content,
-            width: bounds.width,
-            signatureExpanded: signatureExpanded
-        )
-        if case .text(let signature) = content.signature {
-            updateSignatureText(signature, geometry: geometry)
-        }
+        let geometry = NativePlaybackUploaderGeometry(content: content, width: bounds.width)
         nameLabel.frame = geometry.nameFrame
-        signatureText.frame = geometry.signatureTextFrame
+        if !spaceButton.isHidden {
+            let buttonSize = NativePlaybackUploaderGeometry.spaceButtonSize
+            nameLabel.frame.size.width = max(
+                0,
+                geometry.nameFrame.width - buttonSize
+                    - NativePlaybackUploaderGeometry.spaceButtonSpacing
+            )
+            spaceButton.frame = NSRect(
+                x: bounds.width - buttonSize,
+                y: geometry.nameFrame.midY - buttonSize / 2,
+                width: buttonSize,
+                height: buttonSize
+            )
+        }
+        signatureLabel.frame = geometry.signatureTextFrame
         signatureLoadingBar.frame = geometry.loadingBarFrame
-        signatureButton.frame = geometry.signatureToggleFrame
+        refreshCursorRectsIfNeeded()
+    }
+
+    /// 头像加上名字所在整行；没有签名时整块都可点；没有空间入口时为空。
+    private var spaceHitRect: NSRect {
+        guard onOpenSpace != nil, let content else { return .zero }
+        if content.signature == .hidden {
+            return bounds
+        }
+        let nameRow = NSRect(x: 0, y: 0, width: bounds.width, height: nameLabel.frame.maxY)
+        return nameRow.union(avatar.frame)
+    }
+
+    private func refreshCursorRectsIfNeeded() {
+        let rect = spaceHitRect
+        guard rect != appliedSpaceHitRect else { return }
+        appliedSpaceHitRect = rect
+        window?.invalidateCursorRects(for: self)
+    }
+
+    /// 与视频卡片一致：可点进入的区域显示手形指针。
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        let rect = spaceHitRect
+        guard !rect.isEmpty else { return }
+        addCursorRect(rect, cursor: .pointingHand)
     }
 
     func cancelImageRequest() {
@@ -169,15 +216,13 @@ private final class NativePlaybackSidebarUploaderView: NSView {
     func reset() {
         cancelImageRequest()
         content = nil
-        onToggleSignature = nil
+        onOpenSpace = nil
+        spaceButton.isHidden = true
+        refreshCursorRectsIfNeeded()
         avatar.image = nil
         nameLabel.stringValue = ""
-        signatureText.string = ""
-        signatureButton.isHidden = true
+        signatureLabel.stringValue = ""
         signatureLoadingBar.isHidden = true
-        configuredSignature = nil
-        configuredSignatureMaximumLines = nil
-        hasConfiguredSignatureText = false
     }
 
     private func loadAvatar(
@@ -208,39 +253,15 @@ private final class NativePlaybackSidebarUploaderView: NSView {
         }
     }
 
-    private func updateSignatureText(
-        _ signature: String,
-        geometry: NativePlaybackUploaderGeometry
-    ) {
-        let maximumLines = geometry.signatureMaximumLines
-        signatureButton.isHidden = !geometry.signatureOverflows
-        signatureButton.title =
-            signatureExpanded
-            ? AppStrings.localized("收起") : AppStrings.localized("展开")
-        signatureButton.setAccessibilityLabel(AppStrings.localized("UP 主签名"))
-        signatureButton.setAccessibilityValue(
-            signatureExpanded
-                ? AppStrings.localized("已展开，\(signature)")
-                : AppStrings.localized("已收起，\(signature)")
-        )
-        guard
-            !hasConfiguredSignatureText
-                || configuredSignature != signature
-                || configuredSignatureMaximumLines != maximumLines
-        else { return }
-        hasConfiguredSignatureText = true
-        configuredSignature = signature
-        configuredSignatureMaximumLines = maximumLines
-        signatureText.setText(
-            signature,
-            font: NativePlaybackUploaderGeometry.signatureFont,
-            color: .secondaryLabelColor,
-            maximumLines: maximumLines
-        )
+    @objc private func openSpace() {
+        onOpenSpace?()
     }
+}
 
-    @objc private func toggleSignature() {
-        onToggleSignature?()
+extension NativePlaybackSidebarUploaderView: NSGestureRecognizerDelegate {
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: NSGestureRecognizer) -> Bool {
+        guard gestureRecognizer === spaceClickRecognizer else { return true }
+        return spaceHitRect.contains(gestureRecognizer.location(in: self))
     }
 }
 

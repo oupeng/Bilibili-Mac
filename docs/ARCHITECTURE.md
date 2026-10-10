@@ -110,6 +110,12 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   `NSCollectionView` + 复用的原生卡片。热门 50 卡 A/B 表明 SwiftUI `LazyVGrid`/AttributeGraph
   是主要滚动成本；卡片 overlay 与文字改为持久 `CALayer`／`CATextLayer` 后，同样约 20 秒滚动
   cycles 下降约 39%，0 hitch。SwiftUI Feature 保留 loading／empty／failure 等状态所有权。
+- **UP 主空间列表**：头部（返回、头像、名字、三段排序）与投稿行是同一个 `NSCollectionView` 的原生
+  item，随列表滚到工具栏下由系统做边缘模糊。行高固定，不需要测量缓存；加载、空、失败与登录提示
+  由 SwiftUI 叠在头部下方，返回按钮始终可点。加载用转圈而不是骨架：投稿数因人而异，占位行会误导数量。
+  列表不接收键盘焦点，方向键、空格留给播放器快捷键。
+  悬停由 `NativeVideoHoverTracker` 统一管理（网格卡片与投稿行都实现 `NativeHoverableCollectionItem`）；
+  “返回顶部”玻璃按钮与评论区共用 `NativeScrollToTopScrollView`。
 - 封面、头像与评论图片由 `AppWindowOwner` 持有的窗口级匿名、有界 `NativeVideoImagePipeline`
   加载（Now Playing 封面另有进程级实例）；cell 离屏、复用和 teardown 取消等待者。
 
@@ -132,6 +138,20 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   AVKit detached 全屏只携带 content overlay，锚点必须是其中的视图。
 - 播放态侧栏替换导航侧栏，不另开右侧 inspector：播放期间导航使用率低，双栏把宽度留给视频。两种状态
   共用一列，`ideal` 只在首次布局生效，切换时宽度被夹进新范围，进入播放时即为播放态最小宽度。
+
+### 动线与侧栏上下文层
+
+- 右侧栈深最多 1：来源页之上最多一层播放页，换视频只替换当前视频。新页面先判断属于哪一类：与首页、
+  热门平级的来源进导航侧栏；围绕当前视频的浏览（UP 主空间）作为侧栏上下文层，不新增右侧压栈层级。
+- 侧栏 = 底层（导航或播放详情）+ 可选的上下文层，两层并列叠放、各自按安全区布局。上下文层打开时，
+  底层保留状态（关闭后评论位置还在），但必须真正隐藏：AppKit 底层设 `isHidden`，只设 SwiftUI 透明度
+  与 hit testing 管不到 cursor rect 和 tracking area。进出动画只作用于上下文层，底层立即隐藏，
+  否则底层集合视图的布局变化也会被做成动画。
+- 关闭规则按“从哪里打开”判断，由 `AppNavigationCoordinator` 统一执行：在上下文层里选的视频保留它；
+  来源页、相关推荐、选集、评论链接等其他入口换视频，或关闭播放（返回、切换来源、登出、换号）时关闭。
+  不比较新视频的 UP 主：联合投稿的 UP 主字段可能是另一位。
+- UP 主空间只在登录后可用（匿名请求会被间歇风控，见 `SECURITY-MODEL.md`），第一版只从播放侧栏的
+  UP 主行进入；按页替换，底部悬浮页码条翻页与跳页，不做无限流。
 
 ### 认证
 

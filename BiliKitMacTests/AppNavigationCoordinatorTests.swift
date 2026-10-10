@@ -301,6 +301,67 @@ struct AppNavigationCoordinatorTests {
 
     @Test
     @MainActor
+    func choosingFromTheSidebarContextKeepsIt() {
+        var events: [String] = []
+        let coordinator = AppNavigationCoordinator(
+            startPlayback: { events.append("start:\($0.bvid)") },
+            stopPlayback: { events.append("stop") },
+            closeSidebarContext: { events.append("close-context") }
+        )
+        coordinator.openPlayback("BV1Source")
+        events.removeAll()
+
+        coordinator.openPlaybackFromSidebarContext("BV1FromSpace")
+
+        #expect(events == ["start:BV1FromSpace"])
+        #expect(coordinator.currentPlaybackBVID == "BV1FromSpace")
+    }
+
+    @Test
+    @MainActor
+    func otherEntriesCloseTheSidebarContextEvenForTheCurrentVideo() {
+        var events: [String] = []
+        let coordinator = AppNavigationCoordinator(
+            startPlayback: { events.append("start:\($0.bvid)") },
+            stopPlayback: { events.append("stop") },
+            closeSidebarContext: { events.append("close-context") }
+        )
+        coordinator.openPlayback("BV1Source")
+        events.removeAll()
+
+        coordinator.openPlayback("BV1Related")
+        coordinator.openPlayback("BV1Related")
+
+        #expect(events == ["close-context", "start:BV1Related", "close-context"])
+    }
+
+    @Test(arguments: ["tab", "authentication", "back"])
+    @MainActor
+    func closingPlaybackClosesTheSidebarContextOnce(trigger: String) {
+        var events: [String] = []
+        let coordinator = AppNavigationCoordinator(
+            startPlayback: { _ in },
+            stopPlayback: { events.append("stop") },
+            closeSidebarContext: { events.append("close-context") }
+        )
+        coordinator.openPlaybackFromSidebarContext("BV1FromSpace")
+        events.removeAll()
+
+        switch trigger {
+        case "tab":
+            coordinator.selectedTab = .popular
+        case "authentication":
+            coordinator.closePlaybackForAuthenticationChange()
+        default:
+            coordinator.playbackPath.removeAll()
+        }
+        coordinator.closePlaybackForAuthenticationChange()
+
+        #expect(events == ["close-context", "stop"])
+    }
+
+    @Test
+    @MainActor
     func emptyBVIDDoesNotCreatePlaybackState() {
         var events: [String] = []
         let coordinator = AppNavigationCoordinator(

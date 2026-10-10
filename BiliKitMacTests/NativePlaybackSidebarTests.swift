@@ -57,39 +57,50 @@ struct NativePlaybackSidebarTests {
 
     @Test
     @MainActor
-    func uploaderSignatureOverflowFollowsTheAvailableWidth() {
-        let content = VideoUploaderHeaderContent(
+    func uploaderSignatureStaysOneLineAtAnyWidth() {
+        let long = VideoUploaderHeaderContent(
             owner: VideoOwner(
                 id: 1,
                 name: "UP 主",
-                signature: String(repeating: "签名", count: 16)
+                signature: String(repeating: "签名", count: 40)
             )
         )
-        let wide = NativePlaybackUploaderGeometry(
-            content: content,
-            width: 488,
-            signatureExpanded: false
+        let short = VideoUploaderHeaderContent(
+            owner: VideoOwner(id: 1, name: "UP 主", signature: "短签名")
         )
-        let narrow = NativePlaybackUploaderGeometry(
-            content: content,
-            width: 408,
-            signatureExpanded: false
+        let wide = NativePlaybackUploaderGeometry(content: long, width: 720)
+        let narrow = NativePlaybackUploaderGeometry(content: long, width: 408)
+        let shortNarrow = NativePlaybackUploaderGeometry(content: short, width: 408)
+
+        // 长签名省略为一行，完整文字由悬停原地展开显示；高度不随宽度或长度变化。
+        #expect(
+            narrow.signatureTextFrame.height == NativePlaybackUploaderGeometry.signatureLineHeight
         )
-        let expanded = NativePlaybackUploaderGeometry(
-            content: content,
-            width: 408,
-            signatureExpanded: true
+        #expect(narrow.height == wide.height)
+        #expect(narrow.height == shortNarrow.height)
+        #expect(narrow.signatureTextFrame.maxX <= 408)
+    }
+
+    @Test
+    @MainActor
+    func uploaderNameCentersOnTheAvatarOnlyWithoutSignature() {
+        let avatarCenter = NativePlaybackSidebarItemMeasurement.avatarSize / 2
+        let withoutSignature = NativePlaybackUploaderGeometry(
+            content: VideoUploaderHeaderContent(
+                owner: VideoOwner(id: 1, name: "UP 主"),
+                signatureState: .loaded(nil)
+            ),
+            width: 520
+        )
+        let withSignature = NativePlaybackUploaderGeometry(
+            content: VideoUploaderHeaderContent(
+                owner: VideoOwner(id: 1, name: "UP 主", signature: "签名")
+            ),
+            width: 520
         )
 
-        #expect(!wide.signatureOverflows)
-        #expect(wide.signatureMaximumLines == nil)
-        #expect(wide.signatureToggleFrame.width == 0)
-        #expect(narrow.signatureOverflows)
-        #expect(narrow.signatureMaximumLines == 1)
-        #expect(narrow.signatureTextFrame.maxX <= narrow.signatureToggleFrame.minX)
-        #expect(expanded.signatureOverflows)
-        #expect(expanded.signatureMaximumLines == nil)
-        #expect(expanded.height > narrow.height)
+        #expect(withoutSignature.nameFrame.midY == avatarCenter)
+        #expect(withSignature.nameFrame.minY == 0)
     }
 
     @Test

@@ -17,6 +17,7 @@ final class AppWindowOwner {
     let danmakuModel: DanmakuControlsViewModel
     let authenticationModel: AuthenticationViewModel
     let historyModel: WatchHistoryViewModel
+    let uploaderSpaceModel: UploaderSpaceViewModel?
     let playerContent: AnyView
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentVideoLinkResolver: CommentVideoLinkResolver
@@ -40,6 +41,7 @@ final class AppWindowOwner {
         let videoModel = environment.makeVideoViewModel()
         let commentsModel = environment.makeCommentsViewModel()
         let danmakuModel = environment.makeDanmakuViewModel()
+        let uploaderSpaceModel = environment.makeUploaderSpaceViewModel()
         let watchProgressConnection = environment.makeWatchProgressConnection(
             videoModel: videoModel
         )
@@ -53,6 +55,9 @@ final class AppWindowOwner {
             stopPlayback: {
                 videoModel.reset()
                 danmakuModel.reset()
+            },
+            closeSidebarContext: {
+                uploaderSpaceModel.close()
             }
         )
         self.init(
@@ -63,6 +68,7 @@ final class AppWindowOwner {
             danmakuModel: danmakuModel,
             authenticationModel: environment.makeAuthenticationViewModel(),
             historyModel: environment.makeWatchHistoryViewModel(),
+            uploaderSpaceModel: uploaderSpaceModel,
             playerContent: environment.makePlayerView(
                 videoModel: videoModel,
                 danmakuModel: danmakuModel
@@ -108,6 +114,7 @@ final class AppWindowOwner {
         danmakuModel: DanmakuControlsViewModel,
         authenticationModel: AuthenticationViewModel,
         historyModel: WatchHistoryViewModel,
+        uploaderSpaceModel: UploaderSpaceViewModel? = nil,
         playerContent: AnyView,
         commentAssetURLResolver: @escaping CommentAssetURLResolver = { _ in nil },
         commentVideoLinkResolver: @escaping CommentVideoLinkResolver = { _ in nil },
@@ -128,6 +135,7 @@ final class AppWindowOwner {
         self.danmakuModel = danmakuModel
         self.authenticationModel = authenticationModel
         self.historyModel = historyModel
+        self.uploaderSpaceModel = uploaderSpaceModel
         self.playerContent = playerContent
         self.commentAssetURLResolver = commentAssetURLResolver
         self.commentVideoLinkResolver = commentVideoLinkResolver
