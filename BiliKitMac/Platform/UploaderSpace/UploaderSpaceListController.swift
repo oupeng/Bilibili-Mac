@@ -46,7 +46,7 @@ final class UploaderSpaceListController: NSObject, NSCollectionViewDelegateFlowL
         topButtonLabel: AppStrings.localized("返回空间顶部")
     )
     private let collectionView = UploaderSpaceCollectionView()
-    private let layout = UploaderSpaceListLayout()
+    private let layout = NSCollectionViewFlowLayout()
     private let imagePipeline: NativeVideoImagePipeline
     private let hover = NativeVideoHoverTracker()
     private var dataSource: NSCollectionViewDiffableDataSource<Section, UploaderSpaceListItemID>?
@@ -288,12 +288,16 @@ final class UploaderSpaceListController: NSObject, NSCollectionViewDelegateFlowL
 @MainActor
 private final class UploaderSpaceCollectionView: NSCollectionView {
     override var acceptsFirstResponder: Bool { false }
-}
 
-/// 宽度变化（拖动侧栏）时重新计算行宽。
-@MainActor
-private final class UploaderSpaceListLayout: NSCollectionViewFlowLayout {
-    override func shouldInvalidateLayout(forBoundsChange newBounds: NSRect) -> Bool {
-        newBounds.width != collectionView?.bounds.width
+    /// 宽度变化（拖动侧栏、空间层进场时先以中间宽度布局）时重算行宽。
+    ///
+    /// 布局的 bounds 回调不覆盖文档视图的尺寸变化；不在这里重算的话，没有投稿行时头部会一直停在
+    /// 旧宽度，排序挤出屏幕、名字宽度为零。
+    override func setFrameSize(_ newSize: NSSize) {
+        let widthChanged = newSize.width != frame.width
+        super.setFrameSize(newSize)
+        if widthChanged {
+            collectionViewLayout?.invalidateLayout()
+        }
     }
 }
