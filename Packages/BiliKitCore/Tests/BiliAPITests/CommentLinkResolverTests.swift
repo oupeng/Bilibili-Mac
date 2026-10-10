@@ -12,7 +12,7 @@ struct CommentLinkResolverTests {
     func resolvesPositiveMemberIDsToThePublicSpacePage() throws {
         let url = try #require(
             resolver.externalURL(
-                for: .member(CommentAuthorID(rawValue: "123456"))
+                for: .member(CommentAuthor(id: CommentAuthorID(rawValue: "123456"), name: "用户"))
             )
         )
 
@@ -23,7 +23,7 @@ struct CommentLinkResolverTests {
     func rejectsInvalidMemberIDs(_ value: String) {
         #expect(
             resolver.externalURL(
-                for: .member(CommentAuthorID(rawValue: value))
+                for: .member(CommentAuthor(id: CommentAuthorID(rawValue: value), name: "用户"))
             ) == nil
         )
     }

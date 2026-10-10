@@ -400,6 +400,41 @@ struct NativePlaybackSidebarTests {
         window.contentView = NSView()
     }
 
+    /// 打开空间前侧栏先把焦点还给窗口：侧栏随后会被空间层盖住并隐藏，焦点留在其中会让系统在
+    /// 空间层进场动画中途改派焦点，进场变成从中间宽度伸展。
+    @Test(arguments: SidebarFocus.allCases)
+    @MainActor
+    func openingTheSpaceReturnsSidebarFirstResponderToWindowFirst(
+        focus: SidebarFocus
+    ) throws {
+        let (controller, window, outsideKeyView) = hostedSidebar()
+        var focusWhenOpening: [NSResponder?] = []
+        var spaceActions = actions
+        spaceActions.openUploaderSpace = { focusWhenOpening.append(window.firstResponder) }
+        controller.update(presentation: presentation(bvid: "BVCurrent"), actions: spaceActions)
+        controller.rootView.layoutSubtreeIfNeeded()
+        let focused = focusInsideSidebar(
+            focus,
+            of: controller,
+            in: window,
+            nextKeyView: outsideKeyView
+        )
+        #expect(focused != nil)
+        #expect(window.firstResponder === focused)
+        let spaceButton = try #require(
+            descendants(of: controller.rootView).compactMap { $0 as? NSButton }.first {
+                $0.accessibilityLabel() == AppStrings.localized("查看空间")
+            }
+        )
+
+        spaceButton.performClick(nil)
+
+        #expect(focusWhenOpening.count == 1)
+        #expect(focusWhenOpening.first.flatMap { $0 } === window)
+        controller.tearDown()
+        window.contentView = NSView()
+    }
+
     /// 拆掉文档时 AppKit 会把窗口设回 first responder，但直接持有焦点的文本视图收不到
     /// resign（field editor 会随文本框结束编辑而 resign）；侧栏必须在拆文档前正常结束焦点。
     @Test(arguments: SidebarFocus.allCases)
@@ -928,7 +963,9 @@ struct NativePlaybackSidebarTests {
                         location: memberRange.location,
                         length: memberRange.length
                     ),
-                    target: .member(CommentAuthorID(rawValue: "301"))
+                    target: .member(
+                        CommentAuthor(id: CommentAuthorID(rawValue: "301"), name: "回复用户")
+                    )
                 )
             ]
         )
@@ -957,11 +994,14 @@ struct NativePlaybackSidebarTests {
         #expect(
             rendered.linkTargets == [
                 .video(bvid: "BV1FixtureA1"),
-                .member(CommentAuthorID(rawValue: "301"))
+                .member(CommentAuthor(id: CommentAuthorID(rawValue: "301"), name: "回复用户"))
             ]
         )
         #expect(target(at: videoRange.location) == .video(bvid: "BV1FixtureA1"))
-        #expect(target(at: memberRange.location) == .member(CommentAuthorID(rawValue: "301")))
+        #expect(
+            target(at: memberRange.location)
+                == .member(CommentAuthor(id: CommentAuthorID(rawValue: "301"), name: "回复用户"))
+        )
         #expect(target(at: 0) == nil)
     }
 
@@ -1518,6 +1558,28 @@ struct NativePlaybackSidebarTests {
                     == nil
             )
         }
+    }
+
+    /// 正文 @ 提及在应用内打开空间；其他链接、以及没有空间入口时，交给原有处理。
+    @Test
+    func commentMentionLinksOpenTheSpaceInsideTheApp() {
+        let mentioned = CommentAuthor(id: CommentAuthorID(rawValue: "301"), name: "回复用户")
+        var openedSpaces: [CommentAuthor] = []
+        var otherLinks: [CommentLinkTarget] = []
+        func open(_ target: CommentLinkTarget, hasSpace: Bool) {
+            NativePlaybackCommentAuthorSpace.openLink(
+                target,
+                openSpace: hasSpace ? { openedSpaces.append($0) } : nil,
+                otherwise: { otherLinks.append($0) }
+            )
+        }
+
+        open(.member(mentioned), hasSpace: true)
+        open(.video(bvid: "BV1FixtureA1"), hasSpace: true)
+        open(.member(mentioned), hasSpace: false)
+
+        #expect(openedSpaces == [mentioned])
+        #expect(otherLinks == [.video(bvid: "BV1FixtureA1"), .member(mentioned)])
     }
 
     @Test(arguments: [2, 3])

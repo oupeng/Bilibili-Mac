@@ -175,7 +175,8 @@ public enum CommentEmoteSize: Sendable, Equatable, Hashable {
 
 public enum CommentLinkTarget: Sendable, Equatable, Hashable {
     case video(bvid: String)
-    case member(CommentAuthorID)
+    /// 正文里 @ 的用户；只填 MID、昵称与头像，进入空间时与评论作者走同一入口。
+    case member(CommentAuthor)
     case external(CommentExternalLinkReference)
 }
 

@@ -84,7 +84,7 @@ storage、无 URL cache，并拒绝 redirect。`PublicHTTPSURLPolicy` 是基线�
 | 字幕正文 | `SubtitleURLPolicy`：`https://aisubtitle.hdslb.com/bfs/...` | 正文 ≤ 2 MiB；新主机先失败关闭 |
 | 评论头像、表情、正文图片 | `i0`／`i1`／`i2.hdslb.com` 的 `/bfs/` 路径 | 拒绝 query、fragment、点段、编码分隔符 |
 | 视频封面 | 接口返回的 HTTPS URL（`http:`、协议相对地址升级为 HTTPS） | 由图片管线限制 |
-| 评论外链 | 视频链接只回送合法 BVID；成员只允许正整数 MID → `space.bilibili.com`；其他目标经公开 HTTPS 形状复核 | 仅用户点击后交给系统 `OpenURLAction`；不预取、不解析 DNS、不附加凭据 |
+| 评论外链 | 视频链接只回送合法 BVID；@ 成员只允许正整数 MID，在应用内打开空间，仅空间不可用时才回退到 `space.bilibili.com`；其他目标经公开 HTTPS 形状复核 | 仅用户点击后交给系统 `OpenURLAction`；不预取、不解析 DNS、不附加凭据 |
 
 - 弹幕分段与评论页须通过状态、Content-Type 与 2 MiB 上限，再交给解码器；JSON、protobuf、HTML 错误页和
   空响应不能互相降级解析。未知接口状态失败关闭。

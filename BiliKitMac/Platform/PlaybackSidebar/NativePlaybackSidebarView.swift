@@ -21,6 +21,7 @@ struct NativePlaybackSidebarView: View {
 
     var body: some View {
         let presentation = presentation
+        let openUserSpace = openUserSpace
         NativePlaybackSidebarRepresentable(
             presentation: presentation,
             commentAssetURLResolver: commentAssetURLResolver,
@@ -40,7 +41,13 @@ struct NativePlaybackSidebarView: View {
                 },
                 nextReplyPage: { commentsModel?.showNextReplyPage(for: $0) },
                 retryReplies: { commentsModel?.retryReplies(for: $0) },
-                openCommentLink: onOpenCommentLink,
+                openCommentLink: { [onOpenCommentLink] target in
+                    NativePlaybackCommentAuthorSpace.openLink(
+                        target,
+                        openSpace: openUserSpace,
+                        otherwise: onOpenCommentLink
+                    )
+                },
                 openCommentPictures: onOpenCommentPictures,
                 openUploaderSpace: onOpenUploaderSpace.map { open in
                     {
@@ -48,23 +55,28 @@ struct NativePlaybackSidebarView: View {
                         open(owner)
                     }
                 },
-                openCommentAuthorSpace: onOpenUploaderSpace.map { open in
-                    { [commentAssetURLResolver] author in
-                        guard
-                            let owner = NativePlaybackCommentAuthorSpace.owner(
-                                for: author,
-                                resolveAvatar: commentAssetURLResolver
-                            )
-                        else { return }
-                        open(owner)
-                    }
-                }
+                openCommentAuthorSpace: openUserSpace
             )
         )
         .overlay {
             NativePlaybackSidebarOverlayView(overlay: presentation.overlay, retry: retry)
         }
         .navigationTitle("观看辅助")
+    }
+
+    /// 评论作者与正文 @ 用户进入空间的同一入口；没有空间功能时为 nil。
+    private var openUserSpace: ((CommentAuthor) -> Void)? {
+        onOpenUploaderSpace.map { open in
+            { [commentAssetURLResolver] user in
+                guard
+                    let owner = NativePlaybackCommentAuthorSpace.owner(
+                        for: user,
+                        resolveAvatar: commentAssetURLResolver
+                    )
+                else { return }
+                open(owner)
+            }
+        }
     }
 
     private var presentation: NativePlaybackSidebarPresentation {

@@ -11,8 +11,8 @@ public struct BiliCommentLinkResolver: Sendable {
         switch target {
         case .video:
             return nil
-        case .member(let authorID):
-            guard let memberID = authorID.memberID else { return nil }
+        case .member(let user):
+            guard let memberID = user.id.memberID else { return nil }
             return URL(string: "https://space.bilibili.com/\(memberID)")
         case .external(let reference):
             guard let url = reference.remoteURL,
