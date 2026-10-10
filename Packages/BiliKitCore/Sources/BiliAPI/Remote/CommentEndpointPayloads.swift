@@ -3,8 +3,8 @@ import Foundation
 
 struct CommentMainPayload: Decodable, Sendable {
     let cursor: CommentCursorPayload
-    let replies: [LossyCommentReplyPayload]
-    let topReplies: [LossyCommentReplyPayload]
+    let replies: [LossyDecodable<CommentReplyPayload>]
+    let topReplies: [LossyDecodable<CommentReplyPayload>]
     let top: CommentTopPayload?
     let upper: CommentUpperPayload?
 
@@ -21,12 +21,12 @@ struct CommentMainPayload: Decodable, Sendable {
         cursor = try container.decode(CommentCursorPayload.self, forKey: .cursor)
         replies =
             try container.decodeIfPresent(
-                [LossyCommentReplyPayload].self,
+                [LossyDecodable<CommentReplyPayload>].self,
                 forKey: .replies
             ) ?? []
         topReplies =
             container.decodeLossyIfPresent(
-                [LossyCommentReplyPayload].self,
+                [LossyDecodable<CommentReplyPayload>].self,
                 forKey: .topReplies
             ) ?? []
         top = container.decodeLossyIfPresent(CommentTopPayload.self, forKey: .top)
@@ -71,7 +71,7 @@ struct CommentMainPayload: Decodable, Sendable {
 
 struct CommentReplyListPayload: Decodable, Sendable {
     let page: CommentReplyPagePayload
-    let replies: [LossyCommentReplyPayload]
+    let replies: [LossyDecodable<CommentReplyPayload>]
     let upper: CommentUpperPayload?
 
     private enum CodingKeys: String, CodingKey {
@@ -85,7 +85,7 @@ struct CommentReplyListPayload: Decodable, Sendable {
         page = try container.decode(CommentReplyPagePayload.self, forKey: .page)
         replies =
             try container.decodeIfPresent(
-                [LossyCommentReplyPayload].self,
+                [LossyDecodable<CommentReplyPayload>].self,
                 forKey: .replies
             ) ?? []
         upper = container.decodeLossyIfPresent(CommentUpperPayload.self, forKey: .upper)
@@ -193,16 +193,8 @@ struct CommentUpperPayload: Decodable, Sendable {
 }
 
 struct CommentTopPayload: Decodable, Sendable {
-    let admin: LossyCommentReplyPayload?
-    let upper: LossyCommentReplyPayload?
-}
-
-struct LossyCommentReplyPayload: Decodable, Sendable {
-    let value: CommentReplyPayload?
-
-    init(from decoder: any Decoder) throws {
-        value = try? CommentReplyPayload(from: decoder)
-    }
+    let admin: LossyDecodable<CommentReplyPayload>?
+    let upper: LossyDecodable<CommentReplyPayload>?
 }
 
 struct CommentReplyPayload: Decodable, Sendable {
@@ -217,7 +209,7 @@ struct CommentReplyPayload: Decodable, Sendable {
     let rcount: Int?
     let member: CommentMemberPayload?
     let content: CommentContentPayload?
-    let replies: [LossyCommentReplyPayload]
+    let replies: [LossyDecodable<CommentReplyPayload>]
     let replyControl: CommentReplyControlPayload?
     let invisible: Bool?
     let folder: CommentFolderPayload?
@@ -255,7 +247,7 @@ struct CommentReplyPayload: Decodable, Sendable {
         content = container.decodeLossyIfPresent(CommentContentPayload.self, forKey: .content)
         replies =
             container.decodeLossyIfPresent(
-                [LossyCommentReplyPayload].self,
+                [LossyDecodable<CommentReplyPayload>].self,
                 forKey: .replies
             ) ?? []
         replyControl = container.decodeLossyIfPresent(
@@ -496,14 +488,14 @@ struct CommentContentPayload: Decodable, Sendable {
             )?.values ?? [:]
         let lossyPictures =
             container.decodeLossyIfPresent(
-                [LossyCommentPicturePayload].self,
+                [LossyDecodable<CommentPicturePayload>].self,
                 forKey: .pictures
             ) ?? []
         pictures = lossyPictures.map(\.value)
         pictureCount = lossyPictures.count
         members =
             container.decodeLossyIfPresent(
-                [LossyCommentMentionPayload].self,
+                [LossyDecodable<CommentMentionPayload>].self,
                 forKey: .members
             )?.compactMap(\.value) ?? []
     }
@@ -803,22 +795,6 @@ where Value: Decodable & Sendable {
             }
         }
         self.values = values
-    }
-}
-
-private struct LossyCommentPicturePayload: Decodable, Sendable {
-    let value: CommentPicturePayload?
-
-    init(from decoder: any Decoder) throws {
-        value = try? CommentPicturePayload(from: decoder)
-    }
-}
-
-private struct LossyCommentMentionPayload: Decodable, Sendable {
-    let value: CommentMentionPayload?
-
-    init(from decoder: any Decoder) throws {
-        value = try? CommentMentionPayload(from: decoder)
     }
 }
 

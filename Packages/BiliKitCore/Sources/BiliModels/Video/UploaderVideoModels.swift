@@ -1,7 +1,7 @@
 import Foundation
 
 /// UP 主空间投稿列表的排序。
-public enum UploaderVideoOrder: Sendable, Equatable, CaseIterable {
+public enum UploaderVideoOrder: Sendable, Equatable {
     case newest
     case mostPlayed
     case mostFavorited
@@ -42,24 +42,35 @@ public struct UploaderVideo: Identifiable, Sendable, Equatable {
     }
 }
 
+/// 投稿列表的一页。
+///
+/// 只保存服务端给出的事实，总页数与是否还有下一页由此推导，避免两处判断不一致。
 public struct UploaderVideoPage: Sendable, Equatable {
     public let videos: [UploaderVideo]
     public let pageNumber: Int
     public let pageSize: Int
     public let totalCount: Int
-    public let hasMore: Bool
 
     public init(
         videos: [UploaderVideo],
         pageNumber: Int,
         pageSize: Int,
-        totalCount: Int,
-        hasMore: Bool
+        totalCount: Int
     ) {
         self.videos = videos
         self.pageNumber = pageNumber
         self.pageSize = pageSize
-        self.totalCount = totalCount
-        self.hasMore = hasMore
+        self.totalCount = max(0, totalCount)
+    }
+
+    /// 至少为 1；没有投稿时也有一页（空页）。
+    public var pageCount: Int {
+        guard pageSize > 0 else { return 1 }
+        let (quotient, remainder) = totalCount.quotientAndRemainder(dividingBy: pageSize)
+        return max(1, quotient + (remainder == 0 ? 0 : 1))
+    }
+
+    public var hasMore: Bool {
+        pageNumber < pageCount
     }
 }

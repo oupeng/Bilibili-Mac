@@ -2,6 +2,8 @@ import BiliModels
 
 public enum ContentApplicationError: Error, Sendable, Equatable {
     case invalidRequest
+    /// 本地没有登录凭据，而该内容只按账户读取。与凭据失效不同，不应触发账户复核。
+    case authenticationRequired
     case authenticationInvalid
     case authenticationUnavailable
     case requestRestricted

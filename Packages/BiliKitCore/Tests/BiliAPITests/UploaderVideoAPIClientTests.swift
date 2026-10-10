@@ -110,7 +110,8 @@ struct UploaderVideoAPIClientTests {
             )
         )
 
-        await #expect(throws: ContentApplicationError.authenticationInvalid) {
+        // 未登录是“需要登录”，不是“凭据失效”：后者会触发账户复核。
+        await #expect(throws: ContentApplicationError.authenticationRequired) {
             try await repository.uploaderVideos(ownerID: 10_001, order: .newest, page: 1)
         }
         #expect(
@@ -118,7 +119,7 @@ struct UploaderVideoAPIClientTests {
         )
     }
 
-    @Test(arguments: [(Int64(0), 1), (10_001, 0)])
+    @Test(arguments: [(0, 1), (10_001, 0), (10_001, 10_001), (10_001, Int.max)] as [(Int64, Int)])
     func invalidRequestSendsNothing(ownerID: Int64, page: Int) async throws {
         let transport = StubTransport(responses: [])
         let client = BiliAPIClient(transport: transport, requestAuthorizer: StubAuthorizer())
@@ -129,19 +130,46 @@ struct UploaderVideoAPIClientTests {
         #expect(transport.capturedRequests().isEmpty)
     }
 
-    @Test(
-        arguments: [
-            ("12:34", 754),
-            ("1:02:03", 3_723),
-            ("00:00", 0),
-            ("5", nil),
-            ("a:b", nil),
-            (":30", nil),
-            ("-1:00", nil),
-            ("1:2:3:4", nil)
-        ] as [(String, Int?)]
-    )
-    func clockDurationParsing(value: String, expected: Int?) {
-        #expect(UploaderVideoItemPayload.seconds(fromClock: value) == expected)
+    @Test
+    func malformedItemIsDroppedWithoutFailingThePage() async throws {
+        // 第二条缺少 length、play 类型错误；只丢弃它，同页其他条目照常返回。
+        let body = #"""
+            {"code":0,"data":{"list":{"vlist":[
+              {"bvid":"BV1FixtureA1","title":"正常","pic":"","length":"01:00","play":1,"video_review":0,"created":1700000000},
+              {"bvid":"BV1FixtureB2","title":"异常","pic":"","play":true,"created":1700000000}
+            ]},"page":{"count":2}}}
+            """#
+        let client = BiliAPIClient(
+            transport: StubTransport(responses: [try fixtureResponse("nav"), jsonResponse(body)]),
+            requestAuthorizer: StubAuthorizer(),
+            timestampProvider: { 1_700_000_000 }
+        )
+
+        let page = try await client.uploaderVideos(ownerID: 10_001, order: .newest, page: 1)
+
+        #expect(page.videos.map(\.bvid) == ["BV1FixtureA1"])
+        #expect(page.totalCount == 2)
+    }
+
+    @Test
+    func riskControlForbiddenIsNotRetriedWithRefreshedKey() async throws {
+        let transport = StubTransport(
+            responses: [try fixtureResponse("nav"), HTTPResponse(statusCode: 403, body: Data())]
+        )
+        let repository = BiliContentRepository(
+            client: BiliAPIClient(
+                transport: transport,
+                requestAuthorizer: StubAuthorizer(),
+                timestampProvider: { 1_700_000_000 }
+            )
+        )
+
+        await #expect(throws: ContentApplicationError.requestRestricted) {
+            try await repository.uploaderVideos(ownerID: 10_001, order: .newest, page: 1)
+        }
+        #expect(
+            transport.capturedRequests().map(\.url.path)
+                == ["/x/web-interface/nav", "/x/space/wbi/arc/search"]
+        )
     }
 }

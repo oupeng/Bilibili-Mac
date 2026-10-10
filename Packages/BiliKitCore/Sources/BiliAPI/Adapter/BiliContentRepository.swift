@@ -101,7 +101,9 @@ public struct BiliContentRepository: FeedRepository, VideoRepository,
         switch failure {
         case .invalidRequest:
             .invalidRequest
-        case .authorizationRequired, .authenticationInvalid:
+        case .authorizationRequired:
+            .authenticationRequired
+        case .authenticationInvalid:
             .authenticationInvalid
         case .authorizationUnavailable:
             .authenticationUnavailable

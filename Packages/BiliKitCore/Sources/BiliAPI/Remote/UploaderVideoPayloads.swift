@@ -6,19 +6,18 @@ struct UploaderVideoSearchPayload: Decodable, Sendable {
     let page: UploaderVideoPagePayload
 
     func model(pageNumber: Int, pageSize: Int) -> UploaderVideoPage {
-        let items = list.vlist ?? []
-        return UploaderVideoPage(
-            videos: items.compactMap { $0.model() },
+        UploaderVideoPage(
+            videos: (list.vlist ?? []).compactMap { $0.value?.model() },
             pageNumber: pageNumber,
             pageSize: pageSize,
-            totalCount: max(0, page.count),
-            hasMore: !items.isEmpty && pageNumber * pageSize < page.count
+            totalCount: page.count
         )
     }
 }
 
 struct UploaderVideoListPayload: Decodable, Sendable {
-    let vlist: [UploaderVideoItemPayload]?
+    /// 单条字段异常只丢弃那一条，不让整页失败。
+    let vlist: [LossyDecodable<UploaderVideoItemPayload>]?
 }
 
 struct UploaderVideoPagePayload: Decodable, Sendable {
@@ -48,23 +47,11 @@ struct UploaderVideoItemPayload: Decodable, Sendable {
             bvid: bvid,
             title: RemoteVideoTitleNormalizer.plainText(title),
             coverURL: WebImageURL.parse(pic),
-            durationSeconds: Self.seconds(fromClock: length),
-            // 数据被隐藏时接口给 "--"，FlexibleInt64 解为 -1。
-            viewCount: play.value >= 0 ? play.value : nil,
-            danmakuCount: videoReview.flatMap { $0.value >= 0 ? $0.value : nil },
+            durationSeconds: RemoteClockDuration.seconds(length),
+            viewCount: play.value,
+            danmakuCount: videoReview?.value,
             publishedAt: Date(timeIntervalSince1970: TimeInterval(created)),
             isCollaboration: (isUnionVideo ?? 0) != 0
         )
-    }
-
-    static func seconds(fromClock value: String) -> Int? {
-        let components = value.split(separator: ":", omittingEmptySubsequences: false)
-        guard (2...3).contains(components.count) else { return nil }
-        var seconds = 0
-        for component in components {
-            guard let number = Int(component), number >= 0 else { return nil }
-            seconds = seconds * 60 + number
-        }
-        return seconds
     }
 }

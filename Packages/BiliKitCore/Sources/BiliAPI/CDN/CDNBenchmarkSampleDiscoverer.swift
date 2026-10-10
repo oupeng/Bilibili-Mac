@@ -161,9 +161,9 @@ public actor CDNBenchmarkSampleDiscoverer {
         return submission.bvid.hasPrefix("BV")
             && submission.bvid.count == 12
             && submission.mid > 0
-            && (Self.minimumViewCount...Self.maximumViewCount).contains(
-                submission.play.value
-            )
+            && submission.play.value.map {
+                (Self.minimumViewCount...Self.maximumViewCount).contains($0)
+            } == true
             && (Self.minimumAge...Self.maximumAge).contains(age)
             && submission.duration >= Self.minimumDuration
     }

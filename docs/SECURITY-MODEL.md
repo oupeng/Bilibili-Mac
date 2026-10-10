@@ -51,9 +51,11 @@
 - 调用方已带 `Cookie`、`Authorization` 或 `X-CSRF-Token` 时拒绝；每次授权生成新请求，不缓存 header。
 - `BiliAPIClient` 的 endpoint 扩展逐请求决定匿名或账户读取，并独占 path/query schema；请求 builder
   只在 `BiliAPI` 内部可见，adapter 不构造 `RequestAccess`；授权器不复制业务规则。
-- 本地明确无凭据时匿名请求同一 endpoint；观看历史、UP 主空间投稿与测速详情例外，只按账户读取，
-  无凭据直接失败（空间投稿的匿名请求会被间歇风控，见 `BiliAPIClient+Space`）。凭据损坏、过期、
-  Keychain 不可用、403/412、业务拒绝、非 JSON、redirect 一律失败关闭，不自动匿名重试。
+- 本地明确无凭据时的行为由各 endpoint 决定：多数登录增强读取匿名请求同一 endpoint；主播放
+  playurl 改用带游客参数的匿名请求；观看历史、UP 主空间投稿（匿名会被间歇风控）、字幕目录、测速样本
+  等只按账户读取，直接失败。内容域把“无凭据”映射为“需要登录”，与“凭据失效”区分，只有后者触发
+  账户复核。凭据损坏、过期、Keychain 不可用、403/412、业务拒绝、非 JSON、redirect 一律失败关闭，
+  不自动匿名重试。
 - WBI key 的 nav 请求保持匿名。
 
 **唯一写能力：观看进度**（`BiliPlaybackHeartbeatRequestAuthorizer`）
