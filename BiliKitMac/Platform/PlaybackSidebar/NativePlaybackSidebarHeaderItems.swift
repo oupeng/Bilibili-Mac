@@ -73,6 +73,7 @@ private final class NativePlaybackSidebarUploaderView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         avatar.imageScaling = .scaleProportionallyUpOrDown
+        avatar.contentTintColor = NativeAvatarPlaceholder.tintColor
         avatar.wantsLayer = true
         avatar.layer?.cornerRadius = NativePlaybackSidebarItemMeasurement.avatarSize / 2
         avatar.layer?.masksToBounds = true
@@ -231,7 +232,7 @@ private final class NativePlaybackSidebarUploaderView: NSView {
     ) {
         cancelImageRequest()
         avatar.image = NSImage(
-            systemSymbolName: "person.crop.circle.fill",
+            systemSymbolName: NativeAvatarPlaceholder.systemSymbolName,
             accessibilityDescription: nil
         )
         guard let url else { return }

@@ -208,6 +208,31 @@ struct NativePlaybackSidebarTests {
         #expect(overlayOnly.changedItemIDs(comparedTo: original).isEmpty)
     }
 
+    /// 认证优先于大会员，个人与机构认证分开，普通用户没有角标。
+    @Test(
+        arguments: [
+            (.personal(description: nil), false, .personalVerification),
+            (.personal(description: nil), true, .personalVerification),
+            (.organization(description: nil), true, .organizationVerification),
+            (nil, true, .vip),
+            (nil, false, nil)
+        ] as [(CommentVerification?, Bool, NativeCommentAvatarMark?)]
+    )
+    func commentAvatarMarkPrefersVerificationOverVIP(
+        verification: CommentVerification?,
+        isVIP: Bool,
+        expected: NativeCommentAvatarMark?
+    ) {
+        let author = CommentAuthor(
+            id: CommentAuthorID(rawValue: "author"),
+            name: "昵称",
+            isVIP: isVIP,
+            verification: verification
+        )
+
+        #expect(NativeCommentAvatarMark(author: author) == expected)
+    }
+
     @Test
     @MainActor
     func collectionUpdatePolicySeparatesStableRowsFromCommentAppend() throws {

@@ -56,8 +56,8 @@ private final class UploaderSpaceHeaderView: NSView {
         action: nil
     )
     private let avatar = NativeVideoLayerImageView(
-        placeholderSystemSymbolName: "person.crop.circle.fill",
-        placeholderTintColor: .quaternaryLabelColor
+        placeholderSystemSymbolName: NativeAvatarPlaceholder.systemSymbolName,
+        placeholderTintColor: NativeAvatarPlaceholder.tintColor
     )
     private let nameLabel = NSTextField(labelWithString: "")
     private let countLabel = NSTextField(labelWithString: "")

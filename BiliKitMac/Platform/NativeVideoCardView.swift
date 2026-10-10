@@ -315,8 +315,8 @@ final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHoverableColl
 final class NativeVideoCardView: NSView {
     private let cover = NativeVideoMergedCoverView(frame: .zero)
     private let avatar = NativeVideoLayerImageView(
-        placeholderSystemSymbolName: "person.crop.circle.fill",
-        placeholderTintColor: .quaternaryLabelColor
+        placeholderSystemSymbolName: NativeAvatarPlaceholder.systemSymbolName,
+        placeholderTintColor: NativeAvatarPlaceholder.tintColor
     )
     private let titleFont = NSFont.systemFont(
         ofSize: NSFont.preferredFont(forTextStyle: .title3).pointSize,
