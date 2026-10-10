@@ -22,7 +22,7 @@ struct UploaderSpacePager: View {
 
     var body: some View {
         // 同一行里逐个插入／移除元素，宽度变化由玻璃条本身做过渡，而不是整块内容替换。
-        HStack(spacing: 2) {
+        HStack(spacing: UploaderSpaceGeometry.pagerItemSpacing) {
             if isExpanded {
                 arrow("chevron.left", label: AppStrings.localized("上一页"), target: currentPage - 1)
                     .transition(expansionTransition)
@@ -38,7 +38,7 @@ struct UploaderSpacePager: View {
                     case .gap:
                         Text(verbatim: "…")
                             .foregroundStyle(.secondary)
-                            .frame(minWidth: 16)
+                            .frame(minWidth: UploaderSpaceGeometry.pagerGapWidth)
                             .accessibilityHidden(true)
                     }
                 }
@@ -51,28 +51,33 @@ struct UploaderSpacePager: View {
             }
         }
         .buttonStyle(.borderless)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, UploaderSpaceGeometry.pagerHorizontalPadding)
+        .padding(.vertical, UploaderSpaceGeometry.pagerVerticalPadding)
         .modifier(UploaderSpacePagerBackground())
         .contentShape(Capsule())
-        .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: isExpanded)
+        .animation(
+            reduceMotion ? nil : .snappy(duration: UploaderSpaceGeometry.pagerExpansionDuration),
+            value: isExpanded
+        )
         .onHover { hovering in
             isHovered = hovering
             // 移开即恢复原样：取消输入、收起。
             if !hovering { endEditing() }
         }
-        .padding(.bottom, 10)
+        .padding(.bottom, UploaderSpaceGeometry.pagerBottomInset)
         .frame(maxWidth: .infinity)
     }
 
     private var expansionTransition: AnyTransition {
-        reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.6))
+        reduceMotion
+            ? .opacity
+            : .opacity.combined(with: .scale(scale: UploaderSpaceGeometry.pagerExpansionScale))
     }
 
     private var collapsedLabel: some View {
         Text(AppStrings.localized("第 \(currentPage) / \(pageCount) 页"))
             .monospacedDigit()
-            .padding(.horizontal, 6)
+            .padding(.horizontal, UploaderSpaceGeometry.pagerCollapsedLabelPadding)
             .accessibilityElement()
             .accessibilityLabel(AppStrings.localized("页码"))
             .accessibilityValue(AppStrings.localized("第 \(currentPage) 页，共 \(pageCount) 页"))
@@ -93,7 +98,10 @@ struct UploaderSpacePager: View {
             commit(target)
         } label: {
             Image(systemName: symbol)
-                .frame(width: 22, height: 22)
+                .frame(
+                    width: UploaderSpaceGeometry.pagerItemSize,
+                    height: UploaderSpaceGeometry.pagerItemSize
+                )
                 .contentShape(Rectangle())
         }
         .disabled(target < 1 || target > pageCount)
@@ -117,7 +125,10 @@ struct UploaderSpacePager: View {
                 .textFieldStyle(.plain)
                 .multilineTextAlignment(.center)
                 .monospacedDigit()
-                .frame(width: 40, height: 22)
+                .frame(
+                    width: UploaderSpaceGeometry.pagerFieldWidth,
+                    height: UploaderSpaceGeometry.pagerItemSize
+                )
                 .background(Capsule().fill(Color.accentColor.opacity(0.25)))
                 .focused($isFieldFocused)
                 .onSubmit(submitEdit)
@@ -139,8 +150,11 @@ struct UploaderSpacePager: View {
     private func pageNumber(_ page: Int, isCurrent: Bool) -> some View {
         Text(verbatim: "\(page)")
             .monospacedDigit()
-            .frame(minWidth: 22, minHeight: 22)
-            .padding(.horizontal, 3)
+            .frame(
+                minWidth: UploaderSpaceGeometry.pagerItemSize,
+                minHeight: UploaderSpaceGeometry.pagerItemSize
+            )
+            .padding(.horizontal, UploaderSpaceGeometry.pagerNumberPadding)
             .background {
                 if isCurrent {
                     Capsule().fill(Color.accentColor.opacity(0.25))

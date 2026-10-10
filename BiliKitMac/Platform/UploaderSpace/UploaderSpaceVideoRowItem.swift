@@ -32,7 +32,8 @@ final class UploaderSpaceVideoRowItem: NSCollectionViewItem, NativeHoverableColl
             guard let self else { return }
             hoverChanged(self, isHovered)
         }
-        if loadedCoverURL != row.coverURL || !hasCoverImage {
+        // 请求进行中时不重启：列表会因为“正在播放”等变化频繁重配可见行。
+        if loadedCoverURL != row.coverURL || (!hasCoverImage && imageTask == nil) {
             loadCover(row.coverURL, imagePipeline: imagePipeline)
         }
     }
@@ -119,7 +120,7 @@ final class UploaderSpaceVideoRowView: NSView {
         cover.setAccessibilityElement(false)
 
         durationBackground.wantsLayer = true
-        durationBackground.layer?.cornerRadius = 3
+        durationBackground.layer?.cornerRadius = UploaderSpaceGeometry.badgeCornerRadius
         durationBackground.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.6).cgColor
         durationLabel.font = .monospacedDigitSystemFont(
             ofSize: NSFont.preferredFont(forTextStyle: .caption2).pointSize,
@@ -128,6 +129,8 @@ final class UploaderSpaceVideoRowView: NSView {
         durationLabel.textColor = .white
 
         titleLabel.font = .preferredFont(forTextStyle: .callout)
+        // 整行可点，标题不可选中：否则指针在标题上变成文本选择形状，点击也会被文本框吃掉。
+        titleLabel.isSelectable = false
         titleLabel.maximumNumberOfLines = 2
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.cell?.truncatesLastVisibleLine = true
@@ -141,8 +144,8 @@ final class UploaderSpaceVideoRowView: NSView {
         collaborationLabel.font = .preferredFont(forTextStyle: .caption2)
         collaborationLabel.textColor = .secondaryLabelColor
         collaborationLabel.wantsLayer = true
-        collaborationLabel.layer?.cornerRadius = 3
-        collaborationLabel.layer?.borderWidth = 1
+        collaborationLabel.layer?.cornerRadius = UploaderSpaceGeometry.badgeCornerRadius
+        collaborationLabel.layer?.borderWidth = UploaderSpaceGeometry.collaborationBorderWidth
 
         metadataLabel.font = .preferredFont(forTextStyle: .caption1)
         metadataLabel.textColor = .secondaryLabelColor
@@ -231,12 +234,17 @@ final class UploaderSpaceVideoRowView: NSView {
 
         let durationSize = durationLabel.fittingSize
         durationLabel.frame = NSRect(
-            x: coverFrame.maxX - durationSize.width - 8,
-            y: coverFrame.maxY - durationSize.height - 5,
+            x: coverFrame.maxX - durationSize.width
+                - UploaderSpaceGeometry.durationBadgeTrailingInset,
+            y: coverFrame.maxY - durationSize.height
+                - UploaderSpaceGeometry.durationBadgeBottomInset,
             width: durationSize.width,
             height: durationSize.height
         )
-        durationBackground.frame = durationLabel.frame.insetBy(dx: -4, dy: -1)
+        durationBackground.frame = durationLabel.frame.insetBy(
+            dx: -UploaderSpaceGeometry.durationBadgePadding.width,
+            dy: -UploaderSpaceGeometry.durationBadgePadding.height
+        )
 
         let textX = coverFrame.maxX + UploaderSpaceGeometry.coverTextSpacing
         let textWidth = max(0, bounds.width - textX - padding)
@@ -261,7 +269,7 @@ final class UploaderSpaceVideoRowView: NSView {
         )
 
         var badgeX = textX
-        let badgeBottom = metadataLabel.frame.minY - 4
+        let badgeBottom = metadataLabel.frame.minY - UploaderSpaceGeometry.badgeToMetadataSpacing
         if !playingLabel.isHidden {
             let iconSize = playingIcon.fittingSize
             let labelSize = playingLabel.fittingSize
@@ -272,12 +280,12 @@ final class UploaderSpaceVideoRowView: NSView {
                 height: iconSize.height
             )
             playingLabel.frame = NSRect(
-                x: playingIcon.frame.maxX + 3,
+                x: playingIcon.frame.maxX + UploaderSpaceGeometry.playingIconSpacing,
                 y: badgeBottom - labelSize.height,
                 width: labelSize.width,
                 height: labelSize.height
             )
-            badgeX = playingLabel.frame.maxX + 6
+            badgeX = playingLabel.frame.maxX + UploaderSpaceGeometry.badgeSpacing
         }
         if !collaborationLabel.isHidden {
             let size = collaborationLabel.fittingSize
@@ -310,6 +318,12 @@ final class UploaderSpaceVideoRowView: NSView {
     override func mouseExited(with event: NSEvent) {
         setHovered(false)
         onHoverChange?(false)
+    }
+
+    /// 与视频卡片一致：整行显示手形指针。
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: .pointingHand)
     }
 
     override func viewDidChangeEffectiveAppearance() {

@@ -111,8 +111,9 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   是主要滚动成本；卡片 overlay 与文字改为持久 `CALayer`／`CATextLayer` 后，同样约 20 秒滚动
   cycles 下降约 39%，0 hitch。SwiftUI Feature 保留 loading／empty／failure 等状态所有权。
 - **UP 主空间列表**：头部（返回、头像、名字、三段排序）与投稿行是同一个 `NSCollectionView` 的原生
-  item，随列表滚到工具栏下由系统做边缘模糊。行高固定，不需要测量缓存；加载骨架、空、失败与登录提示
-  由 SwiftUI 叠在头部下方，返回按钮始终可点。列表不接收键盘焦点，方向键、空格留给播放器快捷键。
+  item，随列表滚到工具栏下由系统做边缘模糊。行高固定，不需要测量缓存；加载、空、失败与登录提示
+  由 SwiftUI 叠在头部下方，返回按钮始终可点。加载用转圈而不是骨架：投稿数因人而异，占位行会误导数量。
+  列表不接收键盘焦点，方向键、空格留给播放器快捷键。
   悬停由 `NativeVideoHoverTracker` 统一管理（网格卡片与投稿行都实现 `NativeHoverableCollectionItem`）；
   “返回顶部”玻璃按钮与评论区共用 `NativeScrollToTopScrollView`。
 - 封面、头像与评论图片由 `AppWindowOwner` 持有的窗口级匿名、有界 `NativeVideoImagePipeline`

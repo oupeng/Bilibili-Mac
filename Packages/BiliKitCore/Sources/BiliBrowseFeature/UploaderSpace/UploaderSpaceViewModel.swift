@@ -75,7 +75,9 @@ public final class UploaderSpaceViewModel {
         load(page: 1)
     }
 
+    /// 协调器每次换视频都会调用；已经关闭时不再写入，避免无谓地通知观察者。
     public func close() {
+        guard owner != nil || state != .closed else { return }
         loadTask.cancel()
         owner = nil
         order = .newest

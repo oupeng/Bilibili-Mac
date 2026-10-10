@@ -262,33 +262,25 @@ final class UploaderSpaceListController: NSObject, NSCollectionViewDelegateFlowL
 
     // MARK: - Scrolling
 
-    private var logicalOffsetY: CGFloat {
-        scrollView.contentView.bounds.minY + scrollView.contentInsets.top
-    }
-
     private func viewportDidScroll() {
         guard !isTornDown else { return }
-        scrollView.topButton.isHidden = logicalOffsetY < UploaderSpaceGeometry.topButtonThreshold
+        scrollView.updateTopButtonVisibility()
         // 滚动不会产生 mouseEntered/Exited，按指针当前位置重选悬停行。
         hover.updateForCurrentPointerLocation(in: collectionView)
     }
 
     @objc private func scrollToTopFromButton() {
-        scrollToTop(animated: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+        scrollToTop(animated: true)
     }
 
     private func scrollToTop(animated: Bool) {
-        let clipView = scrollView.contentView
-        let target = NSPoint(x: clipView.bounds.minX, y: -scrollView.contentInsets.top)
-        if animated {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.25
-                clipView.animator().setBoundsOrigin(target)
-            }
-        } else {
-            clipView.setBoundsOrigin(target)
-        }
-        scrollView.reflectScrolledClipView(clipView)
+        scrollView.scrollVertically(
+            toPhysicalOffset: NativeVideoScrollCoordinateSpace.physicalOffset(
+                logicalOffset: 0,
+                leadingInset: scrollView.contentInsets.top
+            ),
+            animated: animated
+        )
     }
 }
 

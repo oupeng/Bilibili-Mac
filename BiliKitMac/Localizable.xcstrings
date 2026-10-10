@@ -2381,34 +2381,6 @@
         }
       }
     },
-    "已展开，%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Expanded, %@"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "展開済み、%@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已展开，%@"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已展開，%@"
-          }
-        }
-      }
-    },
     "已开始播放" : {
       "localizations" : {
         "en" : {
@@ -2461,34 +2433,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已摺疊為五行"
-          }
-        }
-      }
-    },
-    "已收起，%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Collapsed, %@"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "折りたたみ済み、%@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已收起，%@"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已收起，%@"
           }
         }
       }
@@ -6133,30 +6077,30 @@
         }
       }
     },
-    "返回评论区顶部" : {
+    "返回顶部" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Back to top of comments"
+            "value" : "Back to top"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "コメント欄の先頭に戻る"
+            "value" : "先頭に戻る"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "返回评论区顶部"
+            "value" : "返回顶部"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "返回評論區頂部"
+            "value" : "返回頂部"
           }
         }
       }

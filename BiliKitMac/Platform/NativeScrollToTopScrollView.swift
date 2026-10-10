@@ -2,13 +2,17 @@ import AppKit
 
 /// 右下角带“返回顶部”玻璃按钮的滚动视图；播放侧栏评论区与 UP 主空间共用。
 ///
-/// 按钮的显隐与目标位置由 owner 决定；这里只负责外观、贴着安全区的位置与内容边距变化通知。
+/// 滚过 `topButtonVisibilityOffset` 后显示按钮；点击后滚到哪里由 owner 决定。这里负责外观、
+/// 贴着安全区的位置、显隐规则与内容边距变化通知。
 @MainActor
 final class NativeScrollToTopScrollView: NSScrollView {
     private enum Geometry {
         static let buttonSize: CGFloat = 44
         static let edgeInset: CGFloat = 16
     }
+
+    /// 内容滚过这个距离后显示“返回顶部”。
+    static let topButtonVisibilityOffset: CGFloat = 400
 
     let topButton: NSButton
     var onContentInsetsChange: ((NSEdgeInsets, NSEdgeInsets) -> Void)?
@@ -41,6 +45,15 @@ final class NativeScrollToTopScrollView: NSScrollView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         nil
+    }
+
+    /// 按当前滚动位置更新按钮显隐；`isBlocked` 时（内容被加载或失败状态盖住）始终隐藏。
+    func updateTopButtonVisibility(isBlocked: Bool = false) {
+        let offset = NativeVideoScrollCoordinateSpace.logicalOffset(
+            physicalOffset: contentView.bounds.minY,
+            leadingInset: contentInsets.top
+        )
+        topButton.isHidden = isBlocked || offset < Self.topButtonVisibilityOffset
     }
 
     override func layout() {

@@ -63,7 +63,9 @@ struct AppShellView: View {
                 // 否则底层的 AppKit 集合视图会把布局变化也做成动画而跳动。
                 ZStack { sidebarContextLayer }
                     .animation(
-                        reduceMotion ? nil : .snappy(duration: 0.28),
+                        reduceMotion
+                            ? nil
+                            : .snappy(duration: UploaderSpaceGeometry.layerTransitionDuration),
                         value: isSidebarContextOpen
                     )
             }

@@ -202,9 +202,8 @@ private struct NativePlaybackSidebarRepresentable: NSViewRepresentable {
 @MainActor
 final class NativePlaybackSidebarRootView: NSView {
     let scrollView = NativeScrollToTopScrollView(
-        topButtonLabel: AppStrings.localized("返回评论区顶部")
+        topButtonLabel: AppStrings.localized("返回顶部")
     )
-    var commentsTopButton: NSButton { scrollView.topButton }
     var viewportSizeDidChange: ((CGSize) -> Void)?
 
     override init(frame frameRect: NSRect) {
