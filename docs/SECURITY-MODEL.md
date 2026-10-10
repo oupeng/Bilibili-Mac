@@ -139,5 +139,5 @@ storage、无 URL cache，并拒绝 redirect。`PublicHTTPSURLPolicy` 是基线�
 
 - Web QR 与各 Web 接口未公开，可能无通知漂移；漂移应表现为失败关闭，而不是降级。
 - Keychain 不能抵御已控制当前用户会话、可调试进程或可读屏幕的攻击者。
-- 响度 tap 依赖 macOS 26 未文档化行为；未回调只能表现为静默 unity。
+- 响度 tap 只在 macOS 27 起官方支持的路径上安装；未回调或格式不符只能表现为静默 unity。
 - 签名私钥丢失时，拒绝降级策略可能要求用户手动安装新版。

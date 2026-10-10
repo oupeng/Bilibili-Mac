@@ -2129,30 +2129,30 @@
         }
       }
     },
-    "实验性功能，仅适用于 macOS 26。只影响下一次新播放，当前播放不会改变或重建。" : {
+    "将较响的视频压低到统一响度，较安静的视频保持原样；开启后整体会变小，可调高音量补偿。" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Experimental and available only on macOS 26. It applies only to the next playback; current playback is not changed or rebuilt."
+            "value" : "Turns louder videos down to a common loudness and leaves quieter ones unchanged. Playback gets quieter overall, so you may want to raise the volume."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "macOS 26専用の実験的な機能です。次に開始する再生にのみ適用され、現在の再生は変更または再構築されません。"
+            "value" : "大きい動画を共通の音量まで下げ、静かな動画はそのままにします。全体の音量が小さくなるため、必要に応じて音量を上げてください。"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "实验性功能，仅适用于 macOS 26。只影响下一次新播放，当前播放不会改变或重建。"
+            "value" : "将较响的视频压低到统一响度，较安静的视频保持原样；开启后整体会变小，可调高音量补偿。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "實驗性功能，僅適用於 macOS 26。只會影響下一次新播放，目前的播放不會改變或重建。"
+            "value" : "將較大聲的影片壓低到統一響度，較安靜的影片保持原樣；開啟後整體會變小，可調高音量補償。"
           }
         }
       }
@@ -4229,30 +4229,30 @@
         }
       }
     },
-    "此功能依赖系统未文档化的 HLS 音频处理行为，可能随系统更新失效；失效或缺少安全元数据时保持原始响度。" : {
+    "只影响下一次新播放，当前播放不会改变或重建。缺少响度信息时保持原始响度。" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This feature relies on undocumented HLS audio processing and may stop working after a system update. Original loudness is preserved if it fails or safe metadata is unavailable."
+            "value" : "Applies only to the next playback; current playback is not changed or rebuilt. Original loudness is kept when loudness data is unavailable."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "この機能は未文書化のHLSオーディオ処理に依存しており、システム更新で動作しなくなる可能性があります。利用できない場合や安全なメタデータがない場合は元の音量を維持します。"
+            "value" : "次に開始する再生にのみ適用され、現在の再生は変更または再構築されません。ラウドネス情報がない場合は元の音量を維持します。"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "此功能依赖系统未文档化的 HLS 音频处理行为，可能随系统更新失效；失效或缺少安全元数据时保持原始响度。"
+            "value" : "只影响下一次新播放，当前播放不会改变或重建。缺少响度信息时保持原始响度。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "此功能依賴系統未公開說明的 HLS 音訊處理行為，可能隨系統更新失效；若失效或缺少安全的中繼資料，將維持原始響度。"
+            "value" : "只會影響下一次新播放，目前的播放不會改變或重建。缺少響度資訊時將維持原始響度。"
           }
         }
       }

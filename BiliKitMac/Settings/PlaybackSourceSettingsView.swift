@@ -9,16 +9,16 @@ struct PlaybackSourceSettingsView: View {
 
     var body: some View {
         Form {
-            if #available(macOS 26.0, *) {
+            if LoudnessNormalizationPolicy.isSupported {
                 Section("音频") {
                     Toggle(
                         "响度均一化",
                         isOn: loudnessNormalizationEnabled
                     )
-                    Text("实验性功能，仅适用于 macOS 26。只影响下一次新播放，当前播放不会改变或重建。")
+                    Text("将较响的视频压低到统一响度，较安静的视频保持原样；开启后整体会变小，可调高音量补偿。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                    Text("此功能依赖系统未文档化的 HLS 音频处理行为，可能随系统更新失效；失效或缺少安全元数据时保持原始响度。")
+                    Text("只影响下一次新播放，当前播放不会改变或重建。缺少响度信息时保持原始响度。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

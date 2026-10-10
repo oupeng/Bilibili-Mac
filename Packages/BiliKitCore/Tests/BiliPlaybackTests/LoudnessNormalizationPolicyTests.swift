@@ -9,25 +9,18 @@ struct LoudnessNormalizationPolicyTests {
     private let policy = LoudnessNormalizationPolicy()
 
     @Test
-    func appliesLoudnessDifferenceAndDBConversion() {
+    func louderThanTargetIsTurnedDownToMinus18LUFS() {
         let gain = policy.linearGain(
-            for: metadata(measuredI: -17, measuredTP: -5)
+            for: metadata(measuredI: -10, measuredTP: 1)
         )
 
-        #expect(abs(gain - Float(pow(10, 3.0 / 20))) < 0.0001)
+        #expect(abs(gain - Float(pow(10, -8.0 / 20))) < 0.0001)
     }
 
-    @Test
-    func truePeakAndProductCapsConstrainBoost() {
-        let peakLimited = policy.linearGain(
-            for: metadata(measuredI: -30, measuredTP: -2)
-        )
-        let productLimited = policy.linearGain(
-            for: metadata(measuredI: -30, measuredTP: -20)
-        )
-
-        #expect(abs(peakLimited - Float(pow(10, 1.0 / 20))) < 0.0001)
-        #expect(abs(productLimited - Float(pow(10, 6.0 / 20))) < 0.0001)
+    /// 只压低不放大：即使峰值余量充足，安静的音轨也保持原样。
+    @Test(arguments: [-18.0, -25.0, -40.0])
+    func targetOrQuieterKeepsOriginalLoudness(measuredI: Double) {
+        #expect(policy.linearGain(for: metadata(measuredI: measuredI, measuredTP: -20)) == 1)
     }
 
     @Test
