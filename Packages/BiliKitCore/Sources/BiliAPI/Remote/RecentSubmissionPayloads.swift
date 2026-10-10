@@ -24,17 +24,3 @@ struct RecentSubmissionDetailPayload: Decodable, Sendable {
 struct RecentOwnerPayload: Decodable, Sendable {
     let mid: Int64
 }
-
-struct FlexibleInt64: Decodable, Sendable {
-    let value: Int64
-
-    init(from decoder: any Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if let value = try? container.decode(Int64.self) {
-            self.value = value
-            return
-        }
-        let rawValue = try container.decode(String.self)
-        value = Int64(rawValue) ?? -1
-    }
-}

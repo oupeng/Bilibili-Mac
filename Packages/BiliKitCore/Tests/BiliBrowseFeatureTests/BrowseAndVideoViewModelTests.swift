@@ -9,6 +9,7 @@ import Testing
 struct BrowseAndVideoViewModelTests {
     @Test(arguments: [
         ContentApplicationError.authenticationInvalid,
+        .authenticationRequired,
         .authenticationUnavailable,
         .requestRestricted
     ])

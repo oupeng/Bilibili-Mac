@@ -41,6 +41,8 @@ extension VideoLoadFailure {
 extension ContentApplicationError {
     var displayTitle: String {
         switch self {
+        case .authenticationRequired:
+            BrowseFeatureStrings.localized("需要登录")
         case .authenticationInvalid:
             BrowseFeatureStrings.localized("登录状态已失效")
         case .authenticationUnavailable:
@@ -60,6 +62,8 @@ extension ContentApplicationError {
         switch self {
         case .invalidRequest:
             BrowseFeatureStrings.localized("请求参数无效，请重新选择内容。")
+        case .authenticationRequired:
+            BrowseFeatureStrings.localized("该内容需要登录后查看。")
         case .authenticationInvalid:
             BrowseFeatureStrings.localized("本地登录状态已失效，正在重新确认账户会话。")
         case .authenticationUnavailable:

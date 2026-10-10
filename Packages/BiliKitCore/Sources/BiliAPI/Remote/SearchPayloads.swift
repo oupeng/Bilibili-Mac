@@ -72,25 +72,8 @@ struct SearchVideoPayload: Decodable, Sendable {
                 danmakuCount: danmaku,
                 likeCount: like ?? 0
             ),
-            durationSeconds: Self.durationSeconds(duration),
+            durationSeconds: RemoteClockDuration.seconds(duration),
             publishedAt: Date(timeIntervalSince1970: TimeInterval(pubdate))
         )
-    }
-
-    private static func durationSeconds(_ value: String) -> Int? {
-        let components = value.split(separator: ":").compactMap { Int($0) }
-        guard components.count == value.split(separator: ":").count,
-            components.allSatisfy({ $0 >= 0 })
-        else {
-            return nil
-        }
-        switch components.count {
-        case 2:
-            return components[0] * 60 + components[1]
-        case 3:
-            return components[0] * 3_600 + components[1] * 60 + components[2]
-        default:
-            return nil
-        }
     }
 }
