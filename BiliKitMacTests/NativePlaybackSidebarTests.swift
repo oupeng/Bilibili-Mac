@@ -1104,7 +1104,8 @@ struct NativePlaybackSidebarTests {
             onNext: {},
             onRetry: {},
             onOpenLink: { _ in },
-            onOpenPictures: { openedGallery = $0 }
+            onOpenPictures: { openedGallery = $0 },
+            onOpenAuthorSpace: nil
         )
         item.view.layoutSubtreeIfNeeded()
 
@@ -1157,7 +1158,8 @@ struct NativePlaybackSidebarTests {
             onNext: {},
             onRetry: {},
             onOpenLink: { _ in },
-            onOpenPictures: { _ in }
+            onOpenPictures: { _ in },
+            onOpenAuthorSpace: nil
         )
         item.view.layoutSubtreeIfNeeded()
         focusWindow.makeFirstResponder(fallbackResponder)
@@ -1455,7 +1457,8 @@ struct NativePlaybackSidebarTests {
             onNext: {},
             onRetry: {},
             onOpenLink: { _ in },
-            onOpenPictures: { _ in }
+            onOpenPictures: { _ in },
+            onOpenAuthorSpace: nil
         )
         item.view.layoutSubtreeIfNeeded()
 
@@ -1465,6 +1468,97 @@ struct NativePlaybackSidebarTests {
             }
         )
         #expect(authorLabel.textColor == expectedColor)
+    }
+
+    /// 根评论与楼中楼回复的作者都提供“查看空间”，打开对应作者；MID 不合法的作者没有入口。
+    @Test
+    @MainActor
+    func commentAuthorsOfferSpaceEntryOnlyForValidMemberIDs() throws {
+        let rootAuthor = CommentAuthor(id: CommentAuthorID(rawValue: "1001"), name: "根评论作者")
+        let replyAuthor = CommentAuthor(id: CommentAuthorID(rawValue: "1002"), name: "回复作者")
+        let invalidAuthor = CommentAuthor(
+            id: CommentAuthorID(rawValue: "author-x"),
+            name: "无效作者"
+        )
+        let presentation = NativePlaybackCommentThreadPresentation(
+            subject: .video(aid: 700_001),
+            thread: commentThread(
+                id: 31,
+                message: "正文",
+                replyCount: 2,
+                preview: [
+                    comment(id: 32, rootID: 31, message: "回复", author: replyAuthor),
+                    comment(id: 33, rootID: 31, message: "回复", author: invalidAuthor)
+                ],
+                author: rootAuthor
+            ),
+            replyState: nil
+        )
+        var opened: [CommentAuthorID] = []
+        let item = NativePlaybackCommentThreadItem()
+        item.view.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: 408,
+            height: NativePlaybackCommentsItemMeasurement.thread(presentation, width: 408)
+        )
+        item.configure(
+            presentation: presentation,
+            textRenderer: makeCommentTextRenderer(),
+            avatarLoader: makeCommentAvatarLoader(),
+            pictureLoader: makeCommentPictureLoader(),
+            onTextLayoutChange: {},
+            onExpand: {},
+            onCollapse: {},
+            onPrevious: {},
+            onNext: {},
+            onRetry: {},
+            onOpenLink: { _ in },
+            onOpenPictures: { _ in },
+            onOpenAuthorSpace: { opened.append($0.id) }
+        )
+        item.view.layoutSubtreeIfNeeded()
+        func spaceAction(for name: String) throws -> NSAccessibilityCustomAction? {
+            let label = try #require(
+                descendants(of: item.view).compactMap { $0 as? NSTextField }.first {
+                    $0.stringValue == name
+                }
+            )
+            return label.accessibilityCustomActions()?.first
+        }
+
+        let rootAction = try #require(try spaceAction(for: rootAuthor.name))
+        #expect(rootAction.name == AppStrings.localized("查看空间"))
+        #expect(rootAction.handler?() == true)
+        #expect(try spaceAction(for: replyAuthor.name)?.handler?() == true)
+        #expect(try spaceAction(for: invalidAuthor.name) == nil)
+        #expect(opened == [rootAuthor.id, replyAuthor.id])
+    }
+
+    /// 进入空间的身份：正整数 MID、评论昵称，头像经评论资源解析器取得。
+    @Test
+    func commentAuthorSpaceOwnerUsesMemberIDAndResolvedAvatar() throws {
+        let avatar = CommentAssetReference()
+        let avatarURL = try #require(URL(string: "https://i0.hdslb.com/bfs/face/a.jpg"))
+        let resolver: CommentAssetURLResolver = { $0 == avatar ? avatarURL : nil }
+        let author = CommentAuthor(
+            id: CommentAuthorID(rawValue: "1001"),
+            name: "评论作者",
+            avatar: avatar
+        )
+
+        #expect(
+            NativePlaybackCommentAuthorSpace.owner(for: author, resolveAvatar: resolver)
+                == VideoOwner(id: 1001, name: "评论作者", avatarURL: avatarURL)
+        )
+        for rawValue in ["", "0", "-1", "author-x"] {
+            let invalid = CommentAuthor(id: CommentAuthorID(rawValue: rawValue), name: "无效")
+            #expect(!NativePlaybackCommentAuthorSpace.isOpenable(invalid))
+            #expect(
+                NativePlaybackCommentAuthorSpace.owner(for: invalid, resolveAvatar: resolver)
+                    == nil
+            )
+        }
     }
 
     @Test(arguments: [2, 3])
@@ -1507,7 +1601,8 @@ struct NativePlaybackSidebarTests {
             onNext: {},
             onRetry: {},
             onOpenLink: { _ in },
-            onOpenPictures: { _ in }
+            onOpenPictures: { _ in },
+            onOpenAuthorSpace: nil
         )
         item.view.layoutSubtreeIfNeeded()
 

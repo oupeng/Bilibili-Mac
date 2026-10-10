@@ -68,7 +68,7 @@ enum NativePlaybackSidebarItemMeasurement {
 @MainActor
 struct NativePlaybackUploaderGeometry {
     static let textLeading = NativePlaybackSidebarItemMeasurement.avatarSize + 12
-    /// 名字行右侧“查看 UP 主投稿”箭头按钮的边长，以及它与名字之间的间距。
+    /// 名字行右侧“查看空间”箭头按钮的边长，以及它与名字之间的间距。
     static let spaceButtonSize: CGFloat = 16
     static let spaceButtonSpacing: CGFloat = 8
     static let loadingBarInset: CGFloat = 2

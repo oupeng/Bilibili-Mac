@@ -23,7 +23,8 @@ final class NativePlaybackCommentThreadItem: NSCollectionViewItem {
         onNext: @escaping () -> Void,
         onRetry: @escaping () -> Void,
         onOpenLink: @escaping (CommentLinkTarget) -> Void,
-        onOpenPictures: @escaping (NativePlaybackCommentPictureGallery) -> Void
+        onOpenPictures: @escaping (NativePlaybackCommentPictureGallery) -> Void,
+        onOpenAuthorSpace: ((CommentAuthor) -> Void)?
     ) {
         representedObject = presentation
         contentView.configure(
@@ -38,7 +39,8 @@ final class NativePlaybackCommentThreadItem: NSCollectionViewItem {
             onNext: onNext,
             onRetry: onRetry,
             onOpenLink: onOpenLink,
-            onOpenPictures: onOpenPictures
+            onOpenPictures: onOpenPictures,
+            onOpenAuthorSpace: onOpenAuthorSpace
         )
     }
 
@@ -86,7 +88,8 @@ private final class NativePlaybackCommentThreadView: NSView {
         onNext: @escaping () -> Void,
         onRetry: @escaping () -> Void,
         onOpenLink: @escaping (CommentLinkTarget) -> Void,
-        onOpenPictures: @escaping (NativePlaybackCommentPictureGallery) -> Void
+        onOpenPictures: @escaping (NativePlaybackCommentPictureGallery) -> Void,
+        onOpenAuthorSpace: ((CommentAuthor) -> Void)?
     ) {
         self.presentation = presentation
         self.textRenderer = textRenderer
@@ -100,7 +103,8 @@ private final class NativePlaybackCommentThreadView: NSView {
             textScope: textScope,
             onTextLayoutChange: onTextLayoutChange,
             onOpenLink: onOpenLink,
-            onOpenPictures: onOpenPictures
+            onOpenPictures: onOpenPictures,
+            onOpenAuthorSpace: onOpenAuthorSpace
         )
         repliesPanel.configure(
             thread: presentation.thread,
@@ -116,7 +120,8 @@ private final class NativePlaybackCommentThreadView: NSView {
             onNext: onNext,
             onRetry: onRetry,
             onOpenLink: onOpenLink,
-            onOpenPictures: onOpenPictures
+            onOpenPictures: onOpenPictures,
+            onOpenAuthorSpace: onOpenAuthorSpace
         )
         needsLayout = true
     }
@@ -193,6 +198,7 @@ private final class NativePlaybackCommentRowView: NSView {
     private var isReply = false
     private var textRenderer: NativePlaybackCommentTextRenderer?
     private var textScope: NativePlaybackCommentTextScope?
+    private let authorEntry = NativePlaybackCommentAuthorEntry()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -236,6 +242,7 @@ private final class NativePlaybackCommentRowView: NSView {
         ] {
             addSubview(subview)
         }
+        authorEntry.attach(to: self, avatar: avatar, nameLabel: authorLabel)
         setAccessibilityElement(false)
     }
 
@@ -251,7 +258,8 @@ private final class NativePlaybackCommentRowView: NSView {
         textScope: NativePlaybackCommentTextScope,
         onTextLayoutChange: @escaping () -> Void,
         onOpenLink: @escaping (CommentLinkTarget) -> Void,
-        onOpenPictures: @escaping (NativePlaybackCommentPictureGallery) -> Void
+        onOpenPictures: @escaping (NativePlaybackCommentPictureGallery) -> Void,
+        onOpenAuthorSpace: ((CommentAuthor) -> Void)?
     ) {
         self.comment = comment
         self.isReply = isReply
@@ -274,6 +282,7 @@ private final class NativePlaybackCommentRowView: NSView {
             unavailableLabel.isHidden = false
             unavailableLabel.stringValue = Self.unavailableText(reason)
             unavailableLabel.setAccessibilityLabel(unavailableLabel.stringValue)
+            authorEntry.configure(author: nil, onOpen: nil)
         case .available(let details):
             avatar.isHidden = false
             authorLabel.isHidden = false
@@ -293,6 +302,7 @@ private final class NativePlaybackCommentRowView: NSView {
             authorLabel.setAccessibilityLabel(
                 Self.authorAccessibility(details.author)
             )
+            authorEntry.configure(author: details.author, onOpen: onOpenAuthorSpace)
             authorBadges.configure(author: details.author, isReply: isReply)
             bodyText.setContent(
                 details.content,
@@ -315,6 +325,11 @@ private final class NativePlaybackCommentRowView: NSView {
             provenanceBadges.configure(details.provenance)
         }
         needsLayout = true
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        authorEntry.addCursorRects()
     }
 
     override func layout() {
@@ -360,6 +375,7 @@ private final class NativePlaybackCommentRowView: NSView {
             )
             provenanceBadges.frame = geometry.provenanceFrame
         }
+        authorEntry.updateLayout()
     }
 
     func releaseOffscreenResources() {
@@ -381,6 +397,7 @@ private final class NativePlaybackCommentRowView: NSView {
         likeLabel.stringValue = ""
         provenanceBadges.reset()
         pictures.reset()
+        authorEntry.configure(author: nil, onOpen: nil)
     }
 
     private static func metadataLeading(_ details: CommentDetails) -> String {
@@ -543,7 +560,8 @@ private final class NativePlaybackCommentRepliesPanelView: NSView {
         onNext: @escaping () -> Void,
         onRetry: @escaping () -> Void,
         onOpenLink: @escaping (CommentLinkTarget) -> Void,
-        onOpenPictures: @escaping (NativePlaybackCommentPictureGallery) -> Void
+        onOpenPictures: @escaping (NativePlaybackCommentPictureGallery) -> Void,
+        onOpenAuthorSpace: ((CommentAuthor) -> Void)?
     ) {
         resetRows()
         self.thread = thread
@@ -578,7 +596,8 @@ private final class NativePlaybackCommentRepliesPanelView: NSView {
                 textScope: textScope,
                 onTextLayoutChange: onTextLayoutChange,
                 onOpenLink: onOpenLink,
-                onOpenPictures: onOpenPictures
+                onOpenPictures: onOpenPictures,
+                onOpenAuthorSpace: onOpenAuthorSpace
             )
             addSubview(row)
             replyRows.append(row)

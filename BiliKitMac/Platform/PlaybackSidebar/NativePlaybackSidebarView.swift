@@ -13,7 +13,7 @@ struct NativePlaybackSidebarView: View {
     let onSelectPlayback: (String, Int64?) -> Void
     let onOpenCommentLink: (CommentLinkTarget) -> Void
     let onOpenCommentPictures: (NativePlaybackCommentPictureGallery) -> Void
-    /// 点击 UP 主行进入空间；nil 时不显示入口。
+    /// 点击 UP 主行或评论作者（头像与昵称）进入空间；nil 时不显示入口。
     var onOpenUploaderSpace: ((VideoOwner) -> Void)? = nil
     /// 被空间层盖住时真正隐藏原生视图：SwiftUI 的透明度与 hit testing 管不到 AppKit 的
     /// cursor rect 与 tracking area，只设透明会让评论正文继续改变指针形状。
@@ -45,6 +45,17 @@ struct NativePlaybackSidebarView: View {
                 openUploaderSpace: onOpenUploaderSpace.map { open in
                     {
                         guard let owner = model.presentedContext?.detail.owner else { return }
+                        open(owner)
+                    }
+                },
+                openCommentAuthorSpace: onOpenUploaderSpace.map { open in
+                    { [commentAssetURLResolver] author in
+                        guard
+                            let owner = NativePlaybackCommentAuthorSpace.owner(
+                                for: author,
+                                resolveAvatar: commentAssetURLResolver
+                            )
+                        else { return }
                         open(owner)
                     }
                 }
@@ -159,6 +170,7 @@ struct NativePlaybackSidebarActions {
     let openCommentLink: (CommentLinkTarget) -> Void
     let openCommentPictures: (NativePlaybackCommentPictureGallery) -> Void
     var openUploaderSpace: (() -> Void)? = nil
+    var openCommentAuthorSpace: ((CommentAuthor) -> Void)? = nil
 }
 
 private struct NativePlaybackSidebarRepresentable: NSViewRepresentable {

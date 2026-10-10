@@ -52,20 +52,14 @@ private final class NativePlaybackSidebarUploaderView: NSView {
     private let spaceButton = NSButton(
         image: NSImage(
             systemSymbolName: "chevron.right",
-            accessibilityDescription: AppStrings.localized("查看 UP 主投稿")
+            accessibilityDescription: AppStrings.localized("查看空间")
         ) ?? NSImage(),
         target: nil,
         action: nil
     )
     private var onOpenSpace: (() -> Void)?
-    /// 上次登记给窗口的手形指针区域；只有区域变化时才让窗口重建 cursor rect。
-    private var appliedSpaceHitRect: NSRect = .zero
-    /// 只认头像与名字这一行：父视图的点击手势也会收到子视图的点击，不限定区域的话，
-    /// 点签名也会误进空间。
-    private lazy var spaceClickRecognizer = NSClickGestureRecognizer(
-        target: self,
-        action: #selector(openSpace)
-    )
+    /// 只认头像与名字这一行，点签名不会进空间。
+    private let spaceRegion = NativeClickRegion()
     private var imageTask: Task<Void, Never>?
     private var generation: UInt64 = 0
     private var content: VideoUploaderHeaderContent?
@@ -90,11 +84,10 @@ private final class NativePlaybackSidebarUploaderView: NSView {
         spaceButton.contentTintColor = .tertiaryLabelColor
         spaceButton.target = self
         spaceButton.action = #selector(openSpace)
-        spaceButton.toolTip = AppStrings.localized("查看 UP 主投稿")
-        spaceButton.setAccessibilityLabel(AppStrings.localized("查看 UP 主投稿"))
+        spaceButton.toolTip = AppStrings.localized("查看空间")
+        spaceButton.setAccessibilityLabel(AppStrings.localized("查看空间"))
         spaceButton.isHidden = true
-        spaceClickRecognizer.delegate = self
-        addGestureRecognizer(spaceClickRecognizer)
+        spaceRegion.attach(to: self) { [weak self] in self?.openSpace() }
 
         signatureLoadingBar.wantsLayer = true
         signatureLoadingBar.layer?.cornerRadius = 3
@@ -164,7 +157,7 @@ private final class NativePlaybackSidebarUploaderView: NSView {
             signatureLoadingBar.isHidden = true
         }
         needsLayout = true
-        refreshCursorRectsIfNeeded()
+        spaceRegion.setRects([spaceHitRect])
         if avatarChanged || avatar.image == nil {
             loadAvatar(content.avatarURL, imagePipeline: imagePipeline)
         }
@@ -193,7 +186,7 @@ private final class NativePlaybackSidebarUploaderView: NSView {
         }
         signatureLabel.frame = geometry.signatureTextFrame
         signatureLoadingBar.frame = geometry.loadingBarFrame
-        refreshCursorRectsIfNeeded()
+        spaceRegion.setRects([spaceHitRect])
     }
 
     /// 头像加上名字所在整行；没有签名时整块都可点；没有空间入口时为空。
@@ -206,19 +199,10 @@ private final class NativePlaybackSidebarUploaderView: NSView {
         return nameRow.union(avatar.frame)
     }
 
-    private func refreshCursorRectsIfNeeded() {
-        let rect = spaceHitRect
-        guard rect != appliedSpaceHitRect else { return }
-        appliedSpaceHitRect = rect
-        window?.invalidateCursorRects(for: self)
-    }
-
     /// 与视频卡片一致：可点进入的区域显示手形指针。
     override func resetCursorRects() {
         super.resetCursorRects()
-        let rect = spaceHitRect
-        guard !rect.isEmpty else { return }
-        addCursorRect(rect, cursor: .pointingHand)
+        spaceRegion.addCursorRects()
     }
 
     func cancelImageRequest() {
@@ -237,7 +221,7 @@ private final class NativePlaybackSidebarUploaderView: NSView {
         content = nil
         onOpenSpace = nil
         spaceButton.isHidden = true
-        refreshCursorRectsIfNeeded()
+        spaceRegion.setRects([spaceHitRect])
         avatar.image = nil
         nameLabel.stringValue = ""
         signatureLabel.stringValue = ""
@@ -274,13 +258,6 @@ private final class NativePlaybackSidebarUploaderView: NSView {
 
     @objc private func openSpace() {
         onOpenSpace?()
-    }
-}
-
-extension NativePlaybackSidebarUploaderView: NSGestureRecognizerDelegate {
-    func gestureRecognizerShouldBegin(_ gestureRecognizer: NSGestureRecognizer) -> Bool {
-        guard gestureRecognizer === spaceClickRecognizer else { return true }
-        return spaceHitRect.contains(gestureRecognizer.location(in: self))
     }
 }
 

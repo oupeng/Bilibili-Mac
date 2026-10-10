@@ -12,12 +12,8 @@ public struct BiliCommentLinkResolver: Sendable {
         case .video:
             return nil
         case .member(let authorID):
-            let value = authorID.rawValue
-            guard !value.isEmpty,
-                value.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }),
-                let numericID = Int64(value), numericID > 0
-            else { return nil }
-            return URL(string: "https://space.bilibili.com/\(value)")
+            guard let memberID = authorID.memberID else { return nil }
+            return URL(string: "https://space.bilibili.com/\(memberID)")
         case .external(let reference):
             guard let url = reference.remoteURL,
                 allowsUserInitiatedExternalURL(url)
