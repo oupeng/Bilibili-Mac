@@ -308,15 +308,15 @@ struct BiliAPIClientTests {
     }
 
     @Test
-    func uploaderSignatureUsesExactCardEndpoint() async throws {
+    func uploaderProfileUsesExactCardEndpoint() async throws {
         let transport = StubTransport(
             responses: [try fixtureResponse("uploader-card")]
         )
         let client = BiliAPIClient(transport: transport)
 
-        let signature = try await client.uploaderSignature(for: 10_001)
+        let profile = try await client.uploaderProfile(for: 10_001)
 
-        #expect(signature == "用影像记录生活")
+        #expect(profile == UploaderProfile(signature: "用影像记录生活", isVIP: true))
         let request = try #require(transport.capturedRequests().first)
         #expect(request.method == .get)
         #expect(request.url.scheme == "https")
@@ -333,7 +333,7 @@ struct BiliAPIClientTests {
     }
 
     @Test
-    func uploaderSignatureAcceptsNumericMID() async throws {
+    func uploaderProfileAcceptsNumericMID() async throws {
         let response = jsonResponse(
             #"{"code":0,"data":{"card":{"mid":10001,"sign":"签名"}}}"#
         )
@@ -341,11 +341,37 @@ struct BiliAPIClientTests {
             transport: StubTransport(responses: [response])
         )
 
-        #expect(try await client.uploaderSignature(for: 10_001) == "签名")
+        #expect(
+            try await client.uploaderProfile(for: 10_001)
+                == UploaderProfile(signature: "签名", isVIP: false)
+        )
+    }
+
+    /// 大会员只是名字颜色的增强：过期或字段异常都按非大会员处理，签名照常返回。
+    @Test(
+        arguments: [
+            #"{"vipType":2,"vipStatus":0}"#,
+            #"{"vipStatus":"1"}"#,
+            #""invalid""#
+        ]
+    )
+    func uploaderProfileTreatsInactiveOrMalformedVIPAsRegular(vip: String) async throws {
+        let response = jsonResponse(
+            #"{"code":0,"data":{"card":{"mid":"10001","sign":"签名","vip":"#
+                + vip + "}}}"
+        )
+        let client = BiliAPIClient(
+            transport: StubTransport(responses: [response])
+        )
+
+        #expect(
+            try await client.uploaderProfile(for: 10_001)
+                == UploaderProfile(signature: "签名", isVIP: false)
+        )
     }
 
     @Test
-    func uploaderSignatureRejectsMismatchedMID() async {
+    func uploaderProfileRejectsMismatchedMID() async {
         let response = jsonResponse(
             #"{"code":0,"data":{"card":{"mid":"10002","sign":"签名"}}}"#
         )
@@ -354,7 +380,7 @@ struct BiliAPIClientTests {
         )
 
         await #expect(throws: BiliAPIError.decodingFailed) {
-            try await client.uploaderSignature(for: 10_001)
+            try await client.uploaderProfile(for: 10_001)
         }
     }
 
@@ -1674,7 +1700,7 @@ struct AccountReadCase: Sendable, CustomTestStringConvertible {
         AccountReadCase(
             path: "/x/web-interface/card",
             responses: { [try fixtureResponse("uploader-card")] },
-            call: { _ = try await $0.uploaderSignature(for: 10_001) }
+            call: { _ = try await $0.uploaderProfile(for: 10_001) }
         ),
         AccountReadCase(
             path: "/x/space/wbi/arc/search",

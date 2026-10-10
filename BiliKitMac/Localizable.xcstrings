@@ -449,6 +449,34 @@
         }
       }
     },
+    "UP 主，%@，大会员" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uploader, %@, Premium member"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "投稿者、%@、プレミアム会員"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "UP 主，%@，大会员"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "UP 主，%@，大會員"
+          }
+        }
+      }
+    },
     "UP 主签名" : {
       "localizations" : {
         "en" : {

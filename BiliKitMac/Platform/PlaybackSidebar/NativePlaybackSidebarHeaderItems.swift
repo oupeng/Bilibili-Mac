@@ -127,9 +127,17 @@ private final class NativePlaybackSidebarUploaderView: NSView {
         self.onOpenSpace = onOpenSpace
         spaceButton.isHidden = onOpenSpace == nil
         let avatarChanged = self.content?.avatarURL != content.avatarURL
+        if NativePlaybackUploaderProfileReveal.fades(from: self.content, to: content) {
+            NativePlaybackUploaderProfileReveal.apply(to: self)
+        }
         self.content = content
         nameLabel.stringValue = content.name
-        nameLabel.setAccessibilityLabel(AppStrings.localized("UP 主，\(content.name)"))
+        nameLabel.textColor = NativeMemberNameColor.color(isVIP: content.isVIP)
+        nameLabel.setAccessibilityLabel(
+            content.isVIP
+                ? AppStrings.localized("UP 主，\(content.name)，大会员")
+                : AppStrings.localized("UP 主，\(content.name)")
+        )
 
         switch content.signature {
         case .loading:

@@ -46,8 +46,8 @@ extension BiliAPIClient {
         return try payload.map { try $0.model() }
     }
 
-    /// 登录增强地读取公开 UP 主签名；不会请求 WBI 签名。
-    public func uploaderSignature(for ownerID: Int64) async throws -> String? {
+    /// 登录增强地读取公开 UP 主名片（签名与大会员状态）；不会请求 WBI 签名。
+    public func uploaderProfile(for ownerID: Int64) async throws -> UploaderProfile {
         guard ownerID > 0 else {
             throw BiliAPIError.invalidRequest
         }
@@ -76,7 +76,7 @@ extension BiliAPIClient {
         guard payload.card.mid == ownerID else {
             throw BiliAPIError.decodingFailed
         }
-        return payload.card.sign
+        return payload.card.model()
     }
 
     private static func isExactUploaderCardEndpoint(

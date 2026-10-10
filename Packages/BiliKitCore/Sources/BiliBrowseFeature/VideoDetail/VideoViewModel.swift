@@ -58,8 +58,8 @@ public final class VideoViewModel {
         return targetPage.cid
     }
     public private(set) var relatedVideoState: RelatedVideoState = .idle
-    public private(set) var uploaderSignatureState: VideoUploaderSignatureState =
-        .loaded(nil)
+    public private(set) var uploaderProfileState: VideoUploaderProfileState =
+        .loaded(UploaderProfile())
     /// 供播放主区与上下文 Sidebar 共享的最近有效详情。
     ///
     /// 新视频加载或失败期间保留旧值，使同一个播放 surface 不因短暂状态拆除；取得新
@@ -99,10 +99,12 @@ public final class VideoViewModel {
     @ObservationIgnored private let useCase: VideoUseCase
     @ObservationIgnored private let playback: any PlaybackControlling
     @ObservationIgnored private let relatedVideoUseCase: RelatedVideoUseCase?
-    @ObservationIgnored private let uploaderSignatureUseCase: UploaderSignatureUseCase?
+    @ObservationIgnored private let uploaderProfileUseCase: UploaderProfileUseCase?
     @ObservationIgnored private let loadTask = LatestTask()
     @ObservationIgnored private let relatedVideoTask = LatestTask()
-    @ObservationIgnored private let uploaderSignatureTask = LatestTask()
+    @ObservationIgnored private let uploaderProfileTask = LatestTask()
+    /// 最近一次成功取得的名片；离开播放（reset）时清空。
+    @ObservationIgnored private var lastUploaderProfile: (ownerID: Int64, profile: UploaderProfile)?
     @ObservationIgnored private var playbackFailureTask: Task<Void, Never>?
     @ObservationIgnored private let resumeActionTask = LatestTask()
     @ObservationIgnored private var playbackIntent: PlaybackLoadIntent?
@@ -112,12 +114,12 @@ public final class VideoViewModel {
         useCase: VideoUseCase,
         playback: any PlaybackControlling,
         relatedVideoUseCase: RelatedVideoUseCase? = nil,
-        uploaderSignatureUseCase: UploaderSignatureUseCase? = nil
+        uploaderProfileUseCase: UploaderProfileUseCase? = nil
     ) {
         self.useCase = useCase
         self.playback = playback
         self.relatedVideoUseCase = relatedVideoUseCase
-        self.uploaderSignatureUseCase = uploaderSignatureUseCase
+        self.uploaderProfileUseCase = uploaderProfileUseCase
         collectionEpisodes = CollectionEpisodePagesController(useCase: useCase)
         collectionEpisodes.onAuthenticationInvalid = { [weak self] in
             self?.recordAuthenticationInvalidationIfNeeded(.authenticationInvalid)
@@ -138,7 +140,7 @@ public final class VideoViewModel {
     public func loadVideo(_ bvid: String, preferredCID: Int64? = nil) {
         loadTask.cancel()
         collectionEpisodes.cancelRequests()
-        cancelUploaderSignature()
+        cancelUploaderProfile()
         if state != .idle {
             playback.stop()
         }
@@ -242,7 +244,8 @@ public final class VideoViewModel {
         loadTask.cancel()
         relatedVideoTask.cancel()
         relatedVideoState = .idle
-        cancelUploaderSignature()
+        cancelUploaderProfile()
+        lastUploaderProfile = nil
         collectionEpisodes.clear()
         presentedContext = nil
         requestedPlaybackIdentity = nil
@@ -322,7 +325,7 @@ public final class VideoViewModel {
                 with: context,
                 preferredCID: requestedPreferredCID
             )
-            loadUploaderSignature(for: context.detail.owner.id)
+            loadUploaderProfile(for: context.detail.owner.id)
             let identity = PlaybackItemIdentity(
                 bvid: context.detail.bvid,
                 cid: context.selectedPage.cid
@@ -488,30 +491,38 @@ public final class VideoViewModel {
         resumeNotice = nil
     }
 
-    private func loadUploaderSignature(for ownerID: Int64) {
-        guard let uploaderSignatureUseCase else {
-            cancelUploaderSignature()
+    private func loadUploaderProfile(for ownerID: Int64) {
+        guard let uploaderProfileUseCase else {
+            cancelUploaderProfile()
             return
         }
-        uploaderSignatureState = .loading
-        uploaderSignatureTask.replace { [weak self] isCurrent in
-            let signature: String?
+        // 连续看同一 UP 主（合集、空间投稿）时沿用上一次名片，不再经过加载中，名字也不会重新变色。
+        if let lastUploaderProfile, lastUploaderProfile.ownerID == ownerID {
+            uploaderProfileTask.cancel()
+            uploaderProfileState = .loaded(lastUploaderProfile.profile)
+            return
+        }
+        uploaderProfileState = .loading
+        uploaderProfileTask.replace { [weak self] isCurrent in
+            // 名片只是增强：失败时不显示签名，名字按非大会员显示，也不留作下次沿用。
+            let profile: UploaderProfile?
             do {
-                let resolved = try await uploaderSignatureUseCase.signature(
-                    for: ownerID
-                )
+                let resolved = try await uploaderProfileUseCase.profile(for: ownerID)
                 try Task.checkCancellation()
-                signature = resolved
+                profile = resolved
             } catch {
-                signature = nil
+                profile = nil
             }
             guard let self, isCurrent() else { return }
-            self.uploaderSignatureState = .loaded(signature)
+            if let profile {
+                self.lastUploaderProfile = (ownerID, profile)
+            }
+            self.uploaderProfileState = .loaded(profile ?? UploaderProfile())
         }
     }
 
-    private func cancelUploaderSignature() {
-        uploaderSignatureTask.cancel()
-        uploaderSignatureState = .loaded(nil)
+    private func cancelUploaderProfile() {
+        uploaderProfileTask.cancel()
+        uploaderProfileState = .loaded(UploaderProfile())
     }
 }

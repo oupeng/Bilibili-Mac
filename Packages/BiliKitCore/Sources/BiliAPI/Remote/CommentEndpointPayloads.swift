@@ -355,7 +355,7 @@ struct CommentMemberPayload: Decodable, Sendable {
     let avatar: String?
     let sex: String?
     let level: CommentLevelPayload?
-    let vip: CommentVIPPayload?
+    let vip: MemberVIPPayload?
     let official: CommentOfficialPayload?
     let isHardcoreMember: Bool
 
@@ -381,7 +381,7 @@ struct CommentMemberPayload: Decodable, Sendable {
         avatar = container.decodeLossyIfPresent(String.self, forKey: .avatar)
         sex = container.decodeLossyIfPresent(String.self, forKey: .sex)
         level = container.decodeLossyIfPresent(CommentLevelPayload.self, forKey: .level)
-        vip = container.decodeLossyIfPresent(CommentVIPPayload.self, forKey: .vip)
+        vip = container.decodeLossyIfPresent(MemberVIPPayload.self, forKey: .vip)
         official = container.decodeLossyIfPresent(CommentOfficialPayload.self, forKey: .official)
         isHardcoreMember = container.decodeLossyBool(forKey: .isHardcoreMember) ?? false
     }
@@ -432,18 +432,6 @@ struct CommentLevelPayload: Decodable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case currentLevel = "current_level"
-    }
-}
-
-struct CommentVIPPayload: Decodable, Sendable {
-    let type: Int?
-    let status: Int?
-
-    var isActive: Bool { status == 1 }
-
-    private enum CodingKeys: String, CodingKey {
-        case type = "vipType"
-        case status = "vipStatus"
     }
 }
 
