@@ -372,28 +372,20 @@ struct NativePlaybackSidebarTests {
         )
     }
 
-    @Test
+    /// 只隐藏焦点视图时 AppKit 会把焦点交给下一个 key view，也就是侧栏外的控件；
+    /// 侧栏必须在隐藏前把焦点还给窗口。
+    @Test(arguments: SidebarFocus.allCases)
     @MainActor
-    func blockingOverlayReleasesHiddenSidebarFirstResponder() {
-        let controller = NativePlaybackSidebarController()
-        controller.rootView.frame = NSRect(x: 0, y: 0, width: 440, height: 600)
-        let window = NSWindow(
-            contentRect: controller.rootView.bounds,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
+    func blockingOverlayReturnsHiddenSidebarFirstResponderToWindow(focus: SidebarFocus) {
+        let (controller, window, outsideKeyView) = hostedSidebar()
+        let focused = focusInsideSidebar(
+            focus,
+            of: controller,
+            in: window,
+            nextKeyView: outsideKeyView
         )
-        window.contentView = controller.rootView
-        controller.update(
-            presentation: presentation(bvid: "BVCurrent"),
-            actions: actions
-        )
-        let selectableField = NSTextField(labelWithString: "可选择的标题")
-        selectableField.isSelectable = true
-        controller.rootView.scrollView.documentView?.addSubview(selectableField)
-        let fieldEditor = window.fieldEditor(true, for: selectableField)
-        #expect(fieldEditor != nil)
-        #expect(window.makeFirstResponder(fieldEditor))
+        #expect(focused != nil)
+        #expect(window.firstResponder === focused)
 
         controller.update(
             presentation: NativePlaybackSidebarPresentation(
@@ -403,63 +395,30 @@ struct NativePlaybackSidebarTests {
             actions: actions
         )
 
-        #expect(window.firstResponder !== fieldEditor)
+        #expect(window.firstResponder === window)
         controller.tearDown()
         window.contentView = NSView()
     }
 
-    @Test
+    /// 拆掉文档时 AppKit 会把窗口设回 first responder，但直接持有焦点的文本视图收不到
+    /// resign（field editor 会随文本框结束编辑而 resign）；侧栏必须在拆文档前正常结束焦点。
+    @Test(arguments: SidebarFocus.allCases)
     @MainActor
-    func teardownReleasesDirectSidebarTextViewFirstResponderBeforeDetachingDocument() {
-        let controller = NativePlaybackSidebarController()
-        controller.rootView.frame = NSRect(x: 0, y: 0, width: 440, height: 600)
-        let window = NSWindow(
-            contentRect: controller.rootView.bounds,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
+    func teardownResignsSidebarFirstResponderBeforeDetachingDocument(focus: SidebarFocus) {
+        let (controller, window, outsideKeyView) = hostedSidebar()
+        let focused = focusInsideSidebar(
+            focus,
+            of: controller,
+            in: window,
+            nextKeyView: outsideKeyView
         )
-        window.contentView = controller.rootView
-        controller.update(
-            presentation: presentation(bvid: "BVCurrent"),
-            actions: actions
-        )
-        let textView = NSTextView()
-        controller.rootView.scrollView.documentView?.addSubview(textView)
-        #expect(window.makeFirstResponder(textView))
+        #expect(focused != nil)
+        #expect(window.firstResponder === focused)
 
         controller.tearDown()
 
-        #expect(window.firstResponder !== textView)
-        window.contentView = NSView()
-    }
-
-    @Test
-    @MainActor
-    func teardownReleasesSidebarSharedFieldEditorBeforeDetachingDocument() {
-        let controller = NativePlaybackSidebarController()
-        controller.rootView.frame = NSRect(x: 0, y: 0, width: 440, height: 600)
-        let window = NSWindow(
-            contentRect: controller.rootView.bounds,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentView = controller.rootView
-        controller.update(
-            presentation: presentation(bvid: "BVCurrent"),
-            actions: actions
-        )
-        let selectableField = NSTextField(labelWithString: "可选择的标题")
-        selectableField.isSelectable = true
-        controller.rootView.scrollView.documentView?.addSubview(selectableField)
-        let fieldEditor = window.fieldEditor(true, for: selectableField)
-        #expect(fieldEditor != nil)
-        #expect(window.makeFirstResponder(fieldEditor))
-
-        controller.tearDown()
-
-        #expect(window.firstResponder !== fieldEditor)
+        #expect(focused?.didResign == true)
+        #expect(window.firstResponder === window)
         window.contentView = NSView()
     }
 
@@ -1917,6 +1876,100 @@ struct NativePlaybackSidebarTests {
             openCommentLink: { _ in },
             openCommentPictures: { _ in }
         )
+    }
+
+    /// 侧栏文档里真正能拿到焦点的两类 responder：可选择的文本视图本身，以及可选择文本框
+    /// 编辑会话里由窗口共享的 field editor。
+    enum SidebarFocus: CaseIterable {
+        case selectableTextView
+        case textFieldEditor
+    }
+
+    final class ResignRecordingTextView: NSTextView {
+        private(set) var didResign = false
+
+        override func resignFirstResponder() -> Bool {
+            didResign = true
+            return super.resignFirstResponder()
+        }
+    }
+
+    /// 用可记录 resign 的 field editor 代替窗口共享的 field editor。
+    final class RecordingFieldEditorWindow: NSWindow {
+        private lazy var recordingFieldEditor: ResignRecordingTextView = {
+            let fieldEditor = ResignRecordingTextView()
+            fieldEditor.isFieldEditor = true
+            return fieldEditor
+        }()
+
+        override func fieldEditor(_ createFlag: Bool, for object: Any?) -> NSText? {
+            recordingFieldEditor
+        }
+    }
+
+    /// 把侧栏装进窗口，并在侧栏外放一个可接焦点的视图，代表窗口里的其他控件。
+    @MainActor
+    private func hostedSidebar() -> (
+        controller: NativePlaybackSidebarController,
+        window: NSWindow,
+        outsideKeyView: NSView
+    ) {
+        let controller = NativePlaybackSidebarController()
+        controller.rootView.frame = NSRect(x: 0, y: 0, width: 440, height: 600)
+        let window = RecordingFieldEditorWindow(
+            contentRect: controller.rootView.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = controller.rootView
+        controller.update(
+            presentation: presentation(bvid: "BVCurrent"),
+            actions: actions
+        )
+        let outsideKeyView = selectableTextView()
+        controller.rootView.addSubview(outsideKeyView)
+        return (controller, window, outsideKeyView)
+    }
+
+    /// 让焦点真正落进侧栏文档并返回持有焦点的 responder。
+    ///
+    /// 直接把裸 field editor 设为 first responder 不会生效（窗口自己会接回焦点），所以
+    /// field editor 必须来自文本框真正开始的编辑会话。AppKit 隐藏焦点视图时沿持有焦点的
+    /// responder 找下一个 key view，因此把它（而不是文本框）的下一个 key view 指向侧栏外。
+    @MainActor
+    private func focusInsideSidebar(
+        _ focus: SidebarFocus,
+        of controller: NativePlaybackSidebarController,
+        in window: NSWindow,
+        nextKeyView outsideKeyView: NSView
+    ) -> ResignRecordingTextView? {
+        let documentView = controller.rootView.scrollView.documentView
+        let focused: ResignRecordingTextView?
+        switch focus {
+        case .selectableTextView:
+            let textView = selectableTextView()
+            documentView?.addSubview(textView)
+            window.makeFirstResponder(textView)
+            focused = textView
+        case .textFieldEditor:
+            let selectableField = NSTextField(labelWithString: "可选择的标题")
+            selectableField.frame = NSRect(x: 0, y: 0, width: 200, height: 24)
+            selectableField.isSelectable = true
+            documentView?.addSubview(selectableField)
+            selectableField.selectText(nil)
+            focused = selectableField.currentEditor() as? ResignRecordingTextView
+        }
+        focused?.nextKeyView = outsideKeyView
+        return focused
+    }
+
+    @MainActor
+    private func selectableTextView() -> ResignRecordingTextView {
+        let textView = ResignRecordingTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
+        textView.isEditable = false
+        textView.isSelectable = true
+        return textView
     }
 
     @MainActor
