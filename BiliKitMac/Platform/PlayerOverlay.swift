@@ -1,3 +1,4 @@
+import AVFoundation
 import BiliApplication
 import BiliBrowseFeature
 import BiliPlayback
@@ -136,6 +137,27 @@ private struct PlayerGlassCapsuleBackground: ViewModifier {
     }
 }
 
+/// 开播后的缓冲卡顿：AVKit 此时不画任何指示，由浮层转圈。
+///
+/// 只认 AVPlayer 为减少卡顿而等待（`toMinimizeStalls`）；开播与 seek 时的短暂评估等待不算。
+/// 卡住持续到 `presentationDelay` 才呈现，期间恢复播放则不出现，避免拖进度条时一闪。
+enum PlayerStallPolicy {
+    static let presentationDelay: Duration = .milliseconds(300)
+    static let fadeDurationSeconds: TimeInterval = 0.2
+
+    static func isStalled(
+        isPreparing: Bool,
+        isItemReady: Bool,
+        timeControlStatus: AVPlayer.TimeControlStatus,
+        reasonForWaitingToPlay: AVPlayer.WaitingReason?
+    ) -> Bool {
+        !isPreparing
+            && isItemReady
+            && timeControlStatus == .waitingToPlayAtSpecifiedRate
+            && reasonForWaitingToPlay == .toMinimizeStalls
+    }
+}
+
 /// 播放器浮层相对 content overlay 的位置；底部留出原生控制条的高度。
 enum PlayerOverlayLayout {
     static let edgeInset: CGFloat = 20
@@ -224,7 +246,7 @@ final class PassthroughHostingView<Content: View>: NSHostingView<Content> {
     }
 }
 
-/// 播放器 content overlay 上的全部临时提示：准备转圈、快捷键反馈、“从头播放”按钮与试看结束徽章。
+/// 播放器 content overlay 上的全部临时提示：准备与缓冲转圈、快捷键反馈、“从头播放”按钮与试看结束徽章。
 ///
 /// 自动消失的计时由 `PlayerOverlayView` 的 `.task(id:)` 持有；这里只保存状态与 identity 规则。
 @MainActor
@@ -241,6 +263,11 @@ final class PlayerOverlayModel {
     private(set) var resumeNotice: PlaybackResumeNotice?
     private(set) var previewEndedMessage: String?
     private(set) var showsPreparationActivity = false
+    /// 当前这次卡顿的 identity，恢复后为 nil。
+    ///
+    /// 呈现计时以它为 `.task` id：恢复后又卡住时生成新 id，重新计时。
+    private(set) var stallID: UUID?
+    private(set) var showsStallActivity = false
     @ObservationIgnored private(set) var restartFromBeginning: () -> Void = {}
     @ObservationIgnored private var dismissedResumeToken: PlaybackResumeToken?
     @ObservationIgnored fileprivate var resumeButtonFrame: CGRect?
@@ -324,6 +351,23 @@ final class PlayerOverlayModel {
         showsPreparationActivity = shows
     }
 
+    /// 恢复播放立即撤下转圈；进入卡顿只记录，呈现由视图在延迟后调用 `presentStall(id:)`。
+    func setStalled(_ stalled: Bool) {
+        guard (stallID != nil) != stalled else { return }
+        stallID = stalled ? UUID() : nil
+        guard !stalled, showsStallActivity else { return }
+        withAnimation(.easeInOut(duration: PlayerStallPolicy.fadeDurationSeconds)) {
+            showsStallActivity = false
+        }
+    }
+
+    func presentStall(id: UUID) {
+        guard stallID == id, !showsStallActivity else { return }
+        withAnimation(.easeInOut(duration: PlayerStallPolicy.fadeDurationSeconds)) {
+            showsStallActivity = true
+        }
+    }
+
     func setPreviewEndedMessage(_ message: String?) {
         guard previewEndedMessage != message else { return }
         previewEndedMessage = message
@@ -343,11 +387,27 @@ struct PlayerOverlayView: View {
 
     var body: some View {
         Color.clear
+            .overlay { stallActivity }
             .overlay { preparationActivity }
             .overlay(alignment: .top) { feedbackBadge }
             .overlay(alignment: .bottomLeading) { resumeButton }
             .overlay(alignment: .bottom) { previewEndedBadge }
             .coordinateSpace(.named(PlayerOverlayLayout.coordinateSpace))
+            .task(id: model.stallID) {
+                guard let stallID = model.stallID else { return }
+                try? await Task.sleep(for: PlayerStallPolicy.presentationDelay)
+                guard !Task.isCancelled else { return }
+                model.presentStall(id: stallID)
+            }
+    }
+
+    @ViewBuilder
+    private var stallActivity: some View {
+        if model.showsStallActivity {
+            PlayerLoadingIndicator()
+                .accessibilityLabel(AppStrings.localized("正在缓冲"))
+                .transition(reduceMotion ? .identity : .opacity)
+        }
     }
 
     @ViewBuilder
