@@ -520,7 +520,14 @@ struct CommentContentPayload: Decodable, Sendable {
                 CommentLink(range: $0, target: .member(target))
             }
         }
-        let links = Self.nonoverlappingLinks(jumpLinks + mentionLinks)
+        let markedLinks = Self.nonoverlappingLinks(jumpLinks + mentionLinks)
+        let links =
+            (markedLinks
+            + CommentTextLinkDetector.links(
+                in: message,
+                excluding: markedLinks.map(\.range) + emotes.map(\.range)
+            ))
+            .sorted { $0.range.location < $1.range.location }
         return CommentContent(
             message: message,
             emotes: emotes,

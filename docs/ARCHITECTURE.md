@@ -178,6 +178,11 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   交给浏览器；搜索词链接（`is_word_search`）不生成链接，因为跳到搜索页会离开播放；站内目标按未解码的
   host 与 path 精确匹配、不带端口，其余 HTTPS 地址交给系统浏览器。指向正在播放的视频时，带分 P 的
   链接就地切换分 P，不带或超出范围的保持当前播放。
+- 接口没标出的纯文字由 BiliAPI 的 `CommentTextLinkDetector` 识别，结果走同一分类：网址（只取 ASCII
+  字符，不含 `[` `]`，所以紧跟的中文与表情不算进来，末尾句读与不成对的右括号剔除）、不带协议头的
+  b23.tv、BV 号与至少 5 位数字的 av 号（`AV1` 编码这类短写法不算）。`http` 网址只在指向站内目标时
+  升级为 HTTPS，通不过公开 HTTPS 复核的外链不显示为链接；网址整段先占位，里面的片段不再单独识别；
+  接口链接与表情覆盖的文字不再识别。
 - b23.tv 短链在点击后由 BiliAPI 的 `BiliShortLinkResolver` 读一次跳转目标，再走同一分类；Composition 的
   `CommentLinkRouting` 是链接目标到 App 路由（`CommentLinkRoute`）的唯一翻译处，在途解析由窗口级
   `CommentShortLinkResolution` 拥有，评论所属视频变化或关窗时取消，解析不出时打开原短链。
