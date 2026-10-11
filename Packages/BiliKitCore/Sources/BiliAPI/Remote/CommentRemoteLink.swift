@@ -101,7 +101,7 @@ enum CommentRemoteLink {
         else { return nil }
         let parts = components.percentEncodedPath.split(separator: "/").map(String.init)
         if videoHosts.contains(host), parts.count == 2, parts[0] == "video",
-            let bvid = bvid(fromPathComponent: parts[1])
+            let bvid = bvid(fromVideoID: parts[1])
         {
             return .video(bvid: bvid, page: pageNumber(in: components))
         }
@@ -118,8 +118,10 @@ enum CommentRemoteLink {
         return memberID.map { .space(memberID: $0) }
     }
 
-    /// `BV…` 原样校验；`av…` 在本地换算为 BV 号。
-    private static func bvid(fromPathComponent component: String) -> String? {
+    /// 视频号：`BV…` 原样校验；`av…` 在本地换算为 BV 号。
+    ///
+    /// 链接路径与正文纯文字识别共用这一规则。
+    static func bvid(fromVideoID component: String) -> String? {
         if BiliAPIClient.isValidBVID(component) {
             return component
         }
