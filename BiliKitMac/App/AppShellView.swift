@@ -19,6 +19,7 @@ struct AppShellView: View {
     let uploaderSpaceModel: UploaderSpaceViewModel?
     let trendingSearchModel: TrendingSearchViewModel?
     let searchHistory: SearchHistoryStore?
+    let searchSuggestionSource: SearchSuggestionSource?
     let playerContent: AnyView
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentVideoLinkResolver: CommentVideoLinkResolver
@@ -315,6 +316,7 @@ struct AppShellView: View {
                 imagePipeline: imagePipeline,
                 trendingSearchModel: trendingSearchModel,
                 searchHistory: searchHistory,
+                searchSuggestionSource: searchSuggestionSource,
                 onSelect: navigationCoordinator.openPlayback,
                 onSubmit: onSubmitSearch,
                 onSearchKeyword: onSearchKeyword,

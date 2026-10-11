@@ -41,6 +41,11 @@ public protocol TrendingSearchRepository: Sendable {
     func trendingSearchKeywords(limit: Int) async throws -> [TrendingSearchKeyword]
 }
 
+/// 搜索框联想所需的独立匿名只读 port；输入尚未提交，结果不因登录账号而变化。
+public protocol SearchSuggestionRepository: Sendable {
+    func searchSuggestions(for term: String) async throws -> [String]
+}
+
 /// UP 主空间投稿列表的只读 port；只按账户读取，本地无凭据时失败，不退回匿名请求。
 public protocol UploaderVideoRepository: Sendable {
     func uploaderVideos(

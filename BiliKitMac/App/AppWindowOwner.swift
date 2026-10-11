@@ -19,6 +19,7 @@ final class AppWindowOwner {
     let historyModel: WatchHistoryViewModel
     let uploaderSpaceModel: UploaderSpaceViewModel?
     let trendingSearchModel: TrendingSearchViewModel?
+    let searchSuggestionSource: SearchSuggestionSource?
     let playerContent: AnyView
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentVideoLinkResolver: CommentVideoLinkResolver
@@ -71,6 +72,7 @@ final class AppWindowOwner {
             historyModel: environment.makeWatchHistoryViewModel(),
             uploaderSpaceModel: uploaderSpaceModel,
             trendingSearchModel: environment.makeTrendingSearchViewModel(),
+            searchSuggestionSource: environment.makeSearchSuggestionSource(),
             playerContent: environment.makePlayerView(
                 videoModel: videoModel,
                 danmakuModel: danmakuModel
@@ -118,6 +120,7 @@ final class AppWindowOwner {
         historyModel: WatchHistoryViewModel,
         uploaderSpaceModel: UploaderSpaceViewModel? = nil,
         trendingSearchModel: TrendingSearchViewModel? = nil,
+        searchSuggestionSource: SearchSuggestionSource? = nil,
         playerContent: AnyView,
         commentAssetURLResolver: @escaping CommentAssetURLResolver = { _ in nil },
         commentVideoLinkResolver: @escaping CommentVideoLinkResolver = { _ in nil },
@@ -140,6 +143,7 @@ final class AppWindowOwner {
         self.historyModel = historyModel
         self.uploaderSpaceModel = uploaderSpaceModel
         self.trendingSearchModel = trendingSearchModel
+        self.searchSuggestionSource = searchSuggestionSource
         self.playerContent = playerContent
         self.commentAssetURLResolver = commentAssetURLResolver
         self.commentVideoLinkResolver = commentVideoLinkResolver

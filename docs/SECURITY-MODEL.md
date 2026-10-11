@@ -38,8 +38,11 @@
 
 ## 3. 哪些请求可以带凭据
 
-默认所有网络匿名，且不带任何 Cookie。搜索页的 B 站热搜（`/x/web-interface/search/square`）
-无论是否登录都匿名读取，不签 WBI。唯一的非凭据例外是搜索 `/x/web-interface/wbi/search/type`：
+默认所有网络匿名，且不带任何 Cookie。搜索页的 B 站热搜（`/x/web-interface/search/square`）与
+搜索框联想（`/x/web-interface/suggest`）无论是否登录都匿名读取，不签 WBI。联想是唯一会发送未提交
+输入的请求：只在搜索框获得焦点或编辑、系统索取联想时发出，停顿 250 ms 后才请求，新输入、提交、选中
+或失去焦点都取消在途请求；输入按
+搜索规则规范化（≤ 100 字），结果只在内存中用于当次菜单，不持久化。唯一的非凭据例外是搜索 `/x/web-interface/wbi/search/type`：
 该接口要求 Cookie 含 `buvid3`，`BiliAPI` 为此在进程内存中随机生成一个 `buvid3=<小写 UUID>infoc`，
 不持久化、不激活、不与账户关联；匿名与账户读取两条搜索路径都在授权之后附加它（账户读取时与授权器
 给出的 Cookie 并列），任何其他请求（含 WBI nav）都不携带。只有两个授权器，均由 Composition 注入

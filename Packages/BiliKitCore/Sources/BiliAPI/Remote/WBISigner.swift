@@ -33,9 +33,6 @@ struct WBISigner: Sendable {
         22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52
     ]
     private static let filteredCharacters = CharacterSet(charactersIn: "!'()*")
-    private static let unreservedCharacters = CharacterSet(
-        charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
-    )
 
     func sign(
         parameters: [String: String],
@@ -63,11 +60,7 @@ struct WBISigner: Sendable {
     }
 
     private static func percentEncode(_ value: String) throws -> String {
-        guard
-            let encoded = value.addingPercentEncoding(
-                withAllowedCharacters: unreservedCharacters
-            )
-        else {
+        guard let encoded = URLQueryUnreservedEncoding.encode(value) else {
             throw BiliAPIError.signingFailed
         }
         return encoded

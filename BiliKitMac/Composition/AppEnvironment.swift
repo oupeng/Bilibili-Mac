@@ -29,6 +29,7 @@ struct AppEnvironment {
     private let videoRepository: any VideoRepository
     private let relatedVideoRepository: any RelatedVideoRepository
     private let trendingSearchRepository: any TrendingSearchRepository
+    private let searchSuggestionRepository: any SearchSuggestionRepository
     private let uploaderProfileRepository: any UploaderProfileRepository
     private let uploaderVideoRepository: any UploaderVideoRepository
     private let commentRepository: any CommentRepository
@@ -51,6 +52,7 @@ struct AppEnvironment {
         videoRepository: any VideoRepository,
         relatedVideoRepository: any RelatedVideoRepository,
         trendingSearchRepository: any TrendingSearchRepository,
+        searchSuggestionRepository: any SearchSuggestionRepository,
         uploaderProfileRepository: any UploaderProfileRepository,
         uploaderVideoRepository: any UploaderVideoRepository,
         commentRepository: any CommentRepository,
@@ -76,6 +78,7 @@ struct AppEnvironment {
         self.videoRepository = videoRepository
         self.relatedVideoRepository = relatedVideoRepository
         self.trendingSearchRepository = trendingSearchRepository
+        self.searchSuggestionRepository = searchSuggestionRepository
         self.uploaderProfileRepository = uploaderProfileRepository
         self.uploaderVideoRepository = uploaderVideoRepository
         self.commentRepository = commentRepository
@@ -120,6 +123,12 @@ struct AppEnvironment {
     func makeTrendingSearchViewModel() -> TrendingSearchViewModel {
         TrendingSearchViewModel(
             useCase: TrendingSearchUseCase(repository: trendingSearchRepository)
+        )
+    }
+
+    func makeSearchSuggestionSource() -> SearchSuggestionSource {
+        SearchSuggestionSource(
+            useCase: SearchSuggestionUseCase(repository: searchSuggestionRepository)
         )
     }
 
@@ -327,6 +336,7 @@ struct AppEnvironment {
             videoRepository: contentRepository,
             relatedVideoRepository: contentRepository,
             trendingSearchRepository: contentRepository,
+            searchSuggestionRepository: contentRepository,
             uploaderProfileRepository: contentRepository,
             uploaderVideoRepository: contentRepository,
             commentRepository: BiliCommentRepository(client: api),
