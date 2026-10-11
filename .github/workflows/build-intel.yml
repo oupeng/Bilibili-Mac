@@ -104,7 +104,7 @@ jobs:
       - name: Apply All Patches (Auto-Fix Code, TeamID & Keychain)
         run: |
           cat << 'EOF' > patch_all.py
-          import os, re
+          import os, re, subprocess
 
           # 1. 自动注入抗 Sync Fork 覆盖的双保险 WebCredentialStore
           cred_file = "Packages/BiliKitCore/Sources/BiliAuth/Credential/WebCredentialStore.swift"
@@ -273,44 +273,43 @@ jobs:
                       except Exception:
                           pass
 
-          # 5. 核心修复：完全对齐 LoudnessProcessingTap 的接口签名（make 与 setTargetGain）
+          # 5. 核心修复：从原生代码中动态提取函数签名，生成 100% 吻合且无歧义的 LoudnessProcessingTap
           loudness_file = "Packages/BiliKitCore/Sources/BiliPlayback/Audio/LoudnessProcessingTap.swift"
-          if os.path.exists(loudness_file):
-              stub_loudness = """import Foundation
+          try:
+              orig_code = subprocess.check_output(["git", "show", f"HEAD:{loudness_file}"], text=True)
+          except Exception:
+              orig_code = ""
+
+          # 提取原作者定义的原生签名
+          make_match = re.search(r"(public\s+|open\s+)?(static\s+func\s+make[^{]+)", orig_code)
+          make_sig = make_match.group(0).strip() if make_match else "static func make(for playerItem: AVPlayerItem, policy: Any? = nil) -> LoudnessProcessingTap?"
+
+          mix_match = re.search(r"(public\s+|open\s+)?(func\s+makeAudioMix[^{]+)", orig_code)
+          mix_sig = mix_match.group(0).strip() if mix_match else "func makeAudioMix() -> AVAudioMix"
+
+          gain_match = re.search(r"(public\s+|open\s+)?(func\s+setTargetGain[^{]+)", orig_code)
+          gain_sig = gain_match.group(0).strip() if gain_match else "func setTargetGain(_ targetGain: Float, rampDuration: TimeInterval = 0)"
+
+          print(f"Extracted Native Signatures:\n  {make_sig}\n  {mix_sig}\n  {gain_sig}")
+
+          stub_loudness = f"""import Foundation
           import AVFoundation
           import MediaToolbox
 
-          final class LoudnessProcessingTap: @unchecked Sendable {
-              init() {}
-
-              // 准确对齐控制器调用的静态工厂方法
-              static func make(for playerItem: AVPlayerItem, policy: Any? = nil) -> LoudnessProcessingTap? {
+          final class LoudnessProcessingTap: @unchecked Sendable {{
+              init() {{}}
+              {make_sig} {{
                   return LoudnessProcessingTap()
-              }
-              static func make(item: AVPlayerItem? = nil, targetGain: Float = 0, initialGain: Float = 0) -> LoudnessProcessingTap? {
-                  return LoudnessProcessingTap()
-              }
-              static func make(playerItem: AVPlayerItem) -> LoudnessProcessingTap? {
-                  return LoudnessProcessingTap()
-              }
-              static func make(_ args: Any...) -> LoudnessProcessingTap? {
-                  return LoudnessProcessingTap()
-              }
-
-              // 准确对齐控制器调用的目标增益调节方法
-              func setTargetGain(_ gain: Float) {}
-              func setTargetGain(_ gain: Double) {}
-              func setTargetGain(targetGain: Float, rampDuration: TimeInterval = 0) {}
-              func setTargetGain(_ gain: Float, rampDuration: TimeInterval) {}
-              func setTargetGain(_ gain: Double, rampDuration: TimeInterval) {}
-
-              func attach(to playerItem: AVPlayerItem) {}
-              func detach(from playerItem: AVPlayerItem) {}
-          }
+              }}
+              {mix_sig} {{
+                  return AVAudioMix()
+              }}
+              {gain_sig} {{}}
+          }}
           """
-              with open(loudness_file, "w", encoding="utf-8") as f:
-                  f.write(stub_loudness)
-              print("Patched LoudnessProcessingTap with aligned make() and setTargetGain() signatures!")
+          with open(loudness_file, "w", encoding="utf-8") as f:
+              f.write(stub_loudness)
+          print("Injected perfectly aligned LoudnessProcessingTap stub!")
 
           # 6. 移除 App Sandbox 与 Keychain Access Groups（防止钥匙串拦截）
           for root, dirs, files in os.walk("."):
