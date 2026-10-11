@@ -26,6 +26,11 @@ struct NativeCommentImagePreviewView: View {
                     resolveURL: resolveURL,
                     variant: .commentPicturePreview
                 ),
+                placeholderLoader: NativePlaybackCommentPictureLoader(
+                    imagePipeline: imagePipeline,
+                    resolveURL: resolveURL,
+                    variant: .commentPicture
+                ),
                 onDismiss: onDismiss
             )
         )
@@ -111,6 +116,8 @@ private struct NativeCommentImagePreviewContent: View {
 
     private enum Phase {
         case loading
+        /// 原图到达前显示列表里已缓存的缩小图；`originalFailed` 表示原图加载失败，可重试。
+        case placeholder(NSImage, originalFailed: Bool)
         case loaded(NSImage)
         case failed
     }
@@ -122,9 +129,12 @@ private struct NativeCommentImagePreviewContent: View {
 
     private static let buttonInset: CGFloat = 18
     private static let counterBottomInset: CGFloat = 18
+    private static let originalStatusInset: CGFloat = 12
 
     let request: NativeCommentImagePreviewRequest
     let loader: NativePlaybackCommentPictureLoader
+    /// 列表格子用的缩小图；只读缓存，用作原图到达前的占位，不为预览另发请求。
+    let placeholderLoader: NativePlaybackCommentPictureLoader
     let onDismiss: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -136,10 +146,12 @@ private struct NativeCommentImagePreviewContent: View {
     init(
         request: NativeCommentImagePreviewRequest,
         loader: NativePlaybackCommentPictureLoader,
+        placeholderLoader: NativePlaybackCommentPictureLoader,
         onDismiss: @escaping () -> Void
     ) {
         self.request = request
         self.loader = loader
+        self.placeholderLoader = placeholderLoader
         self.onDismiss = onDismiss
         _selection = State(
             initialValue: NativeCommentImagePreviewSelection(
@@ -201,13 +213,14 @@ private struct NativeCommentImagePreviewContent: View {
         case .loading:
             ProgressView()
                 .accessibilityLabel(AppStrings.localized("评论图片加载中"))
+        case .placeholder(let image, let originalFailed):
+            imageView(image)
+                .overlay(alignment: .bottom) {
+                    originalStatus(failed: originalFailed)
+                        .padding(Self.originalStatusInset)
+                }
         case .loaded(let image):
-            Image(nsImage: image)
-                .resizable()
-                .scaledToFit()
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .accessibilityLabel(imageAccessibilityLabel)
-                .transition(.opacity)
+            imageView(image)
         case .failed:
             VStack(spacing: 10) {
                 Text(AppStrings.localized("图片加载失败"))
@@ -216,6 +229,38 @@ private struct NativeCommentImagePreviewContent: View {
                     .accessibilityLabel(AppStrings.localized("重新加载评论图片"))
             }
         }
+    }
+
+    private func imageView(_ image: NSImage) -> some View {
+        Image(nsImage: image)
+            .resizable()
+            .scaledToFit()
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .accessibilityLabel(imageAccessibilityLabel)
+            .transition(.opacity)
+    }
+
+    /// 缩小图占位上的原图状态：加载中显示转圈，失败时提供重试，不让用户误以为原图就是这样。
+    @ViewBuilder
+    private func originalStatus(failed: Bool) -> some View {
+        Group {
+            if failed {
+                HStack(spacing: 8) {
+                    Text(AppStrings.localized("原图加载失败"))
+                    Button(AppStrings.localized("重试")) { retry() }
+                        .accessibilityLabel(AppStrings.localized("重新加载原图"))
+                }
+            } else {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel(AppStrings.localized("正在加载原图"))
+            }
+        }
+        .font(.callout)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.regularMaterial, in: Capsule())
+        .environment(\.colorScheme, .dark)
     }
 
     @ViewBuilder
@@ -291,6 +336,9 @@ private struct NativeCommentImagePreviewContent: View {
     }
 
     /// 由 `.task(id:)` 驱动：切换图片、重试或关闭都会取消上一次加载。
+    ///
+    /// 列表里已缓存的缩小图先显示并标出原图加载中，原图到达后原位替换（显示尺寸相同）；原图失败时
+    /// 保留缩小图并提供重试，只有连占位都没有时才整页显示失败。
     private func loadCurrentImage() async {
         guard request.references.indices.contains(selection.index) else {
             phase = .failed
@@ -301,15 +349,16 @@ private struct NativeCommentImagePreviewContent: View {
             phase = .loaded(Self.image(cached))
             return
         }
-        phase = .loading
+        let placeholder = placeholderLoader.cachedImage(for: reference).map(Self.image)
+        phase = placeholder.map { .placeholder($0, originalFailed: false) } ?? .loading
         let result = await loader.image(for: reference)
         guard !Task.isCancelled else { return }
         guard let result else {
-            phase = .failed
+            phase = placeholder.map { .placeholder($0, originalFailed: true) } ?? .failed
             return
         }
         let animation: Animation? =
-            result.origin.shouldAnimate && !reduceMotion
+            placeholder == nil && result.origin.shouldAnimate && !reduceMotion
             ? .easeOut(duration: NativePlaybackCommentImageTransition.duration)
             : nil
         withAnimation(animation) {

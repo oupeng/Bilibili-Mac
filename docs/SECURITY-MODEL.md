@@ -86,7 +86,7 @@ storage、无 URL cache，并拒绝 redirect。`PublicHTTPSURLPolicy` 是基线�
 | --- | --- | --- |
 | 媒体（DASH、progressive） | `BiliMediaCDNURLPolicy`：`bilivideo.com`／`bilivideo.cn`／`szbdyd.com` 及子域、`upos-*.akamaized.net` | DTO 映射与实际连接前各检查一次；响应须为精确 206、`Content-Range`、长度；映射后的媒体 headers 去除 `Cookie`／`Authorization` |
 | 字幕正文 | `SubtitleURLPolicy`：`https://aisubtitle.hdslb.com/bfs/...` | 正文 ≤ 2 MiB；新主机先失败关闭 |
-| 评论头像、表情、正文图片，热搜图标 | `BiliBFSImageURLPolicy`：`i0`／`i1`／`i2.hdslb.com` 的 `/bfs/` 路径（热搜图标的 `http:` 与协议相对地址先升级为 HTTPS） | 拒绝 query、fragment、点段、编码分隔符；热搜图标不合规时只丢图标、保留文字 |
+| 评论头像、表情、正文图片，热搜图标 | `BiliBFSImageURLPolicy`：`i0`／`i1`／`i2.hdslb.com` 的 `/bfs/` 路径（热搜图标的 `http:` 与协议相对地址先升级为 HTTPS） | 拒绝 query、fragment、点段、编码分隔符；评论列表图片与头像的缩略参数写在 path 上（`@{宽}w_{高}h.webp`），加参数后的地址再过一次同一规则；热搜图标不合规时只丢图标、保留文字 |
 | 视频封面 | 接口返回的 HTTPS URL（`http:`、协议相对地址升级为 HTTPS） | 由图片管线限制 |
 | 评论外链 | 视频链接只回送合法 BVID；@ 成员只允许正整数 MID，在应用内打开空间，仅空间不可用时才回退到 `space.bilibili.com`；其他目标经公开 HTTPS 形状复核 | 仅用户点击后交给系统 `OpenURLAction`；不预取、不解析 DNS、不附加凭据 |
 

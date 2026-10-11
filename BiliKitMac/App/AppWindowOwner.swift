@@ -122,7 +122,7 @@ final class AppWindowOwner {
         trendingSearchModel: TrendingSearchViewModel? = nil,
         searchSuggestionSource: SearchSuggestionSource? = nil,
         playerContent: AnyView,
-        commentAssetURLResolver: @escaping CommentAssetURLResolver = { _ in nil },
+        commentAssetURLResolver: @escaping CommentAssetURLResolver = { _, _ in nil },
         commentVideoLinkResolver: @escaping CommentVideoLinkResolver = { _ in nil },
         commentLinkURLResolver: @escaping CommentLinkURLResolver = { _ in nil },
         imagePipelineOwner: NativeVideoImagePipelineOwner =

@@ -67,7 +67,7 @@ final class NativePlaybackCommentTextRenderer {
                     UnavailableAssetKey(scope: scope, reference: emote.asset)
                 ),
                 emote.size != .unknown,
-                let url = resolveURL(emote.asset)
+                let url = resolveURL(emote.asset, nil)
             else { continue }
             let range = NSRange(
                 location: emote.range.location,

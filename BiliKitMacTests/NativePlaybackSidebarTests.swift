@@ -1204,7 +1204,7 @@ struct NativePlaybackSidebarTests {
         let url = try #require(
             URL(string: "https://i0.hdslb.com/bfs/emote/doge.png")
         )
-        let renderer = makeCommentTextRenderer { reference in
+        let renderer = makeCommentTextRenderer { reference, _ in
             reference == asset ? url : nil
         }
         let content = CommentContent(
@@ -1263,7 +1263,7 @@ struct NativePlaybackSidebarTests {
         let url = try #require(
             URL(string: "https://i0.hdslb.com/bfs/emote/doge.png")
         )
-        let renderer = makeCommentTextRenderer { reference in
+        let renderer = makeCommentTextRenderer { reference, _ in
             reference == asset ? url : nil
         }
         let content = CommentContent(
@@ -1301,7 +1301,7 @@ struct NativePlaybackSidebarTests {
         let url = try #require(
             URL(string: "https://i0.hdslb.com/bfs/emote/doge.png")
         )
-        let renderer = makeCommentTextRenderer { reference in
+        let renderer = makeCommentTextRenderer { reference, _ in
             reference == asset ? url : nil
         }
         let content = CommentContent(
@@ -1342,7 +1342,7 @@ struct NativePlaybackSidebarTests {
         let url = try #require(
             URL(string: "https://i0.hdslb.com/bfs/emote/large.png")
         )
-        let renderer = makeCommentTextRenderer { reference in
+        let renderer = makeCommentTextRenderer { reference, _ in
             reference == largeAsset ? url : nil
         }
         let content = CommentContent(
@@ -1539,7 +1539,9 @@ struct NativePlaybackSidebarTests {
     func commentAuthorSpaceOwnerUsesMemberIDAndResolvedAvatar() throws {
         let avatar = CommentAssetReference()
         let avatarURL = try #require(URL(string: "https://i0.hdslb.com/bfs/face/a.jpg"))
-        let resolver: CommentAssetURLResolver = { $0 == avatar ? avatarURL : nil }
+        let resolver: CommentAssetURLResolver = { reference, _ in
+            reference == avatar ? avatarURL : nil
+        }
         let author = CommentAuthor(
             id: CommentAuthorID(rawValue: "1001"),
             name: "评论作者",
@@ -2279,7 +2281,7 @@ struct NativePlaybackSidebarTests {
 
     @MainActor
     private func makeCommentTextRenderer(
-        resolveURL: @escaping CommentAssetURLResolver = { _ in nil }
+        resolveURL: @escaping CommentAssetURLResolver = { _, _ in nil }
     ) -> NativePlaybackCommentTextRenderer {
         NativePlaybackCommentTextRenderer(
             imagePipeline: NativeVideoImagePipeline(),
@@ -2289,7 +2291,7 @@ struct NativePlaybackSidebarTests {
 
     @MainActor
     private func makeCommentAvatarLoader(
-        resolveURL: @escaping CommentAssetURLResolver = { _ in nil }
+        resolveURL: @escaping CommentAssetURLResolver = { _, _ in nil }
     ) -> NativePlaybackCommentAvatarLoader {
         NativePlaybackCommentAvatarLoader(
             imagePipeline: NativeVideoImagePipeline(),
@@ -2299,7 +2301,7 @@ struct NativePlaybackSidebarTests {
 
     @MainActor
     private func makeCommentPictureLoader(
-        resolveURL: @escaping CommentAssetURLResolver = { _ in nil }
+        resolveURL: @escaping CommentAssetURLResolver = { _, _ in nil }
     ) -> NativePlaybackCommentPictureLoader {
         NativePlaybackCommentPictureLoader(
             imagePipeline: NativeVideoImagePipeline(),

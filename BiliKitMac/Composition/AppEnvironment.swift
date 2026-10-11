@@ -13,7 +13,8 @@ import CoreGraphics
 import Foundation
 import SwiftUI
 
-typealias CommentAssetURLResolver = @Sendable (CommentAssetReference) -> URL?
+/// 评论图片地址；带像素框时请求图床按框缩小的图，不带框为原图。
+typealias CommentAssetURLResolver = @Sendable (CommentAssetReference, CommentAssetPixelBox?) -> URL?
 typealias CommentVideoLinkResolver = @Sendable (CommentLinkTarget) -> String?
 typealias CommentLinkURLResolver = @Sendable (CommentLinkTarget) -> URL?
 
@@ -340,8 +341,8 @@ struct AppEnvironment {
             uploaderProfileRepository: contentRepository,
             uploaderVideoRepository: contentRepository,
             commentRepository: BiliCommentRepository(client: api),
-            commentAssetURLResolver: { reference in
-                commentAssetResolver.imageURL(for: reference)
+            commentAssetURLResolver: { reference, box in
+                commentAssetResolver.imageURL(for: reference, fitting: box)
             },
             commentVideoLinkResolver: { target in
                 guard case .video(let bvid) = target else { return nil }

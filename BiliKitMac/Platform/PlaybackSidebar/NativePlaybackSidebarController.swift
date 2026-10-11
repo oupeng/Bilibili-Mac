@@ -77,7 +77,7 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
     private var isTornDown = false
 
     init(
-        commentAssetURLResolver: @escaping CommentAssetURLResolver = { _ in nil },
+        commentAssetURLResolver: @escaping CommentAssetURLResolver = { _, _ in nil },
         imagePipeline: NativeVideoImagePipeline? = nil
     ) {
         self.commentAssetURLResolver = commentAssetURLResolver

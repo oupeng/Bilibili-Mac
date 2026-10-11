@@ -64,7 +64,7 @@ struct AppRootView: View {
         authenticationModel: AuthenticationViewModel,
         historyModel: WatchHistoryViewModel,
         playerContent: AnyView,
-        commentAssetURLResolver: @escaping CommentAssetURLResolver = { _ in nil },
+        commentAssetURLResolver: @escaping CommentAssetURLResolver = { _, _ in nil },
         commentVideoLinkResolver: @escaping CommentVideoLinkResolver = { _ in nil },
         commentLinkURLResolver: @escaping CommentLinkURLResolver = { _ in nil },
         accountSessionCoordinator: AccountSessionCoordinator = AccountSessionCoordinator(),
