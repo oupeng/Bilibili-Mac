@@ -2,10 +2,24 @@ import AppKit
 import BiliModels
 import Foundation
 
-/// 评论作者进入 UP 主空间的入口规则：只有正整数 MID 的作者有入口。
+/// 评论作者与正文 @ 用户进入 UP 主空间的入口规则：只有正整数 MID 的用户有入口。
 enum NativePlaybackCommentAuthorSpace {
     static func isOpenable(_ author: CommentAuthor) -> Bool {
         author.id.memberID != nil
+    }
+
+    /// 正文链接的去向：@ 提及在应用内打开空间（未登录时空间层显示登录提示）；没有空间入口时与
+    /// 其他链接一样交给原有处理。
+    static func openLink(
+        _ target: CommentLinkTarget,
+        openSpace: ((CommentAuthor) -> Void)?,
+        otherwise: (CommentLinkTarget) -> Void
+    ) {
+        if case .member(let user) = target, let openSpace {
+            openSpace(user)
+            return
+        }
+        otherwise(target)
     }
 
     /// 头像经评论资源解析器取得，沿用评论头像的来源限制；解析失败时空间头部显示占位。

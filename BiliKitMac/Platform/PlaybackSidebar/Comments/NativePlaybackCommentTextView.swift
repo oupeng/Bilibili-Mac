@@ -30,8 +30,10 @@ final class NativePlaybackCommentTextView: NSTextView, NSTextViewDelegate {
         isHorizontallyResizable = false
         isVerticallyResizable = false
         textContainerInset = .zero
+        // 替换系统默认的链接样式时要带上手形指针，否则链接（含 @）悬停时仍是文本光标。
         linkTextAttributes = [
-            .foregroundColor: NSColor.linkColor
+            .foregroundColor: NSColor.linkColor,
+            .cursor: NSCursor.pointingHand
         ]
         setAccessibilityRole(.staticText)
     }

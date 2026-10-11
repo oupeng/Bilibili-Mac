@@ -43,7 +43,9 @@ struct CommentAPIClientTests {
             second.content.links == [
                 CommentLink(
                     range: CommentTextRange(location: 5, length: 5),
-                    target: .member(CommentAuthorID(rawValue: "301"))
+                    target: .member(
+                        CommentAuthor(id: CommentAuthorID(rawValue: "301"), name: "回复用户")
+                    )
                 )
             ]
         )
@@ -410,12 +412,13 @@ struct CommentAPIClientTests {
                 }
               },
               "members": [
-                { "mid": 301, "uname": "回复用户" }
+                { "mid": 301, "uname": "回复用户", "avatar": "https://i0.hdslb.com/bfs/face/fixture.jpg" }
               ],
               "pictures": []
             }
             """#.utf8
         )
+        let avatarURL = try #require(URL(string: "https://i0.hdslb.com/bfs/face/fixture.jpg"))
         let payload = try JSONDecoder().decode(CommentContentPayload.self, from: body)
 
         let links = try payload.model().links
@@ -437,9 +440,16 @@ struct CommentAPIClientTests {
             externalReference.remoteURL?.absoluteString
                 == "https://www.bilibili.com/opus/42#reply"
         )
+        // @ 用户带上昵称与头像，进入空间时空间头部才有名字和头像。
         #expect(
             links[2].target
-                == .member(CommentAuthorID(rawValue: "301"))
+                == .member(
+                    CommentAuthor(
+                        id: CommentAuthorID(rawValue: "301"),
+                        name: "回复用户",
+                        avatar: CommentAssetReference(remoteURL: avatarURL)
+                    )
+                )
         )
     }
 

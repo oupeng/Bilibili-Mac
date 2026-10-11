@@ -273,7 +273,7 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
             content: content,
             imagePipeline: imagePipeline,
             onOpenSpace: actions.openUploaderSpace == nil
-                ? nil : { [weak self] in self?.actions.openUploaderSpace?() }
+                ? nil : { [weak self] in self?.releasingFocus { $0.actions.openUploaderSpace?() } }
         )
     }
 
@@ -387,12 +387,17 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
                 onPrevious: { [weak self] in self?.actions.previousReplyPage(rootID) },
                 onNext: { [weak self] in self?.actions.nextReplyPage(rootID) },
                 onRetry: { [weak self] in self?.actions.retryReplies(rootID) },
-                onOpenLink: { [weak self] in self?.actions.openCommentLink($0) },
+                onOpenLink: { [weak self] target in
+                    self?.releasingFocus { $0.actions.openCommentLink(target) }
+                },
                 onOpenPictures: { [weak self] in
                     self?.actions.openCommentPictures($0)
                 },
                 onOpenAuthorSpace: actions.openCommentAuthorSpace == nil
-                    ? nil : { [weak self] in self?.actions.openCommentAuthorSpace?($0) }
+                    ? nil
+                    : { [weak self] author in
+                        self?.releasingFocus { $0.actions.openCommentAuthorSpace?(author) }
+                    }
             )
             return item
         case .commentsFooter:
@@ -929,6 +934,15 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
         rootView.scrollView.isHidden = false
         collectionView.isHidden = blocked
         updateTopButton()
+    }
+
+    /// 打开空间或跟随链接前先交出侧栏里的焦点，再执行动作。
+    ///
+    /// 空间层打开时侧栏会被真正隐藏；焦点若还留在其中（例如刚点过的评论正文、选中过的简介），
+    /// 系统会在空间层进场动画中途改派焦点，引发额外布局，进场变成从中间宽度伸展开。
+    private func releasingFocus(_ action: (NativePlaybackSidebarController) -> Void) {
+        releaseCollectionFirstResponder()
+        action(self)
     }
 
     private func releaseCollectionFirstResponder() {
