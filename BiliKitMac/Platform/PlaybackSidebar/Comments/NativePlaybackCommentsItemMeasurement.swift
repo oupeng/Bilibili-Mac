@@ -288,3 +288,8 @@ struct NativePlaybackCommentRowGeometry {
 enum NativePlaybackCommentImageTransition {
     static let duration: CFTimeInterval = 0.15
 }
+
+/// 评论图片在列表格子与预览中的共同外观。
+enum NativePlaybackCommentImageStyle {
+    static let cornerRadius: CGFloat = 6
+}

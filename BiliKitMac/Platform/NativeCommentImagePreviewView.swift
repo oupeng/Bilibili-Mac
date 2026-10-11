@@ -117,9 +117,22 @@ private struct NativeCommentImagePreviewContent: View {
     private enum Phase {
         case loading
         /// 原图到达前显示列表里已缓存的缩小图；`originalFailed` 表示原图加载失败，可重试。
-        case placeholder(NSImage, originalFailed: Bool)
-        case loaded(NSImage)
+        case placeholder(CGImage, originalFailed: Bool)
+        case loaded(CGImage)
         case failed
+
+        var image: CGImage? {
+            switch self {
+            case .placeholder(let image, _), .loaded(let image): image
+            case .loading, .failed: nil
+            }
+        }
+
+        /// 占位时原图是否失败；不是占位时为 nil。
+        var originalFailed: Bool? {
+            guard case .placeholder(_, let failed) = self else { return nil }
+            return failed
+        }
     }
 
     private struct LoadKey: Equatable {
@@ -164,14 +177,15 @@ private struct NativeCommentImagePreviewContent: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
+                // 关闭手势只挂在背景上：图片盖在背景之上，点图片交给缩放视图（单击缩放，图片四周空白
+                // 关闭）。挂在外层容器上会让点图片同时缩放和关闭。导航按钮不在该手势内。
                 Color.black.opacity(0.82)
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: onDismiss)
                 phaseContent
                     .padding(.horizontal, min(96, max(56, geometry.size.width * 0.08)))
                     .padding(.vertical, min(86, max(54, geometry.size.height * 0.08)))
             }
-            // 只有背景与图片区域点击关闭；导航按钮不在该手势内，禁用时点击也不会穿透关闭。
-            .contentShape(Rectangle())
-            .onTapGesture(perform: onDismiss)
             .overlay(alignment: .topTrailing) {
                 iconButton(
                     "xmark",
@@ -209,35 +223,46 @@ private struct NativeCommentImagePreviewContent: View {
 
     @ViewBuilder
     private var phaseContent: some View {
-        switch phase {
-        case .loading:
-            ProgressView()
-                .accessibilityLabel(AppStrings.localized("评论图片加载中"))
-        case .placeholder(let image, let originalFailed):
-            imageView(image)
-                .overlay(alignment: .bottom) {
-                    originalStatus(failed: originalFailed)
-                        .padding(Self.originalStatusInset)
-                }
-        case .loaded(let image):
-            imageView(image)
-        case .failed:
+        if let image = phase.image {
+            imageView(image, originalFailed: phase.originalFailed)
+        } else if case .failed = phase {
             VStack(spacing: 10) {
                 Text(AppStrings.localized("图片加载失败"))
                     .foregroundStyle(.white)
                 Button(AppStrings.localized("重试")) { retry() }
                     .accessibilityLabel(AppStrings.localized("重新加载评论图片"))
             }
+        } else {
+            ProgressView()
+                .accessibilityLabel(AppStrings.localized("评论图片加载中"))
         }
     }
 
-    private func imageView(_ image: NSImage) -> some View {
-        Image(nsImage: image)
-            .resizable()
-            .scaledToFit()
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .accessibilityLabel(imageAccessibilityLabel)
-            .transition(.opacity)
+    /// 缩小图与原图共用同一个缩放视图。
+    ///
+    /// 按序号重建（换图回到适配），同一张换成原图时只替换图片、保留缩放位置；原图状态贴在图片适配区域
+    /// 的底边。
+    private func imageView(_ image: CGImage, originalFailed: Bool?) -> some View {
+        GeometryReader { proxy in
+            let fitted = NativeCommentImageZoomGeometry.fittedSize(
+                imageSize: CGSize(width: image.width, height: image.height),
+                in: proxy.size
+            )
+            NativeCommentImageZoomView(
+                image: image,
+                accessibilityLabel: imageAccessibilityLabel,
+                onDismissArea: onDismiss
+            )
+            .overlay {
+                if let originalFailed {
+                    originalStatus(failed: originalFailed)
+                        .padding(Self.originalStatusInset)
+                        .frame(width: fitted.width, height: fitted.height, alignment: .bottom)
+                }
+            }
+        }
+        .id(selection.index)
+        .transition(.opacity)
     }
 
     /// 缩小图占位上的原图状态：加载中显示转圈，失败时提供重试，不让用户误以为原图就是这样。
@@ -349,10 +374,10 @@ private struct NativeCommentImagePreviewContent: View {
         }
         let reference = request.references[selection.index]
         if let cached = loader.cachedImage(for: reference) {
-            phase = .loaded(Self.image(cached))
+            phase = .loaded(cached)
             return
         }
-        let placeholder = placeholderLoader.cachedImage(for: reference).map(Self.image)
+        let placeholder = placeholderLoader.cachedImage(for: reference)
         phase = placeholder.map { .placeholder($0, originalFailed: false) } ?? .loading
         let result = await loader.image(for: reference)
         guard !Task.isCancelled else { return }
@@ -365,11 +390,7 @@ private struct NativeCommentImagePreviewContent: View {
             ? .easeOut(duration: NativePlaybackCommentImageTransition.duration)
             : nil
         withAnimation(animation) {
-            phase = .loaded(Self.image(result.image))
+            phase = .loaded(result.image)
         }
-    }
-
-    private static func image(_ image: CGImage) -> NSImage {
-        NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
     }
 }

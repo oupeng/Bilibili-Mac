@@ -258,7 +258,7 @@ private final class NativePlaybackCommentPictureTileView: NSButton {
         target = self
         action = #selector(openPicture)
         wantsLayer = true
-        layer?.cornerRadius = 6
+        layer?.cornerRadius = NativePlaybackCommentImageStyle.cornerRadius
         layer?.masksToBounds = true
         imageView.wantsLayer = true
         imageView.imageScaling = .scaleProportionallyUpOrDown
