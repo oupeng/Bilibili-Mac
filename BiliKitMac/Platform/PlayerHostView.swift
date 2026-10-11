@@ -327,6 +327,7 @@ final class DanmakuPlayerView: AVPlayerView {
         )
         setAccessibilityHidden(blocked)
         keyboardShortcuts.setKeyboardInputEnabled(!blocked)
+        updatePreparationActivity()
         guard stateChanged else {
             if !blocked {
                 applyPendingInitialKeyboardFocus()
@@ -356,6 +357,13 @@ final class DanmakuPlayerView: AVPlayerView {
 
     func setPreviewEndedNotice(_ message: String?) {
         overlayModel.setPreviewEndedMessage(message)
+    }
+
+    private func updatePreparationActivity() {
+        overlayModel.setPreparationActivity(
+            isPreparing: blocksNativePlaybackInteraction,
+            hasCurrentItem: player?.currentItem != nil
+        )
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
@@ -413,6 +421,7 @@ final class DanmakuPlayerView: AVPlayerView {
                 self?.cancelMomentaryPlaybackRate()
                 self?.overlayModel.clearResumeNotice(markDismissed: true)
                 self?.startObservingCurrentItemTimeJumps()
+                self?.updatePreparationActivity()
             }
         }
         playerTimeControlObservation = player.observe(
@@ -426,6 +435,7 @@ final class DanmakuPlayerView: AVPlayerView {
             }
         }
         startObservingCurrentItemTimeJumps()
+        updatePreparationActivity()
     }
 
     private func startObservingCurrentItemTimeJumps() {
