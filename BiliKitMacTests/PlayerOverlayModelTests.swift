@@ -1,3 +1,4 @@
+import AVFoundation
 import AppKit
 import BiliApplication
 import BiliBrowseFeature
@@ -117,6 +118,64 @@ struct PlayerOverlayModelTests {
         model.setPreparationActivity(isPreparing: isPreparing, hasCurrentItem: hasCurrentItem)
 
         #expect(model.showsPreparationActivity == showsActivity)
+    }
+
+    /// 只有开播后为减少卡顿而等待才算卡住；准备阶段、未就绪与短暂的缓冲评估都不算。
+    @Test(arguments: [
+        (
+            false, true, AVPlayer.TimeControlStatus.waitingToPlayAtSpecifiedRate,
+            AVPlayer.WaitingReason?.some(.toMinimizeStalls), true
+        ),
+        (false, true, .waitingToPlayAtSpecifiedRate, .evaluatingBufferingRate, false),
+        (false, true, .waitingToPlayAtSpecifiedRate, nil, false),
+        (false, true, .playing, nil, false),
+        (false, true, .paused, nil, false),
+        (true, true, .waitingToPlayAtSpecifiedRate, .toMinimizeStalls, false),
+        (false, false, .waitingToPlayAtSpecifiedRate, .toMinimizeStalls, false)
+    ])
+    func stallCountsOnlyWaitingToMinimizeStallsAfterPlaybackIsReady(
+        isPreparing: Bool,
+        isItemReady: Bool,
+        timeControlStatus: AVPlayer.TimeControlStatus,
+        reason: AVPlayer.WaitingReason?,
+        isStalled: Bool
+    ) {
+        #expect(
+            PlayerStallPolicy.isStalled(
+                isPreparing: isPreparing,
+                isItemReady: isItemReady,
+                timeControlStatus: timeControlStatus,
+                reasonForWaitingToPlay: reason
+            ) == isStalled
+        )
+    }
+
+    /// 卡住只在该次卡顿的延迟到期时仍未恢复才呈现；恢复立即撤下，恢复后再卡住重新计时。
+    @Test
+    func stallActivityAppearsOnlyForTheStallStillInProgress() throws {
+        let model = PlayerOverlayModel()
+
+        model.setStalled(true)
+        let recovered = try #require(model.stallID)
+        #expect(!model.showsStallActivity)
+        model.setStalled(false)
+        model.presentStall(id: recovered)
+        #expect(!model.showsStallActivity)
+
+        model.setStalled(true)
+        let shown = try #require(model.stallID)
+        model.presentStall(id: shown)
+        #expect(model.showsStallActivity)
+
+        model.setStalled(false)
+        #expect(!model.showsStallActivity)
+        model.setStalled(true)
+        let restalled = try #require(model.stallID)
+        #expect(restalled != shown)
+        model.presentStall(id: shown)
+        #expect(!model.showsStallActivity)
+        model.presentStall(id: restalled)
+        #expect(model.showsStallActivity)
     }
 
     @Test
