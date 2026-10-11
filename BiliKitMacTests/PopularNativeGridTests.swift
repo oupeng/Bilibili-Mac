@@ -325,17 +325,18 @@ struct PopularNativeGridTests {
 
     @Test
     func imagePipelineBoundsResponseAndDecodedCache() throws {
-        #expect(NativeVideoImagePipeline.acceptsExpectedLength(-1))
-        #expect(
-            NativeVideoImagePipeline.acceptsExpectedLength(
-                Int64(NativeVideoImagePipeline.maximumResponseBytes)
-            )
-        )
-        #expect(
-            !NativeVideoImagePipeline.acceptsExpectedLength(
-                Int64(NativeVideoImagePipeline.maximumResponseBytes + 1)
-            )
-        )
+        let megabyte = 1_024 * 1_024
+        #expect(NativeVideoImagePipeline.acceptsExpectedLength(-1, maximumBytes: 8))
+        #expect(NativeVideoImagePipeline.acceptsExpectedLength(8, maximumBytes: 8))
+        #expect(!NativeVideoImagePipeline.acceptsExpectedLength(9, maximumBytes: 8))
+        // 只有评论图片预览请求原图（B 站上传上限 20 MB），其余用途保持 8 MiB。
+        #expect(NativeVideoImageVariant.commentPicturePreview.maximumResponseBytes == 20 * megabyte)
+        for variant in [
+            NativeVideoImageVariant.cover, .avatar, .commentEmote, .commentPicture,
+            .trendingSearchIcon
+        ] {
+            #expect(variant.maximumResponseBytes == 8 * megabyte)
+        }
 
         var countBoundCache = NativeVideoImageCache(
             countLimit: 2,

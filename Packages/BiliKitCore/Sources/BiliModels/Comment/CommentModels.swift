@@ -46,6 +46,17 @@ public struct CommentAuthorID: Sendable, Equatable, Hashable {
     }
 }
 
+/// 请求评论图片时希望图片缩进的像素框；不带框表示请求原图。
+public struct CommentAssetPixelBox: Sendable, Equatable, Hashable {
+    public let width: Int
+    public let height: Int
+
+    public init(width: Int, height: Int) {
+        self.width = width
+        self.height = height
+    }
+}
+
 /// 资源的进程内不透明引用；远端 URL 只由具体 adapter 解析和消费。
 public struct CommentAssetReference: Sendable, Equatable, Hashable {
     private enum Storage: Sendable, Equatable, Hashable {
