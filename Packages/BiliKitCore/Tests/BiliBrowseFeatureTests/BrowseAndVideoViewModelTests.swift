@@ -9,6 +9,7 @@ import Testing
 struct BrowseAndVideoViewModelTests {
     @Test(arguments: [
         ContentApplicationError.authenticationInvalid,
+        .authenticationRequired,
         .authenticationUnavailable,
         .requestRestricted
     ])
@@ -1256,47 +1257,53 @@ struct BrowseAndVideoViewModelTests {
 
     @Test(.timeLimit(.minutes(1)))
     @MainActor
-    func uploaderSignatureLoadsWithoutBlockingReadyDetail() async throws {
+    func uploaderProfileLoadsWithoutBlockingReadyDetail() async throws {
         let fixture = ContentFixtures()
-        let signatureRepository = SignatureRepositoryStub()
+        let profileRepository = ProfileRepositoryStub()
         let model = VideoViewModel(
             useCase: VideoUseCase(
                 repository: VideoRepositoryStub(fixture)
             ),
             playback: PlayerStub(),
-            uploaderSignatureUseCase: UploaderSignatureUseCase(
-                repository: signatureRepository
+            uploaderProfileUseCase: UploaderProfileUseCase(
+                repository: profileRepository
             )
         )
 
         model.loadVideo(fixture.bvid)
         await waitUntilSettled(model)
-        await signatureRepository.waitForRequestCount(1)
+        await profileRepository.waitForRequestCount(1)
 
         #expect(model.presentedContext?.detail == fixture.detail)
-        #expect(model.uploaderSignatureState == .loading)
+        #expect(model.uploaderProfileState == .loading)
 
-        await signatureRepository.releaseRequest(0, signature: "公开签名")
-        await waitForObservedState { model.uploaderSignatureState == .loaded("公开签名") }
+        await profileRepository.releaseRequest(
+            0,
+            profile: UploaderProfile(signature: "公开签名", isVIP: true)
+        )
+        await waitForObservedState {
+            model.uploaderProfileState
+                == .loaded(UploaderProfile(signature: "公开签名", isVIP: true))
+        }
     }
 
     @Test
     @MainActor
-    func uploaderSignatureFailureHidesOnlyEnhancement() async {
+    func uploaderProfileFailureHidesOnlyEnhancement() async {
         let fixture = ContentFixtures()
         let model = VideoViewModel(
             useCase: VideoUseCase(
                 repository: VideoRepositoryStub(fixture)
             ),
             playback: PlayerStub(),
-            uploaderSignatureUseCase: UploaderSignatureUseCase(
-                repository: SignatureRepositoryStub(immediate: .failure(.transportFailure))
+            uploaderProfileUseCase: UploaderProfileUseCase(
+                repository: ProfileRepositoryStub(immediate: .failure(.transportFailure))
             )
         )
 
         model.loadVideo(fixture.bvid)
         await waitUntilSettled(model)
-        await waitForObservedState { model.uploaderSignatureState != .loading }
+        await waitForObservedState { model.uploaderProfileState != .loading }
 
         #expect(
             model.state
@@ -1309,94 +1316,163 @@ struct BrowseAndVideoViewModelTests {
                     )
                 )
         )
-        #expect(model.uploaderSignatureState == .loaded(nil))
+        #expect(model.uploaderProfileState == .loaded(UploaderProfile()))
     }
 
     @Test
     @MainActor
-    func pageSwitchDoesNotReloadUploaderSignature() async {
+    func pageSwitchDoesNotReloadUploaderProfile() async {
         let fixture = ContentFixtures()
-        let signatureRepository = SignatureRepositoryStub(immediate: .success("公开签名"))
+        let profileRepository = ProfileRepositoryStub(
+            immediate: .success(UploaderProfile(signature: "公开签名"))
+        )
         let model = VideoViewModel(
             useCase: VideoUseCase(
                 repository: VideoRepositoryStub(fixture, pages: fixture.twoPages)
             ),
             playback: PlayerStub(),
-            uploaderSignatureUseCase: UploaderSignatureUseCase(
-                repository: signatureRepository
+            uploaderProfileUseCase: UploaderProfileUseCase(
+                repository: profileRepository
             )
         )
 
         model.loadVideo(fixture.bvid)
         await waitUntilSettled(model)
-        await waitForObservedState { model.uploaderSignatureState != .loading }
+        await waitForObservedState { model.uploaderProfileState != .loading }
         model.selectPage(cid: 900_002)
         await waitUntilSettled(model)
 
-        #expect(model.uploaderSignatureState == .loaded("公开签名"))
-        #expect(await signatureRepository.callCount == 1)
+        #expect(model.uploaderProfileState == .loaded(UploaderProfile(signature: "公开签名")))
+        #expect(await profileRepository.callCount == 1)
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    /// 同一 UP 主的下一个视频直接沿用名片，不再请求；离开播放后重新请求。
+    @Test
     @MainActor
-    func uploaderSignatureABARejectsOldSameOwnerResult() async throws {
-        let first = ContentFixtures(bvid: "BV1SignatureA", title: "视频 A")
-        let second = ContentFixtures(bvid: "BV1SignatureB", title: "视频 B")
-        let signatureRepository = SignatureRepositoryStub()
+    func sameOwnerNextVideoReusesLoadedProfileUntilReset() async {
+        let first = ContentFixtures(bvid: "BV1SameOwnerA", title: "视频 A")
+        let second = ContentFixtures(bvid: "BV1SameOwnerB", title: "视频 B")
+        let profile = UploaderProfile(signature: "公开签名", isVIP: true)
+        let profileRepository = ProfileRepositoryStub(immediate: .success(profile))
         let model = VideoViewModel(
             useCase: VideoUseCase(
                 repository: VideoRepositoryStub(fixtures: [first, second])
             ),
             playback: PlayerStub(),
-            uploaderSignatureUseCase: UploaderSignatureUseCase(
-                repository: signatureRepository
+            uploaderProfileUseCase: UploaderProfileUseCase(
+                repository: profileRepository
             )
         )
 
         model.loadVideo(first.bvid)
         await waitUntilSettled(model)
-        await signatureRepository.waitForRequestCount(1)
-
+        await waitForObservedState { model.uploaderProfileState == .loaded(profile) }
         model.loadVideo(second.bvid)
         await waitUntilSettled(model)
-        await signatureRepository.waitForRequestCount(2)
+
+        #expect(model.presentedContext?.detail.bvid == second.bvid)
+        #expect(model.uploaderProfileState == .loaded(profile))
+        #expect(await profileRepository.callCount == 1)
+
+        model.reset()
         model.loadVideo(first.bvid)
         await waitUntilSettled(model)
-        await signatureRepository.waitForRequestCount(3)
+        await waitForObservedState { model.uploaderProfileState == .loaded(profile) }
 
-        await signatureRepository.releaseRequest(2, signature: "新 A 签名")
-        await waitForObservedState { model.uploaderSignatureState == .loaded("新 A 签名") }
-        await signatureRepository.releaseRequest(0, signature: "旧 A 签名")
-        await signatureRepository.releaseRequest(1, signature: "旧 B 签名")
+        #expect(await profileRepository.callCount == 2)
+    }
 
-        #expect(model.presentedContext?.detail.bvid == first.bvid)
-        #expect(model.uploaderSignatureState == .loaded("新 A 签名"))
+    @Test
+    @MainActor
+    func failedProfileIsNotReusedForTheSameOwner() async {
+        let first = ContentFixtures(bvid: "BV1FailedOwnerA", title: "视频 A")
+        let second = ContentFixtures(bvid: "BV1FailedOwnerB", title: "视频 B")
+        let profileRepository = ProfileRepositoryStub(
+            immediate: .failure(.transportFailure)
+        )
+        let model = VideoViewModel(
+            useCase: VideoUseCase(
+                repository: VideoRepositoryStub(fixtures: [first, second])
+            ),
+            playback: PlayerStub(),
+            uploaderProfileUseCase: UploaderProfileUseCase(
+                repository: profileRepository
+            )
+        )
+
+        model.loadVideo(first.bvid)
+        await waitUntilSettled(model)
+        await waitForObservedState { model.uploaderProfileState != .loading }
+        model.loadVideo(second.bvid)
+        await waitUntilSettled(model)
+        await waitForObservedState { model.uploaderProfileState != .loading }
+
+        #expect(model.uploaderProfileState == .loaded(UploaderProfile()))
+        #expect(await profileRepository.callCount == 2)
     }
 
     @Test(.timeLimit(.minutes(1)))
     @MainActor
-    func resetCancelsAndIsolatesLateUploaderSignature() async throws {
+    func uploaderProfileABARejectsOldSameOwnerResult() async throws {
+        let first = ContentFixtures(bvid: "BV1SignatureA", title: "视频 A")
+        let second = ContentFixtures(bvid: "BV1SignatureB", title: "视频 B")
+        let profileRepository = ProfileRepositoryStub()
+        let model = VideoViewModel(
+            useCase: VideoUseCase(
+                repository: VideoRepositoryStub(fixtures: [first, second])
+            ),
+            playback: PlayerStub(),
+            uploaderProfileUseCase: UploaderProfileUseCase(
+                repository: profileRepository
+            )
+        )
+
+        model.loadVideo(first.bvid)
+        await waitUntilSettled(model)
+        await profileRepository.waitForRequestCount(1)
+
+        model.loadVideo(second.bvid)
+        await waitUntilSettled(model)
+        await profileRepository.waitForRequestCount(2)
+        model.loadVideo(first.bvid)
+        await waitUntilSettled(model)
+        await profileRepository.waitForRequestCount(3)
+
+        await profileRepository.releaseRequest(2, profile: UploaderProfile(signature: "新 A 签名"))
+        await waitForObservedState {
+            model.uploaderProfileState == .loaded(UploaderProfile(signature: "新 A 签名"))
+        }
+        await profileRepository.releaseRequest(0, profile: UploaderProfile(signature: "旧 A 签名"))
+        await profileRepository.releaseRequest(1, profile: UploaderProfile(signature: "旧 B 签名"))
+
+        #expect(model.presentedContext?.detail.bvid == first.bvid)
+        #expect(model.uploaderProfileState == .loaded(UploaderProfile(signature: "新 A 签名")))
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func resetCancelsAndIsolatesLateUploaderProfile() async throws {
         let fixture = ContentFixtures()
-        let signatureRepository = SignatureRepositoryStub()
+        let profileRepository = ProfileRepositoryStub()
         let model = VideoViewModel(
             useCase: VideoUseCase(
                 repository: VideoRepositoryStub(fixture)
             ),
             playback: PlayerStub(),
-            uploaderSignatureUseCase: UploaderSignatureUseCase(
-                repository: signatureRepository
+            uploaderProfileUseCase: UploaderProfileUseCase(
+                repository: profileRepository
             )
         )
 
         model.loadVideo(fixture.bvid)
         await waitUntilSettled(model)
-        await signatureRepository.waitForRequestCount(1)
+        await profileRepository.waitForRequestCount(1)
         model.reset()
-        await signatureRepository.releaseRequest(0, signature: "迟到签名")
+        await profileRepository.releaseRequest(0, profile: UploaderProfile(signature: "迟到签名"))
 
         #expect(model.state == .idle)
         #expect(model.presentedContext == nil)
-        #expect(model.uploaderSignatureState == .loaded(nil))
+        #expect(model.uploaderProfileState == .loaded(UploaderProfile()))
     }
 
     @Test
@@ -2025,18 +2101,18 @@ private actor CollectionEpisodeRepositoryStub: VideoRepository {
     }
 }
 
-/// UploaderSignatureRepository 的唯一替身：`immediate` 为 nil 时每个请求挂起到测试按序号放行。
-private actor SignatureRepositoryStub: UploaderSignatureRepository {
-    private let immediate: Result<String?, ContentApplicationError>?
-    private var held: [CheckedContinuation<String?, Never>?] = []
+/// UploaderProfileRepository 的唯一替身：`immediate` 为 nil 时每个请求挂起到测试按序号放行。
+private actor ProfileRepositoryStub: UploaderProfileRepository {
+    private let immediate: Result<UploaderProfile, ContentApplicationError>?
+    private var held: [CheckedContinuation<UploaderProfile, Never>?] = []
     private var requestWaiters = CountWaiters()
     private(set) var callCount = 0
 
-    init(immediate: Result<String?, ContentApplicationError>? = nil) {
+    init(immediate: Result<UploaderProfile, ContentApplicationError>? = nil) {
         self.immediate = immediate
     }
 
-    func signature(for ownerID: Int64) async throws -> String? {
+    func uploaderProfile(for ownerID: Int64) async throws -> UploaderProfile {
         callCount += 1
         if let immediate { return try immediate.get() }
         return await withCheckedContinuation { continuation in
@@ -2051,8 +2127,8 @@ private actor SignatureRepositoryStub: UploaderSignatureRepository {
         }
     }
 
-    func releaseRequest(_ index: Int, signature: String?) {
-        held[index]?.resume(returning: signature)
+    func releaseRequest(_ index: Int, profile: UploaderProfile) {
+        held[index]?.resume(returning: profile)
         held[index] = nil
     }
 }

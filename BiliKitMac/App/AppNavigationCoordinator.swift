@@ -61,13 +61,21 @@ final class AppNavigationCoordinator {
     private var activePlayback: ActivePlayback?
     @ObservationIgnored private let startPlayback: (PlaybackSelectionIntent) -> Void
     @ObservationIgnored private let stopPlayback: () -> Void
+    @ObservationIgnored private let closeSidebarContext: () -> Void
 
+    /// - Parameters:
+    ///   - startPlayback: 开始或替换当前视频。
+    ///   - stopPlayback: 关闭播放后停止播放器与弹幕。
+    ///   - closeSidebarContext: 关闭压在侧栏上的上下文层（UP 主空间）。上下文层只在播放时存在，
+    ///     关闭播放、或从上下文层以外的入口换视频时都会调用。
     init(
         startPlayback: @escaping (PlaybackSelectionIntent) -> Void,
-        stopPlayback: @escaping () -> Void
+        stopPlayback: @escaping () -> Void,
+        closeSidebarContext: @escaping () -> Void = {}
     ) {
         self.startPlayback = startPlayback
         self.stopPlayback = stopPlayback
+        self.closeSidebarContext = closeSidebarContext
     }
 
     /// 首次打开建立播放 surface；连续打开其他视频只替换媒体 identity。
@@ -75,8 +83,27 @@ final class AppNavigationCoordinator {
         openPlayback(PlaybackSelectionIntent(bvid: bvid))
     }
 
+    /// 从侧栏上下文层（UP 主空间）里选择视频：用户仍在逛这个空间，上下文层保留。
+    func openPlaybackFromSidebarContext(_ bvid: String) {
+        openPlayback(PlaybackSelectionIntent(bvid: bvid), preservesSidebarContext: true)
+    }
+
+    /// 来源页、相关推荐、选集、评论链接等入口换视频：用户已离开上下文层，关闭它退回详情。
+    ///
+    /// 按“从哪里打开”判断，不比较新视频的 UP 主：联合投稿的 UP 主字段可能是另一位。
+    /// 重新点击正在播放的视频同样算离开上下文层。
     func openPlayback(_ intent: PlaybackSelectionIntent) {
+        openPlayback(intent, preservesSidebarContext: false)
+    }
+
+    private func openPlayback(
+        _ intent: PlaybackSelectionIntent,
+        preservesSidebarContext: Bool
+    ) {
         guard !intent.bvid.isEmpty else { return }
+        if !preservesSidebarContext {
+            closeSidebarContext()
+        }
         guard currentPlaybackIntent != intent else { return }
 
         if var activePlayback {
@@ -111,6 +138,7 @@ final class AppNavigationCoordinator {
     private func closePlayback() {
         guard activePlayback != nil else { return }
         activePlayback = nil
+        closeSidebarContext()
         stopPlayback()
     }
 }

@@ -3,8 +3,8 @@ import Foundation
 
 struct CommentMainPayload: Decodable, Sendable {
     let cursor: CommentCursorPayload
-    let replies: [LossyCommentReplyPayload]
-    let topReplies: [LossyCommentReplyPayload]
+    let replies: [LossyDecodable<CommentReplyPayload>]
+    let topReplies: [LossyDecodable<CommentReplyPayload>]
     let top: CommentTopPayload?
     let upper: CommentUpperPayload?
 
@@ -21,12 +21,12 @@ struct CommentMainPayload: Decodable, Sendable {
         cursor = try container.decode(CommentCursorPayload.self, forKey: .cursor)
         replies =
             try container.decodeIfPresent(
-                [LossyCommentReplyPayload].self,
+                [LossyDecodable<CommentReplyPayload>].self,
                 forKey: .replies
             ) ?? []
         topReplies =
             container.decodeLossyIfPresent(
-                [LossyCommentReplyPayload].self,
+                [LossyDecodable<CommentReplyPayload>].self,
                 forKey: .topReplies
             ) ?? []
         top = container.decodeLossyIfPresent(CommentTopPayload.self, forKey: .top)
@@ -71,7 +71,7 @@ struct CommentMainPayload: Decodable, Sendable {
 
 struct CommentReplyListPayload: Decodable, Sendable {
     let page: CommentReplyPagePayload
-    let replies: [LossyCommentReplyPayload]
+    let replies: [LossyDecodable<CommentReplyPayload>]
     let upper: CommentUpperPayload?
 
     private enum CodingKeys: String, CodingKey {
@@ -85,7 +85,7 @@ struct CommentReplyListPayload: Decodable, Sendable {
         page = try container.decode(CommentReplyPagePayload.self, forKey: .page)
         replies =
             try container.decodeIfPresent(
-                [LossyCommentReplyPayload].self,
+                [LossyDecodable<CommentReplyPayload>].self,
                 forKey: .replies
             ) ?? []
         upper = container.decodeLossyIfPresent(CommentUpperPayload.self, forKey: .upper)
@@ -193,16 +193,8 @@ struct CommentUpperPayload: Decodable, Sendable {
 }
 
 struct CommentTopPayload: Decodable, Sendable {
-    let admin: LossyCommentReplyPayload?
-    let upper: LossyCommentReplyPayload?
-}
-
-struct LossyCommentReplyPayload: Decodable, Sendable {
-    let value: CommentReplyPayload?
-
-    init(from decoder: any Decoder) throws {
-        value = try? CommentReplyPayload(from: decoder)
-    }
+    let admin: LossyDecodable<CommentReplyPayload>?
+    let upper: LossyDecodable<CommentReplyPayload>?
 }
 
 struct CommentReplyPayload: Decodable, Sendable {
@@ -217,7 +209,7 @@ struct CommentReplyPayload: Decodable, Sendable {
     let rcount: Int?
     let member: CommentMemberPayload?
     let content: CommentContentPayload?
-    let replies: [LossyCommentReplyPayload]
+    let replies: [LossyDecodable<CommentReplyPayload>]
     let replyControl: CommentReplyControlPayload?
     let invisible: Bool?
     let folder: CommentFolderPayload?
@@ -255,7 +247,7 @@ struct CommentReplyPayload: Decodable, Sendable {
         content = container.decodeLossyIfPresent(CommentContentPayload.self, forKey: .content)
         replies =
             container.decodeLossyIfPresent(
-                [LossyCommentReplyPayload].self,
+                [LossyDecodable<CommentReplyPayload>].self,
                 forKey: .replies
             ) ?? []
         replyControl = container.decodeLossyIfPresent(
@@ -363,7 +355,7 @@ struct CommentMemberPayload: Decodable, Sendable {
     let avatar: String?
     let sex: String?
     let level: CommentLevelPayload?
-    let vip: CommentVIPPayload?
+    let vip: MemberVIPPayload?
     let official: CommentOfficialPayload?
     let isHardcoreMember: Bool
 
@@ -389,7 +381,7 @@ struct CommentMemberPayload: Decodable, Sendable {
         avatar = container.decodeLossyIfPresent(String.self, forKey: .avatar)
         sex = container.decodeLossyIfPresent(String.self, forKey: .sex)
         level = container.decodeLossyIfPresent(CommentLevelPayload.self, forKey: .level)
-        vip = container.decodeLossyIfPresent(CommentVIPPayload.self, forKey: .vip)
+        vip = container.decodeLossyIfPresent(MemberVIPPayload.self, forKey: .vip)
         official = container.decodeLossyIfPresent(CommentOfficialPayload.self, forKey: .official)
         isHardcoreMember = container.decodeLossyBool(forKey: .isHardcoreMember) ?? false
     }
@@ -411,18 +403,10 @@ struct CommentMemberPayload: Decodable, Sendable {
         case "女": authorSex = .female
         default: authorSex = .unspecified
         }
-        let avatarReference =
-            avatar
-            .flatMap(WebImageURL.parse)
-            .flatMap { url -> CommentAssetReference? in
-                guard url.user == nil, url.password == nil else { return nil }
-                return CommentAssetReference(remoteURL: url)
-            }
-
         return CommentAuthor(
             id: CommentAuthorID(rawValue: mid),
             name: name,
-            avatar: avatarReference,
+            avatar: commentAvatarReference(avatar),
             sex: authorSex,
             level: level.flatMap {
                 (0...6).contains($0.currentLevel) ? $0.currentLevel : nil
@@ -435,23 +419,21 @@ struct CommentMemberPayload: Decodable, Sendable {
     }
 }
 
+/// 评论作者与 @ 用户的头像：只接受可解析、不带 userinfo 的图片地址，其余视为没有头像。
+private func commentAvatarReference(_ value: String?) -> CommentAssetReference? {
+    value
+        .flatMap(WebImageURL.parse)
+        .flatMap { url -> CommentAssetReference? in
+            guard url.user == nil, url.password == nil else { return nil }
+            return CommentAssetReference(remoteURL: url)
+        }
+}
+
 struct CommentLevelPayload: Decodable, Sendable {
     let currentLevel: Int
 
     private enum CodingKeys: String, CodingKey {
         case currentLevel = "current_level"
-    }
-}
-
-struct CommentVIPPayload: Decodable, Sendable {
-    let type: Int?
-    let status: Int?
-
-    var isActive: Bool { status == 1 }
-
-    private enum CodingKeys: String, CodingKey {
-        case type = "vipType"
-        case status = "vipStatus"
     }
 }
 
@@ -496,14 +478,14 @@ struct CommentContentPayload: Decodable, Sendable {
             )?.values ?? [:]
         let lossyPictures =
             container.decodeLossyIfPresent(
-                [LossyCommentPicturePayload].self,
+                [LossyDecodable<CommentPicturePayload>].self,
                 forKey: .pictures
             ) ?? []
         pictures = lossyPictures.map(\.value)
         pictureCount = lossyPictures.count
         members =
             container.decodeLossyIfPresent(
-                [LossyCommentMentionPayload].self,
+                [LossyDecodable<CommentMentionPayload>].self,
                 forKey: .members
             )?.compactMap(\.value) ?? []
     }
@@ -518,16 +500,20 @@ struct CommentContentPayload: Decodable, Sendable {
             guard let target = CommentRemoteURL.linkTarget(payload.url) else { return [] }
             return ranges(of: label).map { CommentLink(range: $0, target: target) }
         }
-        var mentionTargetsByToken: [String: Set<CommentAuthorID>] = [:]
+        var mentionTargetsByToken: [String: [CommentAuthorID: CommentAuthor]] = [:]
         for member in members where !member.mid.isEmpty && !member.name.isEmpty {
             let token = member.name.hasPrefix("@") ? member.name : "@\(member.name)"
-            mentionTargetsByToken[token, default: []].insert(
-                CommentAuthorID(rawValue: member.mid)
+            let id = CommentAuthorID(rawValue: member.mid)
+            guard mentionTargetsByToken[token]?[id] == nil else { continue }
+            mentionTargetsByToken[token, default: [:]][id] = CommentAuthor(
+                id: id,
+                name: String(token.dropFirst()),
+                avatar: commentAvatarReference(member.avatar)
             )
         }
         let mentionLinks = mentionTargetsByToken.flatMap { token, targets -> [CommentLink] in
             // 接口不给 mention 的正文位置；同名对应多个账号时不能安全猜测目标。
-            guard targets.count == 1, let target = targets.first else { return [] }
+            guard targets.count == 1, let target = targets.values.first else { return [] }
             return ranges(of: token).map {
                 CommentLink(range: $0, target: .member(target))
             }
@@ -662,8 +648,8 @@ struct CommentContentPayload: Decodable, Sendable {
         switch target {
         case .video(let bvid):
             "0:\(bvid)"
-        case .member(let authorID):
-            "1:\(authorID.rawValue)"
+        case .member(let user):
+            "1:\(user.id.rawValue)"
         case .external(let reference):
             "2:\(reference.remoteURL?.absoluteString ?? "")"
         }
@@ -720,10 +706,12 @@ struct CommentPicturePayload: Decodable, Sendable {
 struct CommentMentionPayload: Decodable, Sendable {
     let mid: String
     let name: String
+    let avatar: String?
 
     private enum CodingKeys: String, CodingKey {
         case mid
         case name = "uname"
+        case avatar
     }
 
     init(from decoder: any Decoder) throws {
@@ -734,6 +722,8 @@ struct CommentMentionPayload: Decodable, Sendable {
             mid = String(try container.decode(Int64.self, forKey: .mid))
         }
         name = try container.decode(String.self, forKey: .name)
+        // 头像只用于空间头部，异常时按没有头像处理，不影响 @ 链接本身。
+        avatar = try? container.decodeIfPresent(String.self, forKey: .avatar)
     }
 }
 
@@ -803,22 +793,6 @@ where Value: Decodable & Sendable {
             }
         }
         self.values = values
-    }
-}
-
-private struct LossyCommentPicturePayload: Decodable, Sendable {
-    let value: CommentPicturePayload?
-
-    init(from decoder: any Decoder) throws {
-        value = try? CommentPicturePayload(from: decoder)
-    }
-}
-
-private struct LossyCommentMentionPayload: Decodable, Sendable {
-    let value: CommentMentionPayload?
-
-    init(from decoder: any Decoder) throws {
-        value = try? CommentMentionPayload(from: decoder)
     }
 }
 

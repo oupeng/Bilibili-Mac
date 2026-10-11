@@ -28,7 +28,8 @@ struct AppEnvironment {
     private let feedRepository: any FeedRepository
     private let videoRepository: any VideoRepository
     private let relatedVideoRepository: any RelatedVideoRepository
-    private let uploaderSignatureRepository: any UploaderSignatureRepository
+    private let uploaderProfileRepository: any UploaderProfileRepository
+    private let uploaderVideoRepository: any UploaderVideoRepository
     private let commentRepository: any CommentRepository
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentVideoLinkResolver: CommentVideoLinkResolver
@@ -48,7 +49,8 @@ struct AppEnvironment {
         feedRepository: any FeedRepository,
         videoRepository: any VideoRepository,
         relatedVideoRepository: any RelatedVideoRepository,
-        uploaderSignatureRepository: any UploaderSignatureRepository,
+        uploaderProfileRepository: any UploaderProfileRepository,
+        uploaderVideoRepository: any UploaderVideoRepository,
         commentRepository: any CommentRepository,
         commentAssetURLResolver: @escaping CommentAssetURLResolver,
         commentVideoLinkResolver: @escaping CommentVideoLinkResolver,
@@ -71,7 +73,8 @@ struct AppEnvironment {
         self.feedRepository = feedRepository
         self.videoRepository = videoRepository
         self.relatedVideoRepository = relatedVideoRepository
-        self.uploaderSignatureRepository = uploaderSignatureRepository
+        self.uploaderProfileRepository = uploaderProfileRepository
+        self.uploaderVideoRepository = uploaderVideoRepository
         self.commentRepository = commentRepository
         self.commentAssetURLResolver = commentAssetURLResolver
         self.commentVideoLinkResolver = commentVideoLinkResolver
@@ -118,9 +121,15 @@ struct AppEnvironment {
             relatedVideoUseCase: RelatedVideoUseCase(
                 repository: relatedVideoRepository
             ),
-            uploaderSignatureUseCase: UploaderSignatureUseCase(
-                repository: uploaderSignatureRepository
+            uploaderProfileUseCase: UploaderProfileUseCase(
+                repository: uploaderProfileRepository
             )
+        )
+    }
+
+    func makeUploaderSpaceViewModel() -> UploaderSpaceViewModel {
+        UploaderSpaceViewModel(
+            useCase: UploaderVideoUseCase(repository: uploaderVideoRepository)
         )
     }
 
@@ -308,7 +317,8 @@ struct AppEnvironment {
             feedRepository: contentRepository,
             videoRepository: contentRepository,
             relatedVideoRepository: contentRepository,
-            uploaderSignatureRepository: contentRepository,
+            uploaderProfileRepository: contentRepository,
+            uploaderVideoRepository: contentRepository,
             commentRepository: BiliCommentRepository(client: api),
             commentAssetURLResolver: { reference in
                 commentAssetResolver.imageURL(for: reference)
@@ -347,6 +357,7 @@ struct AppEnvironment {
     static let mainAccountReadAllowedPaths: Set<String> = [
         "/x/player/wbi/playurl",
         "/x/player/wbi/v2",
+        "/x/space/wbi/arc/search",
         "/x/v2/dm/wbi/web/seg.so",
         "/x/v2/reply/reply",
         "/x/v2/reply/wbi/main",

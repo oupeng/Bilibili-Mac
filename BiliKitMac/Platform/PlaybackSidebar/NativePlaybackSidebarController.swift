@@ -61,7 +61,6 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
         [NativePlaybackSidebarItemID: NativePlaybackCommentThreadPresentation] = [:]
     private var commentRenderRevisions: [NativePlaybackSidebarItemID: UInt64] = [:]
     private var summaryExpanded = false
-    private var signatureExpanded = false
     private var browsedSectionID: VideoCollectionSectionIdentity?
     private var lastSelectedEpisodeID: VideoCollectionEpisodeIdentity?
     private var measuredViewportWidth: CGFloat = 0
@@ -92,8 +91,8 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
         }
         super.init()
         configureCollectionView()
-        rootView.commentsTopButton.target = self
-        rootView.commentsTopButton.action = #selector(scrollCommentsToTop)
+        rootView.scrollView.topButton.target = self
+        rootView.scrollView.topButton.action = #selector(scrollToTopFromButton)
         rootView.scrollView.contentView.postsBoundsChangedNotifications = true
         observers.observeScrolling(of: rootView.scrollView) { [weak self] in
             self?.viewportDidScroll()
@@ -146,14 +145,9 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
             )
         if changesIdentity {
             summaryExpanded = false
-            signatureExpanded = false
             browsedSectionID = nil
             lastSelectedEpisodeID = nil
             commentsPagination.reset()
-        } else if previousPresentation.content?.uploader.signature
-            != presentation.content?.uploader.signature
-        {
-            signatureExpanded = false
         }
         if changesCommentSort {
             commentsPagination.reset()
@@ -271,6 +265,35 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
         rootView.scrollView.documentView = collectionView
     }
 
+    private func configureUploader(
+        _ item: NativePlaybackSidebarUploaderItem,
+        content: VideoUploaderHeaderContent
+    ) {
+        item.configure(
+            content: content,
+            imagePipeline: imagePipeline,
+            onOpenSpace: actions.openUploaderSpace == nil
+                ? nil : { [weak self] in self?.releasingFocus { $0.actions.openUploaderSpace?() } }
+        )
+    }
+
+    /// 同一视频内可见的 UP 主行原地更新、不整项重载，返回已处理的项。
+    ///
+    /// 重载会换掉视图，名片到达时就没有旧画面可淡出（见 `NativePlaybackUploaderProfileReveal`）。
+    private func reconfigureVisibleUploader(
+        in changedItemIDs: Set<NativePlaybackSidebarItemID>
+    ) -> Set<NativePlaybackSidebarItemID> {
+        guard let content = presentation.content else { return [] }
+        let uploaderID = NativePlaybackSidebarItemID.uploader(bvid: content.bvid)
+        guard changedItemIDs.contains(uploaderID),
+            let indexPath = dataSource?.indexPath(for: uploaderID),
+            let item = collectionView.item(at: indexPath)
+                as? NativePlaybackSidebarUploaderItem
+        else { return [] }
+        configureUploader(item, content: content.uploader)
+        return [uploaderID]
+    }
+
     private func makeItem(
         collectionView: NSCollectionView,
         indexPath: IndexPath,
@@ -285,12 +308,7 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
                     for: indexPath
                 ) as? NativePlaybackSidebarUploaderItem
             else { return nil }
-            item.configure(
-                content: content.uploader,
-                signatureExpanded: signatureExpanded,
-                imagePipeline: imagePipeline,
-                onToggleSignature: { [weak self] in self?.toggleSignature() }
-            )
+            configureUploader(item, content: content.uploader)
             return item
         case .summary:
             guard
@@ -369,10 +387,17 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
                 onPrevious: { [weak self] in self?.actions.previousReplyPage(rootID) },
                 onNext: { [weak self] in self?.actions.nextReplyPage(rootID) },
                 onRetry: { [weak self] in self?.actions.retryReplies(rootID) },
-                onOpenLink: { [weak self] in self?.actions.openCommentLink($0) },
+                onOpenLink: { [weak self] target in
+                    self?.releasingFocus { $0.actions.openCommentLink(target) }
+                },
                 onOpenPictures: { [weak self] in
                     self?.actions.openCommentPictures($0)
-                }
+                },
+                onOpenAuthorSpace: actions.openCommentAuthorSpace == nil
+                    ? nil
+                    : { [weak self] author in
+                        self?.releasingFocus { $0.actions.openCommentAuthorSpace?(author) }
+                    }
             )
             return item
         case .commentsFooter:
@@ -461,8 +486,11 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
         if strategy == .reloadChangedItems {
             snapshotGeneration &+= 1
             updateLayoutEntries(invalidating: changedItemIDs)
+            let reloadedItemIDs = changedItemIDs.subtracting(
+                reconfigureVisibleUploader(in: changedItemIDs)
+            )
             let indexPaths = Set(
-                changedItemIDs.compactMap { dataSource.indexPath(for: $0) }
+                reloadedItemIDs.compactMap { dataSource.indexPath(for: $0) }
             )
             if !indexPaths.isEmpty {
                 collectionView.reloadItems(at: indexPaths)
@@ -537,7 +565,7 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
         synchronizeDocumentFrame()
         applyPendingViewportIntent(fallbackAnchor: anchor)
         scheduleRefinement()
-        updateCommentsTopButton()
+        updateTopButton()
         scheduleNextCommentsPageIfNeeded()
     }
 
@@ -586,7 +614,6 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
         switch itemID {
         case .uploader:
             hasher.combine(String(reflecting: content.uploader))
-            hasher.combine(signatureExpanded)
         case .summary:
             hasher.combine(content.summary)
             hasher.combine(summaryExpanded)
@@ -615,11 +642,7 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
     ) -> CGFloat {
         switch itemID {
         case .uploader:
-            return NativePlaybackSidebarItemMeasurement.uploader(
-                content.uploader,
-                width: width,
-                signatureExpanded: signatureExpanded
-            )
+            return NativePlaybackSidebarItemMeasurement.uploader(content.uploader, width: width)
         case .summary:
             return NativePlaybackSidebarItemMeasurement.summary(
                 content.summary,
@@ -668,12 +691,6 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
     private func toggleSummary() {
         mutateItem(.summary(bvid: presentation.content?.bvid ?? "")) {
             summaryExpanded.toggle()
-        }
-    }
-
-    private func toggleSignature() {
-        mutateItem(.uploader(bvid: presentation.content?.bvid ?? "")) {
-            signatureExpanded.toggle()
         }
     }
 
@@ -740,7 +757,7 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
         synchronizeDocumentFrame()
         if let anchor { restore(anchor) }
         scheduleRefinement()
-        updateCommentsTopButton()
+        updateTopButton()
         scheduleNextCommentsPageIfNeeded()
     }
 
@@ -878,27 +895,19 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
         }
     }
 
-    private func updateCommentsTopButton() {
-        guard !presentation.overlay.blocksContent,
-            let itemID = itemIDs.first(where: {
-                if case .commentsHeader = $0 { return true }
-                return false
-            }), let indexPath = dataSource?.indexPath(for: itemID),
-            let attributes = layout.layoutAttributesForItem(at: indexPath)
-        else {
-            rootView.commentsTopButton.isHidden = true
-            return
-        }
-        let viewport = rootView.scrollView.documentVisibleRect
-        rootView.commentsTopButton.isHidden =
-            attributes.frame.minY - viewport.minY >= -280
+    private func updateTopButton() {
+        rootView.scrollView.updateTopButtonVisibility(
+            isBlocked: presentation.overlay.blocksContent
+        )
     }
 
-    @objc private func scrollCommentsToTop() {
-        scrollToCommentsHeader()
+    /// “返回顶部”回到侧栏最上面（UP 主信息），而不只是评论区。
+    @objc private func scrollToTopFromButton() {
+        scroll(to: 0, animated: true)
     }
 
-    func scroll(to y: CGFloat) {
+    /// 只有用户点“返回顶部”时 `animated` 为 true；其余程序内部定位直接跳转。
+    func scroll(to y: CGFloat, animated: Bool = false) {
         synchronizeDocumentFrame()
         let maximumY = NativeVideoScrollCoordinateSpace.maximumLogicalOffset(
             documentLength: layout.collectionViewContentSize.height,
@@ -911,7 +920,8 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
             toPhysicalOffset: NativeVideoScrollCoordinateSpace.physicalOffset(
                 logicalOffset: logicalTarget,
                 leadingInset: rootView.scrollView.contentInsets.top
-            )
+            ),
+            animated: animated
         )
     }
 
@@ -923,7 +933,16 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
         rootView.scrollView.setAccessibilityHidden(blocked)
         rootView.scrollView.isHidden = false
         collectionView.isHidden = blocked
-        updateCommentsTopButton()
+        updateTopButton()
+    }
+
+    /// 打开空间或跟随链接前先交出侧栏里的焦点，再执行动作。
+    ///
+    /// 空间层打开时侧栏会被真正隐藏；焦点若还留在其中（例如刚点过的评论正文、选中过的简介），
+    /// 系统会在空间层进场动画中途改派焦点，引发额外布局，进场变成从中间宽度伸展开。
+    private func releasingFocus(_ action: (NativePlaybackSidebarController) -> Void) {
+        releaseCollectionFirstResponder()
+        action(self)
     }
 
     private func releaseCollectionFirstResponder() {
@@ -980,7 +999,7 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
     }
 
     private func viewportDidScroll() {
-        updateCommentsTopButton()
+        updateTopButton()
         scheduleNextCommentsPageIfNeeded()
     }
 

@@ -1,3 +1,4 @@
+@preconcurrency import AVFoundation
 import AudioToolbox
 import Foundation
 import Testing
@@ -9,25 +10,18 @@ struct LoudnessNormalizationPolicyTests {
     private let policy = LoudnessNormalizationPolicy()
 
     @Test
-    func appliesLoudnessDifferenceAndDBConversion() {
+    func louderThanTargetIsTurnedDownToMinus18LUFS() {
         let gain = policy.linearGain(
-            for: metadata(measuredI: -17, measuredTP: -5)
+            for: metadata(measuredI: -10, measuredTP: 1)
         )
 
-        #expect(abs(gain - Float(pow(10, 3.0 / 20))) < 0.0001)
+        #expect(abs(gain - Float(pow(10, -8.0 / 20))) < 0.0001)
     }
 
-    @Test
-    func truePeakAndProductCapsConstrainBoost() {
-        let peakLimited = policy.linearGain(
-            for: metadata(measuredI: -30, measuredTP: -2)
-        )
-        let productLimited = policy.linearGain(
-            for: metadata(measuredI: -30, measuredTP: -20)
-        )
-
-        #expect(abs(peakLimited - Float(pow(10, 1.0 / 20))) < 0.0001)
-        #expect(abs(productLimited - Float(pow(10, 6.0 / 20))) < 0.0001)
+    /// 只压低不放大：即使峰值余量充足，安静的音轨也保持原样。
+    @Test(arguments: [-18.0, -25.0, -40.0])
+    func targetOrQuieterKeepsOriginalLoudness(measuredI: Double) {
+        #expect(policy.linearGain(for: metadata(measuredI: measuredI, measuredTP: -20)) == 1)
     }
 
     @Test
@@ -153,6 +147,98 @@ struct LoudnessNormalizationPolicyTests {
         }
 
         #expect(samples == [2])
+    }
+
+    /// 只有至少一条音轨需要压低时才安装 tap；全都不比目标响（或没有响度数据）时不装。
+    @Test
+    func tapIsInstalledOnlyWhenSomeTrackNeedsAttenuation() {
+        let quiet = audioTrack(role: .original, metadata: metadata(measuredI: -25, measuredTP: -3))
+        let loud = audioTrack(
+            role: .machineGenerated,
+            languageTag: "en",
+            metadata: metadata(measuredI: -10, measuredTP: 1)
+        )
+        let unmeasured = audioTrack(role: .original, metadata: nil)
+
+        #expect(!policy.needsAttenuation([quiet, unmeasured]))
+        #expect(policy.needsAttenuation([quiet, loud]))
+        #expect(!policy.needsAttenuation([]))
+    }
+
+    /// 语言按 BCP 47 补全后比较：同一语言的不同写法能对上，不同语言或文字不能。
+    @Test(
+        arguments: [
+            (nil, "und", true),
+            ("und", nil, true),
+            ("zh-Hans", "zh-Hans", true),
+            ("zh-Hans", "zh_CN", true),
+            ("zh-Hans", "zh-Hans-CN", true),
+            ("zh-Hant", "zh-TW", true),
+            ("en", "en-US", true),
+            ("ja", "JA", true),
+            ("zh-Hans", "zh-Hant", false),
+            ("en", "ja", false),
+            ("en", "und", false),
+            (nil, "en", false)
+        ] as [(String?, String?, Bool)]
+    )
+    func audioTrackLanguagesMatchAcrossTagSpellings(
+        expected: String?,
+        actual: String?,
+        matches: Bool
+    ) {
+        #expect(LoudnessAudioTrackMatching.sameLanguage(expected, actual) == matches)
+    }
+
+    /// 选项按语言与角色找回音轨，与显示名无关；角色不同的同语言选项对不上。
+    @Test
+    func audioTrackMatchingUsesLanguageAndRoleOnly() {
+        let original = audioTrack(role: .original, metadata: nil)
+        let dub = audioTrack(role: .machineGenerated, languageTag: "zh-Hans", metadata: nil)
+        func characteristics(
+            _ values: Set<String>
+        ) -> (AVMediaCharacteristic) -> Bool {
+            { values.contains($0.rawValue) }
+        }
+
+        #expect(
+            LoudnessAudioTrackMatching.matches(
+                original,
+                optionLanguageTag: "und",
+                optionHasCharacteristic: characteristics(["public.original-content"])
+            )
+        )
+        #expect(
+            LoudnessAudioTrackMatching.matches(
+                dub,
+                optionLanguageTag: "zh_CN",
+                optionHasCharacteristic: characteristics(["public.machine-generated"])
+            )
+        )
+        #expect(
+            !LoudnessAudioTrackMatching.matches(
+                dub,
+                optionLanguageTag: "zh-Hans",
+                optionHasCharacteristic: characteristics(["public.original-content"])
+            )
+        )
+    }
+
+    private func audioTrack(
+        role: PlaybackAudioTrack.Role,
+        languageTag: String? = nil,
+        metadata: PlaybackLoudnessMetadata?
+    ) -> PlaybackAudioTrack {
+        PlaybackAudioTrack(
+            id: "\(role)-\(languageTag ?? "und")",
+            displayName: "系统本地化后的名称",
+            languageTag: languageTag,
+            role: role,
+            isDefault: role == .original,
+            isAutoselect: role == .original,
+            loudnessMetadata: metadata,
+            representations: []
+        )
     }
 
     private func metadata(

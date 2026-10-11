@@ -214,6 +214,7 @@ final class DanmakuPlayerView: AVPlayerView {
     private weak var observedPlayer: AVPlayer?
     private var playerItemObservation: NSKeyValueObservation?
     private var playerTimeControlObservation: NSKeyValueObservation?
+    private var playerWaitingReasonObservation: NSKeyValueObservation?
     private var playerItemTimeJumpObservers = NativeVideoNotificationObservers()
     private var blocksNativePlaybackInteraction = false
     private var lastInitialFocusIdentity: String?
@@ -327,6 +328,7 @@ final class DanmakuPlayerView: AVPlayerView {
         )
         setAccessibilityHidden(blocked)
         keyboardShortcuts.setKeyboardInputEnabled(!blocked)
+        updatePlaybackActivity()
         guard stateChanged else {
             if !blocked {
                 applyPendingInitialKeyboardFocus()
@@ -356,6 +358,22 @@ final class DanmakuPlayerView: AVPlayerView {
 
     func setPreviewEndedNotice(_ message: String?) {
         overlayModel.setPreviewEndedMessage(message)
+    }
+
+    private func updatePlaybackActivity() {
+        let item = player?.currentItem
+        overlayModel.setPreparationActivity(
+            isPreparing: blocksNativePlaybackInteraction,
+            hasCurrentItem: item != nil
+        )
+        overlayModel.setStalled(
+            PlayerStallPolicy.isStalled(
+                isPreparing: blocksNativePlaybackInteraction,
+                isItemReady: item?.status == .readyToPlay,
+                timeControlStatus: player?.timeControlStatus ?? .paused,
+                reasonForWaitingToPlay: player?.reasonForWaitingToPlay
+            )
+        )
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
@@ -413,6 +431,7 @@ final class DanmakuPlayerView: AVPlayerView {
                 self?.cancelMomentaryPlaybackRate()
                 self?.overlayModel.clearResumeNotice(markDismissed: true)
                 self?.startObservingCurrentItemTimeJumps()
+                self?.updatePlaybackActivity()
             }
         }
         playerTimeControlObservation = player.observe(
@@ -420,12 +439,24 @@ final class DanmakuPlayerView: AVPlayerView {
             options: [.new]
         ) {
             [weak self] _, change in
-            guard change.newValue == .paused else { return }
+            let paused = change.newValue == .paused
             Task { @MainActor in
-                self?.cancelMomentaryPlaybackRate()
+                if paused {
+                    self?.cancelMomentaryPlaybackRate()
+                }
+                self?.updatePlaybackActivity()
+            }
+        }
+        playerWaitingReasonObservation = player.observe(
+            \.reasonForWaitingToPlay,
+            options: [.new]
+        ) { [weak self] _, _ in
+            Task { @MainActor in
+                self?.updatePlaybackActivity()
             }
         }
         startObservingCurrentItemTimeJumps()
+        updatePlaybackActivity()
     }
 
     private func startObservingCurrentItemTimeJumps() {
@@ -446,6 +477,8 @@ final class DanmakuPlayerView: AVPlayerView {
         playerItemObservation = nil
         playerTimeControlObservation?.invalidate()
         playerTimeControlObservation = nil
+        playerWaitingReasonObservation?.invalidate()
+        playerWaitingReasonObservation = nil
         playerItemTimeJumpObservers.removeAll()
         observedPlayer = nil
     }

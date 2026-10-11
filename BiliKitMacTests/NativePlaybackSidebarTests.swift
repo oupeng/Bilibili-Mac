@@ -57,39 +57,89 @@ struct NativePlaybackSidebarTests {
 
     @Test
     @MainActor
-    func uploaderSignatureOverflowFollowsTheAvailableWidth() {
-        let content = VideoUploaderHeaderContent(
+    func uploaderSignatureStaysOneLineAtAnyWidth() {
+        let long = VideoUploaderHeaderContent(
             owner: VideoOwner(
                 id: 1,
                 name: "UP 主",
-                signature: String(repeating: "签名", count: 16)
+                signature: String(repeating: "签名", count: 40)
             )
         )
-        let wide = NativePlaybackUploaderGeometry(
-            content: content,
-            width: 488,
-            signatureExpanded: false
+        let short = VideoUploaderHeaderContent(
+            owner: VideoOwner(id: 1, name: "UP 主", signature: "短签名")
         )
-        let narrow = NativePlaybackUploaderGeometry(
-            content: content,
-            width: 408,
-            signatureExpanded: false
+        let wide = NativePlaybackUploaderGeometry(content: long, width: 720)
+        let narrow = NativePlaybackUploaderGeometry(content: long, width: 408)
+        let shortNarrow = NativePlaybackUploaderGeometry(content: short, width: 408)
+
+        // 长签名省略为一行，完整文字由悬停原地展开显示；高度不随宽度或长度变化。
+        #expect(
+            narrow.signatureTextFrame.height == NativePlaybackUploaderGeometry.signatureLineHeight
         )
-        let expanded = NativePlaybackUploaderGeometry(
-            content: content,
-            width: 408,
-            signatureExpanded: true
+        #expect(narrow.height == wide.height)
+        #expect(narrow.height == shortNarrow.height)
+        #expect(narrow.signatureTextFrame.maxX <= 408)
+    }
+
+    @Test
+    @MainActor
+    func uploaderNameCentersOnTheAvatarOnlyWithoutSignature() {
+        let avatarCenter = NativePlaybackSidebarItemMeasurement.avatarSize / 2
+        let withoutSignature = NativePlaybackUploaderGeometry(
+            content: VideoUploaderHeaderContent(
+                owner: VideoOwner(id: 1, name: "UP 主"),
+                profileState: .loaded(UploaderProfile())
+            ),
+            width: 520
+        )
+        let withSignature = NativePlaybackUploaderGeometry(
+            content: VideoUploaderHeaderContent(
+                owner: VideoOwner(id: 1, name: "UP 主", signature: "签名")
+            ),
+            width: 520
         )
 
-        #expect(!wide.signatureOverflows)
-        #expect(wide.signatureMaximumLines == nil)
-        #expect(wide.signatureToggleFrame.width == 0)
-        #expect(narrow.signatureOverflows)
-        #expect(narrow.signatureMaximumLines == 1)
-        #expect(narrow.signatureTextFrame.maxX <= narrow.signatureToggleFrame.minX)
-        #expect(expanded.signatureOverflows)
-        #expect(expanded.signatureMaximumLines == nil)
-        #expect(expanded.height > narrow.height)
+        #expect(withoutSignature.nameFrame.midY == avatarCenter)
+        #expect(withSignature.nameFrame.minY == 0)
+    }
+
+    /// 名片加载完成前名字保持默认色，不会先粉后灰地闪一下；大会员同时告知 VoiceOver。
+    @Test(
+        arguments: [
+            (VideoUploaderProfileState.loading, false),
+            (.loaded(UploaderProfile(isVIP: false)), false),
+            (.loaded(UploaderProfile(isVIP: true)), true)
+        ]
+    )
+    @MainActor
+    func uploaderNameColorOnlyReflectsLoadedVIPState(
+        profileState: VideoUploaderProfileState,
+        expectsVIP: Bool
+    ) throws {
+        let name = "测试 UP"
+        let item = NativePlaybackSidebarUploaderItem()
+        item.view.frame = NSRect(x: 0, y: 0, width: 408, height: 60)
+        item.configure(
+            content: VideoUploaderHeaderContent(
+                owner: VideoOwner(id: 1, name: name),
+                profileState: profileState
+            ),
+            imagePipeline: NativeVideoImagePipeline(),
+            onOpenSpace: nil
+        )
+
+        let nameLabel = try #require(
+            descendants(of: item.view).compactMap { $0 as? NSTextField }.first {
+                $0.stringValue == name
+            }
+        )
+        #expect(nameLabel.textColor == (expectsVIP ? .systemPink : .labelColor))
+        #expect(
+            nameLabel.accessibilityLabel()
+                == (expectsVIP
+                    ? AppStrings.localized("UP 主，\(name)，大会员")
+                    : AppStrings.localized("UP 主，\(name)"))
+        )
     }
 
     @Test
@@ -197,6 +247,73 @@ struct NativePlaybackSidebarTests {
         #expect(overlayOnly.changedItemIDs(comparedTo: original).isEmpty)
     }
 
+    /// 只有同一行原地从“名片加载中”变为结果时淡入；首次配置、复用与已加载后的变化照常立即生效。
+    @Test
+    @MainActor
+    func onlyArrivingUploaderProfileFadesIn() {
+        func content(_ state: VideoUploaderProfileState) -> VideoUploaderHeaderContent {
+            VideoUploaderHeaderContent(
+                owner: VideoOwner(id: 1, name: "UP 主"),
+                profileState: state
+            )
+        }
+        let loading = content(.loading)
+        let loaded = content(.loaded(UploaderProfile(signature: "签名", isVIP: true)))
+        let reloaded = content(.loaded(UploaderProfile(signature: "新签名")))
+
+        #expect(NativePlaybackUploaderProfileReveal.fades(from: loading, to: loaded))
+        #expect(!NativePlaybackUploaderProfileReveal.fades(from: nil, to: loaded))
+        #expect(!NativePlaybackUploaderProfileReveal.fades(from: loaded, to: reloaded))
+        #expect(!NativePlaybackUploaderProfileReveal.fades(from: loaded, to: loading))
+    }
+
+    /// 过渡只覆盖 UP 主行的前提：名片各状态下行高相同，下方行不会位移。
+    @Test(
+        arguments: [
+            VideoUploaderProfileState.loaded(UploaderProfile()),
+            .loaded(UploaderProfile(signature: String(repeating: "签名", count: 40)))
+        ]
+    )
+    @MainActor
+    func uploaderRowKeepsItsHeightWhenProfileArrives(loaded: VideoUploaderProfileState) {
+        func height(_ state: VideoUploaderProfileState) -> CGFloat {
+            NativePlaybackUploaderGeometry(
+                content: VideoUploaderHeaderContent(
+                    owner: VideoOwner(id: 1, name: "UP 主"),
+                    profileState: state
+                ),
+                width: 408
+            ).height
+        }
+
+        #expect(height(.loading) == height(loaded))
+    }
+
+    /// 认证优先于大会员，个人与机构认证分开，普通用户没有角标。
+    @Test(
+        arguments: [
+            (.personal(description: nil), false, .personalVerification),
+            (.personal(description: nil), true, .personalVerification),
+            (.organization(description: nil), true, .organizationVerification),
+            (nil, true, .vip),
+            (nil, false, nil)
+        ] as [(CommentVerification?, Bool, NativeCommentAvatarMark?)]
+    )
+    func commentAvatarMarkPrefersVerificationOverVIP(
+        verification: CommentVerification?,
+        isVIP: Bool,
+        expected: NativeCommentAvatarMark?
+    ) {
+        let author = CommentAuthor(
+            id: CommentAuthorID(rawValue: "author"),
+            name: "昵称",
+            isVIP: isVIP,
+            verification: verification
+        )
+
+        #expect(NativeCommentAvatarMark(author: author) == expected)
+    }
+
     @Test
     @MainActor
     func collectionUpdatePolicySeparatesStableRowsFromCommentAppend() throws {
@@ -255,28 +372,20 @@ struct NativePlaybackSidebarTests {
         )
     }
 
-    @Test
+    /// 只隐藏焦点视图时 AppKit 会把焦点交给下一个 key view，也就是侧栏外的控件；
+    /// 侧栏必须在隐藏前把焦点还给窗口。
+    @Test(arguments: SidebarFocus.allCases)
     @MainActor
-    func blockingOverlayReleasesHiddenSidebarFirstResponder() {
-        let controller = NativePlaybackSidebarController()
-        controller.rootView.frame = NSRect(x: 0, y: 0, width: 440, height: 600)
-        let window = NSWindow(
-            contentRect: controller.rootView.bounds,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
+    func blockingOverlayReturnsHiddenSidebarFirstResponderToWindow(focus: SidebarFocus) {
+        let (controller, window, outsideKeyView) = hostedSidebar()
+        let focused = focusInsideSidebar(
+            focus,
+            of: controller,
+            in: window,
+            nextKeyView: outsideKeyView
         )
-        window.contentView = controller.rootView
-        controller.update(
-            presentation: presentation(bvid: "BVCurrent"),
-            actions: actions
-        )
-        let selectableField = NSTextField(labelWithString: "可选择的标题")
-        selectableField.isSelectable = true
-        controller.rootView.scrollView.documentView?.addSubview(selectableField)
-        let fieldEditor = window.fieldEditor(true, for: selectableField)
-        #expect(fieldEditor != nil)
-        #expect(window.makeFirstResponder(fieldEditor))
+        #expect(focused != nil)
+        #expect(window.firstResponder === focused)
 
         controller.update(
             presentation: NativePlaybackSidebarPresentation(
@@ -286,63 +395,65 @@ struct NativePlaybackSidebarTests {
             actions: actions
         )
 
-        #expect(window.firstResponder !== fieldEditor)
+        #expect(window.firstResponder === window)
         controller.tearDown()
         window.contentView = NSView()
     }
 
-    @Test
+    /// 打开空间前侧栏先把焦点还给窗口：侧栏随后会被空间层盖住并隐藏，焦点留在其中会让系统在
+    /// 空间层进场动画中途改派焦点，进场变成从中间宽度伸展。
+    @Test(arguments: SidebarFocus.allCases)
     @MainActor
-    func teardownReleasesDirectSidebarTextViewFirstResponderBeforeDetachingDocument() {
-        let controller = NativePlaybackSidebarController()
-        controller.rootView.frame = NSRect(x: 0, y: 0, width: 440, height: 600)
-        let window = NSWindow(
-            contentRect: controller.rootView.bounds,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
+    func openingTheSpaceReturnsSidebarFirstResponderToWindowFirst(
+        focus: SidebarFocus
+    ) throws {
+        let (controller, window, outsideKeyView) = hostedSidebar()
+        var focusWhenOpening: [NSResponder?] = []
+        var spaceActions = actions
+        spaceActions.openUploaderSpace = { focusWhenOpening.append(window.firstResponder) }
+        controller.update(presentation: presentation(bvid: "BVCurrent"), actions: spaceActions)
+        controller.rootView.layoutSubtreeIfNeeded()
+        let focused = focusInsideSidebar(
+            focus,
+            of: controller,
+            in: window,
+            nextKeyView: outsideKeyView
         )
-        window.contentView = controller.rootView
-        controller.update(
-            presentation: presentation(bvid: "BVCurrent"),
-            actions: actions
+        #expect(focused != nil)
+        #expect(window.firstResponder === focused)
+        let spaceButton = try #require(
+            descendants(of: controller.rootView).compactMap { $0 as? NSButton }.first {
+                $0.accessibilityLabel() == AppStrings.localized("查看空间")
+            }
         )
-        let textView = NSTextView()
-        controller.rootView.scrollView.documentView?.addSubview(textView)
-        #expect(window.makeFirstResponder(textView))
 
+        spaceButton.performClick(nil)
+
+        #expect(focusWhenOpening.count == 1)
+        #expect(focusWhenOpening.first.flatMap { $0 } === window)
         controller.tearDown()
-
-        #expect(window.firstResponder !== textView)
         window.contentView = NSView()
     }
 
-    @Test
+    /// 拆掉文档时 AppKit 会把窗口设回 first responder，但直接持有焦点的文本视图收不到
+    /// resign（field editor 会随文本框结束编辑而 resign）；侧栏必须在拆文档前正常结束焦点。
+    @Test(arguments: SidebarFocus.allCases)
     @MainActor
-    func teardownReleasesSidebarSharedFieldEditorBeforeDetachingDocument() {
-        let controller = NativePlaybackSidebarController()
-        controller.rootView.frame = NSRect(x: 0, y: 0, width: 440, height: 600)
-        let window = NSWindow(
-            contentRect: controller.rootView.bounds,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
+    func teardownResignsSidebarFirstResponderBeforeDetachingDocument(focus: SidebarFocus) {
+        let (controller, window, outsideKeyView) = hostedSidebar()
+        let focused = focusInsideSidebar(
+            focus,
+            of: controller,
+            in: window,
+            nextKeyView: outsideKeyView
         )
-        window.contentView = controller.rootView
-        controller.update(
-            presentation: presentation(bvid: "BVCurrent"),
-            actions: actions
-        )
-        let selectableField = NSTextField(labelWithString: "可选择的标题")
-        selectableField.isSelectable = true
-        controller.rootView.scrollView.documentView?.addSubview(selectableField)
-        let fieldEditor = window.fieldEditor(true, for: selectableField)
-        #expect(fieldEditor != nil)
-        #expect(window.makeFirstResponder(fieldEditor))
+        #expect(focused != nil)
+        #expect(window.firstResponder === focused)
 
         controller.tearDown()
 
-        #expect(window.firstResponder !== fieldEditor)
+        #expect(focused?.didResign == true)
+        #expect(window.firstResponder === window)
         window.contentView = NSView()
     }
 
@@ -852,7 +963,9 @@ struct NativePlaybackSidebarTests {
                         location: memberRange.location,
                         length: memberRange.length
                     ),
-                    target: .member(CommentAuthorID(rawValue: "301"))
+                    target: .member(
+                        CommentAuthor(id: CommentAuthorID(rawValue: "301"), name: "回复用户")
+                    )
                 )
             ]
         )
@@ -881,11 +994,14 @@ struct NativePlaybackSidebarTests {
         #expect(
             rendered.linkTargets == [
                 .video(bvid: "BV1FixtureA1"),
-                .member(CommentAuthorID(rawValue: "301"))
+                .member(CommentAuthor(id: CommentAuthorID(rawValue: "301"), name: "回复用户"))
             ]
         )
         #expect(target(at: videoRange.location) == .video(bvid: "BV1FixtureA1"))
-        #expect(target(at: memberRange.location) == .member(CommentAuthorID(rawValue: "301")))
+        #expect(
+            target(at: memberRange.location)
+                == .member(CommentAuthor(id: CommentAuthorID(rawValue: "301"), name: "回复用户"))
+        )
         #expect(target(at: 0) == nil)
     }
 
@@ -987,7 +1103,8 @@ struct NativePlaybackSidebarTests {
             onNext: {},
             onRetry: {},
             onOpenLink: { _ in },
-            onOpenPictures: { openedGallery = $0 }
+            onOpenPictures: { openedGallery = $0 },
+            onOpenAuthorSpace: nil
         )
         item.view.layoutSubtreeIfNeeded()
 
@@ -1040,7 +1157,8 @@ struct NativePlaybackSidebarTests {
             onNext: {},
             onRetry: {},
             onOpenLink: { _ in },
-            onOpenPictures: { _ in }
+            onOpenPictures: { _ in },
+            onOpenAuthorSpace: nil
         )
         item.view.layoutSubtreeIfNeeded()
         focusWindow.makeFirstResponder(fallbackResponder)
@@ -1338,7 +1456,8 @@ struct NativePlaybackSidebarTests {
             onNext: {},
             onRetry: {},
             onOpenLink: { _ in },
-            onOpenPictures: { _ in }
+            onOpenPictures: { _ in },
+            onOpenAuthorSpace: nil
         )
         item.view.layoutSubtreeIfNeeded()
 
@@ -1348,6 +1467,119 @@ struct NativePlaybackSidebarTests {
             }
         )
         #expect(authorLabel.textColor == expectedColor)
+    }
+
+    /// 根评论与楼中楼回复的作者都提供“查看空间”，打开对应作者；MID 不合法的作者没有入口。
+    @Test
+    @MainActor
+    func commentAuthorsOfferSpaceEntryOnlyForValidMemberIDs() throws {
+        let rootAuthor = CommentAuthor(id: CommentAuthorID(rawValue: "1001"), name: "根评论作者")
+        let replyAuthor = CommentAuthor(id: CommentAuthorID(rawValue: "1002"), name: "回复作者")
+        let invalidAuthor = CommentAuthor(
+            id: CommentAuthorID(rawValue: "author-x"),
+            name: "无效作者"
+        )
+        let presentation = NativePlaybackCommentThreadPresentation(
+            subject: .video(aid: 700_001),
+            thread: commentThread(
+                id: 31,
+                message: "正文",
+                replyCount: 2,
+                preview: [
+                    comment(id: 32, rootID: 31, message: "回复", author: replyAuthor),
+                    comment(id: 33, rootID: 31, message: "回复", author: invalidAuthor)
+                ],
+                author: rootAuthor
+            ),
+            replyState: nil
+        )
+        var opened: [CommentAuthorID] = []
+        let item = NativePlaybackCommentThreadItem()
+        item.view.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: 408,
+            height: NativePlaybackCommentsItemMeasurement.thread(presentation, width: 408)
+        )
+        item.configure(
+            presentation: presentation,
+            textRenderer: makeCommentTextRenderer(),
+            avatarLoader: makeCommentAvatarLoader(),
+            pictureLoader: makeCommentPictureLoader(),
+            onTextLayoutChange: {},
+            onExpand: {},
+            onCollapse: {},
+            onPrevious: {},
+            onNext: {},
+            onRetry: {},
+            onOpenLink: { _ in },
+            onOpenPictures: { _ in },
+            onOpenAuthorSpace: { opened.append($0.id) }
+        )
+        item.view.layoutSubtreeIfNeeded()
+        func spaceAction(for name: String) throws -> NSAccessibilityCustomAction? {
+            let label = try #require(
+                descendants(of: item.view).compactMap { $0 as? NSTextField }.first {
+                    $0.stringValue == name
+                }
+            )
+            return label.accessibilityCustomActions()?.first
+        }
+
+        let rootAction = try #require(try spaceAction(for: rootAuthor.name))
+        #expect(rootAction.name == AppStrings.localized("查看空间"))
+        #expect(rootAction.handler?() == true)
+        #expect(try spaceAction(for: replyAuthor.name)?.handler?() == true)
+        #expect(try spaceAction(for: invalidAuthor.name) == nil)
+        #expect(opened == [rootAuthor.id, replyAuthor.id])
+    }
+
+    /// 进入空间的身份：正整数 MID、评论昵称，头像经评论资源解析器取得。
+    @Test
+    func commentAuthorSpaceOwnerUsesMemberIDAndResolvedAvatar() throws {
+        let avatar = CommentAssetReference()
+        let avatarURL = try #require(URL(string: "https://i0.hdslb.com/bfs/face/a.jpg"))
+        let resolver: CommentAssetURLResolver = { $0 == avatar ? avatarURL : nil }
+        let author = CommentAuthor(
+            id: CommentAuthorID(rawValue: "1001"),
+            name: "评论作者",
+            avatar: avatar
+        )
+
+        #expect(
+            NativePlaybackCommentAuthorSpace.owner(for: author, resolveAvatar: resolver)
+                == VideoOwner(id: 1001, name: "评论作者", avatarURL: avatarURL)
+        )
+        for rawValue in ["", "0", "-1", "author-x"] {
+            let invalid = CommentAuthor(id: CommentAuthorID(rawValue: rawValue), name: "无效")
+            #expect(!NativePlaybackCommentAuthorSpace.isOpenable(invalid))
+            #expect(
+                NativePlaybackCommentAuthorSpace.owner(for: invalid, resolveAvatar: resolver)
+                    == nil
+            )
+        }
+    }
+
+    /// 正文 @ 提及在应用内打开空间；其他链接、以及没有空间入口时，交给原有处理。
+    @Test
+    func commentMentionLinksOpenTheSpaceInsideTheApp() {
+        let mentioned = CommentAuthor(id: CommentAuthorID(rawValue: "301"), name: "回复用户")
+        var openedSpaces: [CommentAuthor] = []
+        var otherLinks: [CommentLinkTarget] = []
+        func open(_ target: CommentLinkTarget, hasSpace: Bool) {
+            NativePlaybackCommentAuthorSpace.openLink(
+                target,
+                openSpace: hasSpace ? { openedSpaces.append($0) } : nil,
+                otherwise: { otherLinks.append($0) }
+            )
+        }
+
+        open(.member(mentioned), hasSpace: true)
+        open(.video(bvid: "BV1FixtureA1"), hasSpace: true)
+        open(.member(mentioned), hasSpace: false)
+
+        #expect(openedSpaces == [mentioned])
+        #expect(otherLinks == [.video(bvid: "BV1FixtureA1"), .member(mentioned)])
     }
 
     @Test(arguments: [2, 3])
@@ -1390,7 +1622,8 @@ struct NativePlaybackSidebarTests {
             onNext: {},
             onRetry: {},
             onOpenLink: { _ in },
-            onOpenPictures: { _ in }
+            onOpenPictures: { _ in },
+            onOpenAuthorSpace: nil
         )
         item.view.layoutSubtreeIfNeeded()
 
@@ -1707,6 +1940,100 @@ struct NativePlaybackSidebarTests {
         )
     }
 
+    /// 侧栏文档里真正能拿到焦点的两类 responder：可选择的文本视图本身，以及可选择文本框
+    /// 编辑会话里由窗口共享的 field editor。
+    enum SidebarFocus: CaseIterable {
+        case selectableTextView
+        case textFieldEditor
+    }
+
+    final class ResignRecordingTextView: NSTextView {
+        private(set) var didResign = false
+
+        override func resignFirstResponder() -> Bool {
+            didResign = true
+            return super.resignFirstResponder()
+        }
+    }
+
+    /// 用可记录 resign 的 field editor 代替窗口共享的 field editor。
+    final class RecordingFieldEditorWindow: NSWindow {
+        private lazy var recordingFieldEditor: ResignRecordingTextView = {
+            let fieldEditor = ResignRecordingTextView()
+            fieldEditor.isFieldEditor = true
+            return fieldEditor
+        }()
+
+        override func fieldEditor(_ createFlag: Bool, for object: Any?) -> NSText? {
+            recordingFieldEditor
+        }
+    }
+
+    /// 把侧栏装进窗口，并在侧栏外放一个可接焦点的视图，代表窗口里的其他控件。
+    @MainActor
+    private func hostedSidebar() -> (
+        controller: NativePlaybackSidebarController,
+        window: NSWindow,
+        outsideKeyView: NSView
+    ) {
+        let controller = NativePlaybackSidebarController()
+        controller.rootView.frame = NSRect(x: 0, y: 0, width: 440, height: 600)
+        let window = RecordingFieldEditorWindow(
+            contentRect: controller.rootView.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = controller.rootView
+        controller.update(
+            presentation: presentation(bvid: "BVCurrent"),
+            actions: actions
+        )
+        let outsideKeyView = selectableTextView()
+        controller.rootView.addSubview(outsideKeyView)
+        return (controller, window, outsideKeyView)
+    }
+
+    /// 让焦点真正落进侧栏文档并返回持有焦点的 responder。
+    ///
+    /// 直接把裸 field editor 设为 first responder 不会生效（窗口自己会接回焦点），所以
+    /// field editor 必须来自文本框真正开始的编辑会话。AppKit 隐藏焦点视图时沿持有焦点的
+    /// responder 找下一个 key view，因此把它（而不是文本框）的下一个 key view 指向侧栏外。
+    @MainActor
+    private func focusInsideSidebar(
+        _ focus: SidebarFocus,
+        of controller: NativePlaybackSidebarController,
+        in window: NSWindow,
+        nextKeyView outsideKeyView: NSView
+    ) -> ResignRecordingTextView? {
+        let documentView = controller.rootView.scrollView.documentView
+        let focused: ResignRecordingTextView?
+        switch focus {
+        case .selectableTextView:
+            let textView = selectableTextView()
+            documentView?.addSubview(textView)
+            window.makeFirstResponder(textView)
+            focused = textView
+        case .textFieldEditor:
+            let selectableField = NSTextField(labelWithString: "可选择的标题")
+            selectableField.frame = NSRect(x: 0, y: 0, width: 200, height: 24)
+            selectableField.isSelectable = true
+            documentView?.addSubview(selectableField)
+            selectableField.selectText(nil)
+            focused = selectableField.currentEditor() as? ResignRecordingTextView
+        }
+        focused?.nextKeyView = outsideKeyView
+        return focused
+    }
+
+    @MainActor
+    private func selectableTextView() -> ResignRecordingTextView {
+        let textView = ResignRecordingTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
+        textView.isEditable = false
+        textView.isSelectable = true
+        return textView
+    }
+
     @MainActor
     private func presentation(bvid: String) -> NativePlaybackSidebarPresentation {
         presentation(
@@ -1726,7 +2053,9 @@ struct NativePlaybackSidebarTests {
                 bvid: bvid,
                 uploader: VideoUploaderHeaderContent(
                     owner: context.detail.owner,
-                    signatureState: .loaded(context.detail.owner.signature)
+                    profileState: .loaded(
+                        UploaderProfile(signature: context.detail.owner.signature)
+                    )
                 ),
                 summary: context.detail.summary,
                 selection: selectionProjection(context: context),

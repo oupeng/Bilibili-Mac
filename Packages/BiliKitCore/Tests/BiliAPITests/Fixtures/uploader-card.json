@@ -9,7 +9,7 @@
       "sign": "用影像记录生活",
       "fans": 123,
       "likes": 456,
-      "vip": { "type": 2 },
+      "vip": { "type": 2, "status": 1, "vipType": 2, "vipStatus": 1 },
       "sex": "保密"
     }
   }

@@ -54,10 +54,23 @@ struct PlaybackSourceSettingsTests {
             #expect(store.load().loudnessNormalizationEnabled)
             defaults.set(
                 "damaged",
-                forKey: "playback.loudnessNormalization.enabled"
+                forKey: "playback.loudnessAttenuation.enabled"
             )
             #expect(!store.load().loudnessNormalizationEnabled)
             #expect(store.load().selection == .serverAkamai)
+        }
+    }
+
+    /// 旧版实验开关（可放大、仅 macOS 26）含义不同：升级后不沿用，需要用户重新开启，残留会被清掉。
+    @Test @MainActor
+    func legacyExperimentalLoudnessSettingIsNotCarriedOver() {
+        withIsolatedDefaults { defaults in
+            let store = UserDefaultsPlaybackSourcePreferenceStore(defaults: defaults)
+            store.save(PlaybackSourcePreferenceRecord(selection: .serverAkamai))
+            defaults.set(true, forKey: "playback.loudnessNormalization.enabled")
+
+            #expect(!store.load().loudnessNormalizationEnabled)
+            #expect(defaults.object(forKey: "playback.loudnessNormalization.enabled") == nil)
         }
     }
 

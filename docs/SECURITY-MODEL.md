@@ -51,8 +51,11 @@
 - 调用方已带 `Cookie`、`Authorization` 或 `X-CSRF-Token` 时拒绝；每次授权生成新请求，不缓存 header。
 - `BiliAPIClient` 的 endpoint 扩展逐请求决定匿名或账户读取，并独占 path/query schema；请求 builder
   只在 `BiliAPI` 内部可见，adapter 不构造 `RequestAccess`；授权器不复制业务规则。
-- 本地明确无凭据时匿名请求同一 endpoint；凭据损坏、过期、Keychain 不可用、403/412、业务拒绝、
-  非 JSON、redirect 一律失败关闭，不自动匿名重试。
+- 本地明确无凭据时的行为由各 endpoint 决定：多数登录增强读取匿名请求同一 endpoint；主播放
+  playurl 改用带游客参数的匿名请求；观看历史、UP 主空间投稿（匿名会被间歇风控）、字幕目录、测速样本
+  等只按账户读取，直接失败。内容域把“无凭据”映射为“需要登录”，与“凭据失效”区分，只有后者触发
+  账户复核。凭据损坏、过期、Keychain 不可用、403/412、业务拒绝、非 JSON、redirect 一律失败关闭，
+  不自动匿名重试。
 - WBI key 的 nav 请求保持匿名。
 
 **唯一写能力：观看进度**（`BiliPlaybackHeartbeatRequestAuthorizer`）
@@ -81,7 +84,7 @@ storage、无 URL cache，并拒绝 redirect。`PublicHTTPSURLPolicy` 是基线�
 | 字幕正文 | `SubtitleURLPolicy`：`https://aisubtitle.hdslb.com/bfs/...` | 正文 ≤ 2 MiB；新主机先失败关闭 |
 | 评论头像、表情、正文图片 | `i0`／`i1`／`i2.hdslb.com` 的 `/bfs/` 路径 | 拒绝 query、fragment、点段、编码分隔符 |
 | 视频封面 | 接口返回的 HTTPS URL（`http:`、协议相对地址升级为 HTTPS） | 由图片管线限制 |
-| 评论外链 | 视频链接只回送合法 BVID；成员只允许正整数 MID → `space.bilibili.com`；其他目标经公开 HTTPS 形状复核 | 仅用户点击后交给系统 `OpenURLAction`；不预取、不解析 DNS、不附加凭据 |
+| 评论外链 | 视频链接只回送合法 BVID；@ 成员只允许正整数 MID，在应用内打开空间，仅空间不可用时才回退到 `space.bilibili.com`；其他目标经公开 HTTPS 形状复核 | 仅用户点击后交给系统 `OpenURLAction`；不预取、不解析 DNS、不附加凭据 |
 
 - 弹幕分段与评论页须通过状态、Content-Type 与 2 MiB 上限，再交给解码器；JSON、protobuf、HTML 错误页和
   空响应不能互相降级解析。未知接口状态失败关闭。
@@ -136,5 +139,5 @@ storage、无 URL cache，并拒绝 redirect。`PublicHTTPSURLPolicy` 是基线�
 
 - Web QR 与各 Web 接口未公开，可能无通知漂移；漂移应表现为失败关闭，而不是降级。
 - Keychain 不能抵御已控制当前用户会话、可调试进程或可读屏幕的攻击者。
-- 响度 tap 依赖 macOS 26 未文档化行为；未回调只能表现为静默 unity。
+- 响度 tap 只在 macOS 27 起官方支持的路径上安装；未回调或格式不符只能表现为静默 unity。
 - 签名私钥丢失时，拒绝降级策略可能要求用户手动安装新版。

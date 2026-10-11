@@ -2,7 +2,7 @@
 import BiliModels
 import Foundation
 
-/// 实验性响度均一化（仅 macOS 26）的 item 级 owner：安装 tap，并随系统音轨选择更新增益。
+/// 响度均一化（macOS 27 起）的 item 级 owner：安装 tap，并随系统音轨选择更新增益。
 ///
 /// `clear` 让在途的音轨选择更新全部失效；元数据缺失、音轨无法唯一映射或查询失败时保持 unity。
 @MainActor
@@ -21,19 +21,15 @@ final class LoudnessNormalizationController {
         }
     }
 
-    /// 在 item 交给 AVPlayer 前安装 tap；运行时、开关或元数据不满足时保持原样。
+    /// 在 item 交给 AVPlayer 前安装 tap；系统版本、开关不满足，或没有任何音轨需要压低时保持原样。
     func install(
         on item: AVPlayerItem,
         audioTracks: [SelectedPlaybackAudioTrack],
         enabled: Bool
     ) {
-        guard
-            LoudnessNormalizationRuntimePolicy.shouldInstall(
-                enabled: enabled,
-                hasMetadata: audioTracks.contains {
-                    $0.track.loudnessMetadata != nil
-                }
-            ),
+        guard #available(macOS 27.0, *),
+            enabled,
+            LoudnessNormalizationPolicy().needsAttenuation(audioTracks.map(\.track)),
             let defaultTrack = audioTracks.first(where: { $0.track.isDefault }),
             let tap = LoudnessProcessingTap.make(
                 initialGain: LoudnessNormalizationPolicy().linearGain(
@@ -103,7 +99,11 @@ final class LoudnessNormalizationController {
             let option = item.currentMediaSelection.selectedMediaOption(in: group)
         {
             let matches = audioTracks.filter {
-                Self.matches($0, option: option)
+                LoudnessAudioTrackMatching.matches(
+                    $0,
+                    optionLanguageTag: option.extendedLanguageTag ?? option.locale?.identifier,
+                    optionHasCharacteristic: option.hasMediaCharacteristic
+                )
             }
             metadata = matches.count == 1 ? matches[0].loudnessMetadata : nil
         } else {
@@ -121,25 +121,5 @@ final class LoudnessNormalizationController {
             && selectionOperationID == operationID
             && self.item === item
             && self.tap === tap
-    }
-
-    private static func matches(
-        _ track: PlaybackAudioTrack,
-        option: AVMediaSelectionOption
-    ) -> Bool {
-        let expectedLanguage = (track.languageTag ?? "und")
-            .replacingOccurrences(of: "_", with: "-")
-            .lowercased()
-        let actualLanguage = (option.locale?.identifier ?? "und")
-            .replacingOccurrences(of: "_", with: "-")
-            .lowercased()
-        let characteristic = AVMediaCharacteristic(
-            rawValue:
-                track.role == .original
-                ? "public.original-content" : "public.machine-generated"
-        )
-        return option.displayName == track.displayName
-            && actualLanguage == expectedLanguage
-            && option.hasMediaCharacteristic(characteristic)
     }
 }

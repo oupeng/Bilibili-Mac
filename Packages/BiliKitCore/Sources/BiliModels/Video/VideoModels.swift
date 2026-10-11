@@ -19,6 +19,17 @@ public struct VideoOwner: Sendable, Equatable {
     }
 }
 
+/// 播放页从 UP 主名片补充的公开资料。
+public struct UploaderProfile: Sendable, Equatable {
+    public let signature: String?
+    public let isVIP: Bool
+
+    public init(signature: String? = nil, isVIP: Bool = false) {
+        self.signature = signature
+        self.isVIP = isVIP
+    }
+}
+
 public struct VideoStatistics: Sendable, Equatable {
     public let viewCount: Int64
     public let danmakuCount: Int64

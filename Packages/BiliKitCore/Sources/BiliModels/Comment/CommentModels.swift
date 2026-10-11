@@ -33,6 +33,17 @@ public struct CommentAuthorID: Sendable, Equatable, Hashable {
     public init(rawValue: String) {
         self.rawValue = rawValue
     }
+
+    /// 只由十进制数字组成的正整数 MID；其他形状（含符号、空白、溢出）为 nil。
+    ///
+    /// 成员外链与评论作者进入空间共用这一判定。
+    public var memberID: Int64? {
+        guard !rawValue.isEmpty,
+            rawValue.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }),
+            let value = Int64(rawValue), value > 0
+        else { return nil }
+        return value
+    }
 }
 
 /// 资源的进程内不透明引用；远端 URL 只由具体 adapter 解析和消费。
@@ -164,7 +175,8 @@ public enum CommentEmoteSize: Sendable, Equatable, Hashable {
 
 public enum CommentLinkTarget: Sendable, Equatable, Hashable {
     case video(bvid: String)
-    case member(CommentAuthorID)
+    /// 正文里 @ 的用户；只填 MID、昵称与头像，进入空间时与评论作者走同一入口。
+    case member(CommentAuthor)
     case external(CommentExternalLinkReference)
 }
 

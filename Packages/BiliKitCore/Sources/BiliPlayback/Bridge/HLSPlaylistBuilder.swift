@@ -573,12 +573,7 @@ public struct HLSMasterPlaylistBuilder: Sendable {
     private func characteristics(
         for role: PlaybackAudioTrack.Role
     ) throws -> String {
-        switch role {
-        case .original:
-            try safeCharacteristics(["public.original-content"])
-        case .machineGenerated:
-            try safeCharacteristics(["public.machine-generated"])
-        }
+        try safeCharacteristics([role.hlsCharacteristic])
     }
 
     private func isIndependent(_ index: SegmentIndex) -> Bool {

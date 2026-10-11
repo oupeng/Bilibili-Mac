@@ -4,8 +4,14 @@ import Foundation
 import MediaToolbox
 import Synchronization
 
+/// 挂在 AVPlayerItem 全部音轨混音上的增益 tap。
+///
+/// macOS 27 起官方支持对 HLS 混音挂 tap；混音 tap 必须用指定处理格式创建，否则格式未定义。
+/// 处理格式固定为 `State.prepare` 接受的 32 位浮点非交错立体声，系统负责前后的格式转换。
 final class LoudnessProcessingTap: @unchecked Sendable {
     static let rampDurationSeconds = 0.150
+    static let processingSampleRate = 48_000.0
+    static let processingChannelCount: UInt32 = 2
 
     private let state: State
     private let tap: MTAudioProcessingTap
@@ -15,8 +21,11 @@ final class LoudnessProcessingTap: @unchecked Sendable {
         self.tap = tap
     }
 
+    @available(macOS 27.0, *)
     static func make(initialGain: Float) -> LoudnessProcessingTap? {
-        guard initialGain.isFinite, initialGain > 0 else { return nil }
+        guard initialGain.isFinite, initialGain > 0,
+            let processingFormat = processingFormat()
+        else { return nil }
         let state = State(initialGain: initialGain)
         let retainedState = Unmanaged.passRetained(state)
         var callbacks = MTAudioProcessingTapCallbacks(
@@ -39,10 +48,11 @@ final class LoudnessProcessingTap: @unchecked Sendable {
             process: process
         )
         var createdTap: MTAudioProcessingTap?
-        let status = MTAudioProcessingTapCreate(
+        let status = MTAudioProcessingTapCreateWithPreferredFormat(
             kCFAllocatorDefault,
             &callbacks,
             kMTAudioProcessingTapCreationFlag_PostEffects,
+            processingFormat,
             &createdTap
         )
         guard status == noErr, let createdTap else {
@@ -52,8 +62,10 @@ final class LoudnessProcessingTap: @unchecked Sendable {
         return LoudnessProcessingTap(state: state, tap: createdTap)
     }
 
+    @available(macOS 27.0, *)
     func makeAudioMix() -> AVAudioMix {
         let parameters = AVMutableAudioMixInputParameters()
+        parameters.trackID = AVAudioMixInputParametersTrackID.mixID.rawValue
         parameters.audioTapProcessor = tap
         let mix = AVMutableAudioMix()
         mix.inputParameters = [parameters]
@@ -62,6 +74,34 @@ final class LoudnessProcessingTap: @unchecked Sendable {
 
     func setTargetGain(_ gain: Float) {
         state.setTargetGain(gain)
+    }
+
+    private static func processingFormat() -> CMAudioFormatDescription? {
+        let bytesPerSample = UInt32(MemoryLayout<Float>.size)
+        var description = AudioStreamBasicDescription(
+            mSampleRate: processingSampleRate,
+            mFormatID: kAudioFormatLinearPCM,
+            mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked
+                | kAudioFormatFlagIsNonInterleaved,
+            mBytesPerPacket: bytesPerSample,
+            mFramesPerPacket: 1,
+            mBytesPerFrame: bytesPerSample,
+            mChannelsPerFrame: processingChannelCount,
+            mBitsPerChannel: bytesPerSample * 8,
+            mReserved: 0
+        )
+        var format: CMAudioFormatDescription?
+        let status = CMAudioFormatDescriptionCreate(
+            allocator: kCFAllocatorDefault,
+            asbd: &description,
+            layoutSize: 0,
+            layout: nil,
+            magicCookieSize: 0,
+            magicCookie: nil,
+            extensions: nil,
+            formatDescriptionOut: &format
+        )
+        return status == noErr ? format : nil
     }
 }
 
