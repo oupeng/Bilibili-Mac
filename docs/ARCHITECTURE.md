@@ -162,6 +162,16 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   来自评论接口的 `members`），未登录时空间层显示登录提示。按页替换，底部悬浮页码条翻页与跳页，不做
   无限流。
 
+### 搜索起始页
+
+- 未提交搜索时，搜索页主区显示 `SearchStartView`：本机搜索历史与 B 站热搜。点选任一词等同于填入
+  搜索框后提交，历史在 `performSearch()` 里统一写入。
+- 搜索历史由 App 的进程级 `SearchHistoryStore` 持有（`BiliKitMacApp` 创建，所有窗口共享），Feature
+  只接收词列表与删除、清除回调；持久化规则见 `SECURITY-MODEL.md` §6。
+- 热搜由每个窗口一个 `TrendingSearchViewModel` 持有，起始页每次出现时刷新；port 独立于
+  `FeedRepository`。首次加载失败只在热搜区显示错误与重试，刷新失败保留已显示的结果。图标地址在 BiliAPI 映射时经 `BiliBFSImageURLPolicy` 校验，由 App 注入的视图走
+  窗口图片管线加载，Feature 不接触图片管线。
+
 ### 认证
 
 Web QR 协议没有官方稳定文档，按“fixture 固定的外部观察”处理，未知状态一律失败关闭。秘密只在

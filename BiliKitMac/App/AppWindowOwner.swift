@@ -18,6 +18,7 @@ final class AppWindowOwner {
     let authenticationModel: AuthenticationViewModel
     let historyModel: WatchHistoryViewModel
     let uploaderSpaceModel: UploaderSpaceViewModel?
+    let trendingSearchModel: TrendingSearchViewModel?
     let playerContent: AnyView
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentVideoLinkResolver: CommentVideoLinkResolver
@@ -69,6 +70,7 @@ final class AppWindowOwner {
             authenticationModel: environment.makeAuthenticationViewModel(),
             historyModel: environment.makeWatchHistoryViewModel(),
             uploaderSpaceModel: uploaderSpaceModel,
+            trendingSearchModel: environment.makeTrendingSearchViewModel(),
             playerContent: environment.makePlayerView(
                 videoModel: videoModel,
                 danmakuModel: danmakuModel
@@ -115,6 +117,7 @@ final class AppWindowOwner {
         authenticationModel: AuthenticationViewModel,
         historyModel: WatchHistoryViewModel,
         uploaderSpaceModel: UploaderSpaceViewModel? = nil,
+        trendingSearchModel: TrendingSearchViewModel? = nil,
         playerContent: AnyView,
         commentAssetURLResolver: @escaping CommentAssetURLResolver = { _ in nil },
         commentVideoLinkResolver: @escaping CommentVideoLinkResolver = { _ in nil },
@@ -136,6 +139,7 @@ final class AppWindowOwner {
         self.authenticationModel = authenticationModel
         self.historyModel = historyModel
         self.uploaderSpaceModel = uploaderSpaceModel
+        self.trendingSearchModel = trendingSearchModel
         self.playerContent = playerContent
         self.commentAssetURLResolver = commentAssetURLResolver
         self.commentVideoLinkResolver = commentVideoLinkResolver

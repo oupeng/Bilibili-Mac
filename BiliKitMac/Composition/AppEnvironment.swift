@@ -28,6 +28,7 @@ struct AppEnvironment {
     private let feedRepository: any FeedRepository
     private let videoRepository: any VideoRepository
     private let relatedVideoRepository: any RelatedVideoRepository
+    private let trendingSearchRepository: any TrendingSearchRepository
     private let uploaderProfileRepository: any UploaderProfileRepository
     private let uploaderVideoRepository: any UploaderVideoRepository
     private let commentRepository: any CommentRepository
@@ -49,6 +50,7 @@ struct AppEnvironment {
         feedRepository: any FeedRepository,
         videoRepository: any VideoRepository,
         relatedVideoRepository: any RelatedVideoRepository,
+        trendingSearchRepository: any TrendingSearchRepository,
         uploaderProfileRepository: any UploaderProfileRepository,
         uploaderVideoRepository: any UploaderVideoRepository,
         commentRepository: any CommentRepository,
@@ -73,6 +75,7 @@ struct AppEnvironment {
         self.feedRepository = feedRepository
         self.videoRepository = videoRepository
         self.relatedVideoRepository = relatedVideoRepository
+        self.trendingSearchRepository = trendingSearchRepository
         self.uploaderProfileRepository = uploaderProfileRepository
         self.uploaderVideoRepository = uploaderVideoRepository
         self.commentRepository = commentRepository
@@ -111,6 +114,12 @@ struct AppEnvironment {
     func makeBrowseViewModel() -> BrowseViewModel {
         BrowseViewModel(
             useCase: FeedUseCase(repository: feedRepository)
+        )
+    }
+
+    func makeTrendingSearchViewModel() -> TrendingSearchViewModel {
+        TrendingSearchViewModel(
+            useCase: TrendingSearchUseCase(repository: trendingSearchRepository)
         )
     }
 
@@ -317,6 +326,7 @@ struct AppEnvironment {
             feedRepository: contentRepository,
             videoRepository: contentRepository,
             relatedVideoRepository: contentRepository,
+            trendingSearchRepository: contentRepository,
             uploaderProfileRepository: contentRepository,
             uploaderVideoRepository: contentRepository,
             commentRepository: BiliCommentRepository(client: api),
