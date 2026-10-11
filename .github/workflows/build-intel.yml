@@ -25,16 +25,20 @@ jobs:
 
       - name: Unpack and Generate Dark/Light Icons
         run: |
+          # 1. 自动搜索仓库中的 .icns 图标并解包（安全处理同名文件路径）
           CUSTOM_ICNS=$(find . -maxdepth 2 -name "*.icns" ! -path "*/DerivedData/*" ! -path "*/.git/*" | head -n 1)
           if [ -n "$CUSTOM_ICNS" ] && [ -f "$CUSTOM_ICNS" ]; then
               echo "Found custom icon at: $CUSTOM_ICNS"
-              cp -f "$CUSTOM_ICNS" custom_icon.icns
               rm -rf custom.iconset
-              iconutil -c iconset custom_icon.icns -o custom.iconset
+              iconutil -c iconset "$CUSTOM_ICNS" -o custom.iconset
+              if [ "$CUSTOM_ICNS" != "./custom_icon.icns" ] && [ "$CUSTOM_ICNS" != "custom_icon.icns" ]; then
+                  cp -f "$CUSTOM_ICNS" custom_icon.icns
+              fi
           else
               echo "Warning: No custom .icns found, using default."
           fi
 
+          # 2. 提取并生成深色暗夜底图层
           cat << 'EOF' > generate_icons.py
           import os, glob
           from PIL import Image
@@ -85,6 +89,7 @@ jobs:
 
               while queue:
                   x, y = queue.popleft()
+                  r, g, b, a = pixels[x, y]
                   pixels[x, y] = (target_dark[0], target_dark[1], target_dark[2], a)
                   for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
                       nx, ny = x + dx, y + dy
@@ -104,7 +109,7 @@ jobs:
           cat << 'EOF' > patch_all.py
           import os, re
 
-          # 1. 自动重写 WebCredentialStore.swift，防止 Sync Fork 覆盖导致登录死锁
+          # 1. 自动写入 WebCredentialStore.swift 双保险逻辑，抵御 Sync Fork 覆盖
           cred_file = "Packages/BiliKitCore/Sources/BiliAuth/Credential/WebCredentialStore.swift"
           if os.path.exists(cred_file):
               fixed_store_code = """import Foundation
@@ -229,7 +234,7 @@ jobs:
                   f.write(fixed_store_code)
               print("Auto-injected resilient WebCredentialStore.swift successfully!")
 
-          # 2. 消除 -warnings-as-errors
+          # 2. 消除 -warnings-as-errors 冲突
           for root, dirs, files in os.walk("."):
               for file in files:
                   if file.endswith((".swift", ".pbxproj", ".xcconfig")):
@@ -283,7 +288,7 @@ jobs:
                           ent = re.sub(r"<key>com.apple.security.app-sandbox</key>\s*<true/>", "<key>com.apple.security.app-sandbox</key><false/>", ent)
                           ent = re.sub(r"<key>keychain-access-groups</key>\s*<array>.*?</array>", "", ent, flags=re.DOTALL)
                           with open(path, "w", encoding="utf-8") as f:
-                              f.write(ent)
+                                  f.write(ent)
                           print(f"Patched entitlements: {path}")
                       except Exception:
                           pass
@@ -361,7 +366,7 @@ jobs:
           fi
           echo "Selected App Scheme: $SCHEME"
 
-          # 传入 DEVELOPMENT_TEAM="" 压制上游最新提交硬编码的 Team ID
+          # 压制上游最新提交硬编码的 Team ID
           xcodebuild build \
             -project BiliKitMac.xcodeproj \
             -scheme "$SCHEME" \
@@ -387,16 +392,17 @@ jobs:
             exit 1
           fi
 
-          # 1. 移除 CFBundleIconName 破坏 Assets.car 对图标的强制绑定
+          # 1. 移除 CFBundleIconName 破坏 Assets.car 对旧图标的优先锁定
           echo "Bypassing Assets.car icon priority..."
           /usr/libexec/PlistBuddy -c "Delete :CFBundleIconName" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile AppIcon" "$APP_PATH/Contents/Info.plist" 2>/dev/null || \
           /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$APP_PATH/Contents/Info.plist"
 
           # 2. 覆盖默认 AppIcon.icns
-          if [ -f "custom_icon.icns" ]; then
-              cp -f custom_icon.icns "$APP_PATH/Contents/Resources/AppIcon.icns"
-              echo "Replaced AppIcon.icns with custom icon."
+          ICNS_TARGET=$(find . -maxdepth 2 -name "*.icns" ! -path "*/DerivedData/*" ! -path "*/.git/*" | head -n 1)
+          if [ -n "$ICNS_TARGET" ] && [ -f "$ICNS_TARGET" ]; then
+              cp -f "$ICNS_TARGET" "$APP_PATH/Contents/Resources/AppIcon.icns"
+              echo "Replaced AppIcon.icns with: $ICNS_TARGET"
           fi
 
           # 3. 注入动态切换图层
