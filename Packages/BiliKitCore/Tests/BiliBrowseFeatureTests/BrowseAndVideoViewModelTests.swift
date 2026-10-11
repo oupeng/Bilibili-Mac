@@ -2101,8 +2101,8 @@ private actor CollectionEpisodeRepositoryStub: VideoRepository {
     }
 }
 
-/// UploaderProfileRepository 的唯一替身：`immediate` 为 nil 时每个请求挂起到测试按序号放行。
-private actor ProfileRepositoryStub: UploaderProfileRepository {
+/// 本 target 唯一的 UploaderProfileRepository 替身：`immediate` 为 nil 时每个请求挂起到测试按序号放行。
+actor ProfileRepositoryStub: UploaderProfileRepository {
     private let immediate: Result<UploaderProfile, ContentApplicationError>?
     private var held: [CheckedContinuation<UploaderProfile, Never>?] = []
     private var requestWaiters = CountWaiters()

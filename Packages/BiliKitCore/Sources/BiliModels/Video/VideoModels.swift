@@ -19,12 +19,23 @@ public struct VideoOwner: Sendable, Equatable {
     }
 }
 
-/// 播放页从 UP 主名片补充的公开资料。
+/// 从 UP 主名片补充的公开资料。
+///
+/// 播放页用签名与大会员状态；只凭 MID 打开的空间用名字与头像。
 public struct UploaderProfile: Sendable, Equatable {
+    public let name: String?
+    public let avatarURL: URL?
     public let signature: String?
     public let isVIP: Bool
 
-    public init(signature: String? = nil, isVIP: Bool = false) {
+    public init(
+        name: String? = nil,
+        avatarURL: URL? = nil,
+        signature: String? = nil,
+        isVIP: Bool = false
+    ) {
+        self.name = name
+        self.avatarURL = avatarURL
         self.signature = signature
         self.isVIP = isVIP
     }

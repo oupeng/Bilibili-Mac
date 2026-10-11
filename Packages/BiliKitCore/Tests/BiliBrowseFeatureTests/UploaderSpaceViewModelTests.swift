@@ -269,6 +269,79 @@ struct UploaderSpaceViewModelTests {
         #expect(await repository.calls.map(\.page) == [1, 3, 2])
     }
 
+    /// 评论正文里的空间链接只有 MID：空间立即打开并加载投稿，名片到达后补上名字与头像。
+    @Test
+    func idOnlyOpenFillsNameAndAvatarFromTheProfile() async throws {
+        let repository = UploaderVideoRepositoryStub()
+        let profiles = ProfileRepositoryStub()
+        let model = makeModel(repository, profiles: profiles)
+        let avatarURL = try #require(URL(string: "https://i0.hdslb.com/bfs/face/fixture.jpg"))
+
+        model.open(ownerID: owner.id)
+
+        #expect(model.owner == VideoOwner(id: owner.id, name: ""))
+        await waitForLoaded(model, page: 1)
+        await profiles.waitForRequestCount(1)
+        await profiles.releaseRequest(
+            0,
+            profile: UploaderProfile(name: " 作者 ", avatarURL: avatarURL)
+        )
+        await waitForObservedState { model.owner?.name.isEmpty == false }
+
+        #expect(model.owner == VideoOwner(id: owner.id, name: "作者", avatarURL: avatarURL))
+        #expect(await repository.calls == [.init(ownerID: owner.id, order: .newest, page: 1)])
+    }
+
+    /// 链接指向已经打开的 UP 主：保持当前页与已有资料，不再取名片。
+    @Test
+    func idOnlyOpenOfTheOpenOwnerKeepsPageAndProfile() async {
+        let repository = UploaderVideoRepositoryStub()
+        let profiles = ProfileRepositoryStub(immediate: .success(UploaderProfile(name: "别名")))
+        let model = makeModel(repository, profiles: profiles)
+        model.open(owner: owner)
+        await waitForLoaded(model, page: 1)
+        model.showPage(2)
+        await waitForLoaded(model, page: 2)
+
+        model.open(ownerID: owner.id)
+
+        #expect(model.owner == owner)
+        #expect(model.currentPage == 2)
+        #expect(await profiles.callCount == 0)
+    }
+
+    /// 名字还没取到（名片失败或仍在路上）时再次点同一空间链接：重新取名片，不重载投稿。
+    @Test
+    func idOnlyReopenWithoutANameRequestsTheProfileAgain() async {
+        let repository = UploaderVideoRepositoryStub()
+        let profiles = ProfileRepositoryStub()
+        let model = makeModel(repository, profiles: profiles)
+        model.open(ownerID: owner.id)
+        await waitForLoaded(model, page: 1)
+        await profiles.waitForRequestCount(1)
+
+        model.open(ownerID: owner.id)
+        await profiles.waitForRequestCount(2)
+        await profiles.releaseRequest(1, profile: UploaderProfile(name: "作者"))
+        await waitForObservedState { model.owner?.name.isEmpty == false }
+
+        #expect(model.owner?.name == "作者")
+        #expect(await repository.calls.count == 1)
+        // 被取代的第一次请求也放行，不留下挂起的 continuation。
+        await profiles.releaseRequest(0, profile: UploaderProfile())
+    }
+
+    @Test(arguments: [Int64(0), -1])
+    func idOnlyOpenIgnoresInvalidMemberIDs(_ ownerID: Int64) async {
+        let repository = UploaderVideoRepositoryStub()
+        let model = makeModel(repository)
+
+        model.open(ownerID: ownerID)
+
+        #expect(model.owner == nil)
+        #expect(model.state == .closed)
+    }
+
     @Test
     func sessionChangeDuringARequestClosesTheSpace() async {
         let repository = UploaderVideoRepositoryStub()
@@ -284,8 +357,16 @@ struct UploaderSpaceViewModelTests {
         #expect(model.pageCount == 1)
     }
 
-    private func makeModel(_ repository: UploaderVideoRepositoryStub) -> UploaderSpaceViewModel {
-        UploaderSpaceViewModel(useCase: UploaderVideoUseCase(repository: repository))
+    private func makeModel(
+        _ repository: UploaderVideoRepositoryStub,
+        profiles: ProfileRepositoryStub = ProfileRepositoryStub(
+            immediate: .failure(.unavailable)
+        )
+    ) -> UploaderSpaceViewModel {
+        UploaderSpaceViewModel(
+            useCase: UploaderVideoUseCase(repository: repository),
+            profileUseCase: UploaderProfileUseCase(repository: profiles)
+        )
     }
 
     private func waitForLoaded(_ model: UploaderSpaceViewModel, page: Int) async {

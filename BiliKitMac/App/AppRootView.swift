@@ -65,8 +65,7 @@ struct AppRootView: View {
         historyModel: WatchHistoryViewModel,
         playerContent: AnyView,
         commentAssetURLResolver: @escaping CommentAssetURLResolver = { _, _ in nil },
-        commentVideoLinkResolver: @escaping CommentVideoLinkResolver = { _ in nil },
-        commentLinkURLResolver: @escaping CommentLinkURLResolver = { _ in nil },
+        commentLinkRouter: @escaping CommentLinkRouter = { _ in nil },
         accountSessionCoordinator: AccountSessionCoordinator = AccountSessionCoordinator(),
         watchProgressConnection: WatchProgressWindowConnection? = nil
     ) {
@@ -85,8 +84,7 @@ struct AppRootView: View {
                     historyModel: historyModel,
                     playerContent: playerContent,
                     commentAssetURLResolver: commentAssetURLResolver,
-                    commentVideoLinkResolver: commentVideoLinkResolver,
-                    commentLinkURLResolver: commentLinkURLResolver,
+                    commentLinkRouter: commentLinkRouter,
                     watchProgressConnection: watchProgressConnection
                 )
             )
@@ -108,8 +106,7 @@ struct AppRootView: View {
             searchSuggestionSource: windowOwner.searchSuggestionSource,
             playerContent: playerContent,
             commentAssetURLResolver: windowOwner.commentAssetURLResolver,
-            commentVideoLinkResolver: windowOwner.commentVideoLinkResolver,
-            commentLinkURLResolver: windowOwner.commentLinkURLResolver,
+            commentLinkRouter: windowOwner.commentLinkRouter,
             imagePipeline: windowOwner.imagePipeline,
             isAuthenticationPresented: $isAuthenticationPresented,
             searchFilterSelection: $searchFilterSelection,

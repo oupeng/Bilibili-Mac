@@ -99,6 +99,75 @@ struct VideoUseCaseTests {
         #expect(await repository.playbackCIDs() == [900_002])
     }
 
+    /// 链接里的分 P 序号按分 P 的 `index` 选择，不按数组位置，也不被服务器记录的上次分 P 改写。
+    @Test
+    func linkPageNumberSelectsThatPart() async throws {
+        let repository = ContentRepositoryStub(
+            resumeMetadata: PlaybackResumeMetadata(
+                lastPlayedCID: 900_001,
+                positionMilliseconds: 5_000
+            )
+        )
+        let useCase = VideoUseCase(repository: repository)
+
+        let context = try await useCase.prepareVideo(
+            bvid: "BV1FixtureA1",
+            preferredPageNumber: 2
+        )
+
+        #expect(context.selectedPage.cid == 900_002)
+        #expect(context.resumePositionSeconds == nil)
+        #expect(await repository.playbackCIDs() == [900_002])
+    }
+
+    /// 链接给的分 P 正是上次看到的分 P 时照常续播（常见于单 P 视频带 `?p=1` 的链接）。
+    @Test
+    func linkPageNumberKeepsTheResumePositionOfThatPart() async throws {
+        let repository = ContentRepositoryStub(
+            resumeMetadata: PlaybackResumeMetadata(
+                lastPlayedCID: 900_002,
+                positionMilliseconds: 42_500
+            )
+        )
+        let useCase = VideoUseCase(repository: repository)
+
+        let context = try await useCase.prepareVideo(
+            bvid: "BV1FixtureA1",
+            preferredPageNumber: 2
+        )
+
+        #expect(context.selectedPage.cid == 900_002)
+        #expect(context.resumePositionSeconds == 42.5)
+    }
+
+    /// 链接给出的分 P 序号不可信：超出范围时按默认规则选择，不报错。
+    @Test(arguments: [0, 3])
+    func outOfRangeLinkPageNumberFallsBackToTheDefaultPart(_ number: Int) async throws {
+        let repository = ContentRepositoryStub()
+        let useCase = VideoUseCase(repository: repository)
+
+        let context = try await useCase.prepareVideo(
+            bvid: "BV1FixtureA1",
+            preferredPageNumber: number
+        )
+
+        #expect(context.selectedPage.cid == 900_001)
+    }
+
+    @Test
+    func explicitCIDWinsOverLinkPageNumber() async throws {
+        let repository = ContentRepositoryStub()
+        let useCase = VideoUseCase(repository: repository)
+
+        let context = try await useCase.prepareVideo(
+            bvid: "BV1FixtureA1",
+            preferredCID: 900_001,
+            preferredPageNumber: 2
+        )
+
+        #expect(context.selectedPage.cid == 900_001)
+    }
+
     @Test
     func invalidExplicitCIDNeverRequestsPlayback() async {
         let repository = ContentRepositoryStub()

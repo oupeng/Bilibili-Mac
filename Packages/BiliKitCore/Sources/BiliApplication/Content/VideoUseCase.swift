@@ -60,9 +60,14 @@ public struct VideoUseCase: Sendable {
         self.repository = repository
     }
 
+    /// 取得详情与选中分 P 的播放信息。
+    ///
+    /// `preferredCID` 是用户在应用内显式选中的分 P，不存在时报错；`preferredPageNumber` 来自外部链接
+    /// （从 1 开始的分 P 序号），不可信：只在 `preferredCID` 缺省时参考，超出范围时按默认规则选择。
     public func prepareVideo(
         bvid: String,
-        preferredCID: Int64? = nil
+        preferredCID: Int64? = nil,
+        preferredPageNumber: Int? = nil
     ) async throws -> VideoContext {
         let resolvedDetail = try await repository.videoDetail(for: bvid)
         try Task.checkCancellation()
@@ -75,25 +80,34 @@ public struct VideoUseCase: Sendable {
             throw ContentApplicationError.invalidResponse
         }
 
+        let requestedPage: VideoPage?
         if let preferredCID {
-            guard
-                let selectedPage = sortedPages.first(where: {
-                    $0.cid == preferredCID
-                })
-            else {
+            guard let page = sortedPages.first(where: { $0.cid == preferredCID }) else {
                 throw ContentApplicationError.invalidRequest
             }
+            requestedPage = page
+        } else {
+            requestedPage = preferredPageNumber.flatMap { number in
+                sortedPages.first(where: { $0.index == number })
+            }
+        }
+
+        if let selectedPage = requestedPage {
             let playback = try await playback(
                 detail: resolvedDetail,
                 bvid: bvid,
                 cid: selectedPage.cid
             )
             try Task.checkCancellation()
+            // 应用内显式选中的分 P 从头播放；链接给的分 P 与普通打开一样续播该分 P 的上次位置。
             return VideoContext(
                 detail: resolvedDetail,
                 pages: sortedPages,
                 selectedPage: selectedPage,
-                playback: playback
+                playback: playback,
+                resumePositionSeconds: preferredCID == nil
+                    ? Self.resumePosition(metadata: playback.resumeMetadata, page: selectedPage)
+                    : nil
             )
         }
 

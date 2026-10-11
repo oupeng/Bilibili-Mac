@@ -101,11 +101,15 @@ struct UploaderCardDataPayload: Decodable, Sendable {
 
 struct UploaderCardPayload: Decodable, Sendable {
     let mid: Int64
+    let name: String?
+    let face: String?
     let sign: String
     let vip: MemberVIPPayload?
 
     private enum CodingKeys: String, CodingKey {
         case mid
+        case name
+        case face
         case sign
         case vip
     }
@@ -125,13 +129,21 @@ struct UploaderCardPayload: Decodable, Sendable {
             }
             mid = numericMID
         }
+        // 名字与头像只在只凭 MID 打开的空间里补齐头部，字段异常时按缺省处理，不拖累签名。
+        name = try? container.decodeIfPresent(String.self, forKey: .name)
+        face = try? container.decodeIfPresent(String.self, forKey: .face)
         sign = try container.decode(String.self, forKey: .sign)
         // 大会员只决定名字颜色，字段异常时按非大会员处理，不拖累签名。
         vip = try? container.decodeIfPresent(MemberVIPPayload.self, forKey: .vip)
     }
 
     func model() -> UploaderProfile {
-        UploaderProfile(signature: sign, isVIP: vip?.isActive == true)
+        UploaderProfile(
+            name: name,
+            avatarURL: face.flatMap(WebImageURL.parse),
+            signature: sign,
+            isVIP: vip?.isActive == true
+        )
     }
 }
 

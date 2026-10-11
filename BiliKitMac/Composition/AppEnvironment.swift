@@ -15,8 +15,15 @@ import SwiftUI
 
 /// 评论图片地址；带像素框时请求图床按框缩小的图，不带框为原图。
 typealias CommentAssetURLResolver = @Sendable (CommentAssetReference, CommentAssetPixelBox?) -> URL?
-typealias CommentVideoLinkResolver = @Sendable (CommentLinkTarget) -> String?
-typealias CommentLinkURLResolver = @Sendable (CommentLinkTarget) -> URL?
+/// 评论正文链接的去向，由 Composition 按链接目标翻译；App 外壳只执行，不接触评论模型。
+enum CommentLinkRoute: Equatable {
+    case playback(PlaybackSelectionIntent)
+    /// 在侧栏空间层打开；没有空间功能时打开 `webFallback`。
+    case space(memberID: Int64, webFallback: URL?)
+    case web(URL)
+}
+
+typealias CommentLinkRouter = @Sendable (CommentLinkTarget) -> CommentLinkRoute?
 
 @MainActor
 /// App 的 Composition Root：创建具体 adapter，并把它们收窄为 Feature 所需的 port。
@@ -35,8 +42,7 @@ struct AppEnvironment {
     private let uploaderVideoRepository: any UploaderVideoRepository
     private let commentRepository: any CommentRepository
     let commentAssetURLResolver: CommentAssetURLResolver
-    let commentVideoLinkResolver: CommentVideoLinkResolver
-    let commentLinkURLResolver: CommentLinkURLResolver
+    let commentLinkRouter: CommentLinkRouter
     private let historyRepository: any WatchHistoryRepository
     private let watchProgressRepository: (any WatchProgressRepository)?
     private let danmakuSession: DanmakuSession
@@ -58,8 +64,7 @@ struct AppEnvironment {
         uploaderVideoRepository: any UploaderVideoRepository,
         commentRepository: any CommentRepository,
         commentAssetURLResolver: @escaping CommentAssetURLResolver,
-        commentVideoLinkResolver: @escaping CommentVideoLinkResolver,
-        commentLinkURLResolver: @escaping CommentLinkURLResolver,
+        commentLinkRouter: @escaping CommentLinkRouter,
         historyRepository: any WatchHistoryRepository,
         watchProgressRepository: (any WatchProgressRepository)?,
         danmakuRepository: any DanmakuSegmentRepository,
@@ -84,8 +89,7 @@ struct AppEnvironment {
         self.uploaderVideoRepository = uploaderVideoRepository
         self.commentRepository = commentRepository
         self.commentAssetURLResolver = commentAssetURLResolver
-        self.commentVideoLinkResolver = commentVideoLinkResolver
-        self.commentLinkURLResolver = commentLinkURLResolver
+        self.commentLinkRouter = commentLinkRouter
         self.historyRepository = historyRepository
         self.watchProgressRepository = watchProgressRepository
         self.playerEngine = playerEngine
@@ -148,7 +152,8 @@ struct AppEnvironment {
 
     func makeUploaderSpaceViewModel() -> UploaderSpaceViewModel {
         UploaderSpaceViewModel(
-            useCase: UploaderVideoUseCase(repository: uploaderVideoRepository)
+            useCase: UploaderVideoUseCase(repository: uploaderVideoRepository),
+            profileUseCase: UploaderProfileUseCase(repository: uploaderProfileRepository)
         )
     }
 
@@ -344,12 +349,18 @@ struct AppEnvironment {
             commentAssetURLResolver: { reference, box in
                 commentAssetResolver.imageURL(for: reference, fitting: box)
             },
-            commentVideoLinkResolver: { target in
-                guard case .video(let bvid) = target else { return nil }
-                return bvid
-            },
-            commentLinkURLResolver: { target in
-                commentLinkResolver.externalURL(for: target)
+            commentLinkRouter: { target in
+                switch target {
+                case .video(let bvid, let page):
+                    .playback(PlaybackSelectionIntent(bvid: bvid, preferredPageNumber: page))
+                case .space(let memberID):
+                    .space(
+                        memberID: memberID,
+                        webFallback: commentLinkResolver.externalURL(for: target)
+                    )
+                case .member, .external:
+                    commentLinkResolver.externalURL(for: target).map(CommentLinkRoute.web)
+                }
             },
             historyRepository: BiliWatchHistoryRepository(client: api),
             watchProgressRepository: accountSessionCoordinator.watchProgressRepository,

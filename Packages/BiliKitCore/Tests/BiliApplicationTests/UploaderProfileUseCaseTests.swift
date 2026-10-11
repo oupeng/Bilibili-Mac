@@ -1,5 +1,6 @@
 import BiliApplication
 import BiliModels
+import Foundation
 import Testing
 
 @Suite(.timeLimit(.minutes(1)))
@@ -23,6 +24,28 @@ struct UploaderProfileUseCaseTests {
         )
 
         #expect(try await useCase.profile(for: 10_001).signature == expected)
+    }
+
+    /// 名字与签名同一规则：折叠空白，空白名字视为缺省；头像原样保留。
+    @Test(
+        arguments: [
+            ("  名字\n两行 ", "名字 两行"),
+            (nil, nil),
+            (" ", nil)
+        ] as [(String?, String?)]
+    )
+    func normalizesNameAndKeepsAvatar(remote: String?, expected: String?) async throws {
+        let avatarURL = try #require(URL(string: "https://i0.hdslb.com/bfs/face/fixture.jpg"))
+        let useCase = UploaderProfileUseCase(
+            repository: UploaderProfileRepositoryStub(
+                result: UploaderProfile(name: remote, avatarURL: avatarURL)
+            )
+        )
+
+        let profile = try await useCase.profile(for: 10_001)
+
+        #expect(profile.name == expected)
+        #expect(profile.avatarURL == avatarURL)
     }
 
     @Test(arguments: [true, false])
