@@ -93,7 +93,8 @@ storage、无 URL cache，并拒绝 redirect。`PublicHTTPSURLPolicy` 是基线�
 - 弹幕分段与评论页须通过状态、Content-Type 与 2 MiB 上限，再交给解码器；JSON、protobuf、HTML 错误页和
   空响应不能互相降级解析。未知接口状态失败关闭。
 - 图片管线（`NativeVideoImagePipeline`）：无凭据 session，响应必须 2xx、HTTPS、同主机、`image/*`、
-  ≤ 8 MiB；按用途限制解码尺寸；只有有界内存 cache，没有磁盘 cache。
+  ≤ 8 MiB（评论图片预览请求原图，按 B 站评论图片 20 MB 上传上限单独放宽到 ≤ 20 MiB）；按用途限制解码尺寸；
+  只有有界内存 cache，没有磁盘 cache。
 
 ## 5. 本地回环服务
 

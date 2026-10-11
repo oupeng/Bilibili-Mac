@@ -241,6 +241,8 @@ private struct NativeCommentImagePreviewContent: View {
     }
 
     /// 缩小图占位上的原图状态：加载中显示转圈，失败时提供重试，不让用户误以为原图就是这样。
+    ///
+    /// 保持自身宽度：窄长图的图片宽度不足时允许超出图片两侧，文字与按钮不被压成省略号。
     @ViewBuilder
     private func originalStatus(failed: Bool) -> some View {
         Group {
@@ -261,6 +263,7 @@ private struct NativeCommentImagePreviewContent: View {
         .padding(.vertical, 6)
         .background(.regularMaterial, in: Capsule())
         .environment(\.colorScheme, .dark)
+        .fixedSize()
     }
 
     @ViewBuilder

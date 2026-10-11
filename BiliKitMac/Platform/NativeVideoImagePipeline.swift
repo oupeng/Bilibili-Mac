@@ -40,6 +40,19 @@ enum NativeVideoImageVariant: Hashable, Sendable {
             96
         }
     }
+
+    /// 单次响应允许的最大字节数。
+    ///
+    /// 只有评论图片预览请求原图，按 B 站评论图片 20 MB 的上传上限放宽；其余用途请求的是缩小图或
+    /// 小图，保持较低上限。
+    var maximumResponseBytes: Int {
+        switch self {
+        case .commentPicturePreview:
+            20 * 1_024 * 1_024
+        case .cover, .avatar, .commentEmote, .commentPicture, .trendingSearchIcon:
+            8 * 1_024 * 1_024
+        }
+    }
 }
 
 struct NativeVideoImageKey: Hashable, Sendable {
@@ -162,15 +175,14 @@ private final class NativeVideoImageSessionDelegate: NSObject, URLSessionDataDel
         let expectedHost: String
         let continuation: CheckedContinuation<NativeVideoImageResponse, Error>
         var isAccepted = false
-        var accumulator = NativeVideoImageResponseAccumulator(
-            maximumBytes: NativeVideoImagePipeline.maximumResponseBytes
-        )
+        var accumulator: NativeVideoImageResponseAccumulator
     }
 
     private let pending = Mutex<[Int: Pending]>([:])
 
     func response(
         for request: URLRequest,
+        maximumBytes: Int,
         using session: URLSession,
         gate: NativeVideoImageSessionGate
     ) async throws -> NativeVideoImageResponse {
@@ -186,7 +198,10 @@ private final class NativeVideoImageSessionDelegate: NSObject, URLSessionDataDel
                     pending.withLock {
                         $0[dataTask.taskIdentifier] = Pending(
                             expectedHost: expectedHost,
-                            continuation: continuation
+                            continuation: continuation,
+                            accumulator: NativeVideoImageResponseAccumulator(
+                                maximumBytes: maximumBytes
+                            )
                         )
                     }
                     taskBox.store(dataTask)
@@ -229,7 +244,10 @@ private final class NativeVideoImageSessionDelegate: NSObject, URLSessionDataDel
                 && http.url?.scheme?.lowercased() == "https"
                 && http.url?.host?.lowercased() == transfer.expectedHost
                 && http.mimeType?.lowercased().hasPrefix("image/") == true
-                && NativeVideoImagePipeline.acceptsExpectedLength(http.expectedContentLength)
+                && NativeVideoImagePipeline.acceptsExpectedLength(
+                    http.expectedContentLength,
+                    maximumBytes: transfer.accumulator.maximumBytes
+                )
             pending[dataTask.taskIdentifier] = transfer
             return transfer.isAccepted
         }
@@ -284,7 +302,6 @@ private final class NativeVideoImageSessionDelegate: NSObject, URLSessionDataDel
 }
 
 final class NativeVideoImagePipeline: Sendable {
-    static let maximumResponseBytes = 8 * 1_024 * 1_024
     static let cacheCountLimit = 160
     static let cacheCostLimit = 64 * 1_024 * 1_024
 
@@ -401,8 +418,8 @@ final class NativeVideoImagePipeline: Sendable {
         sessionGate.invalidate(session)
     }
 
-    nonisolated static func acceptsExpectedLength(_ length: Int64) -> Bool {
-        length < 0 || length <= maximumResponseBytes
+    nonisolated static func acceptsExpectedLength(_ length: Int64, maximumBytes: Int) -> Bool {
+        length < 0 || length <= maximumBytes
     }
 
     nonisolated static func decodeImage(
@@ -432,6 +449,7 @@ final class NativeVideoImagePipeline: Sendable {
             request.httpShouldHandleCookies = false
             let transfer = try await sessionDelegate.response(
                 for: request,
+                maximumBytes: key.variant.maximumResponseBytes,
                 using: session,
                 gate: sessionGate
             )
