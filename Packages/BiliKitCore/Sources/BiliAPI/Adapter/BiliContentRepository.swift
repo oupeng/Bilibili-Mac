@@ -2,8 +2,8 @@ import BiliApplication
 import BiliModels
 
 public struct BiliContentRepository: FeedRepository, VideoRepository,
-    RelatedVideoRepository, TrendingSearchRepository, UploaderProfileRepository,
-    UploaderVideoRepository
+    RelatedVideoRepository, TrendingSearchRepository, SearchSuggestionRepository,
+    UploaderProfileRepository, UploaderVideoRepository
 {
     private let client: BiliAPIClient
 
@@ -46,6 +46,12 @@ public struct BiliContentRepository: FeedRepository, VideoRepository,
     public func trendingSearchKeywords(limit: Int) async throws -> [TrendingSearchKeyword] {
         try await mapError {
             try await client.trendingSearchKeywords(limit: limit)
+        }
+    }
+
+    public func searchSuggestions(for term: String) async throws -> [String] {
+        try await mapError {
+            try await client.searchSuggestions(for: term)
         }
     }
 

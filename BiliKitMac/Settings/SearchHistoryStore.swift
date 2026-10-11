@@ -63,13 +63,10 @@ final class SearchHistoryStore {
         guard defaults.strictInteger(forKey: Key.schema) == schemaVersion,
             let stored = defaults.array(forKey: Key.entries)
         else { return nil }
-        var queries: [String] = []
-        for case let value as String in stored {
-            guard let query = normalized(value), !queries.contains(query) else { continue }
-            queries.append(query)
-            if queries.count == maximumEntryCount { break }
-        }
-        return queries
+        return VideoSearchCriteria.uniqueQueries(
+            from: stored.compactMap { $0 as? String },
+            limit: maximumEntryCount
+        )
     }
 
     private static func removeStoredHistory(from defaults: UserDefaults) {

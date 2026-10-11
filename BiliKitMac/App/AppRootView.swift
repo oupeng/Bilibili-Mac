@@ -105,6 +105,7 @@ struct AppRootView: View {
             uploaderSpaceModel: windowOwner.uploaderSpaceModel,
             trendingSearchModel: windowOwner.trendingSearchModel,
             searchHistory: searchHistoryStore,
+            searchSuggestionSource: windowOwner.searchSuggestionSource,
             playerContent: playerContent,
             commentAssetURLResolver: windowOwner.commentAssetURLResolver,
             commentVideoLinkResolver: windowOwner.commentVideoLinkResolver,
@@ -295,7 +296,7 @@ struct AppRootView: View {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// 提交规范化搜索意图；编辑中的 draft 本身不会触发网络请求。
+    /// 提交规范化搜索意图；编辑中的 draft 只经搜索框联想匿名请求联想词，不触发搜索请求。
     private func performSearch() {
         guard !normalizedSearchDraft.isEmpty else { return }
         navigationCoordinator.searchDraft = normalizedSearchDraft

@@ -63,6 +63,7 @@ struct SearchTabRoot: View {
     let imagePipeline: NativeVideoImagePipeline
     let trendingSearchModel: TrendingSearchViewModel?
     let searchHistory: SearchHistoryStore?
+    let searchSuggestionSource: SearchSuggestionSource?
     let onSelect: (String) -> Void
     let onSubmit: () -> Void
     let onSearchKeyword: (String) -> Void
@@ -103,15 +104,22 @@ struct SearchTabRoot: View {
         )
         .navigationTitle("搜索")
         .toolbar(removing: .title)
-        .searchable(
-            text: $searchDraft,
-            placement: searchFieldPlacement,
-            prompt: "搜索 B 站视频"
-        )
-        .onSubmit(of: .search) {
-            onSubmit()
-        }
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                ToolbarSearchField(
+                    text: $searchDraft,
+                    prompt: AppStrings.localized("搜索 B 站视频"),
+                    history: { searchHistory?.entries ?? [] },
+                    suggestionSource: searchSuggestionSource,
+                    onSubmit: onSubmit,
+                    onSelectSuggestion: onSearchKeyword
+                )
+                .frame(
+                    minWidth: ToolbarSearchFieldLayout.minimumWidth,
+                    idealWidth: ToolbarSearchFieldLayout.idealWidth,
+                    maxWidth: ToolbarSearchFieldLayout.idealWidth
+                )
+            }
             ToolbarItemGroup(placement: .primaryAction) {
                 SearchToolbarControls(
                     selection: $filterSelection,
@@ -120,10 +128,6 @@ struct SearchTabRoot: View {
                 )
             }
         }
-    }
-
-    private var searchFieldPlacement: SearchFieldPlacement {
-        .toolbarPrincipal
     }
 }
 
