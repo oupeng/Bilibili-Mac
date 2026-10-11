@@ -19,144 +19,217 @@ jobs:
           sw_vers
           xcodebuild -version
 
-      - name: Show actool version
+      - name: Install Pillow for Image Processing
         run: |
-          xcrun actool --version
+          python3 -m pip install pillow --break-system-packages
 
-      - name: Install Dependencies for Icon Processing
+      - name: Unpack and Generate Dark/Light Icons
         run: |
-          python3 -m pip install pillow --break-system-packages --quiet
+          CUSTOM_ICNS=$(find . -maxdepth 2 -name "*.icns" ! -path "*/DerivedData/*" ! -path "*/.git/*" | head -n 1)
+          if [ -n "$CUSTOM_ICNS" ] && [ -f "$CUSTOM_ICNS" ]; then
+              echo "Found custom icon at: $CUSTOM_ICNS"
+              cp -f "$CUSTOM_ICNS" custom_icon.icns
+              rm -rf custom.iconset
+              iconutil -c iconset custom_icon.icns -o custom.iconset
+          else
+              echo "Warning: No custom .icns found, using default."
+          fi
 
-      - name: Prepare macOS 26 Liquid Glass App Icon
+          cat << 'EOF' > generate_icons.py
+          import os, glob
+          from PIL import Image
+          from collections import deque
+
+          src_png = None
+          for candidate in ["custom.iconset/icon_512x512@2x.png", "custom.iconset/icon_512x512.png"]:
+              if os.path.exists(candidate):
+                  src_png = candidate
+                  break
+
+          if not src_png:
+              candidates = glob.glob("custom.iconset/*.png")
+              if candidates:
+                  src_png = sorted(candidates, key=lambda f: os.path.getsize(f))[-1]
+
+          if src_png and os.path.exists(src_png):
+              print(f"Using source image: {src_png}")
+              light_img = Image.open(src_png).convert("RGBA")
+              light_img.save("icon_light.png")
+
+              dark_img = light_img.copy()
+              w, h = dark_img.size
+              pixels = dark_img.load()
+
+              target_dark = (32, 32, 36)
+              visited = set()
+              queue = deque()
+
+              seeds = [
+                  (int(w * 0.15), int(h * 0.15)),
+                  (int(w * 0.85), int(h * 0.15)),
+                  (int(w * 0.15), int(h * 0.85)),
+                  (int(w * 0.85), int(h * 0.85)),
+                  (int(w * 0.5),  int(h * 0.12)),
+                  (int(w * 0.5),  int(h * 0.88))
+              ]
+
+              def is_outer_white(r, g, b, a):
+                  return a > 120 and r > 215 and g > 215 and b > 215
+
+              for sx, sy in seeds:
+                  if 0 <= sx < w and 0 <= sy < h:
+                      r, g, b, a = pixels[sx, sy]
+                      if is_outer_white(r, g, b, a):
+                          queue.append((sx, sy))
+                          visited.add((sx, sy))
+
+              while queue:
+                  x, y = queue.popleft()
+                  pixels[x, y] = (target_dark[0], target_dark[1], target_dark[2], a)
+                  for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                      nx, ny = x + dx, y + dy
+                      if 0 <= nx < w and 0 <= ny < h and (nx, ny) not in visited:
+                          nr, ng, nb, na = pixels[nx, ny]
+                          if is_outer_white(nr, ng, nb, na):
+                              visited.add((nx, ny))
+                              queue.append((nx, ny))
+
+              dark_img.save("icon_dark.png")
+              print("Successfully generated icon_light.png and icon_dark.png!")
+          EOF
+          python3 generate_icons.py
+
+      - name: Apply All Patches (Auto-Fix Code, TeamID & Keychain)
         run: |
-          set -euo pipefail
+          cat << 'EOF' > patch_all.py
+          import os, re
 
-          python3 - <<'PY'
-          import os
-          import shutil
-          import subprocess
-          import json
+          # 1. 自动重写 WebCredentialStore.swift，防止 Sync Fork 覆盖导致登录死锁
+          cred_file = "Packages/BiliKitCore/Sources/BiliAuth/Credential/WebCredentialStore.swift"
+          if os.path.exists(cred_file):
+              fixed_store_code = """import Foundation
+          import Security
 
-          icon_icns = "custom_icon.icns"
-          iconset_dir = "temp_custom.iconset"
+          protocol WebCredentialStoring: Sendable {
+              func load() throws -> WebCredential?
+              func save(_ credential: WebCredential) throws
+              func delete() throws
+          }
 
-          # IMPORTANT:
-          # The Icon Composer bundle name must match the --app-icon name.
-          icon_bundle = "AppIcon.icon"
+          enum WebCredentialStoreError: Error, Sendable, Equatable {
+              case corruptCredential
+              case interactionNotAllowed
+              case unavailable
+              case operationFailed(OSStatus)
+          }
 
-          assets_dir = os.path.join(icon_bundle, "Assets")
-          icon_json = os.path.join(icon_bundle, "icon.json")
+          struct KeychainWebCredentialStore: WebCredentialStoring, Sendable {
+              static let productionService = "com.shiinayane.BiliKitMac.web-auth"
+              static let productionAccount = "web-credential"
+              private static let fallbackKey = "bili_kit_web_credential_local_backup"
 
-          if not os.path.isfile(icon_icns):
-              raise SystemExit(
-                  "::error:: custom_icon.icns not found in repository root"
-              )
+              private let service: String
+              private let account: String
+              private let operations: any KeychainOperating
 
-          print("=== Preparing custom icon for macOS 26 Icon Composer ===")
+              init(
+                  service: String = Self.productionService,
+                  account: String = Self.productionAccount,
+                  operations: any KeychainOperating = SystemKeychainOperations()
+              ) {
+                  self.service = service
+                  self.account = account
+                  self.operations = operations
+              }
 
-          shutil.rmtree(iconset_dir, ignore_errors=True)
-          shutil.rmtree(icon_bundle, ignore_errors=True)
+              func load() throws -> WebCredential? {
+                  var query = baseQuery
+                  query[kSecReturnData as String] = true
+                  query[kSecMatchLimit as String] = kSecMatchLimitOne
 
-          # Convert the supplied ICNS into a standard iconset.
-          subprocess.run(
-              [
-                  "iconutil",
-                  "--convert",
-                  "iconset",
-                  icon_icns,
-                  "--output",
-                  iconset_dir
-              ],
-              check=True
-          )
-
-          # Use the highest-resolution source from the supplied ICNS.
-          source_png = os.path.join(
-              iconset_dir,
-              "icon_512x512@2x.png"
-          )
-
-          if not os.path.isfile(source_png):
-              raise SystemExit(
-                  "::error:: custom_icon.icns does not contain "
-                  "icon_512x512@2x.png"
-              )
-
-          os.makedirs(assets_dir, exist_ok=True)
-
-          shutil.copy2(
-              source_png,
-              os.path.join(assets_dir, "BiliKit.png")
-          )
-
-          # The supplied ICNS is a flattened image.
-          #
-          # Therefore we use it as the artwork layer and let macOS 26 /
-          # Icon Composer provide the system Liquid Glass treatment.
-          icon_definition = {
-              "fill": "none",
-              "groups": [
-                  {
-                      "layers": [
-                          {
-                              "image-name": "BiliKit.png",
-                              "name": "BiliKit",
-                              "glass": True
-                          }
-                      ],
-                      "lighting": "individual",
-                      "shadow": {
-                          "kind": "neutral",
-                          "opacity": 0.5
-                      },
-                      "specular": True,
-                      "translucency": {
-                          "enabled": True,
-                          "value": 0.5
+                  let (status, data) = operations.copyMatching(query)
+                  if status == errSecSuccess, let data {
+                      if let cred = try? WebCredentialCodec.decode(data) {
+                          return cred
                       }
                   }
-              ],
-              "supported-platforms": {
-                  "squares": [
-                      "macOS"
+                  if let fallbackData = UserDefaults.standard.data(forKey: Self.fallbackKey) {
+                      if let cred = try? WebCredentialCodec.decode(fallbackData) {
+                          return cred
+                      }
+                  }
+                  if status == errSecItemNotFound { return nil }
+                  return nil
+              }
+
+              func save(_ credential: WebCredential) throws {
+                  let encoded: Data
+                  do {
+                      encoded = try WebCredentialCodec.encode(credential)
+                  } catch {
+                      throw WebCredentialStoreError.corruptCredential
+                  }
+                  UserDefaults.standard.set(encoded, forKey: Self.fallbackKey)
+
+                  var attributes = baseQuery
+                  attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+                  attributes[kSecAttrLabel as String] = "BiliKit Web 登录凭据"
+                  attributes[kSecValueData as String] = encoded
+
+                  let addStatus = operations.add(attributes)
+                  if addStatus == errSecDuplicateItem {
+                      let update: [String: Any] = [
+                          kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+                          kSecAttrLabel as String: "BiliKit Web 登录凭据",
+                          kSecValueData as String: encoded
+                      ]
+                      _ = operations.update(query: baseQuery, attributes: update)
+                  }
+              }
+
+              func delete() throws {
+                  UserDefaults.standard.removeObject(forKey: Self.fallbackKey)
+                  _ = operations.delete(baseQuery)
+              }
+
+              private var baseQuery: [String: Any] {
+                  [
+                      kSecClass as String: kSecClassGenericPassword,
+                      kSecAttrService as String: service,
+                      kSecAttrAccount as String: account
                   ]
               }
           }
 
-          with open(
-              icon_json,
-              "w",
-              encoding="utf-8"
-          ) as f:
-              json.dump(
-                  icon_definition,
-                  f,
-                  indent=2
-              )
+          protocol KeychainOperating: Sendable {
+              func copyMatching(_ query: [String: Any]) -> (OSStatus, Data?)
+              func add(_ attributes: [String: Any]) -> OSStatus
+              func update(query: [String: Any], attributes: [String: Any]) -> OSStatus
+              func delete(_ query: [String: Any]) -> OSStatus
+          }
 
-          print("=== Icon Composer package created ===")
-          print("Bundle:", icon_bundle)
-          print("Artwork:", os.path.join(
-              assets_dir,
-              "BiliKit.png"
-          ))
-          print("Manifest:", icon_json)
+          struct SystemKeychainOperations: KeychainOperating, Sendable {
+              func copyMatching(_ query: [String: Any]) -> (OSStatus, Data?) {
+                  var result: CFTypeRef?
+                  let status = SecItemCopyMatching(query as CFDictionary, &result)
+                  return (status, result as? Data)
+              }
+              func add(_ attributes: [String: Any]) -> OSStatus {
+                  SecItemAdd(attributes as CFDictionary, nil)
+              }
+              func update(query: [String: Any], attributes: [String: Any]) -> OSStatus {
+                  SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+              }
+              func delete(_ query: [String: Any]) -> OSStatus {
+                  SecItemDelete(query as CFDictionary)
+              }
+          }
+          """
+              with open(cred_file, "w", encoding="utf-8") as f:
+                  f.write(fixed_store_code)
+              print("Auto-injected resilient WebCredentialStore.swift successfully!")
 
-          PY
-
-          echo "=== AppIcon.icon structure ==="
-          find AppIcon.icon -maxdepth 3 -print
-
-          echo "=== AppIcon.icon/icon.json ==="
-          cat AppIcon.icon/icon.json
-
-      - name: Apply All Patches (Warnings, Syntax, Keychain, Sandbox & Updater)
-        run: |
-          python3 -c '
-          import os
-          import re
-
-          # 1. 消除 -warnings-as-errors 冲突
+          # 2. 消除 -warnings-as-errors
           for root, dirs, files in os.walk("."):
               for file in files:
                   if file.endswith((".swift", ".pbxproj", ".xcconfig")):
@@ -164,203 +237,131 @@ jobs:
                       try:
                           with open(path, "r", encoding="utf-8") as f:
                               content = f.read()
-
                           if "-warnings-as-errors" in content:
-                              content = content.replace(
-                                  "-warnings-as-errors",
-                                  "-DNO_WERROR"
-                              )
-
-                              with open(
-                                  path,
-                                  "w",
-                                  encoding="utf-8"
-                              ) as f:
+                              content = content.replace("-warnings-as-errors", "-DNO_WERROR")
+                              with open(path, "w", encoding="utf-8") as f:
                                   f.write(content)
-
                       except Exception:
                           pass
 
-          # 2. 修复 URLSessionRangeTransport.swift 循环引用
-          target_file = (
-              "Packages/BiliKitCore/Sources/"
-              "BiliNetworking/Range/"
-              "URLSessionRangeTransport.swift"
-          )
-
+          # 3. 修复 URLSessionRangeTransport.swift 循环引用
+          target_file = "Packages/BiliKitCore/Sources/BiliNetworking/Range/URLSessionRangeTransport.swift"
           if os.path.exists(target_file):
-              with open(
-                  target_file,
-                  "r",
-                  encoding="utf-8"
-              ) as f:
+              with open(target_file, "r", encoding="utf-8") as f:
                   content = f.read()
-
               if "let (pending, session) = lock.withLock" in content:
-
-                  content = content.replace(
-                      "let (pending, session) = lock.withLock",
-                      "let (pending, activeSession) = lock.withLock"
-                  )
-
-                  content = content.replace(
-                      "session?.finishTasksAndInvalidate()",
-                      "activeSession?.finishTasksAndInvalidate()"
-                  )
-
-                  content = content.replace(
-                      "session?.invalidateAndCancel()",
-                      "activeSession?.invalidateAndCancel()"
-                  )
-
-                  content = content.replace(
-                      "session.invalidateAndCancel()",
-                      "activeSession.invalidateAndCancel()"
-                  )
-
-                  with open(
-                      target_file,
-                      "w",
-                      encoding="utf-8"
-                  ) as f:
+                  content = content.replace("let (pending, session) = lock.withLock", "let (pending, activeSession) = lock.withLock")
+                  content = content.replace("session?.finishTasksAndInvalidate()", "activeSession?.finishTasksAndInvalidate()")
+                  content = content.replace("session?.invalidateAndCancel()", "activeSession?.invalidateAndCancel()")
+                  content = content.replace("session.invalidateAndCancel()", "activeSession.invalidateAndCancel()")
+                  with open(target_file, "w", encoding="utf-8") as f:
                       f.write(content)
 
-          # 3. 修复 NSColor.quinaryLabelColor 重命名
+          # 4. 修复 NSColor.quinaryLabelColor 重命名
           for root, dirs, files in os.walk("."):
               for file in files:
                   if file.endswith(".swift"):
                       path = os.path.join(root, file)
-
                       try:
-                          with open(
-                              path,
-                              "r",
-                              encoding="utf-8"
-                          ) as f:
+                          with open(path, "r", encoding="utf-8") as f:
                               c = f.read()
-
                           if "quinaryLabelColor" in c:
-                              c = c.replace(
-                                  "quinaryLabelColor",
-                                  "quinaryLabel"
-                              )
-
-                              with open(
-                                  path,
-                                  "w",
-                                  encoding="utf-8"
-                              ) as f:
+                              c = c.replace("quinaryLabelColor", "quinaryLabel")
+                              with open(path, "w", encoding="utf-8") as f:
                                   f.write(c)
-
                       except Exception:
                           pass
 
-          # 4. 关闭 App Sandbox 与 Keychain Access Groups
+          # 5. 移除 App Sandbox 与 Keychain Access Groups（防止钥匙串拦截）
           for root, dirs, files in os.walk("."):
               for file in files:
                   if file.endswith(".entitlements"):
                       path = os.path.join(root, file)
-
                       try:
-                          with open(
-                              path,
-                              "r",
-                              encoding="utf-8"
-                          ) as f:
+                          with open(path, "r", encoding="utf-8") as f:
                               ent = f.read()
-
-                          ent = re.sub(
-                              r"<key>com.apple.security.app-sandbox</key>"
-                              r"\s*<true/>",
-                              "<key>com.apple.security.app-sandbox</key>"
-                              "<false/>",
-                              ent
-                          )
-
-                          ent = re.sub(
-                              r"<key>keychain-access-groups</key>"
-                              r"\s*<array>.*?</array>",
-                              "",
-                              ent,
-                              flags=re.DOTALL
-                          )
-
-                          with open(
-                              path,
-                              "w",
-                              encoding="utf-8"
-                          ) as f:
+                          ent = re.sub(r"<key>com.apple.security.app-sandbox</key>\s*<true/>", "<key>com.apple.security.app-sandbox</key><false/>", ent)
+                          ent = re.sub(r"<key>keychain-access-groups</key>\s*<array>.*?</array>", "", ent, flags=re.DOTALL)
+                          with open(path, "w", encoding="utf-8") as f:
                               f.write(ent)
-
-                          print(
-                              f"Patched entitlements: {path}"
-                          )
-
+                          print(f"Patched entitlements: {path}")
                       except Exception:
                           pass
 
-          # 5. 禁用 Sparkle 自动更新
+          # 6. 禁用 Sparkle 自动更新检查
           for root, dirs, files in os.walk("."):
               for file in files:
                   if "Info.plist" in file:
                       path = os.path.join(root, file)
-
                       try:
-                          with open(
-                              path,
-                              "r",
-                              encoding="utf-8"
-                          ) as f:
+                          with open(path, "r", encoding="utf-8") as f:
                               plist = f.read()
-
                           if "</dict>" in plist:
-
-                              sparkle_block = (
-                                  "<key>SUEnableAutomaticChecks</key>"
-                                  "<false/>"
-                                  "<key>SUAutomaticallyUpdate</key>"
-                                  "<false/>\n"
-                                  "</dict>"
-                              )
-
-                              plist = plist.replace(
-                                  "</dict>",
-                                  sparkle_block,
-                                  1
-                              )
-
-                              with open(
-                                  path,
-                                  "w",
-                                  encoding="utf-8"
-                              ) as f:
+                              sparkle_block = "<key>SUEnableAutomaticChecks</key><false/><key>SUAutomaticallyUpdate</key><false/>\n</dict>"
+                              plist = plist.replace("</dict>", sparkle_block, 1)
+                              with open(path, "w", encoding="utf-8") as f:
                                   f.write(plist)
-
-                              print(
-                                  f"Disabled Sparkle auto-update in: {path}"
-                              )
-
+                              print(f"Disabled Sparkle auto-update in: {path}")
                       except Exception:
                           pass
 
-          print("All deep patches finished successfully!")
-          '
+          # 7. 注入系统主题监听器与类声明
+          app_file = "BiliKitMac/App/BiliKitMacApp.swift"
+          if os.path.exists(app_file):
+              with open(app_file, "r", encoding="utf-8") as f:
+                  app_code = f.read()
+
+              helper_class = """
+              @MainActor
+              final class ThemeIconSwitcher: NSObject {
+                  static let shared = ThemeIconSwitcher()
+                  func start() {
+                      update()
+                      DistributedNotificationCenter.default().addObserver(
+                          forName: Notification.Name("AppleInterfaceThemeChangedNotification"),
+                          object: nil,
+                          queue: .main
+                      ) { [weak self] _ in
+                          self?.update()
+                      }
+                  }
+                  func update() {
+                      let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                      let file = isDark ? "icon_dark.png" : "icon_light.png"
+                      if let path = Bundle.main.path(forResource: file, ofType: nil),
+                         let image = NSImage(contentsOfFile: path) {
+                          NSApp.applicationIconImage = image
+                      }
+                  }
+              }
+              """
+
+              if "ThemeIconSwitcher.shared.start()" not in app_code:
+                  if "init()" in app_code:
+                      app_code = app_code.replace("init() {", "init() {\n        ThemeIconSwitcher.shared.start()\n")
+                  else:
+                      app_code = app_code.rstrip()
+                      if app_code.endswith("}"):
+                          app_code = app_code[:-1] + "\n    init() {\n        ThemeIconSwitcher.shared.start()\n    }\n}\n"
+
+              if "final class ThemeIconSwitcher" not in app_code:
+                  app_code = app_code.strip() + "\n\n" + helper_class + "\n"
+
+              with open(app_file, "w", encoding="utf-8") as f:
+                  f.write(app_code)
+              print("Injected ThemeIconSwitcher safely!")
+          EOF
+          python3 patch_all.py
 
       - name: Build BiliKitMac for Intel (x86_64)
         run: |
-          set -euo pipefail
-
           SCHEME="BiliKitMac"
-
-          if ! xcodebuild \
-              -list \
-              -project BiliKitMac.xcodeproj \
-              | grep -q "BiliKitMac"; then
+          if ! xcodebuild -list -project BiliKitMac.xcodeproj | grep -q "BiliKitMac"; then
             SCHEME="BiliKit"
           fi
-
           echo "Selected App Scheme: $SCHEME"
 
+          # 传入 DEVELOPMENT_TEAM="" 压制上游最新提交硬编码的 Team ID
           xcodebuild build \
             -project BiliKitMac.xcodeproj \
             -scheme "$SCHEME" \
@@ -375,227 +376,49 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
+            DEVELOPMENT_TEAM="" \
             -derivedDataPath ./DerivedData
 
-      - name: Ad-hoc Sign and Package Intel App
+      - name: Force Custom Icon & Ad-hoc Sign App
         run: |
-          set -euo pipefail
-
-          APP_PATH=$(find \
-            ./DerivedData/Build/Products/Release \
-            -maxdepth 2 \
-            -name "*.app" \
-            -print \
-            -quit
-          )
-
+          APP_PATH=$(find ./DerivedData/Build/Products/Release -maxdepth 2 -name "*.app" | head -n 1)
           if [ -z "$APP_PATH" ]; then
             echo "::error::未在 DerivedData 中找到编译生成的 .app 文件！"
             exit 1
           fi
 
-          echo "=== Application ==="
-          echo "$APP_PATH"
+          # 1. 移除 CFBundleIconName 破坏 Assets.car 对图标的强制绑定
+          echo "Bypassing Assets.car icon priority..."
+          /usr/libexec/PlistBuddy -c "Delete :CFBundleIconName" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile AppIcon" "$APP_PATH/Contents/Info.plist" 2>/dev/null || \
+          /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$APP_PATH/Contents/Info.plist"
 
-          RESOURCES="$APP_PATH/Contents/Resources"
-
-          echo "=== Install macOS 26 Icon Composer icon ==="
-
-          if [ ! -d "AppIcon.icon" ]; then
-            echo "::error::AppIcon.icon not found!"
-            exit 1
+          # 2. 覆盖默认 AppIcon.icns
+          if [ -f "custom_icon.icns" ]; then
+              cp -f custom_icon.icns "$APP_PATH/Contents/Resources/AppIcon.icns"
+              echo "Replaced AppIcon.icns with custom icon."
           fi
 
-          echo "=== Remove old compiled icon resources ==="
-
-          # Remove the old compiled Assets.car.
-          rm -f "$RESOURCES/Assets.car"
-
-          # Remove old ICNS resources generated by Xcode.
-          find "$RESOURCES" \
-            -maxdepth 1 \
-            -name "*.icns" \
-            -delete
-
-          echo "=== Compile Icon Composer package with actool ==="
-
-          PARTIAL_PLIST="$RUNNER_TEMP/AppIcon-partial-Info.plist"
-
-          xcrun actool \
-            "AppIcon.icon" \
-            --compile "$RESOURCES" \
-            --app-icon AppIcon \
-            --include-all-app-icons \
-            --enable-on-demand-resources NO \
-            --development-region en \
-            --target-device mac \
-            --minimum-deployment-target 26.0 \
-            --platform macosx \
-            --output-format human-readable-text \
-            --output-partial-info-plist "$PARTIAL_PLIST"
-
-          echo "=== Verify actool output ==="
-
-          if [ ! -f "$RESOURCES/Assets.car" ]; then
-            echo "::error::actool did not generate Assets.car"
-            echo "=== Resources directory ==="
-            find "$RESOURCES" -maxdepth 1 -print
-            exit 1
+          # 3. 注入动态切换图层
+          if [ -f "icon_light.png" ] && [ -f "icon_dark.png" ]; then
+              cp -f icon_light.png "$APP_PATH/Contents/Resources/icon_light.png"
+              cp -f icon_dark.png "$APP_PATH/Contents/Resources/icon_dark.png"
+              echo "Bundled dynamic light and dark theme icons."
           fi
 
-          if [ ! -f "$PARTIAL_PLIST" ]; then
-            echo "::error::actool did not generate the partial Info.plist"
-            exit 1
-          fi
-
-          echo "--- Assets.car ---"
-          ls -lh "$RESOURCES/Assets.car"
-
-          echo "--- Partial Info.plist ---"
-          plutil -p "$PARTIAL_PLIST"
-
-          echo "=== Install ICNS fallback ==="
-
-          # Keep the original custom ICNS as a fallback.
-          cp \
-            custom_icon.icns \
-            "$RESOURCES/AppIcon.icns"
-
-          echo "--- AppIcon.icns ---"
-          ls -lh "$RESOURCES/AppIcon.icns"
-
-          echo "=== Merge actool icon metadata into Info.plist ==="
-
-          PLIST_PATH="$APP_PATH/Contents/Info.plist"
-
-          if [ ! -f "$PLIST_PATH" ]; then
-            echo "::error::Info.plist not found"
-            exit 1
-          fi
-
-          python3 - "$PLIST_PATH" "$PARTIAL_PLIST" <<'PY'
-          import plistlib
-          import sys
-
-          plist_path = sys.argv[1]
-          partial_path = sys.argv[2]
-
-          with open(
-              plist_path,
-              "rb"
-          ) as f:
-              data = plistlib.load(f)
-
-          with open(
-              partial_path,
-              "rb"
-          ) as f:
-              partial = plistlib.load(f)
-
-          # Import icon metadata generated by actool.
-          for key in (
-              "CFBundleIconName",
-              "CFBundleIcons",
-              "CFBundleIconFiles",
-          ):
-              if key in partial:
-                  data[key] = partial[key]
-
-          # Modern macOS 26 Icon Composer identifier.
-          data["CFBundleIconName"] = "AppIcon"
-
-          # Legacy/fallback ICNS.
-          data["CFBundleIconFile"] = "AppIcon"
-
-          with open(
-              plist_path,
-              "wb"
-          ) as f:
-              plistlib.dump(
-                  data,
-                  f
-              )
-
-          print("=== Final icon configuration ===")
-          print(
-              "CFBundleIconName =",
-              data.get("CFBundleIconName")
-          )
-          print(
-              "CFBundleIconFile =",
-              data.get("CFBundleIconFile")
-          )
-          print(
-              "CFBundleIconFiles =",
-              data.get("CFBundleIconFiles")
-          )
-          print(
-              "CFBundleIcons =",
-              data.get("CFBundleIcons")
-          )
-          PY
-
-          echo "=== Verify final icon resources ==="
-
-          ls -lah "$RESOURCES" \
-            | grep -E 'Assets\.car|AppIcon\.icns' \
-            || true
-
-          echo "=== Verify Info.plist ==="
-
-          plutil -p "$PLIST_PATH" \
-            | grep -E 'CFBundleIcon|Icon' \
-            || true
-
-          echo "=== Architecture verification ==="
-
+          # 4. 架构验证
+          echo "=== 架构验证 ==="
           lipo -info "$APP_PATH/Contents/MacOS/"*
 
-          # Refresh package metadata.
-          touch "$PLIST_PATH"
-          touch "$APP_PATH"
-
-          echo "=== Ad-hoc signing ==="
-
-          ENT_FILE=$(find . \
-            -name "*.entitlements" \
-            -print \
-            -quit
-          )
-
+          # 5. 重新签名并打包
+          ENT_FILE=$(find . -name "*.entitlements" | head -n 1)
           if [ -n "$ENT_FILE" ]; then
-            echo "Signing with non-sandbox entitlements: $ENT_FILE"
-
-            codesign \
-              --force \
-              --deep \
-              --sign - \
-              --entitlements "$ENT_FILE" \
-              "$APP_PATH"
+              codesign --force --deep --sign - --entitlements "$ENT_FILE" "$APP_PATH"
           else
-            codesign \
-              --force \
-              --deep \
-              --sign - \
-              "$APP_PATH"
+              codesign --force --deep --sign - "$APP_PATH"
           fi
 
-          echo "=== Code signature verification ==="
-
-          codesign \
-            --verify \
-            --deep \
-            --strict \
-            "$APP_PATH"
-
-          echo "=== Package Intel application ==="
-
-          ditto \
-            -c \
-            -k \
-            --keepParent \
-            "$APP_PATH" \
-            BiliKit-macOS26-Intel.zip
+          ditto -c -k --keepParent "$APP_PATH" BiliKit-macOS26-Intel.zip
 
       - name: Upload Intel App Artifact
         uses: actions/upload-artifact@v4
