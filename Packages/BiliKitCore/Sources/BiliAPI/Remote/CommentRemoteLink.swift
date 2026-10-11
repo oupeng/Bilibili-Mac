@@ -31,6 +31,14 @@ struct CommentJumpURLPayload: Decodable, Sendable {
         let extra = try? container.decodeIfPresent(ExtraPayload.self, forKey: .extra)
         isWordSearch = extra?.isWordSearch == true
     }
+
+    /// 链接地址：`pc_url` 缺失或为空时，正文里的网址本身（如 b23.tv 短链）就是键，退回用键。
+    ///
+    /// 键不是 HTTPS 网址时由分类规则拒绝，不会生成链接。
+    func destination(label: String) -> String {
+        guard let pcURL, !pcURL.isEmpty else { return label }
+        return pcURL
+    }
 }
 
 /// 把评论链接地址分成站内视频、UP 主空间与其他 HTTPS 外链。
@@ -45,13 +53,47 @@ enum CommentRemoteLink {
     /// 空间里与应用内空间层（投稿列表）对应的子页面；合集、收藏夹、动态等其他子页面交给浏览器。
     private static let spaceVideoListPaths: Set<[String]> = [[], ["video"], ["upload", "video"]]
 
+    /// 短链主机；`bili2233.cn` 等其他短链域名不认，按外链处理。
+    private static let shortLinkHost = "b23.tv"
+    /// 短码只允许 ASCII 字母与数字，长度有上限。
+    private static let maximumShortLinkCodeLength = 16
+
     static func target(_ value: String?) -> CommentLinkTarget? {
         guard let components = components(value) else { return nil }
         if let target = internalTarget(components) {
             return target
         }
         guard let url = components.url else { return nil }
+        if shortLinkURL(components) != nil {
+            return .shortLink(CommentExternalLinkReference(remoteURL: url))
+        }
         return .external(CommentExternalLinkReference(remoteURL: url))
+    }
+
+    /// 合规短链的请求地址：只保留 `https://b23.tv/{短码}`，去掉 query 与 fragment；形状不符时为 nil。
+    static func shortLinkRequestURL(_ url: URL) -> URL? {
+        URLComponents(url: url, resolvingAgainstBaseURL: false).flatMap(shortLinkURL)
+    }
+
+    /// 地址是否在短链主机上，不论形状；短链解析不追第二跳。
+    static func isOnShortLinkHost(_ url: URL?) -> Bool {
+        url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?
+            .percentEncodedHost?.lowercased() == shortLinkHost
+    }
+
+    private static func shortLinkURL(_ components: URLComponents) -> URL? {
+        guard components.scheme?.lowercased() == "https",
+            components.user == nil, components.password == nil, components.port == nil,
+            components.percentEncodedHost?.lowercased() == shortLinkHost
+        else { return nil }
+        let parts = components.percentEncodedPath.split(separator: "/")
+        guard parts.count == 1, let code = parts.first,
+            (1...maximumShortLinkCodeLength).contains(code.count),
+            code.utf8.allSatisfy({
+                (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0)
+            })
+        else { return nil }
+        return URL(string: "https://\(shortLinkHost)/\(code)")
     }
 
     private static func internalTarget(_ components: URLComponents) -> CommentLinkTarget? {

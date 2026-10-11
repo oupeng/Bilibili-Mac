@@ -23,6 +23,7 @@ struct AppShellView: View {
     let playerContent: AnyView
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentLinkRouter: CommentLinkRouter
+    let commentShortLinks: CommentShortLinkResolution
     let imagePipeline: NativeVideoImagePipeline
     @Binding var isAuthenticationPresented: Bool
     @Binding var searchFilterSelection: SearchFilterSelection
@@ -262,7 +263,8 @@ struct AppShellView: View {
 
     /// 评论正文链接：视频（含分 P）在应用内播放，空间链接在侧栏空间层打开，其余交给系统浏览器。
     ///
-    /// @ 提及在侧栏内已进入空间，到这里只剩没有空间功能时的网页回退。
+    /// @ 提及在侧栏内已进入空间，到这里只剩没有空间功能时的网页回退。短链先由窗口级 owner 解析，
+    /// 解析出的路由再走这里一次，解析不出时打开原短链。
     private func openCommentLink(_ route: CommentLinkRoute?) {
         switch route {
         case .playback(let intent):
@@ -275,6 +277,10 @@ struct AppShellView: View {
             }
         case .web(let url):
             openURL(url)
+        case .shortLink(let resolve, let webFallback):
+            commentShortLinks.start(resolve) { resolved in
+                openCommentLink(resolved ?? webFallback.map(CommentLinkRoute.web))
+            }
         case nil:
             break
         }

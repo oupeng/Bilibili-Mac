@@ -200,6 +200,8 @@ public enum CommentLinkTarget: Sendable, Equatable, Hashable {
     case member(CommentAuthor)
     /// 指向 UP 主空间的链接；只有 MID，名字与头像由空间层另行取得。
     case space(memberID: Int64)
+    /// b23.tv 短链；点击后才解析出真正的去向，解析失败时按外链打开原短链。
+    case shortLink(CommentExternalLinkReference)
     case external(CommentExternalLinkReference)
 }
 

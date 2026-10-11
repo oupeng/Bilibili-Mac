@@ -172,12 +172,15 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   来自评论接口的 `members`），未登录时空间层显示登录提示。正文里的空间链接只有 MID：空间先以 UID
   作头部打开，`/x/web-interface/card` 名片到达后补上名字与头像。按页替换，底部悬浮页码条翻页与跳页，
   不做无限流。
-- 评论正文链接（`jump_url`）由 BiliAPI 分类：桌面版、手机版与裸域的视频地址（BV 号，或在本地换算的
-  av 号）在应用内播放，链接里的 `p` 作为分 P 序号偏好（超出范围按默认分 P，命中时续播该分 P 的上次
+- 评论正文链接（`jump_url`；`pc_url` 为空时用正文里作键的网址，b23.tv 短链就是这种形状）由 BiliAPI
+  分类：桌面版、手机版与裸域的视频地址（BV 号，或在本地换算的 av 号）在应用内播放，链接里的 `p` 作为分 P 序号偏好（超出范围按默认分 P，命中时续播该分 P 的上次
   位置）；空间主页与投稿列表链接在侧栏空间层打开，合集、收藏夹等其他空间子页面应用内没有对应页面，
   交给浏览器；搜索词链接（`is_word_search`）不生成链接，因为跳到搜索页会离开播放；站内目标按未解码的
   host 与 path 精确匹配、不带端口，其余 HTTPS 地址交给系统浏览器。指向正在播放的视频时，带分 P 的
   链接就地切换分 P，不带或超出范围的保持当前播放。
+- b23.tv 短链在点击后由 BiliAPI 的 `BiliShortLinkResolver` 读一次跳转目标，再走同一分类；Composition 的
+  `CommentLinkRouting` 是链接目标到 App 路由（`CommentLinkRoute`）的唯一翻译处，在途解析由窗口级
+  `CommentShortLinkResolution` 拥有，评论所属视频变化或关窗时取消，解析不出时打开原短链。
 
 ### 搜索起始页
 

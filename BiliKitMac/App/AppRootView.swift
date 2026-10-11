@@ -107,6 +107,7 @@ struct AppRootView: View {
             playerContent: playerContent,
             commentAssetURLResolver: windowOwner.commentAssetURLResolver,
             commentLinkRouter: windowOwner.commentLinkRouter,
+            commentShortLinks: windowOwner.commentShortLinks,
             imagePipeline: windowOwner.imagePipeline,
             isAuthenticationPresented: $isAuthenticationPresented,
             searchFilterSelection: $searchFilterSelection,
@@ -370,6 +371,8 @@ struct AppRootView: View {
     }
 
     private func applyCommentActivation(aid: Int64?) async {
+        // 短链属于上一个视频的评论：评论所属视频变化时取消在途解析。
+        windowOwner.commentShortLinks.cancel()
         guard let commentsModel else { return }
         guard let aid else {
             commentsModel.reset()

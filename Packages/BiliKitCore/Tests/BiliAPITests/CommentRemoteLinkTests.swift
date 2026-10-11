@@ -53,6 +53,12 @@ struct CommentRemoteLinkTests {
         "https://space.bilibili.com/123456/favlist?fid=1",
         "https://space.bilibili.com/123456/dynamic",
         "https://m.bilibili.com/space/abc",
+        "https://b23.tv/",
+        "https://b23.tv/abc/def",
+        "https://b23.tv/abcdefghijklmnopq",
+        "https://b23.tv/ab-cd",
+        "https://b23.tv:8443/AbCd123",
+        "https://bili2233.cn/AbCd123",
         "https://www.bilibili.com/video/av2251799813685248",
         "https://www.bilibili.com/video/av12x",
         "https://space.bilibili.com/0",
@@ -65,6 +71,23 @@ struct CommentRemoteLinkTests {
             return
         }
         #expect(reference.remoteURL == URL(string: value))
+    }
+
+    /// 合规的 b23.tv 短链点击后才解析；请求地址只保留短码，去掉 query 与 fragment。
+    @Test(
+        arguments: [
+            ("https://b23.tv/AbCd123", "https://b23.tv/AbCd123"),
+            ("//B23.TV/AbCd123?share_source=copy#x", "https://b23.tv/AbCd123"),
+            ("https://b23.tv/BV1xx411c7mD/", "https://b23.tv/BV1xx411c7mD")
+        ]
+    )
+    func shortLinksAreResolvedOnClick(value: String, requestURL: String) throws {
+        guard case .shortLink(let reference) = CommentRemoteLink.target(value) else {
+            Issue.record("合规的 b23.tv 地址应识别为短链")
+            return
+        }
+        let url = try #require(reference.remoteURL)
+        #expect(CommentRemoteLink.shortLinkRequestURL(url)?.absoluteString == requestURL)
     }
 
     /// 已知的 av／BV 对照；超出规则范围时不换算。
@@ -114,6 +137,38 @@ struct CommentRemoteLinkTests {
 
         #expect(links.map(\.target) == [.video(bvid: "BV1FixtureA1", page: nil)])
         #expect(links.map(\.range) == [CommentTextRange(location: 13, length: 2)])
+    }
+
+    /// 正文里的网址本身作键、`pc_url` 为空（实测 b23.tv 短链就是这种形状）时退回用键；键不是
+    /// HTTPS 网址时不生成链接。
+    @Test
+    func emptyPCURLFallsBackToAnAddressKey() throws {
+        let short = "https://b23.tv/Jf3cvv2"
+        let video = "https://www.bilibili.com/video/BV1xx411c7mD"
+        let insecure = "http://example.com/a"
+        let data = try JSONSerialization.data(
+            withJSONObject: [
+                "message": "\(short) \(video) \(insecure)",
+                "jump_url": [
+                    short: [
+                        "pc_url": "", "title": "视频标题", "prefix_icon": "https://i0.hdslb.com/a.png"
+                    ],
+                    video: ["title": "视频标题"],
+                    insecure: ["pc_url": ""]
+                ]
+            ]
+        )
+        let payload = try JSONDecoder().decode(CommentContentPayload.self, from: data)
+
+        let targets = try payload.model().links.map(\.target)
+
+        #expect(targets.count == 2)
+        guard case .shortLink(let reference) = targets.first else {
+            Issue.record("键为 b23.tv 网址、pc_url 为空时应识别为短链")
+            return
+        }
+        #expect(reference.remoteURL?.absoluteString == short)
+        #expect(targets.last == .video(bvid: "BV1xx411c7mD", page: nil))
     }
 
     /// `extra` 形状异常时按普通链接处理，不拖累整条 jump_url。

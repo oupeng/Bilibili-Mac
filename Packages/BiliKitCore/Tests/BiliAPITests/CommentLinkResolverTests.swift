@@ -29,6 +29,18 @@ struct CommentLinkResolverTests {
         #expect(resolver.externalURL(for: .space(memberID: 0)) == nil)
     }
 
+    /// 短链解析不出时的回退：原短链经同一公开 HTTPS 复核后交给浏览器。
+    @Test
+    func shortLinksFallBackToTheOriginalShortURL() throws {
+        let url = try #require(URL(string: "https://b23.tv/AbCd123"))
+
+        #expect(
+            resolver.externalURL(for: .shortLink(CommentExternalLinkReference(remoteURL: url)))
+                == url
+        )
+        #expect(resolver.externalURL(for: .shortLink(CommentExternalLinkReference())) == nil)
+    }
+
     @Test(arguments: ["", "0", "-1", "abc", "１２３", "999999999999999999999999"])
     func rejectsInvalidMemberIDs(_ value: String) {
         #expect(

@@ -2,6 +2,7 @@ import Foundation
 
 public enum HTTPMethod: String, Sendable {
     case get = "GET"
+    case head = "HEAD"
     case post = "POST"
 }
 

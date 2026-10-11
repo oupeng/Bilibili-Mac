@@ -1,0 +1,41 @@
+import BiliAPI
+import BiliModels
+import Foundation
+
+/// 评论正文链接的去向，由 Composition 按链接目标翻译；App 外壳只执行，不接触评论模型。
+enum CommentLinkRoute: Sendable {
+    case playback(PlaybackSelectionIntent)
+    /// 在侧栏空间层打开；没有空间功能时打开 `webFallback`。
+    case space(memberID: Int64, webFallback: URL?)
+    case web(URL)
+    /// 短链：点击后由 `resolve` 解析出真正的去向；解析不出时打开 `webFallback`（原短链）。
+    case shortLink(resolve: @Sendable () async -> CommentLinkRoute?, webFallback: URL?)
+}
+
+typealias CommentLinkRouter = @Sendable (CommentLinkTarget) -> CommentLinkRoute?
+
+/// 评论链接目标到 App 路由的唯一翻译处。
+struct CommentLinkRouting: Sendable {
+    let linkResolver: BiliCommentLinkResolver
+    let shortLinkResolver: BiliShortLinkResolver
+
+    func route(for target: CommentLinkTarget) -> CommentLinkRoute? {
+        switch target {
+        case .video(let bvid, let page):
+            return .playback(PlaybackSelectionIntent(bvid: bvid, preferredPageNumber: page))
+        case .space(let memberID):
+            return .space(memberID: memberID, webFallback: linkResolver.externalURL(for: target))
+        case .member, .external:
+            return linkResolver.externalURL(for: target).map(CommentLinkRoute.web)
+        case .shortLink:
+            let routing = self
+            return .shortLink(
+                resolve: {
+                    // 解析结果不会再是短链；其余目标与正文里的链接走同一翻译。
+                    await shortLinkResolver.resolve(target).flatMap(routing.route(for:))
+                },
+                webFallback: linkResolver.externalURL(for: target)
+            )
+        }
+    }
+}
