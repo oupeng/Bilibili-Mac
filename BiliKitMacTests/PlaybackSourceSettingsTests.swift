@@ -363,15 +363,6 @@ struct PlaybackSourceSettingsTests {
             headers: [:]
         )
     }
-
-    @MainActor
-    private func withIsolatedDefaults(_ body: (UserDefaults) -> Void) {
-        let name = "PlaybackSourceSettingsTests.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: name) else { return }
-        defaults.removePersistentDomain(forName: name)
-        defer { defaults.removePersistentDomain(forName: name) }
-        body(defaults)
-    }
 }
 
 private enum BenchmarkTestError: Error {

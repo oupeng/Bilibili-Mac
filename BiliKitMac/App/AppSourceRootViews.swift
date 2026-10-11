@@ -61,8 +61,11 @@ struct SearchTabRoot: View {
     @Binding var scrollOffsetY: CGFloat
     @Binding var scrollReset: NativeVideoGridScrollResetState
     let imagePipeline: NativeVideoImagePipeline
+    let trendingSearchModel: TrendingSearchViewModel?
+    let searchHistory: SearchHistoryStore?
     let onSelect: (String) -> Void
     let onSubmit: () -> Void
+    let onSearchKeyword: (String) -> Void
     let onSelectOrder: (VideoSearchOrder) -> Void
     let onApplyFilters: (SearchFilterSelection) -> Void
     let onClearFilters: () -> Void
@@ -82,7 +85,21 @@ struct SearchTabRoot: View {
                 .ignoresSafeArea(.container, edges: .top)
             },
             onSelect: onSelect,
-            onClearFilters: onClearFilters
+            onClearFilters: onClearFilters,
+            startContent: {
+                if let trendingSearchModel {
+                    SearchStartView(
+                        history: searchHistory?.entries ?? [],
+                        trendingModel: trendingSearchModel,
+                        onSearch: onSearchKeyword,
+                        onRemoveHistory: { searchHistory?.remove($0) },
+                        onClearHistory: { searchHistory?.clear() },
+                        makeTrendingIcon: { url in
+                            TrendingSearchIconView(url: url, imagePipeline: imagePipeline)
+                        }
+                    )
+                }
+            }
         )
         .navigationTitle("搜索")
         .toolbar(removing: .title)

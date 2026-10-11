@@ -17,6 +17,8 @@ struct AppShellView: View {
     let authenticationModel: AuthenticationViewModel
     let historyModel: WatchHistoryViewModel
     let uploaderSpaceModel: UploaderSpaceViewModel?
+    let trendingSearchModel: TrendingSearchViewModel?
+    let searchHistory: SearchHistoryStore?
     let playerContent: AnyView
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentVideoLinkResolver: CommentVideoLinkResolver
@@ -26,6 +28,7 @@ struct AppShellView: View {
     @Binding var searchFilterSelection: SearchFilterSelection
     let submittedSearchCriteria: VideoSearchCriteria?
     let onSubmitSearch: () -> Void
+    let onSearchKeyword: (String) -> Void
     let onSelectSearchOrder: (VideoSearchOrder) -> Void
     let onApplySearchFilters: (SearchFilterSelection) -> Void
     let onClearSearchFilters: () -> Void
@@ -310,8 +313,11 @@ struct AppShellView: View {
                 scrollOffsetY: gridScrollBinding(.search).offsetY,
                 scrollReset: gridScrollBinding(.search).reset,
                 imagePipeline: imagePipeline,
+                trendingSearchModel: trendingSearchModel,
+                searchHistory: searchHistory,
                 onSelect: navigationCoordinator.openPlayback,
                 onSubmit: onSubmitSearch,
+                onSearchKeyword: onSearchKeyword,
                 onSelectOrder: onSelectSearchOrder,
                 onApplyFilters: onApplySearchFilters,
                 onClearFilters: onClearSearchFilters

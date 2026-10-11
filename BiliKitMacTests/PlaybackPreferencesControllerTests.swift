@@ -134,20 +134,6 @@ struct PlaybackPreferencesControllerTests {
         }
     }
 
-    @MainActor
-    private func withIsolatedDefaults(
-        _ body: (UserDefaults) throws -> Void
-    ) rethrows {
-        let suiteName = "PlaybackPreferencesControllerTests.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            Issue.record("无法创建隔离的 UserDefaults suite")
-            return
-        }
-        defaults.removePersistentDomain(forName: suiteName)
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        try body(defaults)
-    }
-
     private func load(from defaults: UserDefaults) -> PlaybackPreferences {
         UserDefaultsPlaybackPreferencesStore(defaults: defaults).load()
     }

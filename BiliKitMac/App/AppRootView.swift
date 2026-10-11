@@ -26,6 +26,7 @@ struct AppRootView: View {
     @StateObject private var windowOwnerHolder: AppWindowOwnerHolder
     private let accountSessionCoordinator: AccountSessionCoordinator
     private let appSettingsModel: AppSettingsModel?
+    private let searchHistoryStore: SearchHistoryStore?
     @State private var isAuthenticationPresented = false
     @State private var searchFilterSelection = SearchFilterSelection()
     @State private var appliedSearchFilters = AppliedVideoSearchFilters()
@@ -34,10 +35,12 @@ struct AppRootView: View {
         environment: AppEnvironment? = nil,
         accountSessionCoordinator: AccountSessionCoordinator = AccountSessionCoordinator(),
         systemNowPlayingController: SystemNowPlayingController? = nil,
-        appSettingsModel: AppSettingsModel? = nil
+        appSettingsModel: AppSettingsModel? = nil,
+        searchHistoryStore: SearchHistoryStore? = nil
     ) {
         self.accountSessionCoordinator = accountSessionCoordinator
         self.appSettingsModel = appSettingsModel
+        self.searchHistoryStore = searchHistoryStore
         _windowOwnerHolder = StateObject(
             wrappedValue: AppWindowOwnerHolder(
                 AppWindowOwner(
@@ -69,6 +72,7 @@ struct AppRootView: View {
     ) {
         self.accountSessionCoordinator = accountSessionCoordinator
         appSettingsModel = nil
+        searchHistoryStore = nil
         _windowOwnerHolder = StateObject(
             wrappedValue: AppWindowOwnerHolder(
                 AppWindowOwner(
@@ -99,6 +103,8 @@ struct AppRootView: View {
             authenticationModel: authenticationModel,
             historyModel: historyModel,
             uploaderSpaceModel: windowOwner.uploaderSpaceModel,
+            trendingSearchModel: windowOwner.trendingSearchModel,
+            searchHistory: searchHistoryStore,
             playerContent: playerContent,
             commentAssetURLResolver: windowOwner.commentAssetURLResolver,
             commentVideoLinkResolver: windowOwner.commentVideoLinkResolver,
@@ -108,6 +114,7 @@ struct AppRootView: View {
             searchFilterSelection: $searchFilterSelection,
             submittedSearchCriteria: submittedSearchCriteria,
             onSubmitSearch: performSearch,
+            onSearchKeyword: search(keyword:),
             onSelectSearchOrder: selectSearchOrder,
             onApplySearchFilters: applySearchFilters,
             onClearSearchFilters: clearSearchFilters
@@ -196,6 +203,7 @@ struct AppRootView: View {
             browseModel.reset()
             authenticationModel.cancelTransientWork()
             historyModel.reset()
+            windowOwner.trendingSearchModel?.reset()
             commentsModel?.reset()
             windowOwner.close()
         }
@@ -292,11 +300,18 @@ struct AppRootView: View {
         guard !normalizedSearchDraft.isEmpty else { return }
         navigationCoordinator.searchDraft = normalizedSearchDraft
         let criteria = appliedSearchFilters.criteria(query: normalizedSearchDraft)
+        searchHistoryStore?.record(criteria.query)
         if submittedSearchCriteria == criteria {
             browseModel.search(criteria)
         } else {
             submittedSearchCriteria = criteria
         }
+    }
+
+    /// 点选历史或热搜词：与在搜索框输入后提交走同一条路径。
+    private func search(keyword: String) {
+        navigationCoordinator.searchDraft = keyword
+        performSearch()
     }
 
     private func selectSearchOrder(_ order: VideoSearchOrder) {

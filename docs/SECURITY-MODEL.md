@@ -38,7 +38,8 @@
 
 ## 3. 哪些请求可以带凭据
 
-默认所有网络匿名，且不带任何 Cookie。唯一的非凭据例外是搜索 `/x/web-interface/wbi/search/type`：
+默认所有网络匿名，且不带任何 Cookie。搜索页的 B 站热搜（`/x/web-interface/search/square`）
+无论是否登录都匿名读取，不签 WBI。唯一的非凭据例外是搜索 `/x/web-interface/wbi/search/type`：
 该接口要求 Cookie 含 `buvid3`，`BiliAPI` 为此在进程内存中随机生成一个 `buvid3=<小写 UUID>infoc`，
 不持久化、不激活、不与账户关联；匿名与账户读取两条搜索路径都在授权之后附加它（账户读取时与授权器
 给出的 Cookie 并列），任何其他请求（含 WBI nav）都不携带。只有两个授权器，均由 Composition 注入
@@ -82,7 +83,7 @@ storage、无 URL cache，并拒绝 redirect。`PublicHTTPSURLPolicy` 是基线�
 | --- | --- | --- |
 | 媒体（DASH、progressive） | `BiliMediaCDNURLPolicy`：`bilivideo.com`／`bilivideo.cn`／`szbdyd.com` 及子域、`upos-*.akamaized.net` | DTO 映射与实际连接前各检查一次；响应须为精确 206、`Content-Range`、长度；映射后的媒体 headers 去除 `Cookie`／`Authorization` |
 | 字幕正文 | `SubtitleURLPolicy`：`https://aisubtitle.hdslb.com/bfs/...` | 正文 ≤ 2 MiB；新主机先失败关闭 |
-| 评论头像、表情、正文图片 | `i0`／`i1`／`i2.hdslb.com` 的 `/bfs/` 路径 | 拒绝 query、fragment、点段、编码分隔符 |
+| 评论头像、表情、正文图片，热搜图标 | `BiliBFSImageURLPolicy`：`i0`／`i1`／`i2.hdslb.com` 的 `/bfs/` 路径（热搜图标的 `http:` 与协议相对地址先升级为 HTTPS） | 拒绝 query、fragment、点段、编码分隔符；热搜图标不合规时只丢图标、保留文字 |
 | 视频封面 | 接口返回的 HTTPS URL（`http:`、协议相对地址升级为 HTTPS） | 由图片管线限制 |
 | 评论外链 | 视频链接只回送合法 BVID；@ 成员只允许正整数 MID，在应用内打开空间，仅空间不可用时才回退到 `space.bilibili.com`；其他目标经公开 HTTPS 形状复核 | 仅用户点击后交给系统 `OpenURLAction`；不预取、不解析 DNS、不附加凭据 |
 
@@ -102,8 +103,13 @@ storage、无 URL cache，并拒绝 redirect。`PublicHTTPSURLPolicy` 是基线�
 
 ## 6. 本地持久化
 
-- UserDefaults 只保存非内容偏好：播放音量、静音、首选倍速；弹幕速度、透明度、显示区域、密度；
+- UserDefaults 保存非内容偏好：播放音量、静音、首选倍速；弹幕速度、透明度、显示区域、密度；
   版本化播放线路 route identifier 与响度均一化开关。未知或损坏值回退默认。
+- 本机搜索历史（`SearchHistoryStore`，schema 1）是 UserDefaults 中唯一的内容数据：保存用户提交的
+  搜索词原文，只做搜索规则的规范化（去首尾空白、≤ 100 字），因此可能包含用户自己输入的 BV 号或链接；
+  最近在前、去重，最多 20 条，没有时间期限。它属于本机而不属于账号：BiliKit 不附加账号标识，未登录也
+  记录，登出不清理；用户可在搜索页逐条删除或全部清除，清除时移除对应键。schema 不符或类型错写时启动即
+  删除这两个键；非法条目不显示，下次写入时被覆盖。B 站热搜结果只在窗口内存中，不持久化。
 - 不持久化 BVID、CID、AID、播放位置、标题、字幕／弹幕正文、字幕选择、远端 URL、测速样本与结果，
   以及任何响应正文。观看 identity 与位置只存在于当前进程内存；服务端返回的续播位置只作一次性
   内存候选，匿名响应丢弃该字段。
