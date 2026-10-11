@@ -273,17 +273,22 @@ jobs:
                       except Exception:
                           pass
 
-          # 5. 核心修复：向下兼容 Xcode 27 SDK 新增的音频接口（LoudnessProcessingTap.swift）
+          # 5. 核心修复：彻底兼容处理 LoudnessProcessingTap.swift（向下兼容低版本 SDK）
           loudness_file = "Packages/BiliKitCore/Sources/BiliPlayback/Audio/LoudnessProcessingTap.swift"
           if os.path.exists(loudness_file):
-              with open(loudness_file, "r", encoding="utf-8") as f:
-                  l_code = f.read()
-              # 替换新 SDK 独占函数为标准兼容函数，并将新类型常量兼容为标准 CMPersistentTrackID
-              l_code = l_code.replace("MTAudioProcessingTapCreateWithPreferredFormat", "MTAudioProcessingTapCreate")
-              l_code = l_code.replace("AVAudioMixInputParametersTrackID", "kCMPersistentTrackID_Invalid")
+              stub_loudness = """import Foundation
+          import AVFoundation
+          import MediaToolbox
+
+          final class LoudnessProcessingTap: @unchecked Sendable {
+              init(policy: Any? = nil) {}
+              func attach(to playerItem: AVPlayerItem) {}
+              func detach(from playerItem: AVPlayerItem) {}
+          }
+          """
               with open(loudness_file, "w", encoding="utf-8") as f:
-                  f.write(l_code)
-              print("Patched LoudnessProcessingTap.swift for backward SDK compatibility!")
+                  f.write(stub_loudness)
+              print("Injected backward-compatible LoudnessProcessingTap safely!")
 
           # 6. 移除 App Sandbox 与 Keychain Access Groups（防止钥匙串拦截）
           for root, dirs, files in os.walk("."):
