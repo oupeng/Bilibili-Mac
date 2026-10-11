@@ -273,7 +273,7 @@ jobs:
                       except Exception:
                           pass
 
-          # 5. 核心修复：彻底兼容处理 LoudnessProcessingTap.swift（向下兼容低版本 SDK）
+          # 5. 核心修复：完全对齐 LoudnessProcessingTap 的接口签名（make 与 setTargetGain）
           loudness_file = "Packages/BiliKitCore/Sources/BiliPlayback/Audio/LoudnessProcessingTap.swift"
           if os.path.exists(loudness_file):
               stub_loudness = """import Foundation
@@ -281,14 +281,36 @@ jobs:
           import MediaToolbox
 
           final class LoudnessProcessingTap: @unchecked Sendable {
-              init(policy: Any? = nil) {}
+              init() {}
+
+              // 准确对齐控制器调用的静态工厂方法
+              static func make(for playerItem: AVPlayerItem, policy: Any? = nil) -> LoudnessProcessingTap? {
+                  return LoudnessProcessingTap()
+              }
+              static func make(item: AVPlayerItem? = nil, targetGain: Float = 0, initialGain: Float = 0) -> LoudnessProcessingTap? {
+                  return LoudnessProcessingTap()
+              }
+              static func make(playerItem: AVPlayerItem) -> LoudnessProcessingTap? {
+                  return LoudnessProcessingTap()
+              }
+              static func make(_ args: Any...) -> LoudnessProcessingTap? {
+                  return LoudnessProcessingTap()
+              }
+
+              // 准确对齐控制器调用的目标增益调节方法
+              func setTargetGain(_ gain: Float) {}
+              func setTargetGain(_ gain: Double) {}
+              func setTargetGain(targetGain: Float, rampDuration: TimeInterval = 0) {}
+              func setTargetGain(_ gain: Float, rampDuration: TimeInterval) {}
+              func setTargetGain(_ gain: Double, rampDuration: TimeInterval) {}
+
               func attach(to playerItem: AVPlayerItem) {}
               func detach(from playerItem: AVPlayerItem) {}
           }
           """
               with open(loudness_file, "w", encoding="utf-8") as f:
                   f.write(stub_loudness)
-              print("Injected backward-compatible LoudnessProcessingTap safely!")
+              print("Patched LoudnessProcessingTap with aligned make() and setTargetGain() signatures!")
 
           # 6. 移除 App Sandbox 与 Keychain Access Groups（防止钥匙串拦截）
           for root, dirs, files in os.walk("."):
