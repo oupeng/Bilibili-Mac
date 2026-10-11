@@ -15,16 +15,6 @@ import SwiftUI
 
 /// 评论图片地址；带像素框时请求图床按框缩小的图，不带框为原图。
 typealias CommentAssetURLResolver = @Sendable (CommentAssetReference, CommentAssetPixelBox?) -> URL?
-/// 评论正文链接的去向，由 Composition 按链接目标翻译；App 外壳只执行，不接触评论模型。
-enum CommentLinkRoute: Equatable {
-    case playback(PlaybackSelectionIntent)
-    /// 在侧栏空间层打开；没有空间功能时打开 `webFallback`。
-    case space(memberID: Int64, webFallback: URL?)
-    case web(URL)
-}
-
-typealias CommentLinkRouter = @Sendable (CommentLinkTarget) -> CommentLinkRoute?
-
 @MainActor
 /// App 的 Composition Root：创建具体 adapter，并把它们收窄为 Feature 所需的 port。
 ///
@@ -336,7 +326,10 @@ struct AppEnvironment {
         )
         let contentRepository = BiliContentRepository(client: api)
         let commentAssetResolver = BiliCommentAssetResolver()
-        let commentLinkResolver = BiliCommentLinkResolver()
+        let commentLinkRouting = CommentLinkRouting(
+            linkResolver: BiliCommentLinkResolver(),
+            shortLinkResolver: BiliShortLinkResolver()
+        )
         return AppEnvironment(
             feedRepository: contentRepository,
             videoRepository: contentRepository,
@@ -349,19 +342,7 @@ struct AppEnvironment {
             commentAssetURLResolver: { reference, box in
                 commentAssetResolver.imageURL(for: reference, fitting: box)
             },
-            commentLinkRouter: { target in
-                switch target {
-                case .video(let bvid, let page):
-                    .playback(PlaybackSelectionIntent(bvid: bvid, preferredPageNumber: page))
-                case .space(let memberID):
-                    .space(
-                        memberID: memberID,
-                        webFallback: commentLinkResolver.externalURL(for: target)
-                    )
-                case .member, .external:
-                    commentLinkResolver.externalURL(for: target).map(CommentLinkRoute.web)
-                }
-            },
+            commentLinkRouter: commentLinkRouting.route(for:),
             historyRepository: BiliWatchHistoryRepository(client: api),
             watchProgressRepository: accountSessionCoordinator.watchProgressRepository,
             danmakuRepository: BiliDanmakuRepository(client: api),
@@ -373,7 +354,10 @@ struct AppEnvironment {
                 service: authenticationService
             ),
             open: { sessionRegistration.open() },
-            close: { sessionRegistration.close() }
+            close: {
+                sessionRegistration.close()
+                commentLinkRouting.shortLinkResolver.invalidate()
+            }
         )
     }
 

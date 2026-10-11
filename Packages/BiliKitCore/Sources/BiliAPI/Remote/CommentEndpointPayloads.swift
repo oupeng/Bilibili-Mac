@@ -497,7 +497,8 @@ struct CommentContentPayload: Decodable, Sendable {
         let emotes = mappedEmotes()
         let mappedPictures = mappedPictures()
         let jumpLinks = jumpURLs.flatMap { label, payload -> [CommentLink] in
-            guard !payload.isWordSearch, let target = CommentRemoteLink.target(payload.pcURL)
+            guard !payload.isWordSearch,
+                let target = CommentRemoteLink.target(payload.destination(label: label))
             else { return [] }
             return ranges(of: label).map { CommentLink(range: $0, target: target) }
         }
@@ -653,7 +654,7 @@ struct CommentContentPayload: Decodable, Sendable {
             "1:\(user.id.rawValue)"
         case .space(let memberID):
             "2:\(memberID)"
-        case .external(let reference):
+        case .shortLink(let reference), .external(let reference):
             "3:\(reference.remoteURL?.absoluteString ?? "")"
         }
     }

@@ -23,6 +23,8 @@ final class AppWindowOwner {
     let playerContent: AnyView
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentLinkRouter: CommentLinkRouter
+    /// 评论短链的在途解析；换视频与关窗时取消。
+    let commentShortLinks = CommentShortLinkResolution()
     /// 窗口内所有封面、头像与评论图片共用的匿名有界图片管线。
     let imagePipeline: NativeVideoImagePipeline
     private let imagePipelineOwner: NativeVideoImagePipelineOwner
@@ -184,6 +186,7 @@ final class AppWindowOwner {
     func close() {
         guard !isClosed else { return }
         isClosed = true
+        commentShortLinks.cancel()
         watchProgressConnection?.stop()
         systemNowPlayingCoordinator?.close()
         imagePipelineOwner.shutdown()

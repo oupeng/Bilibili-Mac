@@ -72,7 +72,7 @@
 - 不建立离线队列，不持久化位置或待发送请求，不崩溃恢复写入。
 - 任何其他写操作都需要新的产品决定、精确 endpoint／method／schema 和对应授权器，不得泛化此授权器。
 
-**永不携带凭据**：WBI nav、图片、视频／音频 CDN、字幕正文、loopback server、二维码 URL、评论外链、
+**永不携带凭据**：WBI nav、图片、视频／音频 CDN、字幕正文、loopback server、二维码 URL、评论外链与短链解析、
 Sparkle 更新网络，以及任何 redirect 后的主机。不使用 `*.bilibili.com` 后缀匹配。
 
 ## 4. 远端来源与重定向
@@ -89,6 +89,7 @@ storage、无 URL cache，并拒绝 redirect。`PublicHTTPSURLPolicy` 是基线�
 | 评论头像、表情、正文图片，热搜图标 | `BiliBFSImageURLPolicy`：`i0`／`i1`／`i2.hdslb.com` 的 `/bfs/` 路径（热搜图标的 `http:` 与协议相对地址先升级为 HTTPS） | 拒绝 query、fragment、点段、编码分隔符；评论列表图片与头像的缩略参数写在 path 上（`@{宽}w_{高}h.webp`），加参数后的地址再过一次同一规则；热搜图标不合规时只丢图标、保留文字 |
 | 视频封面 | 接口返回的 HTTPS URL（`http:`、协议相对地址升级为 HTTPS） | 由图片管线限制 |
 | 评论外链 | 视频链接只回送合法 BVID（av 号在本地换算，不发请求），分 P 序号只取正整数；@ 成员与空间链接只允许正整数 MID，在应用内打开空间，仅空间不可用时才回退到 `space.bilibili.com`；搜索词链接不生成；其他目标经公开 HTTPS 形状复核 | 仅用户点击后交给系统 `OpenURLAction`；不预取、不解析 DNS、不附加凭据 |
+| 评论短链 | 只认 `https://b23.tv/{1–16 位 ASCII 字母数字}`，请求时去掉 query 与 fragment；其他短链域名按评论外链处理 | 仅用户点击后发一次无凭据 `HEAD`（拒绝 redirect、5 秒超时、不读正文），只读一次 3xx 的绝对或协议相对 `Location`，目标按评论外链同一规则分类；目标仍在 b23.tv（不论形状）、不是跳转或失败时，把原短链交给系统浏览器；同一窗口同时只解析一个，新点击、换视频或关窗取消，关窗时释放 session；不记录短码与目标地址 |
 
 - 弹幕分段与评论页须通过状态、Content-Type 与 2 MiB 上限，再交给解码器；JSON、protobuf、HTML 错误页和
   空响应不能互相降级解析。未知接口状态失败关闭。
