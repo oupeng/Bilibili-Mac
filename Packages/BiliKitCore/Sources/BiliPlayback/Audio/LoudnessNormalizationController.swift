@@ -21,7 +21,7 @@ final class LoudnessNormalizationController {
         }
     }
 
-    /// 在 item 交给 AVPlayer 前安装 tap；系统版本、开关或元数据不满足时保持原样。
+    /// 在 item 交给 AVPlayer 前安装 tap；系统版本、开关不满足，或没有任何音轨需要压低时保持原样。
     func install(
         on item: AVPlayerItem,
         audioTracks: [SelectedPlaybackAudioTrack],
@@ -29,7 +29,7 @@ final class LoudnessNormalizationController {
     ) {
         guard #available(macOS 27.0, *),
             enabled,
-            audioTracks.contains(where: { $0.track.loudnessMetadata != nil }),
+            LoudnessNormalizationPolicy().needsAttenuation(audioTracks.map(\.track)),
             let defaultTrack = audioTracks.first(where: { $0.track.isDefault }),
             let tap = LoudnessProcessingTap.make(
                 initialGain: LoudnessNormalizationPolicy().linearGain(
@@ -99,7 +99,11 @@ final class LoudnessNormalizationController {
             let option = item.currentMediaSelection.selectedMediaOption(in: group)
         {
             let matches = audioTracks.filter {
-                Self.matches($0, option: option)
+                LoudnessAudioTrackMatching.matches(
+                    $0,
+                    optionLanguageTag: option.extendedLanguageTag ?? option.locale?.identifier,
+                    optionHasCharacteristic: option.hasMediaCharacteristic
+                )
             }
             metadata = matches.count == 1 ? matches[0].loudnessMetadata : nil
         } else {
@@ -117,26 +121,5 @@ final class LoudnessNormalizationController {
             && selectionOperationID == operationID
             && self.item === item
             && self.tap === tap
-    }
-
-    private static func matches(
-        _ track: PlaybackAudioTrack,
-        option: AVMediaSelectionOption
-    ) -> Bool {
-        let expectedLanguage = (track.languageTag ?? "und")
-            .replacingOccurrences(of: "_", with: "-")
-            .lowercased()
-        let actualLanguage = (option.locale?.identifier ?? "und")
-            .replacingOccurrences(of: "_", with: "-")
-            .lowercased()
-        let characteristic = AVMediaCharacteristic(
-            rawValue:
-                track.role == .original
-                ? "public.original-content" : "public.machine-generated"
-        )
-        // displayName 是系统本地化后的界面名称（macOS 27 会加上语言与“原始”等标注），不能用来
-        // 匹配；原声只有一条、机器配音每种语言一条，语言加角色已能唯一确定音轨。
-        return actualLanguage == expectedLanguage
-            && option.hasMediaCharacteristic(characteristic)
     }
 }
