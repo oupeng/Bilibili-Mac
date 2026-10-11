@@ -497,7 +497,8 @@ struct CommentContentPayload: Decodable, Sendable {
         let emotes = mappedEmotes()
         let mappedPictures = mappedPictures()
         let jumpLinks = jumpURLs.flatMap { label, payload -> [CommentLink] in
-            guard let target = CommentRemoteURL.linkTarget(payload.url) else { return [] }
+            guard !payload.isWordSearch, let target = CommentRemoteLink.target(payload.pcURL)
+            else { return [] }
             return ranges(of: label).map { CommentLink(range: $0, target: target) }
         }
         var mentionTargetsByToken: [String: [CommentAuthorID: CommentAuthor]] = [:]
@@ -646,12 +647,14 @@ struct CommentContentPayload: Decodable, Sendable {
 
     private static func linkOrderKey(_ target: CommentLinkTarget) -> String {
         switch target {
-        case .video(let bvid):
-            "0:\(bvid)"
+        case .video(let bvid, let page):
+            "0:\(bvid):\(page.map(String.init) ?? "")"
         case .member(let user):
             "1:\(user.id.rawValue)"
+        case .space(let memberID):
+            "2:\(memberID)"
         case .external(let reference):
-            "2:\(reference.remoteURL?.absoluteString ?? "")"
+            "3:\(reference.remoteURL?.absoluteString ?? "")"
         }
     }
 }
@@ -677,18 +680,6 @@ struct CommentEmotePayload: Decodable, Sendable {
 
 struct CommentEmoteMetaPayload: Decodable, Sendable {
     let size: Int?
-}
-
-struct CommentJumpURLPayload: Decodable, Sendable {
-    let pcURL: String?
-    let appURL: String?
-
-    var url: String? { pcURL ?? appURL }
-
-    private enum CodingKeys: String, CodingKey {
-        case pcURL = "pc_url"
-        case appURL = "app_url"
-    }
 }
 
 struct CommentPicturePayload: Decodable, Sendable {
@@ -753,33 +744,6 @@ struct CommentFolderPayload: Decodable, Sendable {
     }
 }
 
-private enum CommentRemoteURL {
-    static func linkTarget(_ value: String?) -> CommentLinkTarget? {
-        guard let components = components(value), let host = components.host?.lowercased()
-        else { return nil }
-        let parts = components.path.split(separator: "/")
-        if host == "www.bilibili.com", parts.count >= 2,
-            parts[0] == "video", BiliAPIClient.isValidBVID(String(parts[1]))
-        {
-            return .video(bvid: String(parts[1]))
-        }
-        guard let url = components.url else { return nil }
-        return .external(CommentExternalLinkReference(remoteURL: url))
-    }
-
-    private static func components(_ value: String?) -> URLComponents? {
-        guard var value, !value.isEmpty else { return nil }
-        if value.hasPrefix("//") { value = "https:\(value)" }
-        guard let components = URLComponents(string: value),
-            components.scheme?.lowercased() == "https",
-            components.host != nil,
-            components.user == nil,
-            components.password == nil
-        else { return nil }
-        return components
-    }
-}
-
 private struct LossyStringDictionary<Value>: Decodable, Sendable
 where Value: Decodable & Sendable {
     let values: [String: Value]
@@ -817,7 +781,7 @@ extension KeyedDecodingContainer {
         try? decodeIfPresent(type, forKey: key)
     }
 
-    fileprivate func decodeLossyBool(forKey key: Key) -> Bool? {
+    func decodeLossyBool(forKey key: Key) -> Bool? {
         if let value = try? decodeIfPresent(Bool.self, forKey: key) {
             return value
         }

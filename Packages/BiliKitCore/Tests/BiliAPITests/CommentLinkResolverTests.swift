@@ -19,6 +19,16 @@ struct CommentLinkResolverTests {
         #expect(url.absoluteString == "https://space.bilibili.com/123456")
     }
 
+    /// 空间链接只在没有空间功能时回退到网页，地址与 @ 成员相同。
+    @Test
+    func spaceLinksFallBackToTheSamePublicSpacePage() {
+        #expect(
+            resolver.externalURL(for: .space(memberID: 123456))?.absoluteString
+                == "https://space.bilibili.com/123456"
+        )
+        #expect(resolver.externalURL(for: .space(memberID: 0)) == nil)
+    }
+
     @Test(arguments: ["", "0", "-1", "abc", "１２３", "999999999999999999999999"])
     func rejectsInvalidMemberIDs(_ value: String) {
         #expect(
@@ -62,7 +72,7 @@ struct CommentLinkResolverTests {
     @Test
     func leavesVideoLinksForInAppNavigation() {
         #expect(
-            resolver.externalURL(for: .video(bvid: "BV1FixtureA1")) == nil
+            resolver.externalURL(for: .video(bvid: "BV1FixtureA1", page: nil)) == nil
         )
     }
 }

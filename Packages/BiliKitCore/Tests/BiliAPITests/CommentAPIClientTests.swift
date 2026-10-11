@@ -431,7 +431,7 @@ struct CommentAPIClientTests {
                 CommentTextRange(location: 9, length: 5)
             ]
         )
-        #expect(links[0].target == .video(bvid: "BV1FixtureA1"))
+        #expect(links[0].target == .video(bvid: "BV1FixtureA1", page: 1))
         guard case .external(let externalReference) = links[1].target else {
             Issue.record("Expected an external comment link")
             return

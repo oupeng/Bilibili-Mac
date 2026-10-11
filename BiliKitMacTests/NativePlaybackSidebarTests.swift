@@ -526,7 +526,7 @@ struct NativePlaybackSidebarTests {
                 links: [
                     CommentLink(
                         range: range,
-                        target: .video(bvid: "BV1FixtureA1")
+                        target: .video(bvid: "BV1FixtureA1", page: nil)
                     )
                 ],
                 author: verifiedAuthor
@@ -539,7 +539,7 @@ struct NativePlaybackSidebarTests {
                 id: 1,
                 message: message,
                 links: [
-                    CommentLink(range: range, target: .video(bvid: "BV1FixtureA1"))
+                    CommentLink(range: range, target: .video(bvid: "BV1FixtureA1", page: nil))
                 ],
                 pictures: [CommentImage(asset: CommentAssetReference())],
                 author: verifiedAuthor
@@ -952,11 +952,11 @@ struct NativePlaybackSidebarTests {
                         location: videoRange.location,
                         length: videoRange.length
                     ),
-                    target: .video(bvid: "BV1FixtureA1")
+                    target: .video(bvid: "BV1FixtureA1", page: nil)
                 ),
                 CommentLink(
                     range: CommentTextRange(location: message.utf16.count, length: 4),
-                    target: .video(bvid: "BV1OutOfRange")
+                    target: .video(bvid: "BV1OutOfRange", page: nil)
                 ),
                 CommentLink(
                     range: CommentTextRange(
@@ -993,11 +993,11 @@ struct NativePlaybackSidebarTests {
 
         #expect(
             rendered.linkTargets == [
-                .video(bvid: "BV1FixtureA1"),
+                .video(bvid: "BV1FixtureA1", page: nil),
                 .member(CommentAuthor(id: CommentAuthorID(rawValue: "301"), name: "回复用户"))
             ]
         )
-        #expect(target(at: videoRange.location) == .video(bvid: "BV1FixtureA1"))
+        #expect(target(at: videoRange.location) == .video(bvid: "BV1FixtureA1", page: nil))
         #expect(
             target(at: memberRange.location)
                 == .member(CommentAuthor(id: CommentAuthorID(rawValue: "301"), name: "回复用户"))
@@ -1577,11 +1577,11 @@ struct NativePlaybackSidebarTests {
         }
 
         open(.member(mentioned), hasSpace: true)
-        open(.video(bvid: "BV1FixtureA1"), hasSpace: true)
+        open(.video(bvid: "BV1FixtureA1", page: nil), hasSpace: true)
         open(.member(mentioned), hasSpace: false)
 
         #expect(openedSpaces == [mentioned])
-        #expect(otherLinks == [.video(bvid: "BV1FixtureA1"), .member(mentioned)])
+        #expect(otherLinks == [.video(bvid: "BV1FixtureA1", page: nil), .member(mentioned)])
     }
 
     @Test(arguments: [2, 3])

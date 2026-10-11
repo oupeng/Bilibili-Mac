@@ -80,6 +80,8 @@ public final class VideoViewModel {
     public private(set) var requestedSelectionBVID: String?
     /// 显式用户 CID；未知 pages 时可以先存在，绝不据此伪造已呈现媒体。
     public private(set) var requestedPreferredCID: Int64?
+    /// 外部链接给出的分 P 序号；详情到达前只用于重试，到达后换算为 `requestedPreferredCID`。
+    private var requestedPreferredPageNumber: Int?
     /// 已经由播放器成功安装的媒体身份；切换开始和失败后必须为 nil。
     public private(set) var presentedPlaybackIdentity: PlaybackItemIdentity?
     /// 仅在确认凭据失效时递增，由 App 层协调账户重校验；其他播放失败不能触发登出。
@@ -137,7 +139,11 @@ public final class VideoViewModel {
     }
 
     /// 取代当前播放意图；已有非 idle 会话会先停止，避免两个 bridge/server 并存。
-    public func loadVideo(_ bvid: String, preferredCID: Int64? = nil) {
+    public func loadVideo(
+        _ bvid: String,
+        preferredCID: Int64? = nil,
+        preferredPageNumber: Int? = nil
+    ) {
         loadTask.cancel()
         collectionEpisodes.cancelRequests()
         cancelUploaderProfile()
@@ -148,6 +154,7 @@ public final class VideoViewModel {
         presentedPlaybackIdentity = nil
         requestedSelectionBVID = bvid
         requestedPreferredCID = preferredCID
+        requestedPreferredPageNumber = preferredPageNumber
         if let preferredCID {
             requestedPlaybackIdentity = PlaybackItemIdentity(
                 bvid: bvid,
@@ -162,6 +169,7 @@ public final class VideoViewModel {
             await self?.performLoad(
                 bvid: bvid,
                 preferredCID: preferredCID,
+                preferredPageNumber: preferredPageNumber,
                 isCurrent: isCurrent
             )
         }
@@ -183,6 +191,11 @@ public final class VideoViewModel {
         for identity: VideoCollectionEpisodeIdentity
     ) -> [VideoPage]? {
         collectionEpisodes.pages(for: identity)
+    }
+
+    /// 当前视频里分 P 序号（从 1 开始）对应的 CID；没有当前视频或序号超出范围时为 nil。
+    public func presentedPageCID(forNumber number: Int) -> Int64? {
+        presentedContext?.pages.first(where: { $0.index == number })?.cid
     }
 
     /// 在同一 BVID 的现有 pages 内替换 CID，不创建新的导航目的地或播放器 owner。
@@ -207,6 +220,7 @@ public final class VideoViewModel {
         requestedPlaybackIdentity = targetIdentity
         requestedSelectionBVID = context.detail.bvid
         requestedPreferredCID = targetPage.cid
+        requestedPreferredPageNumber = nil
         presentedPlaybackIdentity = nil
         let intent = PlaybackLoadIntent()
         playbackIntent = intent
@@ -225,7 +239,11 @@ public final class VideoViewModel {
     public func retry() {
         switch state {
         case .failed(let bvid, _):
-            loadVideo(bvid, preferredCID: requestedPreferredCID)
+            loadVideo(
+                bvid,
+                preferredCID: requestedPreferredCID,
+                preferredPageNumber: requestedPreferredPageNumber
+            )
         case .failedPage(_, let targetPage, _):
             requestedPlaybackIdentity = nil
             selectPage(cid: targetPage.cid)
@@ -252,6 +270,7 @@ public final class VideoViewModel {
         presentedPlaybackIdentity = nil
         requestedSelectionBVID = nil
         requestedPreferredCID = nil
+        requestedPreferredPageNumber = nil
         playbackIntent = nil
         clearResumeNotice()
         state = .idle
@@ -310,20 +329,28 @@ public final class VideoViewModel {
     private func performLoad(
         bvid: String,
         preferredCID: Int64?,
+        preferredPageNumber: Int?,
         isCurrent: LatestTask.IsCurrent
     ) async {
         do {
             let context = try await useCase.prepareVideo(
                 bvid: bvid,
-                preferredCID: preferredCID
+                preferredCID: preferredCID,
+                preferredPageNumber: preferredPageNumber
             )
             try Task.checkCancellation()
             guard isCurrent() else { return }
 
+            // 链接里的分 P 序号命中时与显式选择等价；没命中（超出范围）则按默认分 P，不算显式。
+            let explicitCID =
+                preferredCID
+                ?? preferredPageNumber.flatMap { number in
+                    context.selectedPage.index == number ? context.selectedPage.cid : nil
+                }
             presentedContext = context
             collectionEpisodes.reconcile(
                 with: context,
-                preferredCID: requestedPreferredCID
+                preferredCID: explicitCID
             )
             loadUploaderProfile(for: context.detail.owner.id)
             let identity = PlaybackItemIdentity(
@@ -332,7 +359,8 @@ public final class VideoViewModel {
             )
             requestedPlaybackIdentity = identity
             requestedSelectionBVID = context.detail.bvid
-            requestedPreferredCID = preferredCID
+            requestedPreferredCID = explicitCID
+            requestedPreferredPageNumber = nil
             let intent = PlaybackLoadIntent()
             playbackIntent = intent
             state = .preparingPlayback(context)

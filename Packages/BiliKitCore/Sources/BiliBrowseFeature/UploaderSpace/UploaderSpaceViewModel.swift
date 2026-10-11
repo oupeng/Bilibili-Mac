@@ -54,10 +54,13 @@ public final class UploaderSpaceViewModel {
     }
 
     @ObservationIgnored private let useCase: UploaderVideoUseCase
+    @ObservationIgnored private let profileUseCase: UploaderProfileUseCase
     @ObservationIgnored private let loadTask = LatestTask()
+    @ObservationIgnored private let profileTask = LatestTask()
 
-    public init(useCase: UploaderVideoUseCase) {
+    public init(useCase: UploaderVideoUseCase, profileUseCase: UploaderProfileUseCase) {
         self.useCase = useCase
+        self.profileUseCase = profileUseCase
     }
 
     /// 同一 UP 主再次打开时只更新资料（名字、头像可能已变），失败状态顺带重试。
@@ -69,16 +72,48 @@ public final class UploaderSpaceViewModel {
             }
             return
         }
+        profileTask.cancel()
         self.owner = owner
         order = .newest
         lastLoadedPage = nil
         load(page: 1)
     }
 
+    /// 只有 MID 的入口（评论正文里的空间链接）：先以空名字打开并照常加载投稿，名片到达后补上名字
+    /// 与头像。
+    ///
+    /// 同一 UP 主已经打开时与 `open(owner:)` 一样保持当前页。名片只是增强，失败时名字保持为空，
+    /// 再次打开同一空间时重取。
+    public func open(ownerID: Int64) {
+        guard ownerID > 0 else { return }
+        if let owner, owner.id == ownerID {
+            open(owner: owner)
+            if owner.name.isEmpty { loadProfile(ownerID: ownerID) }
+            return
+        }
+        open(owner: VideoOwner(id: ownerID, name: ""))
+        loadProfile(ownerID: ownerID)
+    }
+
+    private func loadProfile(ownerID: Int64) {
+        let profileUseCase = profileUseCase
+        profileTask.replace { [weak self] isCurrent in
+            let profile = try? await profileUseCase.profile(for: ownerID)
+            guard let self, isCurrent(), let profile, let owner = self.owner, owner.id == ownerID
+            else { return }
+            self.owner = VideoOwner(
+                id: ownerID,
+                name: profile.name ?? owner.name,
+                avatarURL: profile.avatarURL ?? owner.avatarURL
+            )
+        }
+    }
+
     /// 协调器每次换视频都会调用；已经关闭时不再写入，避免无谓地通知观察者。
     public func close() {
         guard owner != nil || state != .closed else { return }
         loadTask.cancel()
+        profileTask.cancel()
         owner = nil
         order = .newest
         lastLoadedPage = nil

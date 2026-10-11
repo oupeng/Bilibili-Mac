@@ -316,7 +316,15 @@ struct BiliAPIClientTests {
 
         let profile = try await client.uploaderProfile(for: 10_001)
 
-        #expect(profile == UploaderProfile(signature: "用影像记录生活", isVIP: true))
+        #expect(
+            profile
+                == UploaderProfile(
+                    name: "虚构作者",
+                    avatarURL: URL(string: "https://image.example.invalid/avatar.jpg"),
+                    signature: "用影像记录生活",
+                    isVIP: true
+                )
+        )
         let request = try #require(transport.capturedRequests().first)
         #expect(request.method == .get)
         #expect(request.url.scheme == "https")
@@ -368,6 +376,28 @@ struct BiliAPIClientTests {
             try await client.uploaderProfile(for: 10_001)
                 == UploaderProfile(signature: "签名", isVIP: false)
         )
+    }
+
+    /// 名字与头像只用于补齐只凭 MID 打开的空间：字段异常或头像不是 HTTPS 时按缺省处理，签名照常返回。
+    @Test(
+        arguments: [
+            #""name":42,"face":["x"]"#,
+            #""name":"作者","face":"ftp://example.invalid/a.jpg""#
+        ]
+    )
+    func uploaderProfileTreatsMalformedNameAndFaceAsAbsent(fields: String) async throws {
+        let response = jsonResponse(
+            #"{"code":0,"data":{"card":{"mid":"10001","sign":"签名","#
+                + fields + "}}}"
+        )
+        let client = BiliAPIClient(
+            transport: StubTransport(responses: [response])
+        )
+
+        let profile = try await client.uploaderProfile(for: 10_001)
+
+        #expect(profile.signature == "签名")
+        #expect(profile.avatarURL == nil)
     }
 
     @Test

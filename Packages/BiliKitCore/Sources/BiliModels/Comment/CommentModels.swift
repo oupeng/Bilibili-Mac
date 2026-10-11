@@ -38,11 +38,20 @@ public struct CommentAuthorID: Sendable, Equatable, Hashable {
     ///
     /// 成员外链与评论作者进入空间共用这一判定。
     public var memberID: Int64? {
-        guard !rawValue.isEmpty,
-            rawValue.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }),
-            let value = Int64(rawValue), value > 0
+        Int64(positiveDecimal: rawValue)
+    }
+}
+
+extension Int64 {
+    /// 只由 ASCII 十进制数字组成的正整数；含符号、空白、非 ASCII 数字或溢出时为 nil。
+    ///
+    /// 评论里的 MID、av 号与分 P 序号共用这一判定。
+    package init?(positiveDecimal text: some StringProtocol) {
+        guard !text.isEmpty,
+            text.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }),
+            let value = Int64(text), value > 0
         else { return nil }
-        return value
+        self = value
     }
 }
 
@@ -185,9 +194,12 @@ public enum CommentEmoteSize: Sendable, Equatable, Hashable {
 }
 
 public enum CommentLinkTarget: Sendable, Equatable, Hashable {
-    case video(bvid: String)
+    /// 站内视频；`page` 是链接里的分 P 序号（从 1 开始），没有时为 nil。
+    case video(bvid: String, page: Int?)
     /// 正文里 @ 的用户；只填 MID、昵称与头像，进入空间时与评论作者走同一入口。
     case member(CommentAuthor)
+    /// 指向 UP 主空间的链接；只有 MID，名字与头像由空间层另行取得。
+    case space(memberID: Int64)
     case external(CommentExternalLinkReference)
 }
 
@@ -226,22 +238,19 @@ public struct CommentContent: Sendable, Equatable {
     public let links: [CommentLink]
     public let pictures: [CommentImage]
     public let pictureCount: Int
-    public let hasNote: Bool
 
     public init(
         message: String,
         emotes: [CommentEmote] = [],
         links: [CommentLink] = [],
         pictures: [CommentImage] = [],
-        pictureCount: Int? = nil,
-        hasNote: Bool = false
+        pictureCount: Int? = nil
     ) {
         self.message = message
         self.emotes = emotes
         self.links = links
         self.pictures = pictures
         self.pictureCount = pictureCount ?? pictures.count
-        self.hasNote = hasNote
     }
 }
 

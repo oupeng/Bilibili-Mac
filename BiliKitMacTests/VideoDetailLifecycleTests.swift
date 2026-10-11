@@ -354,6 +354,114 @@ struct VideoDetailLifecycleTests {
         window.contentView = NSView()
     }
 
+    /// 评论链接的分 P 序号：打开时直接播放该分 P 并当作显式选择；当前视频的另一个序号换到对应分 P。
+    @Test
+    @MainActor
+    func linkPageNumbersSelectTheirParts() async {
+        let fixture = PageSelectionRoutingFixture()
+        let repository = LifecycleVideoRepository(
+            detail: { _ in fixture.detail },
+            playback: { _, _ in fixture.playback }
+        )
+        let videoModel = VideoViewModel(
+            useCase: VideoUseCase(repository: repository),
+            playback: LifecyclePlayback()
+        )
+
+        AppWindowOwner.handlePlaybackSelection(
+            PlaybackSelectionIntent(bvid: fixture.bvid, preferredPageNumber: 2),
+            with: videoModel
+        )
+        await waitUntilSettled(videoModel)
+
+        #expect(videoModel.presentedPlaybackIdentity?.cid == fixture.failingPage.cid)
+        #expect(videoModel.requestedPreferredCID == fixture.failingPage.cid)
+
+        AppWindowOwner.handlePlaybackSelection(
+            PlaybackSelectionIntent(bvid: fixture.bvid, preferredPageNumber: 3),
+            with: videoModel
+        )
+        await waitUntilSettled(videoModel)
+
+        #expect(videoModel.presentedPlaybackIdentity?.cid == fixture.replacementPage.cid)
+        #expect(
+            await repository.playbackCIDs == [
+                fixture.failingPage.cid,
+                fixture.replacementPage.cid
+            ]
+        )
+    }
+
+    /// 已经在看这个视频时，不带分 P 或分 P 序号超出范围的链接保持当前播放，不重新加载。
+    @Test
+    @MainActor
+    func linksToThePlayingVideoWithoutAResolvablePageKeepPlayback() async {
+        let fixture = PageSelectionRoutingFixture()
+        let repository = LifecycleVideoRepository(
+            detail: { _ in fixture.detail },
+            playback: { _, _ in fixture.playback }
+        )
+        let playback = LifecyclePlayback()
+        let videoModel = VideoViewModel(
+            useCase: VideoUseCase(repository: repository),
+            playback: playback
+        )
+        AppWindowOwner.handlePlaybackSelection(
+            PlaybackSelectionIntent(bvid: fixture.bvid, preferredPageNumber: 2),
+            with: videoModel
+        )
+        await waitUntilSettled(videoModel)
+
+        AppWindowOwner.handlePlaybackSelection(
+            PlaybackSelectionIntent(bvid: fixture.bvid),
+            with: videoModel
+        )
+        AppWindowOwner.handlePlaybackSelection(
+            PlaybackSelectionIntent(bvid: fixture.bvid, preferredPageNumber: 99),
+            with: videoModel
+        )
+
+        #expect(playback.loadedIdentities.map(\.cid) == [fixture.failingPage.cid])
+        #expect(await repository.playbackCIDs == [fixture.failingPage.cid])
+    }
+
+    /// 从带分 P 的链接打开后播放器准备失败：重试（App 重发同一意图）重新加载同一分 P，不被同一
+    /// 播放身份的去重吞掉。
+    @Test
+    @MainActor
+    func retryAfterAPlayerFailureFromAPageLinkReloads() async {
+        let fixture = PageSelectionRoutingFixture()
+        let repository = LifecycleVideoRepository(
+            detail: { _ in fixture.detail },
+            playback: { _, _ in fixture.playback }
+        )
+        let playback = LifecyclePlayback(holdsLoads: true)
+        let videoModel = VideoViewModel(
+            useCase: VideoUseCase(repository: repository),
+            playback: playback
+        )
+        let intent = PlaybackSelectionIntent(bvid: fixture.bvid, preferredPageNumber: 2)
+
+        AppWindowOwner.handlePlaybackSelection(intent, with: videoModel)
+        await playback.waitForLoadCallCount(1)
+        playback.failPendingLoad()
+        await waitUntilSettled(videoModel)
+        guard case .failed = videoModel.state else {
+            Issue.record("播放器准备失败后应进入整体失败状态，实际为 \(videoModel.state)")
+            return
+        }
+
+        AppWindowOwner.handlePlaybackSelection(intent, with: videoModel)
+        await playback.waitForLoadCallCount(2)
+
+        #expect(
+            playback.loadedIdentities.map(\.cid) == [
+                fixture.failingPage.cid,
+                fixture.failingPage.cid
+            ]
+        )
+    }
+
     @Test
     @MainActor
     func failedPageSelectionRoutesANewCIDInsteadOfRetryingTheOldTarget() async {

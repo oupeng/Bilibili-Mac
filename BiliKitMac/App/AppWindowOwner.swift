@@ -22,8 +22,7 @@ final class AppWindowOwner {
     let searchSuggestionSource: SearchSuggestionSource?
     let playerContent: AnyView
     let commentAssetURLResolver: CommentAssetURLResolver
-    let commentVideoLinkResolver: CommentVideoLinkResolver
-    let commentLinkURLResolver: CommentLinkURLResolver
+    let commentLinkRouter: CommentLinkRouter
     /// 窗口内所有封面、头像与评论图片共用的匿名有界图片管线。
     let imagePipeline: NativeVideoImagePipeline
     private let imagePipelineOwner: NativeVideoImagePipelineOwner
@@ -78,8 +77,7 @@ final class AppWindowOwner {
                 danmakuModel: danmakuModel
             ),
             commentAssetURLResolver: environment.commentAssetURLResolver,
-            commentVideoLinkResolver: environment.commentVideoLinkResolver,
-            commentLinkURLResolver: environment.commentLinkURLResolver,
+            commentLinkRouter: environment.commentLinkRouter,
             playbackPreferencesController: environment.playbackPreferencesController,
             systemNowPlayingController: systemNowPlayingController,
             systemNowPlayingConnection:
@@ -94,15 +92,27 @@ final class AppWindowOwner {
         _ intent: PlaybackSelectionIntent,
         with videoModel: VideoViewModel
     ) {
+        // 只在已呈现且正在请求的就是这个视频、并且没有整体失败时就地处理。另一个视频加载中残留的
+        // 旧详情不算；整体失败（详情或播放器准备失败）重新加载，重试才不会被同一身份的去重吞掉。
+        var isFailed = false
+        if case .failed = videoModel.state { isFailed = true }
         guard videoModel.presentedBVID == intent.bvid,
-            let preferredCID = intent.preferredCID
+            videoModel.requestedSelectionBVID == intent.bvid,
+            !isFailed
         else {
             videoModel.loadVideo(
                 intent.bvid,
-                preferredCID: intent.preferredCID
+                preferredCID: intent.preferredCID,
+                preferredPageNumber: intent.preferredPageNumber
             )
             return
         }
+        // 当前视频的分 P 序号直接换算为 CID，在现有 pages 内切换。没给分 P 或序号超出范围时
+        // 已经在看这个视频，保持当前播放。
+        let presentedPageCID = intent.preferredPageNumber.flatMap(
+            videoModel.presentedPageCID(forNumber:)
+        )
+        guard let preferredCID = intent.preferredCID ?? presentedPageCID else { return }
         if videoModel.failedPageCID == preferredCID {
             videoModel.retry()
         } else {
@@ -123,8 +133,7 @@ final class AppWindowOwner {
         searchSuggestionSource: SearchSuggestionSource? = nil,
         playerContent: AnyView,
         commentAssetURLResolver: @escaping CommentAssetURLResolver = { _, _ in nil },
-        commentVideoLinkResolver: @escaping CommentVideoLinkResolver = { _ in nil },
-        commentLinkURLResolver: @escaping CommentLinkURLResolver = { _ in nil },
+        commentLinkRouter: @escaping CommentLinkRouter = { _ in nil },
         imagePipelineOwner: NativeVideoImagePipelineOwner =
             NativeVideoImagePipelineOwner(),
         playbackPreferencesController: PlaybackPreferencesController? = nil,
@@ -146,8 +155,7 @@ final class AppWindowOwner {
         self.searchSuggestionSource = searchSuggestionSource
         self.playerContent = playerContent
         self.commentAssetURLResolver = commentAssetURLResolver
-        self.commentVideoLinkResolver = commentVideoLinkResolver
-        self.commentLinkURLResolver = commentLinkURLResolver
+        self.commentLinkRouter = commentLinkRouter
         self.imagePipelineOwner = imagePipelineOwner
         imagePipeline = imagePipelineOwner.pipeline
         self.playbackPreferencesController = playbackPreferencesController

@@ -85,7 +85,9 @@ struct UploaderSpaceSidebarView: View {
         }
         let content = UploaderSpaceListContent(
             header: UploaderSpaceHeaderContent(
-                name: owner.name,
+                // 只凭 MID 打开（评论正文里的空间链接）时，名片到达前或失败时名字为空，显示 UID；
+                // “UID”是 B 站各语言界面通用的写法，不做本地化。
+                name: owner.name.isEmpty ? "UID \(owner.id)" : owner.name,
                 avatarURL: owner.avatarURL,
                 totalCount: presentation.headerTotalCount,
                 order: model.order

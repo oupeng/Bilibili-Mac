@@ -22,8 +22,7 @@ struct AppShellView: View {
     let searchSuggestionSource: SearchSuggestionSource?
     let playerContent: AnyView
     let commentAssetURLResolver: CommentAssetURLResolver
-    let commentVideoLinkResolver: CommentVideoLinkResolver
-    let commentLinkURLResolver: CommentLinkURLResolver
+    let commentLinkRouter: CommentLinkRouter
     let imagePipeline: NativeVideoImagePipeline
     @Binding var isAuthenticationPresented: Bool
     @Binding var searchFilterSelection: SearchFilterSelection
@@ -217,13 +216,7 @@ struct AppShellView: View {
                     )
                 )
             },
-            onOpenCommentLink: { target in
-                if let bvid = commentVideoLinkResolver(target) {
-                    navigationCoordinator.openPlayback(bvid)
-                } else if let url = commentLinkURLResolver(target) {
-                    openURL(url)
-                }
-            },
+            onOpenCommentLink: { openCommentLink(commentLinkRouter($0)) },
             onOpenCommentPictures: openCommentPictures,
             onOpenUploaderSpace: uploaderSpaceModel.map { model in
                 { owner in model.open(owner: owner) }
@@ -265,6 +258,26 @@ struct AppShellView: View {
 
     private var sidebarMaximumWidth: CGFloat {
         navigationCoordinator.currentPlaybackBVID == nil ? 320 : 720
+    }
+
+    /// 评论正文链接：视频（含分 P）在应用内播放，空间链接在侧栏空间层打开，其余交给系统浏览器。
+    ///
+    /// @ 提及在侧栏内已进入空间，到这里只剩没有空间功能时的网页回退。
+    private func openCommentLink(_ route: CommentLinkRoute?) {
+        switch route {
+        case .playback(let intent):
+            navigationCoordinator.openPlayback(intent)
+        case .space(let memberID, let webFallback):
+            if let uploaderSpaceModel {
+                uploaderSpaceModel.open(ownerID: memberID)
+            } else if let webFallback {
+                openURL(webFallback)
+            }
+        case .web(let url):
+            openURL(url)
+        case nil:
+            break
+        }
     }
 
     private func openCommentPictures(
