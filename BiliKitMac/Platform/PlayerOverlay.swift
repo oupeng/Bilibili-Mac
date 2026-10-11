@@ -1,6 +1,7 @@
 import BiliApplication
 import BiliBrowseFeature
 import BiliPlayback
+import BiliUI
 import SwiftUI
 
 enum PlayerMomentaryRate: Float, Equatable, Sendable {
@@ -223,7 +224,7 @@ final class PassthroughHostingView<Content: View>: NSHostingView<Content> {
     }
 }
 
-/// 播放器 content overlay 上的全部临时提示：快捷键反馈、“从头播放”按钮与试看结束徽章。
+/// 播放器 content overlay 上的全部临时提示：准备转圈、快捷键反馈、“从头播放”按钮与试看结束徽章。
 ///
 /// 自动消失的计时由 `PlayerOverlayView` 的 `.task(id:)` 持有；这里只保存状态与 identity 规则。
 @MainActor
@@ -239,6 +240,7 @@ final class PlayerOverlayModel {
     private(set) var feedback: Feedback?
     private(set) var resumeNotice: PlaybackResumeNotice?
     private(set) var previewEndedMessage: String?
+    private(set) var showsPreparationActivity = false
     @ObservationIgnored private(set) var restartFromBeginning: () -> Void = {}
     @ObservationIgnored private var dismissedResumeToken: PlaybackResumeToken?
     @ObservationIgnored fileprivate var resumeButtonFrame: CGRect?
@@ -314,6 +316,14 @@ final class PlayerOverlayModel {
         resumeNotice = nil
     }
 
+    /// 播放器阻塞期间（换视频、切分 P、准备播放）player 还没挂上 item 时补一个转圈；item 一挂上，
+    /// 未就绪期间由 AVKit 自己的转圈接手，两者不同时出现。
+    func setPreparationActivity(isPreparing: Bool, hasCurrentItem: Bool) {
+        let shows = isPreparing && !hasCurrentItem
+        guard showsPreparationActivity != shows else { return }
+        showsPreparationActivity = shows
+    }
+
     func setPreviewEndedMessage(_ message: String?) {
         guard previewEndedMessage != message else { return }
         previewEndedMessage = message
@@ -333,10 +343,19 @@ struct PlayerOverlayView: View {
 
     var body: some View {
         Color.clear
+            .overlay { preparationActivity }
             .overlay(alignment: .top) { feedbackBadge }
             .overlay(alignment: .bottomLeading) { resumeButton }
             .overlay(alignment: .bottom) { previewEndedBadge }
             .coordinateSpace(.named(PlayerOverlayLayout.coordinateSpace))
+    }
+
+    @ViewBuilder
+    private var preparationActivity: some View {
+        if model.showsPreparationActivity {
+            PlayerLoadingIndicator()
+                .accessibilityLabel(AppStrings.localized("正在准备播放"))
+        }
     }
 
     @ViewBuilder
