@@ -116,7 +116,10 @@ final class UserDefaultsPlaybackSourcePreferenceStore:
     private enum Key {
         static let schema = "playbackSourcePreference.schema"
         static let selection = "playbackSourcePreference.selection"
-        static let loudnessNormalizationEnabled = "playback.loudnessNormalization.enabled"
+        /// “只压低到统一响度”的开关。
+        static let loudnessNormalizationEnabled = "playback.loudnessAttenuation.enabled"
+        /// 旧版实验开关（可放大、仅 macOS 26）；含义不同，不沿用，读取时清掉残留。
+        static let legacyLoudnessNormalizationEnabled = "playback.loudnessNormalization.enabled"
     }
     private static let schemaVersion = 1
     private let defaults: UserDefaults
@@ -124,6 +127,7 @@ final class UserDefaultsPlaybackSourcePreferenceStore:
     init(defaults: UserDefaults = .standard) { self.defaults = defaults }
 
     func load() -> PlaybackSourcePreferenceRecord {
+        defaults.removeObject(forKey: Key.legacyLoudnessNormalizationEnabled)
         guard defaults.integer(forKey: Key.schema) == Self.schemaVersion,
             let raw = defaults.string(forKey: Key.selection),
             let selection = PlaybackSourceSelection(rawValue: raw)

@@ -20,6 +20,12 @@ public struct LoudnessNormalizationPolicy: Sendable {
 
     public init() {}
 
+    /// 至少一条音轨需要压低时才值得安装 tap：tap 会把整段播放转成固定处理格式（多数音源为
+    /// 44.1 kHz，会多一次重采样），全都不需要压低时不装。
+    func needsAttenuation(_ tracks: [PlaybackAudioTrack]) -> Bool {
+        tracks.contains { linearGain(for: $0.loudnessMetadata) < 1 }
+    }
+
     /// 元数据在 API 解码边界已完整校验；这里只防住用到的那个值。
     public func linearGain(for metadata: PlaybackLoudnessMetadata?) -> Float {
         guard let measured = metadata?.measuredIntegratedLUFS, measured.isFinite else {
