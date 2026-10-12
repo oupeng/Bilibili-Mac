@@ -20,6 +20,8 @@ public struct DanmakuPresentationUpdate: Sendable, Equatable {
 /// `clearPresentation` 只清空当前画面并保留会话 identity；`stopPresentation` 还终止
 /// backend 动画时钟并丢弃 identity/discontinuity 状态。
 public protocol DanmakuPresentationSink: AnyObject {
+    /// 补位回看的时长：按当前画面宽度与弹幕速度，本应仍在屏上的弹幕最早进场于多少秒前。
+    var catchUpWindowSeconds: Double { get }
     func apply(_ update: DanmakuPresentationUpdate)
     func setSpeedLevel(_ speedLevel: DanmakuSpeedLevel)
     func setOpacity(_ opacity: DanmakuOpacity)

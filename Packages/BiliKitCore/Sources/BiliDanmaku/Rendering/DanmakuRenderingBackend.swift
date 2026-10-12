@@ -63,6 +63,23 @@ enum DanmakuMotionPolicy {
         }
     }
 
+    /// seek 等不连续之后补位时回看的时长。
+    ///
+    /// 取顶部／底部弹幕的固定时长，与一条和画面等宽的滚动弹幕跑完全程的时长中的较大者。比画面还宽的
+    /// 滚动弹幕补位时缺席，不影响之后的正常投递。
+    static func catchUpWindow(
+        surfaceWidth: Double,
+        speedLevel: DanmakuSpeedLevel
+    ) -> Double {
+        let scrolling = duration(
+            for: .scrolling,
+            textWidth: surfaceWidth,
+            surfaceWidth: surfaceWidth,
+            speedLevel: speedLevel
+        )
+        return scrolling.isFinite ? max(scrolling, fixedSeconds) : fixedSeconds
+    }
+
     private static func speedMultiplier(for level: DanmakuSpeedLevel) -> Double {
         switch level {
         case .one: 90 / 130
@@ -99,11 +116,13 @@ public protocol DanmakuRenderingBackend: AnyObject {
             ) -> Void
     )
 
+    /// `elapsedSeconds` 是这条弹幕进场后已经走过的媒体时长；补位时大于 0，从对应位置开始运动。
     @discardableResult
     func renderPrepared(
         _ placement: DanmakuLanePlacement,
         preparationID: UInt64,
-        generation: UInt64
+        generation: UInt64,
+        elapsedSeconds: Double
     ) -> Bool
     func discardPreparation(preparationID: UInt64)
     func cancelPendingPreparations()

@@ -73,7 +73,8 @@ public final class CoreAnimationDanmakuRenderer:
     public func renderPrepared(
         _ placement: DanmakuLanePlacement,
         preparationID: UInt64,
-        generation: UInt64
+        generation: UInt64,
+        elapsedSeconds: Double
     ) -> Bool {
         let event = placement.request.event
         guard entries[event.id] == nil,
@@ -129,6 +130,12 @@ public final class CoreAnimationDanmakuRenderer:
         rootLayer.addSublayer(layer)
         if event.mode == .scrolling {
             layer.position.x = -layer.bounds.width / 2
+        }
+        // 补位：把开始时间移到过去，动画从已经走过的位置继续，并在剩余时长后结束。时间换算经过
+        // rootLayer，暂停与倍速调整的是 rootLayer 的时间，补位弹幕随之一起停走。
+        if elapsedSeconds > 0, elapsedSeconds.isFinite {
+            animation.beginTime =
+                layer.convertTime(CACurrentMediaTime(), from: nil) - elapsedSeconds
         }
         layer.add(animation, forKey: "danmaku")
         CATransaction.commit()

@@ -130,6 +130,9 @@ public final class DanmakuSession: DanmakuPresentationControlling {
 
     private func handle(_ snapshot: PlaybackTimelineSnapshot) {
         guard let identity, snapshot.identity == identity else { return }
+        if let presentationSink {
+            scheduler.setCatchUpWindow(presentationSink.catchUpWindowSeconds)
+        }
         let batch = scheduler.consume(snapshot)
         presentationSink?.apply(
             DanmakuPresentationUpdate(snapshot: snapshot, batch: batch)
