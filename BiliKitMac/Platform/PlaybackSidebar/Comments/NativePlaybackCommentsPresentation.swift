@@ -14,10 +14,7 @@ struct NativePlaybackCommentThreadPresentation: Equatable {
         let comments = [thread.root] + thread.replyPreview + (replyState?.replies ?? [])
         return comments.contains { comment in
             guard case .available(let details) = comment.payload else { return false }
-            return details.content.links.contains { link in
-                if case .timestamp = link.target { return true }
-                return false
-            }
+            return NativePlaybackTextLinks.containsTimestamp(details.content.links)
         }
     }
 

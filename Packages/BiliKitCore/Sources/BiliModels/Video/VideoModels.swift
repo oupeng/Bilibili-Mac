@@ -196,6 +196,8 @@ public struct VideoDetail: Identifiable, Sendable, Equatable {
     public let bvid: String
     public let title: String
     public let summary: String
+    /// 简介里的链接：@ 用户、网址、短链、BV/av 号与时间戳，与评论正文共用同一套目标。
+    public let summaryLinks: [CommentLink]
     public let coverURL: URL?
     public let owner: VideoOwner
     public let statistics: VideoStatistics
@@ -211,6 +213,7 @@ public struct VideoDetail: Identifiable, Sendable, Equatable {
         bvid: String,
         title: String,
         summary: String,
+        summaryLinks: [CommentLink] = [],
         coverURL: URL?,
         owner: VideoOwner,
         statistics: VideoStatistics,
@@ -226,6 +229,7 @@ public struct VideoDetail: Identifiable, Sendable, Equatable {
         self.bvid = bvid
         self.title = title
         self.summary = summary
+        self.summaryLinks = summaryLinks
         self.coverURL = coverURL
         self.owner = owner
         self.statistics = statistics

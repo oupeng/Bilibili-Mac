@@ -169,7 +169,7 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
             } ?? []
         )
         commentTextRenderer.timestampLimitSeconds =
-            presentation.content?.commentTimestampLimitSeconds
+            presentation.content?.timestampLimitSeconds
         commentTextRenderer.retainFailureScopes(
             Set(commentThreadsByItemID.values.map(\.textScope))
         )
@@ -321,8 +321,13 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
             else { return nil }
             item.configure(
                 summary: content.summary,
+                links: content.summaryLinks,
+                timestampLimitSeconds: content.timestampLimitSeconds,
                 expanded: summaryExpanded,
-                onToggle: { [weak self] in self?.toggleSummary() }
+                onToggle: { [weak self] in self?.toggleSummary() },
+                onOpenLink: { [weak self] target in
+                    self?.releasingFocus { $0.actions.openCommentLink(target) }
+                }
             )
             return item
         case .selection:

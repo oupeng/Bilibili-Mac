@@ -162,6 +162,8 @@ struct VideoDetailPayload: Decodable, Sendable {
     let bvid: String
     let title: String
     let desc: String
+    /// 分段简介；缺失、为 null 或形状不对时为 nil，简介退回 `desc`。
+    let descV2: LossyDecodable<[LossyDecodable<VideoDescriptionSegmentPayload>]>?
     let pic: String
     let owner: OwnerPayload
     let stat: StatisticsPayload
@@ -176,6 +178,7 @@ struct VideoDetailPayload: Decodable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case aid, bvid, title, desc, pic, owner, stat, duration, pubdate, dimension, pages
+        case descV2 = "desc_v2"
         case ugcSeason = "ugc_season"
         case isUPowerExclusive = "is_upower_exclusive"
         case isUPowerPreviewAvailable = "is_upower_preview"
@@ -192,10 +195,15 @@ struct VideoDetailPayload: Decodable, Sendable {
             throw BiliAPIError.decodingFailed
         }
         let resolvedPages = try validatedPageModels(pages ?? [])
+        let summary = VideoDescriptionAssembly.summary(
+            desc: desc,
+            segments: descV2?.value?.map(\.value)
+        )
         return VideoDetail(
             bvid: bvid,
             title: title,
-            summary: desc,
+            summary: summary.text,
+            summaryLinks: summary.links,
             coverURL: WebImageURL.parse(pic),
             owner: owner.model(),
             statistics: stat.model(),
