@@ -733,6 +733,7 @@ func fixtureEvent(
         text: "中文 日本語 한국어 Latin 😀 #",
         fontSize: fontSize,
         colorRGB: colorRGB,
+        colorStyle: .solid,
         weight: 1
     )
 }

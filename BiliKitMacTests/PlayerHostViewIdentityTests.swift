@@ -142,6 +142,7 @@ struct PlayerHostViewIdentityTests {
             text: "reparent fixture",
             fontSize: 24,
             colorRGB: 0xFFFFFF,
+            colorStyle: .solid,
             weight: 1
         )
         return DanmakuPresentationUpdate(

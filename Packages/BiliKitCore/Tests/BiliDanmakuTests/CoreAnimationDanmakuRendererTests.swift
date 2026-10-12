@@ -183,6 +183,7 @@ struct CoreAnimationDanmakuRendererTests {
             text: "invalid",
             fontSize: .nan,
             colorRGB: 0xFFFFFF,
+            colorStyle: .solid,
             weight: 1
         )
         let oversized = DanmakuEvent(
@@ -192,6 +193,7 @@ struct CoreAnimationDanmakuRendererTests {
             text: String(repeating: "W", count: 512),
             fontSize: 36,
             colorRGB: 0xFFFFFF,
+            colorStyle: .solid,
             weight: 1
         )
 

@@ -48,6 +48,7 @@ nonisolated struct Bilikit_Danmaku_Element: Sendable {
 
   var fontSize: Int32 = 0
 
+  /// Base RRGGBB color. Presentation metadata remains in separate fields.
   var colorRgb: UInt32 = 0
 
   var senderHash: String = String()
@@ -65,6 +66,9 @@ nonisolated struct Bilikit_Danmaku_Element: Sendable {
   var idString: String = String()
 
   var attributes: Int32 = 0
+
+  /// Colorful style; 60001 is the VIP gradient (white fill, gradient outline).
+  var colorful: Int32 = 0
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -107,7 +111,7 @@ nonisolated extension Bilikit_Danmaku_SegmentReply: SwiftProtobuf.Message, Swift
 
 nonisolated extension Bilikit_Danmaku_Element: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".Element"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{3}progress_milliseconds\0\u{1}mode\0\u{3}font_size\0\u{3}color_rgb\0\u{3}sender_hash\0\u{1}content\0\u{3}created_at\0\u{1}weight\0\u{1}action\0\u{1}pool\0\u{3}id_string\0\u{1}attributes\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{3}progress_milliseconds\0\u{1}mode\0\u{3}font_size\0\u{3}color_rgb\0\u{3}sender_hash\0\u{1}content\0\u{3}created_at\0\u{1}weight\0\u{1}action\0\u{1}pool\0\u{3}id_string\0\u{1}attributes\0\u{2}\u{b}colorful\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -128,6 +132,7 @@ nonisolated extension Bilikit_Danmaku_Element: SwiftProtobuf.Message, SwiftProto
       case 11: try { try decoder.decodeSingularInt32Field(value: &self.pool) }()
       case 12: try { try decoder.decodeSingularStringField(value: &self.idString) }()
       case 13: try { try decoder.decodeSingularInt32Field(value: &self.attributes) }()
+      case 24: try { try decoder.decodeSingularInt32Field(value: &self.colorful) }()
       default: break
       }
     }
@@ -173,6 +178,9 @@ nonisolated extension Bilikit_Danmaku_Element: SwiftProtobuf.Message, SwiftProto
     if self.attributes != 0 {
       try visitor.visitSingularInt32Field(value: self.attributes, fieldNumber: 13)
     }
+    if self.colorful != 0 {
+      try visitor.visitSingularInt32Field(value: self.colorful, fieldNumber: 24)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -190,6 +198,7 @@ nonisolated extension Bilikit_Danmaku_Element: SwiftProtobuf.Message, SwiftProto
     if lhs.pool != rhs.pool {return false}
     if lhs.idString != rhs.idString {return false}
     if lhs.attributes != rhs.attributes {return false}
+    if lhs.colorful != rhs.colorful {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
