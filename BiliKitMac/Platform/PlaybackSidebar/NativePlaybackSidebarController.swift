@@ -68,7 +68,9 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
     private var refinementGeneration: UInt64 = 0
     private var refinementTask: Task<Void, Never>?
     private var paginationTask: Task<Void, Never>?
-    private var commentsPagination = NearEndPagination<NativePlaybackCommentsPaginationIdentity>()
+    private var commentsPagination = NearEndPagination<NativePlaybackCommentsPaginationIdentity>(
+        tailChangeInsideThreshold: .requiresExit
+    )
     private var isLiveScrolling = false
     private var snapshotApplicationsInFlight = 0
     private var pendingResetToTop = false
