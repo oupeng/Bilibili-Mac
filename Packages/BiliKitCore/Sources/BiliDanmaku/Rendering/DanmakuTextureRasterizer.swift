@@ -8,6 +8,7 @@ struct DanmakuTextureCacheKey: Hashable, Sendable {
     let text: String
     let fontSize: Double
     let colorRGB: UInt32
+    let colorStyle: DanmakuColorStyle
     let backingScale: Double
 }
 
@@ -42,6 +43,16 @@ enum DanmakuTextureRasterizer {
     static let fontWeight = NSFont.Weight.semibold
     static let shadowRadiusPoints = 1.0
     static let lightInkRelativeLuminanceThreshold = 0.179
+    /// 大会员彩色弹幕的填充色；描边是 `vipGradientStops`。
+    static let vipGradientFillRGB: UInt32 = 0xFF_FFFF
+    /// 大会员渐变描边的色标：B 站 60001 描边贴图横向五等分采样，从文字左缘到右缘线性插值。
+    static let vipGradientStops: [(red: UInt8, green: UInt8, blue: UInt8)] = [
+        (0xF2, 0x50, 0x9E),
+        (0xD4, 0x59, 0xA6),
+        (0x90, 0x6E, 0xB6),
+        (0x51, 0x81, 0xC5),
+        (0x30, 0x8B, 0xCD)
+    ]
 
     static func key(
         event: DanmakuEvent,
@@ -62,7 +73,9 @@ enum DanmakuTextureRasterizer {
         return DanmakuTextureCacheKey(
             text: event.text,
             fontSize: fontSize,
-            colorRGB: event.colorRGB & 0x00FF_FFFF,
+            colorRGB: event.colorStyle == .vipGradient
+                ? vipGradientFillRGB : event.colorRGB & 0x00FF_FFFF,
+            colorStyle: event.colorStyle,
             backingScale: backingScale
         )
     }
@@ -160,10 +173,18 @@ enum DanmakuTextureRasterizer {
             radiusPixels: outlineRadiusPixels
         )
         let isLightDecoration = decorationIsLight(colorRGB: key.colorRGB)
-        let ring = monochromePixels(
-            alpha: ringAlpha,
-            isLight: isLightDecoration
-        )
+        let ring: [UInt8]
+        switch key.colorStyle {
+        case .solid:
+            ring = monochromePixels(alpha: ringAlpha, isLight: isLightDecoration)
+        case .vipGradient:
+            ring = vipGradientPixels(
+                alpha: ringAlpha,
+                width: widthPixels,
+                textStartX: paddingPixels,
+                textEndX: widthPixels - paddingPixels
+            )
+        }
         let decorated = sourceOver(foreground: fill, background: ring)
         guard shadowRadiusPixels > 0 else {
             return DanmakuTexturePayload(
@@ -309,6 +330,47 @@ enum DanmakuTextureRasterizer {
             pixels[offset + 3] = value
         }
         return pixels
+    }
+
+    /// 按列着色的渐变描边（预乘 alpha）；文字左缘以左取首个色标，右缘以右取末个色标。
+    static func vipGradientPixels(
+        alpha: [UInt8],
+        width: Int,
+        textStartX: Int,
+        textEndX: Int
+    ) -> [UInt8] {
+        precondition(width > 0 && alpha.count % width == 0)
+        let span = Double(max(1, textEndX - textStartX))
+        let columns = (0..<width).map { column in
+            vipGradientColor(at: Double(column - textStartX) / span)
+        }
+        var pixels = [UInt8](repeating: 0, count: alpha.count * 4)
+        for index in alpha.indices where alpha[index] > 0 {
+            let value = Int(alpha[index])
+            let color = columns[index % width]
+            let offset = index * 4
+            pixels[offset] = UInt8((Int(color.red) * value + 127) / 255)
+            pixels[offset + 1] = UInt8((Int(color.green) * value + 127) / 255)
+            pixels[offset + 2] = UInt8((Int(color.blue) * value + 127) / 255)
+            pixels[offset + 3] = UInt8(value)
+        }
+        return pixels
+    }
+
+    /// 渐变上 `position`（0 为左缘、1 为右缘，超出时取端点）处的颜色。
+    static func vipGradientColor(
+        at position: Double
+    ) -> (red: UInt8, green: UInt8, blue: UInt8) {
+        let stops = vipGradientStops
+        let scaled = min(max(position, 0), 1) * Double(stops.count - 1)
+        let lower = min(Int(scaled), stops.count - 2)
+        let fraction = scaled - Double(lower)
+        func mix(_ from: UInt8, _ to: UInt8) -> UInt8 {
+            UInt8((Double(from) + (Double(to) - Double(from)) * fraction).rounded())
+        }
+        let from = stops[lower]
+        let to = stops[lower + 1]
+        return (mix(from.red, to.red), mix(from.green, to.green), mix(from.blue, to.blue))
     }
 
     static func sourceOver(

@@ -23,4 +23,6 @@ message Element {
   int32 pool = 11;
   string id_string = 12;
   int32 attributes = 13;
+  // Colorful style; 60001 is the VIP gradient (white fill, gradient outline).
+  int32 colorful = 24;
 }

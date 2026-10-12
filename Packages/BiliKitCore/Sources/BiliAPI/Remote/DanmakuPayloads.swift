@@ -8,6 +8,8 @@ enum DanmakuPayloadDecoder {
     private static let maximumEventTextLength = 4_096
     private static let maximumTimeMilliseconds = 86_400_000
     private static let baseColorRGBMask: UInt32 = 0x00FF_FFFF
+    /// 字段 24 `colorful` 里大会员渐变弹幕的类型号。
+    private static let vipGradientColorfulType: Int32 = 60_001
 
     static func events(from data: Data) throws -> [DanmakuEvent] {
         let payload: Bilikit_Danmaku_SegmentReply
@@ -53,10 +55,10 @@ enum DanmakuPayloadDecoder {
                 mode: mode,
                 text: text,
                 fontSize: normalizedFontSize(element.fontSize),
-                // Field 5 supplies the base RRGGBB color. Future presentation
-                // metadata such as member gradients belongs in separate model
-                // fields instead of being packed into this RGB value.
+                // Field 5 supplies the base RRGGBB color; the member gradient comes from
+                // field 24 and stays a separate style instead of being packed into RGB.
                 colorRGB: element.colorRgb & baseColorRGBMask,
+                colorStyle: colorStyle(element.colorful),
                 weight: Int(element.weight)
             )
         }
@@ -75,6 +77,11 @@ enum DanmakuPayloadDecoder {
         default:
             nil
         }
+    }
+
+    /// 只认大会员渐变（60001）；其他或将来新增的彩色类型按普通弹幕显示。
+    private static func colorStyle(_ value: Int32) -> DanmakuColorStyle {
+        value == vipGradientColorfulType ? .vipGradient : .solid
     }
 
     private static func normalizedFontSize(_ value: Int32) -> Double {

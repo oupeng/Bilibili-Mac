@@ -110,6 +110,7 @@ struct DanmakuTextureRasterizerTests {
                     text: "different",
                     fontSize: 25,
                     colorRGB: 0xFFFFFF,
+                    colorStyle: .solid,
                     weight: 1
                 )
             ),
@@ -125,6 +126,94 @@ struct DanmakuTextureRasterizerTests {
         for variant in variants {
             #expect(variant != base)
         }
+    }
+
+    /// 大会员彩色弹幕：缓存键与普通弹幕区分，填充固定为白色、不随事件颜色变化。
+    @Test
+    func vipGradientKeyIsDistinctAndAlwaysWhite() throws {
+        func event(_ style: DanmakuColorStyle, colorRGB: UInt32) -> DanmakuEvent {
+            DanmakuEvent(
+                id: "vip",
+                timeSeconds: 1,
+                mode: .scrolling,
+                text: "彩色弹幕",
+                fontSize: 25,
+                colorRGB: colorRGB,
+                colorStyle: style,
+                weight: 1
+            )
+        }
+        let solid = try #require(
+            DanmakuTextureRasterizer.key(event: event(.solid, colorRGB: 0xFFFFFF), backingScale: 2)
+        )
+        let vip = try #require(
+            DanmakuTextureRasterizer.key(
+                event: event(.vipGradient, colorRGB: 0xFFFFFF),
+                backingScale: 2
+            )
+        )
+        let tintedVIP = try #require(
+            DanmakuTextureRasterizer.key(
+                event: event(.vipGradient, colorRGB: 0x204060),
+                backingScale: 2
+            )
+        )
+
+        #expect(vip != solid)
+        #expect(tintedVIP == vip)
+        #expect(vip.colorRGB == DanmakuTextureRasterizer.vipGradientFillRGB)
+    }
+
+    /// 渐变两端与中点落在采样色标上，超出文字范围时取端点。
+    @Test
+    func vipGradientColorFollowsTheSampledStops() {
+        let stops = DanmakuTextureRasterizer.vipGradientStops
+        func same(
+            _ lhs: (red: UInt8, green: UInt8, blue: UInt8),
+            _ rhs: (red: UInt8, green: UInt8, blue: UInt8)
+        ) -> Bool {
+            lhs.red == rhs.red && lhs.green == rhs.green && lhs.blue == rhs.blue
+        }
+
+        #expect(same(DanmakuTextureRasterizer.vipGradientColor(at: 0), stops[0]))
+        #expect(same(DanmakuTextureRasterizer.vipGradientColor(at: -1), stops[0]))
+        #expect(same(DanmakuTextureRasterizer.vipGradientColor(at: 0.5), stops[2]))
+        #expect(same(DanmakuTextureRasterizer.vipGradientColor(at: 1), stops[stops.count - 1]))
+        #expect(same(DanmakuTextureRasterizer.vipGradientColor(at: 2), stops[stops.count - 1]))
+    }
+
+    /// 彩色弹幕的描边左段偏粉、右段偏蓝；同样文字的普通白色弹幕没有彩色像素。
+    @Test
+    func vipGradientOutlineRunsFromPinkOnTheLeftToBlueOnTheRight() throws {
+        func texture(_ style: DanmakuColorStyle) throws -> DanmakuTexturePayload {
+            let key = DanmakuTextureCacheKey(
+                text: "一二三四五六七八",
+                fontSize: 25,
+                colorRGB: 0xFFFFFF,
+                colorStyle: style,
+                backingScale: 2
+            )
+            return try #require(DanmakuTextureRasterizer.rasterize(key: key))
+        }
+        /// 某一段列里所有像素的红减蓝之和；白字与深色阴影的红蓝相等，只有渐变描边贡献差值。
+        func redMinusBlue(_ payload: DanmakuTexturePayload, columns: Range<Int>) -> Int {
+            let bytes = [UInt8](payload.pixels)
+            var total = 0
+            for row in 0..<payload.heightPixels {
+                for column in columns {
+                    let offset = row * payload.bytesPerRow + column * 4
+                    total += Int(bytes[offset]) - Int(bytes[offset + 2])
+                }
+            }
+            return total
+        }
+        let vip = try texture(.vipGradient)
+        let solid = try texture(.solid)
+        let quarter = vip.widthPixels / 4
+
+        #expect(redMinusBlue(vip, columns: 0..<quarter) > 0)
+        #expect(redMinusBlue(vip, columns: (vip.widthPixels - quarter)..<vip.widthPixels) < 0)
+        #expect(redMinusBlue(solid, columns: 0..<solid.widthPixels) == 0)
     }
 
     @Test
@@ -169,6 +258,7 @@ struct DanmakuTextureRasterizerTests {
             text: text,
             fontSize: 25,
             colorRGB: 0xFFFFFF,
+            colorStyle: .solid,
             backingScale: 2
         )
     }
