@@ -230,9 +230,10 @@ struct NativePlaybackSidebarTests {
                     owner: VideoOwner(id: 1, name: "UP 主", signature: "新签名")
                 ),
                 summary: content.summary,
+                summaryLinks: content.summaryLinks,
                 selection: content.selection,
                 comments: content.comments,
-                commentTimestampLimitSeconds: nil
+                timestampLimitSeconds: nil
             ),
             overlay: .none
         )
@@ -538,9 +539,10 @@ struct NativePlaybackSidebarTests {
                     bvid: content.bvid,
                     uploader: content.uploader,
                     summary: content.summary,
+                    summaryLinks: content.summaryLinks,
                     selection: content.selection,
                     comments: content.comments,
-                    commentTimestampLimitSeconds: seconds
+                    timestampLimitSeconds: seconds
                 ),
                 overlay: base.overlay
             )
@@ -560,6 +562,93 @@ struct NativePlaybackSidebarTests {
                 hasSnapshotInFlight: false
             ) == .reloadChangedItems
         )
+    }
+
+    /// 简介里有时间戳时，分 P 时长变化只重新配置简介这一项；没有时间戳的简介不受影响。
+    @Test
+    @MainActor
+    func timestampLimitChangeReconfiguresSummaryOnlyWhenItHasTimestamps() throws {
+        let base = try #require(presentation(bvid: "BVCurrent").content)
+        let timestamp = CommentLink(
+            range: CommentTextRange(location: 0, length: 4),
+            target: .timestamp(seconds: 60)
+        )
+        func summary(
+            links: [CommentLink],
+            limit: Int?
+        ) -> NativePlaybackSidebarPresentation {
+            NativePlaybackSidebarPresentation(
+                content: NativePlaybackSidebarContent(
+                    bvid: base.bvid,
+                    uploader: base.uploader,
+                    summary: "1:00 开始",
+                    summaryLinks: links,
+                    selection: base.selection,
+                    comments: base.comments,
+                    timestampLimitSeconds: limit
+                ),
+                overlay: .none
+            )
+        }
+
+        #expect(
+            summary(links: [timestamp], limit: 600)
+                .changedItemIDs(comparedTo: summary(links: [timestamp], limit: 120))
+                == [.summary(bvid: "BVCurrent")]
+        )
+        #expect(
+            summary(links: [], limit: 600)
+                .changedItemIDs(comparedTo: summary(links: [], limit: 120)).isEmpty
+        )
+        #expect(
+            summary(links: [timestamp], limit: 120)
+                .changedItemIDs(comparedTo: summary(links: [], limit: 120))
+                == [.summary(bvid: "BVCurrent")]
+        )
+    }
+
+    /// 简介里的链接与评论正文同一套：点击交出目标；超出可跳转时长的时间戳不是链接。
+    @Test
+    @MainActor
+    func summaryTextOpensLinksAndHidesUnreachableTimestamps() throws {
+        let member = CommentAuthor(id: CommentAuthorID(rawValue: "20002"), name: "合作者")
+        let text = "@合作者 2:00 9:00"
+        let textView = NativePlaybackSidebarReadOnlyTextView(font: .systemFont(ofSize: 13))
+        var opened: [CommentLinkTarget] = []
+        textView.onOpenLink = { opened.append($0) }
+
+        textView.setText(
+            NativePlaybackSidebarLinkedText(
+                text: text,
+                links: [
+                    CommentLink(
+                        range: CommentTextRange(location: 0, length: 4),
+                        target: .member(member)
+                    ),
+                    CommentLink(
+                        range: CommentTextRange(location: 5, length: 4),
+                        target: .timestamp(seconds: 120)
+                    ),
+                    CommentLink(
+                        range: CommentTextRange(location: 10, length: 4),
+                        target: .timestamp(seconds: 540)
+                    )
+                ],
+                timestampLimitSeconds: 300
+            ),
+            font: .systemFont(ofSize: 13),
+            color: .labelColor
+        )
+        let storage = try #require(textView.textStorage)
+        for index in [0, 5, 10] {
+            if let link = storage.attribute(.link, at: index, effectiveRange: nil) {
+                _ = textView.textView(textView, clickedOnLink: link, at: index)
+            }
+        }
+
+        #expect(storage.string == text)
+        #expect(opened == [.member(member), .timestamp(seconds: 120)])
+        #expect(storage.attribute(.link, at: 10, effectiveRange: nil) == nil)
     }
 
     @Test
@@ -2318,9 +2407,10 @@ struct NativePlaybackSidebarTests {
                     )
                 ),
                 summary: context.detail.summary,
+                summaryLinks: context.detail.summaryLinks,
                 selection: selectionProjection(context: context),
                 comments: comments,
-                commentTimestampLimitSeconds: nil
+                timestampLimitSeconds: nil
             ),
             overlay: .none
         )
@@ -2359,9 +2449,10 @@ struct NativePlaybackSidebarTests {
                 bvid: content.bvid,
                 uploader: content.uploader,
                 summary: content.summary,
+                summaryLinks: content.summaryLinks,
                 selection: content.selection,
                 comments: comments,
-                commentTimestampLimitSeconds: nil
+                timestampLimitSeconds: nil
             ),
             overlay: .none
         ).sections.first { $0.id == .comments }?.items ?? []

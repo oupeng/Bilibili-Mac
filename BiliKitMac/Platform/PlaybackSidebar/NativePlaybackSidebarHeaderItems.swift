@@ -275,11 +275,23 @@ final class NativePlaybackSidebarSummaryItem: NSCollectionViewItem {
 
     func configure(
         summary: String,
+        links: [CommentLink],
+        timestampLimitSeconds: Int?,
         expanded: Bool,
-        onToggle: @escaping () -> Void
+        onToggle: @escaping () -> Void,
+        onOpenLink: @escaping (CommentLinkTarget) -> Void
     ) {
         representedObject = summary
-        contentView.configure(summary: summary, expanded: expanded, onToggle: onToggle)
+        contentView.configure(
+            text: NativePlaybackSidebarLinkedText(
+                text: summary,
+                links: links,
+                timestampLimitSeconds: timestampLimitSeconds
+            ),
+            expanded: expanded,
+            onToggle: onToggle,
+            onOpenLink: onOpenLink
+        )
     }
 
     override func prepareForReuse() {
@@ -300,10 +312,14 @@ private final class NativePlaybackSidebarSummaryView: NSView {
         color: .secondaryLabelColor
     )
     private let toggleButton = NSButton()
-    private var summary = ""
+    private var text = NativePlaybackSidebarLinkedText(
+        text: "",
+        links: [],
+        timestampLimitSeconds: nil
+    )
     private var expanded = false
     private var onToggle: (() -> Void)?
-    private var configuredSummary: String?
+    private var configuredText: NativePlaybackSidebarLinkedText?
     private var configuredMaximumLines: Int?
     private var hasConfiguredText = false
 
@@ -331,10 +347,16 @@ private final class NativePlaybackSidebarSummaryView: NSView {
         nil
     }
 
-    func configure(summary: String, expanded: Bool, onToggle: @escaping () -> Void) {
-        self.summary = summary
+    func configure(
+        text: NativePlaybackSidebarLinkedText,
+        expanded: Bool,
+        onToggle: @escaping () -> Void,
+        onOpenLink: @escaping (CommentLinkTarget) -> Void
+    ) {
+        self.text = text
         self.expanded = expanded
         self.onToggle = onToggle
+        textView.onOpenLink = onOpenLink
         needsLayout = true
     }
 
@@ -342,21 +364,21 @@ private final class NativePlaybackSidebarSummaryView: NSView {
         super.layout()
         separator.frame = NSRect(x: 0, y: 0, width: bounds.width, height: 1)
         let geometry = NativePlaybackSummaryGeometry(
-            summary: summary,
+            summary: text.text,
             width: bounds.width,
             expanded: expanded
         )
         titleLabel.frame = geometry.titleFrame
         let maximumLines = geometry.maximumLines
         if !hasConfiguredText
-            || configuredSummary != summary
+            || configuredText != text
             || configuredMaximumLines != maximumLines
         {
             hasConfiguredText = true
-            configuredSummary = summary
+            configuredText = text
             configuredMaximumLines = maximumLines
             textView.setText(
-                summary,
+                text,
                 font: NativePlaybackSummaryGeometry.textFont,
                 color: .secondaryLabelColor,
                 maximumLines: maximumLines
@@ -378,11 +400,12 @@ private final class NativePlaybackSidebarSummaryView: NSView {
 
     func reset() {
         onToggle = nil
-        summary = ""
+        textView.onOpenLink = nil
+        text = NativePlaybackSidebarLinkedText(text: "", links: [], timestampLimitSeconds: nil)
         expanded = false
         textView.string = ""
         toggleButton.title = ""
-        configuredSummary = nil
+        configuredText = nil
         configuredMaximumLines = nil
         hasConfiguredText = false
     }
