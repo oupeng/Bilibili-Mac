@@ -181,6 +181,7 @@ def verify_app(app, state, notarized=True):
         ent = subprocess.check_output(['codesign', '-d', '--entitlements', ':-', str(path)], stderr=subprocess.DEVNULL)
         values = plistlib.loads(ent) if ent.strip() else {}
         allowed = {'com.apple.application-identifier', 'com.apple.developer.team-identifier', 'com.apple.security.app-sandbox',
+                   'com.apple.security.files.user-selected.read-write',
                    'com.apple.security.network.client', 'com.apple.security.network.server', 'keychain-access-groups',
                    'com.apple.security.temporary-exception.mach-lookup.global-name'}
         # Sparkle XPC helpers use only their official sandbox/inherit entitlements.
@@ -196,6 +197,7 @@ def verify_app(app, state, notarized=True):
             'App Keychain/Sandbox 错误')
     require(ent.get('com.apple.application-identifier') == TEAM + '.' + BUNDLE and ent.get('com.apple.developer.team-identifier') == TEAM, 'App 签名身份错误')
     require(ent.get('com.apple.security.temporary-exception.mach-lookup.global-name') == [BUNDLE + '-spks', BUNDLE + '-spki'], 'Installer XPC 权限错误')
+    require(ent.get('com.apple.security.files.user-selected.read-write') is True, '评论图片保存的用户选择文件权限错误')
     profile = app / 'Contents/embedded.provisionprofile'
     if profile.exists():
         data = plistlib.loads(subprocess.check_output(['security', 'cms', '-D', '-i', str(profile)], stderr=subprocess.DEVNULL))

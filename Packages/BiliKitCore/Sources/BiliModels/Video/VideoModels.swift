@@ -19,12 +19,23 @@ public struct VideoOwner: Sendable, Equatable {
     }
 }
 
-/// 播放页从 UP 主名片补充的公开资料。
+/// 从 UP 主名片补充的公开资料。
+///
+/// 播放页用签名与大会员状态；只凭 MID 打开的空间用名字与头像。
 public struct UploaderProfile: Sendable, Equatable {
+    public let name: String?
+    public let avatarURL: URL?
     public let signature: String?
     public let isVIP: Bool
 
-    public init(signature: String? = nil, isVIP: Bool = false) {
+    public init(
+        name: String? = nil,
+        avatarURL: URL? = nil,
+        signature: String? = nil,
+        isVIP: Bool = false
+    ) {
+        self.name = name
+        self.avatarURL = avatarURL
         self.signature = signature
         self.isVIP = isVIP
     }
@@ -185,6 +196,8 @@ public struct VideoDetail: Identifiable, Sendable, Equatable {
     public let bvid: String
     public let title: String
     public let summary: String
+    /// 简介里的链接：@ 用户、网址、短链、BV/av 号与时间戳，与评论正文共用同一套目标。
+    public let summaryLinks: [CommentLink]
     public let coverURL: URL?
     public let owner: VideoOwner
     public let statistics: VideoStatistics
@@ -200,6 +213,7 @@ public struct VideoDetail: Identifiable, Sendable, Equatable {
         bvid: String,
         title: String,
         summary: String,
+        summaryLinks: [CommentLink] = [],
         coverURL: URL?,
         owner: VideoOwner,
         statistics: VideoStatistics,
@@ -215,6 +229,7 @@ public struct VideoDetail: Identifiable, Sendable, Equatable {
         self.bvid = bvid
         self.title = title
         self.summary = summary
+        self.summaryLinks = summaryLinks
         self.coverURL = coverURL
         self.owner = owner
         self.statistics = statistics

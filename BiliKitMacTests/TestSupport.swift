@@ -1,8 +1,22 @@
 import BiliApplication
 import BiliBrowseFeature
+import Foundation
 import Observation
+import Testing
 
 /// App 测试 target 共用的等待与记录替身；各测试文件不再各自复制。
+
+/// 在一次性的 UserDefaults suite 中执行；前后都清空，测试之间、测试与真实偏好互不影响。
+func withIsolatedDefaults(_ body: (UserDefaults) throws -> Void) rethrows {
+    let suiteName = "BiliKitMacTests.\(UUID().uuidString)"
+    guard let defaults = UserDefaults(suiteName: suiteName) else {
+        Issue.record("无法创建隔离的 UserDefaults suite")
+        return
+    }
+    defaults.removePersistentDomain(forName: suiteName)
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    try body(defaults)
+}
 
 /// 等待 AppKit 在后续 main actor 回合完成的布局或 diff 应用；只让出执行权，不按固定时长轮询。
 @MainActor

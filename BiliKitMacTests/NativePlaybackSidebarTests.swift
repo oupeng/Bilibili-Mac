@@ -230,8 +230,10 @@ struct NativePlaybackSidebarTests {
                     owner: VideoOwner(id: 1, name: "UP 主", signature: "新签名")
                 ),
                 summary: content.summary,
+                summaryLinks: content.summaryLinks,
                 selection: content.selection,
-                comments: content.comments
+                comments: content.comments,
+                timestampLimitSeconds: nil
             ),
             overlay: .none
         )
@@ -312,6 +314,341 @@ struct NativePlaybackSidebarTests {
         )
 
         #expect(NativeCommentAvatarMark(author: author) == expected)
+    }
+
+    /// 接口给了标题的链接：原文网址显示为「图标 + 标题」，图标与标题都带同一个链接；后面的链接位置
+    /// 不受前面替换影响，没有标题的链接保持原文。
+    @Test
+    @MainActor
+    func titledLinksShowIconAndTitleInPlaceOfTheAddress() throws {
+        let short = "https://b23.tv/Jf3cvv2"
+        let message = "看 \(short) 和 BV17x411w7KC"
+        let source = message as NSString
+        let shortRange = source.range(of: short)
+        let bvidRange = source.range(of: "BV17x411w7KC")
+        let iconURL = try #require(URL(string: "https://i0.hdslb.com/bfs/icon.png"))
+        let content = CommentContent(
+            message: message,
+            links: [
+                CommentLink(
+                    range: CommentTextRange(
+                        location: shortRange.location,
+                        length: shortRange.length
+                    ),
+                    target: .shortLink(CommentExternalLinkReference()),
+                    title: "韩语版《朋友的酒》",
+                    icon: CommentAssetReference()
+                ),
+                CommentLink(
+                    range: CommentTextRange(location: bvidRange.location, length: bvidRange.length),
+                    target: .video(bvid: "BV17x411w7KC", page: nil, startSeconds: nil)
+                )
+            ]
+        )
+        let rendered = makeCommentTextRenderer(resolveURL: { _, _ in iconURL }).render(
+            content,
+            scope: NativePlaybackCommentTextScope(
+                subject: .video(aid: 700_001),
+                rootID: CommentID(rawValue: 1),
+                revision: 1
+            )
+        )
+        let text = rendered.attributedString.string as NSString
+        let titleRange = text.range(of: "韩语版《朋友的酒》")
+        let iconLocation = titleRange.location - 1
+        func link(at location: Int) -> String? {
+            rendered.attributedString.attribute(.link, at: location, effectiveRange: nil) as? String
+        }
+
+        #expect(!rendered.attributedString.string.contains(short))
+        #expect(titleRange.location != NSNotFound)
+        #expect(
+            rendered.attributedString.attribute(.attachment, at: iconLocation, effectiveRange: nil)
+                is NSTextAttachment
+        )
+        #expect(link(at: iconLocation) == "bilikit-comment-link-0")
+        #expect(link(at: titleRange.location) == "bilikit-comment-link-0")
+        #expect(link(at: text.range(of: "BV17x411w7KC").location) == "bilikit-comment-link-1")
+        #expect(rendered.pendingAssets.map(\.url) == [iconURL])
+    }
+
+    /// 图标地址不合规（解析不出）时只显示标题。
+    @Test
+    @MainActor
+    func titledLinksWithoutAUsableIconShowOnlyTheTitle() {
+        let content = CommentContent(
+            message: "https://b23.tv/Jf3cvv2",
+            links: [
+                CommentLink(
+                    range: CommentTextRange(location: 0, length: 22),
+                    target: .shortLink(CommentExternalLinkReference()),
+                    title: "视频标题",
+                    icon: CommentAssetReference()
+                )
+            ]
+        )
+
+        let rendered = makeCommentTextRenderer().render(
+            content,
+            scope: NativePlaybackCommentTextScope(
+                subject: .video(aid: 700_001),
+                rootID: CommentID(rawValue: 1),
+                revision: 1
+            )
+        )
+
+        #expect(rendered.attributedString.string == "视频标题")
+        #expect(rendered.pendingAssets.isEmpty)
+        #expect(rendered.accessibilityText == "视频标题")
+    }
+
+    /// 图标在本作用域加载失败后重新渲染：只剩标题，不再登记加载；读屏文本读标题而不是网址。
+    @Test
+    @MainActor
+    func failedLinkIconsFallBackToTheTitle() throws {
+        let icon = CommentAssetReference()
+        let iconURL = try #require(URL(string: "https://i0.hdslb.com/bfs/icon.png"))
+        let content = CommentContent(
+            message: "看 https://b23.tv/Jf3cvv2",
+            links: [
+                CommentLink(
+                    range: CommentTextRange(location: 2, length: 22),
+                    target: .shortLink(CommentExternalLinkReference()),
+                    title: "视频标题",
+                    icon: icon
+                )
+            ]
+        )
+        let scope = NativePlaybackCommentTextScope(
+            subject: .video(aid: 700_001),
+            rootID: CommentID(rawValue: 1),
+            revision: 1
+        )
+        let renderer = makeCommentTextRenderer(resolveURL: { _, _ in iconURL })
+        renderer.retainFailureScopes([scope])
+        #expect(renderer.render(content, scope: scope).pendingAssets.count == 1)
+
+        #expect(renderer.markUnavailable(icon, in: scope))
+        let rendered = renderer.render(content, scope: scope)
+
+        #expect(rendered.attributedString.string == "看 视频标题")
+        #expect(rendered.pendingAssets.isEmpty)
+        #expect(rendered.accessibilityText == "看 视频标题")
+    }
+
+    /// 表情优先：与表情重叠的链接不替换成图标与标题，表情照常显示；读屏文本保留表情原文。
+    @Test
+    @MainActor
+    func emotesWinOverOverlappingDecoratedLinks() throws {
+        let emoteURL = try #require(URL(string: "https://i0.hdslb.com/bfs/emote.png"))
+        let content = CommentContent(
+            message: "[原神_哈哈]",
+            emotes: [
+                CommentEmote(
+                    text: "[原神_哈哈]",
+                    range: CommentTextRange(location: 0, length: 7),
+                    asset: CommentAssetReference(),
+                    size: .standard
+                )
+            ],
+            links: [
+                CommentLink(
+                    range: CommentTextRange(location: 1, length: 2),
+                    target: .video(bvid: "BV1xx411c7mD", page: nil, startSeconds: nil),
+                    title: "游戏",
+                    icon: CommentAssetReference()
+                )
+            ]
+        )
+
+        let rendered = makeCommentTextRenderer(resolveURL: { _, _ in emoteURL }).render(
+            content,
+            scope: NativePlaybackCommentTextScope(
+                subject: .video(aid: 700_001),
+                rootID: CommentID(rawValue: 1),
+                revision: 1
+            )
+        )
+
+        #expect(rendered.attributedString.length == 1)
+        #expect(
+            rendered.attributedString.attribute(.attachment, at: 0, effectiveRange: nil)
+                is NSTextAttachment
+        )
+        #expect(rendered.accessibilityText == "[原神_哈哈]")
+    }
+
+    /// 时间戳只在播放器已装好（有上限）且不超出当前分 P 时长时显示为链接。
+    @Test
+    @MainActor
+    func timestampsLinkOnlyWithinTheCurrentPartDuration() {
+        let content = CommentContent(
+            message: "1:00 和 5:00",
+            links: [
+                CommentLink(
+                    range: CommentTextRange(location: 0, length: 4),
+                    target: .timestamp(seconds: 60)
+                ),
+                CommentLink(
+                    range: CommentTextRange(location: 7, length: 4),
+                    target: .timestamp(seconds: 300)
+                )
+            ]
+        )
+        let scope = NativePlaybackCommentTextScope(
+            subject: .video(aid: 700_001),
+            rootID: CommentID(rawValue: 1),
+            revision: 1
+        )
+        let renderer = makeCommentTextRenderer()
+
+        #expect(renderer.render(content, scope: scope).linkTargets.isEmpty)
+        renderer.timestampLimitSeconds = 120
+        #expect(renderer.render(content, scope: scope).linkTargets == [.timestamp(seconds: 60)])
+        renderer.timestampLimitSeconds = 300
+        #expect(renderer.render(content, scope: scope).linkTargets == [.timestamp(seconds: 60)])
+    }
+
+    /// 切换分 P 后上限变化：只有含时间戳链接的评论重新配置，链接随之更新；行高不变，更新方式与
+    /// 正文修改相同。
+    @Test
+    @MainActor
+    func timestampLimitChangeReconfiguresOnlyThreadsWithTimestamps() throws {
+        let subject = CommentSubjectIdentity.video(aid: 700_001)
+        let threads = [
+            commentThread(
+                id: 1,
+                message: "1:00",
+                links: [
+                    CommentLink(
+                        range: CommentTextRange(location: 0, length: 4),
+                        target: .timestamp(seconds: 60)
+                    )
+                ]
+            ),
+            commentThread(id: 2, message: "第二条")
+        ]
+        let base = presentation(
+            bvid: "BVCurrent",
+            comments: commentsPresentation(subject: subject, threads: threads)
+        )
+        func limited(_ seconds: Int?) throws -> NativePlaybackSidebarPresentation {
+            let content = try #require(base.content)
+            return NativePlaybackSidebarPresentation(
+                content: NativePlaybackSidebarContent(
+                    bvid: content.bvid,
+                    uploader: content.uploader,
+                    summary: content.summary,
+                    summaryLinks: content.summaryLinks,
+                    selection: content.selection,
+                    comments: content.comments,
+                    timestampLimitSeconds: seconds
+                ),
+                overlay: base.overlay
+            )
+        }
+        let short = try limited(120)
+        let long = try limited(600)
+
+        let changed = long.changedItemIDs(comparedTo: short)
+
+        #expect(changed == [.commentThread(subject: subject, rootID: CommentID(rawValue: 1))])
+        #expect(try limited(120).changedItemIDs(comparedTo: short).isEmpty)
+        #expect(
+            NativePlaybackSidebarCollectionUpdatePolicy.resolve(
+                current: short.snapshotSections,
+                next: long.snapshotSections,
+                changedItemIDs: changed,
+                hasSnapshotInFlight: false
+            ) == .reloadChangedItems
+        )
+    }
+
+    /// 简介里有时间戳时，分 P 时长变化只重新配置简介这一项；没有时间戳的简介不受影响。
+    @Test
+    @MainActor
+    func timestampLimitChangeReconfiguresSummaryOnlyWhenItHasTimestamps() throws {
+        let base = try #require(presentation(bvid: "BVCurrent").content)
+        let timestamp = CommentLink(
+            range: CommentTextRange(location: 0, length: 4),
+            target: .timestamp(seconds: 60)
+        )
+        func summary(
+            links: [CommentLink],
+            limit: Int?
+        ) -> NativePlaybackSidebarPresentation {
+            NativePlaybackSidebarPresentation(
+                content: NativePlaybackSidebarContent(
+                    bvid: base.bvid,
+                    uploader: base.uploader,
+                    summary: "1:00 开始",
+                    summaryLinks: links,
+                    selection: base.selection,
+                    comments: base.comments,
+                    timestampLimitSeconds: limit
+                ),
+                overlay: .none
+            )
+        }
+
+        #expect(
+            summary(links: [timestamp], limit: 600)
+                .changedItemIDs(comparedTo: summary(links: [timestamp], limit: 120))
+                == [.summary(bvid: "BVCurrent")]
+        )
+        #expect(
+            summary(links: [], limit: 600)
+                .changedItemIDs(comparedTo: summary(links: [], limit: 120)).isEmpty
+        )
+        #expect(
+            summary(links: [timestamp], limit: 120)
+                .changedItemIDs(comparedTo: summary(links: [], limit: 120))
+                == [.summary(bvid: "BVCurrent")]
+        )
+    }
+
+    /// 简介里的链接与评论正文同一套：点击交出目标；超出可跳转时长的时间戳不是链接。
+    @Test
+    @MainActor
+    func summaryTextOpensLinksAndHidesUnreachableTimestamps() throws {
+        let member = CommentAuthor(id: CommentAuthorID(rawValue: "20002"), name: "合作者")
+        let text = "@合作者 2:00 9:00"
+        let textView = NativePlaybackSidebarReadOnlyTextView(font: .systemFont(ofSize: 13))
+        var opened: [CommentLinkTarget] = []
+        textView.onOpenLink = { opened.append($0) }
+
+        textView.setText(
+            NativePlaybackSidebarLinkedText(
+                text: text,
+                links: [
+                    CommentLink(
+                        range: CommentTextRange(location: 0, length: 4),
+                        target: .member(member)
+                    ),
+                    CommentLink(
+                        range: CommentTextRange(location: 5, length: 4),
+                        target: .timestamp(seconds: 120)
+                    ),
+                    CommentLink(
+                        range: CommentTextRange(location: 10, length: 4),
+                        target: .timestamp(seconds: 540)
+                    )
+                ],
+                timestampLimitSeconds: 300
+            ),
+            font: .systemFont(ofSize: 13),
+            color: .labelColor
+        )
+        let storage = try #require(textView.textStorage)
+        for index in [0, 5, 10] {
+            if let link = storage.attribute(.link, at: index, effectiveRange: nil) {
+                _ = textView.textView(textView, clickedOnLink: link, at: index)
+            }
+        }
+
+        #expect(storage.string == text)
+        #expect(opened == [.member(member), .timestamp(seconds: 120)])
+        #expect(storage.attribute(.link, at: 10, effectiveRange: nil) == nil)
     }
 
     @Test
@@ -526,7 +863,7 @@ struct NativePlaybackSidebarTests {
                 links: [
                     CommentLink(
                         range: range,
-                        target: .video(bvid: "BV1FixtureA1")
+                        target: .video(bvid: "BV1FixtureA1", page: nil, startSeconds: nil)
                     )
                 ],
                 author: verifiedAuthor
@@ -539,7 +876,10 @@ struct NativePlaybackSidebarTests {
                 id: 1,
                 message: message,
                 links: [
-                    CommentLink(range: range, target: .video(bvid: "BV1FixtureA1"))
+                    CommentLink(
+                        range: range,
+                        target: .video(bvid: "BV1FixtureA1", page: nil, startSeconds: nil)
+                    )
                 ],
                 pictures: [CommentImage(asset: CommentAssetReference())],
                 author: verifiedAuthor
@@ -952,11 +1292,11 @@ struct NativePlaybackSidebarTests {
                         location: videoRange.location,
                         length: videoRange.length
                     ),
-                    target: .video(bvid: "BV1FixtureA1")
+                    target: .video(bvid: "BV1FixtureA1", page: nil, startSeconds: nil)
                 ),
                 CommentLink(
                     range: CommentTextRange(location: message.utf16.count, length: 4),
-                    target: .video(bvid: "BV1OutOfRange")
+                    target: .video(bvid: "BV1OutOfRange", page: nil, startSeconds: nil)
                 ),
                 CommentLink(
                     range: CommentTextRange(
@@ -993,11 +1333,14 @@ struct NativePlaybackSidebarTests {
 
         #expect(
             rendered.linkTargets == [
-                .video(bvid: "BV1FixtureA1"),
+                .video(bvid: "BV1FixtureA1", page: nil, startSeconds: nil),
                 .member(CommentAuthor(id: CommentAuthorID(rawValue: "301"), name: "回复用户"))
             ]
         )
-        #expect(target(at: videoRange.location) == .video(bvid: "BV1FixtureA1"))
+        #expect(
+            target(at: videoRange.location)
+                == .video(bvid: "BV1FixtureA1", page: nil, startSeconds: nil)
+        )
         #expect(
             target(at: memberRange.location)
                 == .member(CommentAuthor(id: CommentAuthorID(rawValue: "301"), name: "回复用户"))
@@ -1204,7 +1547,7 @@ struct NativePlaybackSidebarTests {
         let url = try #require(
             URL(string: "https://i0.hdslb.com/bfs/emote/doge.png")
         )
-        let renderer = makeCommentTextRenderer { reference in
+        let renderer = makeCommentTextRenderer { reference, _ in
             reference == asset ? url : nil
         }
         let content = CommentContent(
@@ -1263,7 +1606,7 @@ struct NativePlaybackSidebarTests {
         let url = try #require(
             URL(string: "https://i0.hdslb.com/bfs/emote/doge.png")
         )
-        let renderer = makeCommentTextRenderer { reference in
+        let renderer = makeCommentTextRenderer { reference, _ in
             reference == asset ? url : nil
         }
         let content = CommentContent(
@@ -1301,7 +1644,7 @@ struct NativePlaybackSidebarTests {
         let url = try #require(
             URL(string: "https://i0.hdslb.com/bfs/emote/doge.png")
         )
-        let renderer = makeCommentTextRenderer { reference in
+        let renderer = makeCommentTextRenderer { reference, _ in
             reference == asset ? url : nil
         }
         let content = CommentContent(
@@ -1342,7 +1685,7 @@ struct NativePlaybackSidebarTests {
         let url = try #require(
             URL(string: "https://i0.hdslb.com/bfs/emote/large.png")
         )
-        let renderer = makeCommentTextRenderer { reference in
+        let renderer = makeCommentTextRenderer { reference, _ in
             reference == largeAsset ? url : nil
         }
         let content = CommentContent(
@@ -1539,7 +1882,9 @@ struct NativePlaybackSidebarTests {
     func commentAuthorSpaceOwnerUsesMemberIDAndResolvedAvatar() throws {
         let avatar = CommentAssetReference()
         let avatarURL = try #require(URL(string: "https://i0.hdslb.com/bfs/face/a.jpg"))
-        let resolver: CommentAssetURLResolver = { $0 == avatar ? avatarURL : nil }
+        let resolver: CommentAssetURLResolver = { reference, _ in
+            reference == avatar ? avatarURL : nil
+        }
         let author = CommentAuthor(
             id: CommentAuthorID(rawValue: "1001"),
             name: "评论作者",
@@ -1575,11 +1920,15 @@ struct NativePlaybackSidebarTests {
         }
 
         open(.member(mentioned), hasSpace: true)
-        open(.video(bvid: "BV1FixtureA1"), hasSpace: true)
+        open(.video(bvid: "BV1FixtureA1", page: nil, startSeconds: nil), hasSpace: true)
         open(.member(mentioned), hasSpace: false)
 
         #expect(openedSpaces == [mentioned])
-        #expect(otherLinks == [.video(bvid: "BV1FixtureA1"), .member(mentioned)])
+        #expect(
+            otherLinks == [
+                .video(bvid: "BV1FixtureA1", page: nil, startSeconds: nil), .member(mentioned)
+            ]
+        )
     }
 
     @Test(arguments: [2, 3])
@@ -2058,8 +2407,10 @@ struct NativePlaybackSidebarTests {
                     )
                 ),
                 summary: context.detail.summary,
+                summaryLinks: context.detail.summaryLinks,
                 selection: selectionProjection(context: context),
-                comments: comments
+                comments: comments,
+                timestampLimitSeconds: nil
             ),
             overlay: .none
         )
@@ -2098,8 +2449,10 @@ struct NativePlaybackSidebarTests {
                 bvid: content.bvid,
                 uploader: content.uploader,
                 summary: content.summary,
+                summaryLinks: content.summaryLinks,
                 selection: content.selection,
-                comments: comments
+                comments: comments,
+                timestampLimitSeconds: nil
             ),
             overlay: .none
         ).sections.first { $0.id == .comments }?.items ?? []
@@ -2279,7 +2632,7 @@ struct NativePlaybackSidebarTests {
 
     @MainActor
     private func makeCommentTextRenderer(
-        resolveURL: @escaping CommentAssetURLResolver = { _ in nil }
+        resolveURL: @escaping CommentAssetURLResolver = { _, _ in nil }
     ) -> NativePlaybackCommentTextRenderer {
         NativePlaybackCommentTextRenderer(
             imagePipeline: NativeVideoImagePipeline(),
@@ -2289,7 +2642,7 @@ struct NativePlaybackSidebarTests {
 
     @MainActor
     private func makeCommentAvatarLoader(
-        resolveURL: @escaping CommentAssetURLResolver = { _ in nil }
+        resolveURL: @escaping CommentAssetURLResolver = { _, _ in nil }
     ) -> NativePlaybackCommentAvatarLoader {
         NativePlaybackCommentAvatarLoader(
             imagePipeline: NativeVideoImagePipeline(),
@@ -2299,7 +2652,7 @@ struct NativePlaybackSidebarTests {
 
     @MainActor
     private func makeCommentPictureLoader(
-        resolveURL: @escaping CommentAssetURLResolver = { _ in nil }
+        resolveURL: @escaping CommentAssetURLResolver = { _, _ in nil }
     ) -> NativePlaybackCommentPictureLoader {
         NativePlaybackCommentPictureLoader(
             imagePipeline: NativeVideoImagePipeline(),

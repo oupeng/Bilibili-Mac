@@ -325,26 +325,27 @@ struct PopularNativeGridTests {
 
     @Test
     func imagePipelineBoundsResponseAndDecodedCache() throws {
-        #expect(NativeVideoImagePipeline.acceptsExpectedLength(-1))
-        #expect(
-            NativeVideoImagePipeline.acceptsExpectedLength(
-                Int64(NativeVideoImagePipeline.maximumResponseBytes)
-            )
-        )
-        #expect(
-            !NativeVideoImagePipeline.acceptsExpectedLength(
-                Int64(NativeVideoImagePipeline.maximumResponseBytes + 1)
-            )
-        )
+        let megabyte = 1_024 * 1_024
+        #expect(NativeVideoImagePipeline.acceptsExpectedLength(-1, maximumBytes: 8))
+        #expect(NativeVideoImagePipeline.acceptsExpectedLength(8, maximumBytes: 8))
+        #expect(!NativeVideoImagePipeline.acceptsExpectedLength(9, maximumBytes: 8))
+        // 只有评论图片预览请求原图（B 站上传上限 20 MB），其余用途保持 8 MiB。
+        #expect(NativeVideoImageVariant.commentPicturePreview.maximumResponseBytes == 20 * megabyte)
+        for variant in [
+            NativeVideoImageVariant.cover, .avatar, .commentEmote, .commentPicture,
+            .trendingSearchIcon
+        ] {
+            #expect(variant.maximumResponseBytes == 8 * megabyte)
+        }
 
         var countBoundCache = NativeVideoImageCache(
             countLimit: 2,
             costLimit: 1_024
         )
         let image = try #require(makeImage(width: 4, height: 4))
-        countBoundCache.insert(image, for: imageKey("1"))
-        countBoundCache.insert(image, for: imageKey("2"))
-        countBoundCache.insert(image, for: imageKey("3"))
+        countBoundCache.insert(image, animation: nil, for: imageKey("1"))
+        countBoundCache.insert(image, animation: nil, for: imageKey("2"))
+        countBoundCache.insert(image, animation: nil, for: imageKey("3"))
         #expect(countBoundCache.count == 2)
         #expect(countBoundCache.totalCost <= 1_024)
 
@@ -352,8 +353,8 @@ struct PopularNativeGridTests {
             countLimit: 10,
             costLimit: 100
         )
-        costBoundCache.insert(image, for: imageKey("a"))
-        costBoundCache.insert(image, for: imageKey("b"))
+        costBoundCache.insert(image, animation: nil, for: imageKey("a"))
+        costBoundCache.insert(image, animation: nil, for: imageKey("b"))
         #expect(costBoundCache.totalCost <= 100)
         #expect(costBoundCache.count <= 1)
     }
@@ -376,8 +377,8 @@ struct PopularNativeGridTests {
         let avatar = try #require(makeImage(width: 4, height: 4))
         var cache = NativeVideoImageCache(countLimit: 2, costLimit: 1_024)
 
-        cache.insert(cover, for: coverKey)
-        cache.insert(avatar, for: avatarKey)
+        cache.insert(cover, animation: nil, for: coverKey)
+        cache.insert(avatar, animation: nil, for: avatarKey)
 
         #expect(cache.count == 2)
         #expect(cache.image(for: coverKey)?.width == 8)

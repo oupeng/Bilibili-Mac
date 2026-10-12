@@ -497,8 +497,14 @@ struct CommentContentPayload: Decodable, Sendable {
         let emotes = mappedEmotes()
         let mappedPictures = mappedPictures()
         let jumpLinks = jumpURLs.flatMap { label, payload -> [CommentLink] in
-            guard let target = CommentRemoteURL.linkTarget(payload.url) else { return [] }
-            return ranges(of: label).map { CommentLink(range: $0, target: target) }
+            guard !payload.isWordSearch,
+                let target = CommentRemoteLink.target(payload.destination(label: label))
+            else { return [] }
+            let title = payload.displayTitle(label: label, target: target)
+            let icon = payload.icon
+            return ranges(of: label).prefix(payload.matchesOnce ? 1 : .max).map {
+                CommentLink(range: $0, target: target, title: title, icon: icon)
+            }
         }
         var mentionTargetsByToken: [String: [CommentAuthorID: CommentAuthor]] = [:]
         for member in members where !member.mid.isEmpty && !member.name.isEmpty {
@@ -518,7 +524,14 @@ struct CommentContentPayload: Decodable, Sendable {
                 CommentLink(range: $0, target: .member(target))
             }
         }
-        let links = Self.nonoverlappingLinks(jumpLinks + mentionLinks)
+        let markedLinks = Self.nonoverlappingLinks(jumpLinks + mentionLinks)
+        let links =
+            (markedLinks
+            + CommentTextLinkDetector.links(
+                in: message,
+                excluding: markedLinks.map(\.range) + emotes.map(\.range)
+            ))
+            .sorted { $0.range.location < $1.range.location }
         return CommentContent(
             message: message,
             emotes: emotes,
@@ -605,55 +618,6 @@ struct CommentContentPayload: Decodable, Sendable {
         }
         return nonoverlapping
     }
-
-    private func ranges(of token: String) -> [CommentTextRange] {
-        guard !token.isEmpty else { return [] }
-        let source = message as NSString
-        var searchRange = NSRange(location: 0, length: source.length)
-        var result: [CommentTextRange] = []
-        while searchRange.length > 0 {
-            let range = source.range(of: token, options: [], range: searchRange)
-            guard range.location != NSNotFound else { break }
-            result.append(CommentTextRange(location: range.location, length: range.length))
-            let next = NSMaxRange(range)
-            searchRange = NSRange(location: next, length: source.length - next)
-        }
-        return result
-    }
-
-    private static func nonoverlappingLinks(_ links: [CommentLink]) -> [CommentLink] {
-        let sorted = links.sorted {
-            if $0.range.location != $1.range.location {
-                return $0.range.location < $1.range.location
-            }
-            if $0.range.length != $1.range.length {
-                return $0.range.length > $1.range.length
-            }
-            return linkOrderKey($0.target) < linkOrderKey($1.target)
-        }
-        var result: [CommentLink] = []
-        for link in sorted {
-            guard let previous = result.last else {
-                result.append(link)
-                continue
-            }
-            guard link.range.location >= previous.range.location + previous.range.length
-            else { continue }
-            result.append(link)
-        }
-        return result
-    }
-
-    private static func linkOrderKey(_ target: CommentLinkTarget) -> String {
-        switch target {
-        case .video(let bvid):
-            "0:\(bvid)"
-        case .member(let user):
-            "1:\(user.id.rawValue)"
-        case .external(let reference):
-            "2:\(reference.remoteURL?.absoluteString ?? "")"
-        }
-    }
 }
 
 struct CommentEmotePayload: Decodable, Sendable {
@@ -677,18 +641,6 @@ struct CommentEmotePayload: Decodable, Sendable {
 
 struct CommentEmoteMetaPayload: Decodable, Sendable {
     let size: Int?
-}
-
-struct CommentJumpURLPayload: Decodable, Sendable {
-    let pcURL: String?
-    let appURL: String?
-
-    var url: String? { pcURL ?? appURL }
-
-    private enum CodingKeys: String, CodingKey {
-        case pcURL = "pc_url"
-        case appURL = "app_url"
-    }
 }
 
 struct CommentPicturePayload: Decodable, Sendable {
@@ -753,33 +705,6 @@ struct CommentFolderPayload: Decodable, Sendable {
     }
 }
 
-private enum CommentRemoteURL {
-    static func linkTarget(_ value: String?) -> CommentLinkTarget? {
-        guard let components = components(value), let host = components.host?.lowercased()
-        else { return nil }
-        let parts = components.path.split(separator: "/")
-        if host == "www.bilibili.com", parts.count >= 2,
-            parts[0] == "video", BiliAPIClient.isValidBVID(String(parts[1]))
-        {
-            return .video(bvid: String(parts[1]))
-        }
-        guard let url = components.url else { return nil }
-        return .external(CommentExternalLinkReference(remoteURL: url))
-    }
-
-    private static func components(_ value: String?) -> URLComponents? {
-        guard var value, !value.isEmpty else { return nil }
-        if value.hasPrefix("//") { value = "https:\(value)" }
-        guard let components = URLComponents(string: value),
-            components.scheme?.lowercased() == "https",
-            components.host != nil,
-            components.user == nil,
-            components.password == nil
-        else { return nil }
-        return components
-    }
-}
-
 private struct LossyStringDictionary<Value>: Decodable, Sendable
 where Value: Decodable & Sendable {
     let values: [String: Value]
@@ -817,7 +742,7 @@ extension KeyedDecodingContainer {
         try? decodeIfPresent(type, forKey: key)
     }
 
-    fileprivate func decodeLossyBool(forKey key: Key) -> Bool? {
+    func decodeLossyBool(forKey key: Key) -> Bool? {
         if let value = try? decodeIfPresent(Bool.self, forKey: key) {
             return value
         }

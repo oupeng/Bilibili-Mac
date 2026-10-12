@@ -101,11 +101,15 @@ struct UploaderCardDataPayload: Decodable, Sendable {
 
 struct UploaderCardPayload: Decodable, Sendable {
     let mid: Int64
+    let name: String?
+    let face: String?
     let sign: String
     let vip: MemberVIPPayload?
 
     private enum CodingKeys: String, CodingKey {
         case mid
+        case name
+        case face
         case sign
         case vip
     }
@@ -125,13 +129,21 @@ struct UploaderCardPayload: Decodable, Sendable {
             }
             mid = numericMID
         }
+        // 名字与头像只在只凭 MID 打开的空间里补齐头部，字段异常时按缺省处理，不拖累签名。
+        name = try? container.decodeIfPresent(String.self, forKey: .name)
+        face = try? container.decodeIfPresent(String.self, forKey: .face)
         sign = try container.decode(String.self, forKey: .sign)
         // 大会员只决定名字颜色，字段异常时按非大会员处理，不拖累签名。
         vip = try? container.decodeIfPresent(MemberVIPPayload.self, forKey: .vip)
     }
 
     func model() -> UploaderProfile {
-        UploaderProfile(signature: sign, isVIP: vip?.isActive == true)
+        UploaderProfile(
+            name: name,
+            avatarURL: face.flatMap(WebImageURL.parse),
+            signature: sign,
+            isVIP: vip?.isActive == true
+        )
     }
 }
 
@@ -150,6 +162,8 @@ struct VideoDetailPayload: Decodable, Sendable {
     let bvid: String
     let title: String
     let desc: String
+    /// 分段简介；缺失、为 null 或形状不对时为 nil，简介退回 `desc`。
+    let descV2: LossyDecodable<[LossyDecodable<VideoDescriptionSegmentPayload>]>?
     let pic: String
     let owner: OwnerPayload
     let stat: StatisticsPayload
@@ -164,6 +178,7 @@ struct VideoDetailPayload: Decodable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case aid, bvid, title, desc, pic, owner, stat, duration, pubdate, dimension, pages
+        case descV2 = "desc_v2"
         case ugcSeason = "ugc_season"
         case isUPowerExclusive = "is_upower_exclusive"
         case isUPowerPreviewAvailable = "is_upower_preview"
@@ -180,10 +195,15 @@ struct VideoDetailPayload: Decodable, Sendable {
             throw BiliAPIError.decodingFailed
         }
         let resolvedPages = try validatedPageModels(pages ?? [])
+        let summary = VideoDescriptionAssembly.summary(
+            desc: desc,
+            segments: descV2?.value?.map(\.value)
+        )
         return VideoDetail(
             bvid: bvid,
             title: title,
-            summary: desc,
+            summary: summary.text,
+            summaryLinks: summary.links,
             coverURL: WebImageURL.parse(pic),
             owner: owner.model(),
             statistics: stat.model(),

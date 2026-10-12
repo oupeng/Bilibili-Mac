@@ -26,6 +26,7 @@ struct AppRootView: View {
     @StateObject private var windowOwnerHolder: AppWindowOwnerHolder
     private let accountSessionCoordinator: AccountSessionCoordinator
     private let appSettingsModel: AppSettingsModel?
+    private let searchHistoryStore: SearchHistoryStore?
     @State private var isAuthenticationPresented = false
     @State private var searchFilterSelection = SearchFilterSelection()
     @State private var appliedSearchFilters = AppliedVideoSearchFilters()
@@ -34,10 +35,12 @@ struct AppRootView: View {
         environment: AppEnvironment? = nil,
         accountSessionCoordinator: AccountSessionCoordinator = AccountSessionCoordinator(),
         systemNowPlayingController: SystemNowPlayingController? = nil,
-        appSettingsModel: AppSettingsModel? = nil
+        appSettingsModel: AppSettingsModel? = nil,
+        searchHistoryStore: SearchHistoryStore? = nil
     ) {
         self.accountSessionCoordinator = accountSessionCoordinator
         self.appSettingsModel = appSettingsModel
+        self.searchHistoryStore = searchHistoryStore
         _windowOwnerHolder = StateObject(
             wrappedValue: AppWindowOwnerHolder(
                 AppWindowOwner(
@@ -61,14 +64,14 @@ struct AppRootView: View {
         authenticationModel: AuthenticationViewModel,
         historyModel: WatchHistoryViewModel,
         playerContent: AnyView,
-        commentAssetURLResolver: @escaping CommentAssetURLResolver = { _ in nil },
-        commentVideoLinkResolver: @escaping CommentVideoLinkResolver = { _ in nil },
-        commentLinkURLResolver: @escaping CommentLinkURLResolver = { _ in nil },
+        commentAssetURLResolver: @escaping CommentAssetURLResolver = { _, _ in nil },
+        commentLinkRouter: @escaping CommentLinkRouter = { _ in nil },
         accountSessionCoordinator: AccountSessionCoordinator = AccountSessionCoordinator(),
         watchProgressConnection: WatchProgressWindowConnection? = nil
     ) {
         self.accountSessionCoordinator = accountSessionCoordinator
         appSettingsModel = nil
+        searchHistoryStore = nil
         _windowOwnerHolder = StateObject(
             wrappedValue: AppWindowOwnerHolder(
                 AppWindowOwner(
@@ -81,8 +84,7 @@ struct AppRootView: View {
                     historyModel: historyModel,
                     playerContent: playerContent,
                     commentAssetURLResolver: commentAssetURLResolver,
-                    commentVideoLinkResolver: commentVideoLinkResolver,
-                    commentLinkURLResolver: commentLinkURLResolver,
+                    commentLinkRouter: commentLinkRouter,
                     watchProgressConnection: watchProgressConnection
                 )
             )
@@ -99,15 +101,21 @@ struct AppRootView: View {
             authenticationModel: authenticationModel,
             historyModel: historyModel,
             uploaderSpaceModel: windowOwner.uploaderSpaceModel,
+            trendingSearchModel: windowOwner.trendingSearchModel,
+            searchHistory: searchHistoryStore,
+            searchSuggestionSource: windowOwner.searchSuggestionSource,
             playerContent: playerContent,
             commentAssetURLResolver: windowOwner.commentAssetURLResolver,
-            commentVideoLinkResolver: windowOwner.commentVideoLinkResolver,
-            commentLinkURLResolver: windowOwner.commentLinkURLResolver,
+            commentLinkRouter: windowOwner.commentLinkRouter,
+            commentShortLinks: windowOwner.commentShortLinks,
+            commentImageSaver: windowOwner.commentImageSaver,
+            seekPlayback: windowOwner.seekPlayback,
             imagePipeline: windowOwner.imagePipeline,
             isAuthenticationPresented: $isAuthenticationPresented,
             searchFilterSelection: $searchFilterSelection,
             submittedSearchCriteria: submittedSearchCriteria,
             onSubmitSearch: performSearch,
+            onSearchKeyword: search(keyword:),
             onSelectSearchOrder: selectSearchOrder,
             onApplySearchFilters: applySearchFilters,
             onClearSearchFilters: clearSearchFilters
@@ -196,6 +204,7 @@ struct AppRootView: View {
             browseModel.reset()
             authenticationModel.cancelTransientWork()
             historyModel.reset()
+            windowOwner.trendingSearchModel?.reset()
             commentsModel?.reset()
             windowOwner.close()
         }
@@ -287,16 +296,23 @@ struct AppRootView: View {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// 提交规范化搜索意图；编辑中的 draft 本身不会触发网络请求。
+    /// 提交规范化搜索意图；编辑中的 draft 只经搜索框联想匿名请求联想词，不触发搜索请求。
     private func performSearch() {
         guard !normalizedSearchDraft.isEmpty else { return }
         navigationCoordinator.searchDraft = normalizedSearchDraft
         let criteria = appliedSearchFilters.criteria(query: normalizedSearchDraft)
+        searchHistoryStore?.record(criteria.query)
         if submittedSearchCriteria == criteria {
             browseModel.search(criteria)
         } else {
             submittedSearchCriteria = criteria
         }
+    }
+
+    /// 点选历史或热搜词：与在搜索框输入后提交走同一条路径。
+    private func search(keyword: String) {
+        navigationCoordinator.searchDraft = keyword
+        performSearch()
     }
 
     private func selectSearchOrder(_ order: VideoSearchOrder) {
@@ -357,6 +373,8 @@ struct AppRootView: View {
     }
 
     private func applyCommentActivation(aid: Int64?) async {
+        // 短链属于上一个视频的简介或评论：视频变化时取消在途解析。
+        windowOwner.commentShortLinks.cancel()
         guard let commentsModel else { return }
         guard let aid else {
             commentsModel.reset()

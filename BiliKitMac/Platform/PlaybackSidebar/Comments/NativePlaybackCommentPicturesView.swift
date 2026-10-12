@@ -244,7 +244,20 @@ private final class NativePlaybackCommentPictureTileView: NSButton {
     nonisolated override var isFlipped: Bool { true }
     private let imageView = NSImageView()
     private let placeholderLabel = NSTextField(labelWithString: AppStrings.localized("图片"))
+    /// 动图角标：只是视觉提示，读屏从按钮标签得知是动图。“GIF”是通用写法，不做本地化。
+    private let animationBadge = NSTextField(labelWithString: "GIF")
+    private lazy var playback = NativeAnimatedImagePlayback(
+        host: self,
+        onFrame: { [weak self] frame in self?.show(frame) },
+        onRestoreFirstFrame: { [weak self] in
+            guard let self, let firstFrame = self.firstFrame else { return }
+            self.show(firstFrame)
+        }
+    )
+    /// 当前图片的第一帧；动图停下时换回它（「减少动态效果」只显示第一帧）。
+    private var firstFrame: CGImage?
     private var reference: CommentAssetReference?
+    private var position = 0
     private var imageGeneration: UInt64 = 0
     private var imageTask: Task<Void, Never>?
     private var isShowingPlaceholder = true
@@ -258,7 +271,7 @@ private final class NativePlaybackCommentPictureTileView: NSButton {
         target = self
         action = #selector(openPicture)
         wantsLayer = true
-        layer?.cornerRadius = 6
+        layer?.cornerRadius = NativePlaybackCommentImageStyle.cornerRadius
         layer?.masksToBounds = true
         imageView.wantsLayer = true
         imageView.imageScaling = .scaleProportionallyUpOrDown
@@ -268,8 +281,21 @@ private final class NativePlaybackCommentPictureTileView: NSButton {
         placeholderLabel.textColor = .secondaryLabelColor
         placeholderLabel.alignment = .center
         placeholderLabel.setAccessibilityElement(false)
+        animationBadge.font = .systemFont(
+            ofSize: NativePlaybackCommentImageStyle.animationBadgeFontSize,
+            weight: .semibold
+        )
+        animationBadge.textColor = .white
+        animationBadge.alignment = .center
+        animationBadge.wantsLayer = true
+        animationBadge.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.55).cgColor
+        animationBadge.layer?.cornerRadius =
+            NativePlaybackCommentImageStyle.animationBadgeCornerRadius
+        animationBadge.isHidden = true
+        animationBadge.setAccessibilityElement(false)
         addSubview(imageView)
         addSubview(placeholderLabel)
+        addSubview(animationBadge)
         setAccessibilityElement(false)
     }
 
@@ -290,9 +316,36 @@ private final class NativePlaybackCommentPictureTileView: NSButton {
         layer?.borderWidth = 0
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        playback.hostVisibilityDidChange()
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        playback.hostVisibilityDidChange()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        playback.hostVisibilityDidChange()
+    }
+
     override func layout() {
         super.layout()
+        // 尺寸确定后才有可见区域：首次布局或视口变大后重新判断能否播放动图。
+        defer { playback.hostVisibilityDidChange() }
         imageView.frame = bounds
+        let badgeSize = animationBadge.intrinsicContentSize
+        let inset = NativePlaybackCommentImageStyle.animationBadgeInset
+        let padding = NativePlaybackCommentImageStyle.animationBadgePadding
+        let badgeWidth = ceil(badgeSize.width) + padding * 2
+        animationBadge.frame = NSRect(
+            x: max(0, bounds.maxX - inset - badgeWidth),
+            y: inset,
+            width: badgeWidth,
+            height: ceil(badgeSize.height)
+        )
         placeholderLabel.frame = NSRect(
             x: 4,
             y: max(0, bounds.midY - 9),
@@ -308,15 +361,17 @@ private final class NativePlaybackCommentPictureTileView: NSButton {
         onOpen: @escaping () -> Void
     ) {
         cancelImageRequest()
+        // 同一张图重新配置（展开回复、翻页重载）时动图继续播放，换图才停下。
+        if self.reference != reference {
+            stopAnimation()
+        }
         self.reference = reference
+        self.position = position
         self.onOpen = reference == nil ? nil : onOpen
         isEnabled = reference != nil
         setAccessibilityElement(reference != nil)
         setAccessibilityRole(.button)
-        setAccessibilityLabel(
-            reference == nil
-                ? nil : AppStrings.localized("查看第 \(position + 1) 张评论图片")
-        )
+        updateAccessibilityLabel(isAnimated: false)
         imageView.image = nil
         imageView.isHidden = true
         placeholderLabel.isHidden = false
@@ -324,7 +379,7 @@ private final class NativePlaybackCommentPictureTileView: NSButton {
         needsDisplay = true
         guard let reference else { return }
         if let cached = loader.cachedImage(for: reference) {
-            apply(cached, animated: false)
+            apply(cached, animation: loader.cachedAnimation(for: reference), fadesIn: false)
             return
         }
         let generation = imageGeneration
@@ -338,13 +393,15 @@ private final class NativePlaybackCommentPictureTileView: NSButton {
             guard let result else { return }
             self.apply(
                 result.image,
-                animated: result.origin.shouldAnimate
+                animation: result.animation,
+                fadesIn: result.origin.shouldFadeIn
             )
         }
     }
 
     func releaseImage() {
         cancelImageRequest()
+        stopAnimation()
         imageView.image = nil
         imageView.isHidden = true
         placeholderLabel.isHidden = false
@@ -375,15 +432,45 @@ private final class NativePlaybackCommentPictureTileView: NSButton {
         imageView.layer?.opacity = 1
     }
 
-    private func apply(_ image: CGImage, animated: Bool) {
+    private func updateAccessibilityLabel(isAnimated: Bool) {
+        guard reference != nil else {
+            setAccessibilityLabel(nil)
+            return
+        }
+        setAccessibilityLabel(
+            isAnimated
+                ? AppStrings.localized("查看第 \(position + 1) 张评论动图")
+                : AppStrings.localized("查看第 \(position + 1) 张评论图片")
+        )
+    }
+
+    private func stopAnimation() {
+        playback.stop()
+        firstFrame = nil
+        animationBadge.isHidden = true
+    }
+
+    /// 动图播放中的一帧；尺寸与第一帧相同，只换内容。
+    private func show(_ frame: CGImage) {
+        imageView.image = NSImage(
+            cgImage: frame,
+            size: NSSize(width: frame.width, height: frame.height)
+        )
+    }
+
+    private func apply(_ image: CGImage, animation: NativeAnimatedImage?, fadesIn: Bool) {
         let generation = imageGeneration
+        firstFrame = image
         imageView.image = NSImage(
             cgImage: image,
             size: NSSize(width: image.width, height: image.height)
         )
         imageView.isHidden = false
         placeholderLabel.isHidden = true
-        guard animated,
+        animationBadge.isHidden = animation == nil
+        updateAccessibilityLabel(isAnimated: animation != nil)
+        playback.play(animation)
+        guard fadesIn,
             !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
             let imageLayer = imageView.layer
         else {

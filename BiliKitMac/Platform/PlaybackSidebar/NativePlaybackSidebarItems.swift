@@ -200,8 +200,19 @@ struct NativePlaybackSummaryGeometry {
     }
 }
 
+/// 只读侧栏文字与其中的链接；时间戳是否可点取决于 `timestampLimitSeconds`。
+struct NativePlaybackSidebarLinkedText: Equatable {
+    let text: String
+    let links: [CommentLink]
+    let timestampLimitSeconds: Int?
+}
+
+/// 侧栏里只读、可选中的文字；链接点击经 `onOpenLink` 交出，与评论正文同一套链接值。
 @MainActor
-final class NativePlaybackSidebarReadOnlyTextView: NSTextView {
+final class NativePlaybackSidebarReadOnlyTextView: NSTextView, NSTextViewDelegate {
+    var onOpenLink: ((CommentLinkTarget) -> Void)?
+    private var linkTargets: [CommentLinkTarget] = []
+
     init(font: NSFont, color: NSColor = .labelColor) {
         let storage = NSTextStorage()
         let manager = NSLayoutManager()
@@ -221,6 +232,8 @@ final class NativePlaybackSidebarReadOnlyTextView: NSTextView {
         isHorizontallyResizable = false
         isVerticallyResizable = false
         textContainerInset = .zero
+        delegate = self
+        linkTextAttributes = NativePlaybackTextLinks.textAttributes
         typingAttributes = [
             .font: font,
             .foregroundColor: color,
@@ -241,8 +254,9 @@ final class NativePlaybackSidebarReadOnlyTextView: NSTextView {
         super.layout()
     }
 
+    /// 链接只改颜色、不改字形，行高测量用纯文字即可。
     func setText(
-        _ text: String,
+        _ text: NativePlaybackSidebarLinkedText,
         font: NSFont,
         color: NSColor,
         maximumLines: Int? = nil
@@ -250,23 +264,38 @@ final class NativePlaybackSidebarReadOnlyTextView: NSTextView {
         let previousSelections = selectedRanges
         textContainer?.maximumNumberOfLines = maximumLines ?? 0
         textContainer?.lineBreakMode = maximumLines == nil ? .byCharWrapping : .byTruncatingTail
-        textStorage?.setAttributedString(
-            NSAttributedString(
-                string: text,
-                attributes: [
-                    .font: font,
-                    .foregroundColor: color,
-                    .paragraphStyle: NativePlaybackSidebarTextLayout.paragraphStyle(
-                        maximumLines: maximumLines
-                    )
-                ]
-            )
+        let attributed = NSMutableAttributedString(
+            string: text.text,
+            attributes: [
+                .font: font,
+                .foregroundColor: color,
+                .paragraphStyle: NativePlaybackSidebarTextLayout.paragraphStyle(
+                    maximumLines: maximumLines
+                )
+            ]
         )
-        let textLength = (text as NSString).length
+        let applied = NativePlaybackTextLinks.apply(
+            text.links,
+            to: attributed,
+            timestampLimitSeconds: text.timestampLimitSeconds
+        )
+        linkTargets = applied.targets
+        textStorage?.setAttributedString(attributed)
         selectedRanges = Self.clampedSelections(
             previousSelections,
-            textLength: textLength
+            textLength: attributed.length
         )
+    }
+
+    func textView(
+        _ textView: NSTextView,
+        clickedOnLink link: Any,
+        at charIndex: Int
+    ) -> Bool {
+        if let target = NativePlaybackTextLinks.target(for: link, in: linkTargets) {
+            onOpenLink?(target)
+        }
+        return true
     }
 
     static func clampedSelections(

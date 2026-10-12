@@ -27,6 +27,35 @@ public struct VideoContext: Sendable, Equatable {
         return .upowerExclusive
     }
 
+    /// 当前分 P 里可以跳到的秒数上限（不含）；时长未知时为 nil。
+    ///
+    /// 充电试看只播放试看片段，上限是试看时长。评论时间戳是否显示为链接、链接起播与原地跳转都按它判断。
+    public var seekableDurationSeconds: Int? {
+        if case .upowerPreview(let previewDurationSeconds, _) = accessNotice {
+            return previewDurationSeconds > 0 ? previewDurationSeconds : nil
+        }
+        return selectedPage.durationSeconds > 0 ? selectedPage.durationSeconds : nil
+    }
+
+    /// 秒数是否在可跳转范围内：不小于 0 且小于上限。
+    public static func accepts(seconds: Int, seekableDurationSeconds: Int?) -> Bool {
+        guard let seekableDurationSeconds else { return false }
+        return seconds >= 0 && seconds < seekableDurationSeconds
+    }
+
+    public func acceptsSeek(toSeconds seconds: Int) -> Bool {
+        Self.accepts(seconds: seconds, seekableDurationSeconds: seekableDurationSeconds)
+    }
+
+    /// 链接给的起播位置：只有能从指定位置起播的媒体（DASH）且在可跳转范围内时采用；progressive
+    /// 总是从头播放，返回 nil。
+    public func linkStartPosition(seconds: Int?) -> Double? {
+        guard let seconds, case .dash = playback.media, acceptsSeek(toSeconds: seconds) else {
+            return nil
+        }
+        return Double(seconds)
+    }
+
     public init(
         detail: VideoDetail,
         pages: [VideoPage],
@@ -60,9 +89,14 @@ public struct VideoUseCase: Sendable {
         self.repository = repository
     }
 
+    /// 取得详情与选中分 P 的播放信息。
+    ///
+    /// `preferredCID` 是用户在应用内显式选中的分 P，不存在时报错；`preferredPageNumber` 来自外部链接
+    /// （从 1 开始的分 P 序号），不可信：只在 `preferredCID` 缺省时参考，超出范围时按默认规则选择。
     public func prepareVideo(
         bvid: String,
-        preferredCID: Int64? = nil
+        preferredCID: Int64? = nil,
+        preferredPageNumber: Int? = nil
     ) async throws -> VideoContext {
         let resolvedDetail = try await repository.videoDetail(for: bvid)
         try Task.checkCancellation()
@@ -75,25 +109,34 @@ public struct VideoUseCase: Sendable {
             throw ContentApplicationError.invalidResponse
         }
 
+        let requestedPage: VideoPage?
         if let preferredCID {
-            guard
-                let selectedPage = sortedPages.first(where: {
-                    $0.cid == preferredCID
-                })
-            else {
+            guard let page = sortedPages.first(where: { $0.cid == preferredCID }) else {
                 throw ContentApplicationError.invalidRequest
             }
+            requestedPage = page
+        } else {
+            requestedPage = preferredPageNumber.flatMap { number in
+                sortedPages.first(where: { $0.index == number })
+            }
+        }
+
+        if let selectedPage = requestedPage {
             let playback = try await playback(
                 detail: resolvedDetail,
                 bvid: bvid,
                 cid: selectedPage.cid
             )
             try Task.checkCancellation()
+            // 应用内显式选中的分 P 从头播放；链接给的分 P 与普通打开一样续播该分 P 的上次位置。
             return VideoContext(
                 detail: resolvedDetail,
                 pages: sortedPages,
                 selectedPage: selectedPage,
-                playback: playback
+                playback: playback,
+                resumePositionSeconds: preferredCID == nil
+                    ? Self.resumePosition(metadata: playback.resumeMetadata, page: selectedPage)
+                    : nil
             )
         }
 

@@ -1,7 +1,7 @@
 import BiliModels
 import Foundation
 
-/// 取得当前视频 UP 主的公开名片，并规范化其中可选的签名。
+/// 取得 UP 主的公开名片，并规范化其中可选的名字与签名。
 public struct UploaderProfileUseCase: Sendable {
     private let repository: any UploaderProfileRepository
 
@@ -16,6 +16,8 @@ public struct UploaderProfileUseCase: Sendable {
         let profile = try await repository.uploaderProfile(for: ownerID)
         try Task.checkCancellation()
         return UploaderProfile(
+            name: Self.singleLine(profile.name),
+            avatarURL: profile.avatarURL,
             signature: Self.singleLine(profile.signature),
             isVIP: profile.isVIP
         )

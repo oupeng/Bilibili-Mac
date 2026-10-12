@@ -30,11 +30,7 @@ final class NativePlaybackCommentTextView: NSTextView, NSTextViewDelegate {
         isHorizontallyResizable = false
         isVerticallyResizable = false
         textContainerInset = .zero
-        // 替换系统默认的链接样式时要带上手形指针，否则链接（含 @）悬停时仍是文本光标。
-        linkTextAttributes = [
-            .foregroundColor: NSColor.linkColor,
-            .cursor: NSCursor.pointingHand
-        ]
+        linkTextAttributes = NativePlaybackTextLinks.textAttributes
         setAccessibilityRole(.staticText)
     }
 
@@ -74,7 +70,7 @@ final class NativePlaybackCommentTextView: NSTextView, NSTextViewDelegate {
             previousSelections,
             textLength: rendered.attributedString.length
         )
-        setAccessibilityLabel(content.message)
+        setAccessibilityLabel(rendered.accessibilityText)
         scheduleLoads(rendered)
     }
 
@@ -166,12 +162,23 @@ final class NativePlaybackCommentTextView: NSTextView, NSTextViewDelegate {
         clickedOnLink link: Any,
         at charIndex: Int
     ) -> Bool {
-        guard let value = link as? String,
-            value.hasPrefix("bilikit-comment-link-"),
-            let index = Int(value.dropFirst("bilikit-comment-link-".count)),
-            linkTargets.indices.contains(index)
-        else { return true }
-        onOpenLink?(linkTargets[index])
+        guard let target = NativePlaybackTextLinks.target(for: link, in: linkTargets) else {
+            return true
+        }
+        onOpenLink?(target)
         return true
+    }
+
+    /// 链接前的图标是图片附件，点它时系统走附件点击而不是链接点击；读出同一个链接值，与点标题走同一条路径。
+    func textView(
+        _ textView: NSTextView,
+        clickedOn cell: any NSTextAttachmentCellProtocol,
+        in cellFrame: NSRect,
+        at charIndex: Int
+    ) {
+        guard let textStorage, charIndex >= 0, charIndex < textStorage.length,
+            let link = textStorage.attribute(.link, at: charIndex, effectiveRange: nil)
+        else { return }
+        _ = self.textView(textView, clickedOnLink: link, at: charIndex)
     }
 }

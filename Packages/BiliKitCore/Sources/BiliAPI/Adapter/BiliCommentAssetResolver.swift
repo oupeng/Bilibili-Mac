@@ -2,51 +2,26 @@ import BiliModels
 import Foundation
 
 public struct BiliCommentAssetResolver: Sendable {
-    private static let bfsPathPrefix = "/bfs/"
-    private static let allowedHosts: Set<String> = [
-        "i0.hdslb.com",
-        "i1.hdslb.com",
-        "i2.hdslb.com"
-    ]
-
     public init() {}
 
-    public func imageURL(for reference: CommentAssetReference) -> URL? {
-        guard let url = reference.remoteURL else { return nil }
-        guard url.scheme?.lowercased() == "https",
-            let host = url.host?.lowercased(),
-            Self.allowedHosts.contains(host),
-            url.port == nil || url.port == 443,
-            url.user == nil,
-            url.password == nil,
-            url.query == nil,
-            url.fragment == nil,
-            Self.isSafeBFSPath(url)
-        else { return nil }
-        return url
-    }
-
-    private static func isSafeBFSPath(_ url: URL) -> Bool {
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        else { return false }
-        let encodedPath = components.percentEncodedPath
-        let lowercaseEncodedPath = encodedPath.lowercased()
-        guard encodedPath.hasPrefix(bfsPathPrefix),
-            encodedPath.count > bfsPathPrefix.count,
-            !lowercaseEncodedPath.contains("%25"),
-            !lowercaseEncodedPath.contains("%2f"),
-            !lowercaseEncodedPath.contains("%5c")
-        else { return false }
-
-        let decodedPath = url.path
-        guard !decodedPath.contains("\\"),
-            !decodedPath.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
-        else { return false }
-        let resourceComponents =
-            decodedPath
-            .dropFirst(bfsPathPrefix.count)
-            .split(separator: "/", omittingEmptySubsequences: false)
-        return !resourceComponents.isEmpty
-            && resourceComponents.allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." }
+    /// 返回评论图片地址；带像素框时改请求图床按框缩小的 WebP（`@{宽}w_{高}h.webp`），不带框为原图。
+    ///
+    /// 图床把图片按比例缩进框内、不放大；GIF 加此参数得到动态 WebP。缩略参数写在 path 上，结果仍须
+    /// 通过同一来源规则；已带参数或框不合法的地址退回原图。
+    public func imageURL(
+        for reference: CommentAssetReference,
+        fitting box: CommentAssetPixelBox?
+    ) -> URL? {
+        guard let url = reference.remoteURL, BiliBFSImageURLPolicy.allows(url) else {
+            return nil
+        }
+        guard let box, box.width > 0, box.height > 0, !url.path.contains("@"),
+            var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        else { return url }
+        components.percentEncodedPath += "@\(box.width)w_\(box.height)h.webp"
+        guard let thumbnail = components.url, BiliBFSImageURLPolicy.allows(thumbnail) else {
+            return url
+        }
+        return thumbnail
     }
 }

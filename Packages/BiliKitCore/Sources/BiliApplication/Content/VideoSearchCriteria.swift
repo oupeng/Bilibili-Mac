@@ -135,6 +135,20 @@ public struct VideoSearchCriteria: Sendable, Hashable {
     }
 }
 
+extension VideoSearchCriteria {
+    /// 按搜索规则规范化一组候选词：丢弃不能搜索的词与规范化后重复的词，保持原顺序，最多 `limit` 个。
+    public static func uniqueQueries(from candidates: [String], limit: Int) -> [String] {
+        var queries: [String] = []
+        for candidate in candidates {
+            guard queries.count < limit else { break }
+            let criteria = VideoSearchCriteria(query: candidate)
+            guard criteria.isValid, !queries.contains(criteria.query) else { continue }
+            queries.append(criteria.query)
+        }
+        return queries
+    }
+}
+
 /// 单次网络请求 identity；分页只改变 `page`，其余条件完整保留。
 public struct VideoSearchRequest: Sendable, Hashable {
     public let criteria: VideoSearchCriteria

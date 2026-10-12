@@ -13,10 +13,8 @@ import CoreGraphics
 import Foundation
 import SwiftUI
 
-typealias CommentAssetURLResolver = @Sendable (CommentAssetReference) -> URL?
-typealias CommentVideoLinkResolver = @Sendable (CommentLinkTarget) -> String?
-typealias CommentLinkURLResolver = @Sendable (CommentLinkTarget) -> URL?
-
+/// 评论图片地址；带像素框时请求图床按框缩小的图，不带框为原图。
+typealias CommentAssetURLResolver = @Sendable (CommentAssetReference, CommentAssetPixelBox?) -> URL?
 @MainActor
 /// App 的 Composition Root：创建具体 adapter，并把它们收窄为 Feature 所需的 port。
 ///
@@ -28,12 +26,13 @@ struct AppEnvironment {
     private let feedRepository: any FeedRepository
     private let videoRepository: any VideoRepository
     private let relatedVideoRepository: any RelatedVideoRepository
+    private let trendingSearchRepository: any TrendingSearchRepository
+    private let searchSuggestionRepository: any SearchSuggestionRepository
     private let uploaderProfileRepository: any UploaderProfileRepository
     private let uploaderVideoRepository: any UploaderVideoRepository
     private let commentRepository: any CommentRepository
     let commentAssetURLResolver: CommentAssetURLResolver
-    let commentVideoLinkResolver: CommentVideoLinkResolver
-    let commentLinkURLResolver: CommentLinkURLResolver
+    let commentLinkRouter: CommentLinkRouter
     private let historyRepository: any WatchHistoryRepository
     private let watchProgressRepository: (any WatchProgressRepository)?
     private let danmakuSession: DanmakuSession
@@ -49,12 +48,13 @@ struct AppEnvironment {
         feedRepository: any FeedRepository,
         videoRepository: any VideoRepository,
         relatedVideoRepository: any RelatedVideoRepository,
+        trendingSearchRepository: any TrendingSearchRepository,
+        searchSuggestionRepository: any SearchSuggestionRepository,
         uploaderProfileRepository: any UploaderProfileRepository,
         uploaderVideoRepository: any UploaderVideoRepository,
         commentRepository: any CommentRepository,
         commentAssetURLResolver: @escaping CommentAssetURLResolver,
-        commentVideoLinkResolver: @escaping CommentVideoLinkResolver,
-        commentLinkURLResolver: @escaping CommentLinkURLResolver,
+        commentLinkRouter: @escaping CommentLinkRouter,
         historyRepository: any WatchHistoryRepository,
         watchProgressRepository: (any WatchProgressRepository)?,
         danmakuRepository: any DanmakuSegmentRepository,
@@ -73,12 +73,13 @@ struct AppEnvironment {
         self.feedRepository = feedRepository
         self.videoRepository = videoRepository
         self.relatedVideoRepository = relatedVideoRepository
+        self.trendingSearchRepository = trendingSearchRepository
+        self.searchSuggestionRepository = searchSuggestionRepository
         self.uploaderProfileRepository = uploaderProfileRepository
         self.uploaderVideoRepository = uploaderVideoRepository
         self.commentRepository = commentRepository
         self.commentAssetURLResolver = commentAssetURLResolver
-        self.commentVideoLinkResolver = commentVideoLinkResolver
-        self.commentLinkURLResolver = commentLinkURLResolver
+        self.commentLinkRouter = commentLinkRouter
         self.historyRepository = historyRepository
         self.watchProgressRepository = watchProgressRepository
         self.playerEngine = playerEngine
@@ -114,6 +115,18 @@ struct AppEnvironment {
         )
     }
 
+    func makeTrendingSearchViewModel() -> TrendingSearchViewModel {
+        TrendingSearchViewModel(
+            useCase: TrendingSearchUseCase(repository: trendingSearchRepository)
+        )
+    }
+
+    func makeSearchSuggestionSource() -> SearchSuggestionSource {
+        SearchSuggestionSource(
+            useCase: SearchSuggestionUseCase(repository: searchSuggestionRepository)
+        )
+    }
+
     func makeVideoViewModel() -> VideoViewModel {
         VideoViewModel(
             useCase: VideoUseCase(repository: videoRepository),
@@ -129,7 +142,8 @@ struct AppEnvironment {
 
     func makeUploaderSpaceViewModel() -> UploaderSpaceViewModel {
         UploaderSpaceViewModel(
-            useCase: UploaderVideoUseCase(repository: uploaderVideoRepository)
+            useCase: UploaderVideoUseCase(repository: uploaderVideoRepository),
+            profileUseCase: UploaderProfileUseCase(repository: uploaderProfileRepository)
         )
     }
 
@@ -160,6 +174,16 @@ struct AppEnvironment {
                 danmakuPreferencesStore.saveDensity(density)
             }
         )
+    }
+
+    /// 评论时间戳与链接 `t=` 的跳转：只在播放器当前 item 属于该视频时跳到该秒数并播放；超出时长、
+    /// 还没有 item 或已换视频时不动作。
+    func seekPlayback(bvid: String, toSeconds seconds: Int) {
+        guard seconds >= 0,
+            playerEngine.currentTimelineSnapshot.identity?.bvid == bvid,
+            playerEngine.requestSeek(to: .seconds(seconds))
+        else { return }
+        playerEngine.play()
     }
 
     func makePlayerView(
@@ -312,24 +336,23 @@ struct AppEnvironment {
         )
         let contentRepository = BiliContentRepository(client: api)
         let commentAssetResolver = BiliCommentAssetResolver()
-        let commentLinkResolver = BiliCommentLinkResolver()
+        let commentLinkRouting = CommentLinkRouting(
+            linkResolver: BiliCommentLinkResolver(),
+            shortLinkResolver: BiliShortLinkResolver()
+        )
         return AppEnvironment(
             feedRepository: contentRepository,
             videoRepository: contentRepository,
             relatedVideoRepository: contentRepository,
+            trendingSearchRepository: contentRepository,
+            searchSuggestionRepository: contentRepository,
             uploaderProfileRepository: contentRepository,
             uploaderVideoRepository: contentRepository,
             commentRepository: BiliCommentRepository(client: api),
-            commentAssetURLResolver: { reference in
-                commentAssetResolver.imageURL(for: reference)
+            commentAssetURLResolver: { reference, box in
+                commentAssetResolver.imageURL(for: reference, fitting: box)
             },
-            commentVideoLinkResolver: { target in
-                guard case .video(let bvid) = target else { return nil }
-                return bvid
-            },
-            commentLinkURLResolver: { target in
-                commentLinkResolver.externalURL(for: target)
-            },
+            commentLinkRouter: commentLinkRouting.route(for:),
             historyRepository: BiliWatchHistoryRepository(client: api),
             watchProgressRepository: accountSessionCoordinator.watchProgressRepository,
             danmakuRepository: BiliDanmakuRepository(client: api),
@@ -341,7 +364,10 @@ struct AppEnvironment {
                 service: authenticationService
             ),
             open: { sessionRegistration.open() },
-            close: { sessionRegistration.close() }
+            close: {
+                sessionRegistration.close()
+                commentLinkRouting.shortLinkResolver.invalidate()
+            }
         )
     }
 

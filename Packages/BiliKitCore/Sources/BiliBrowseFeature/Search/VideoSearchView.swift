@@ -3,7 +3,7 @@ import BiliModels
 import BiliUI
 import SwiftUI
 
-public struct VideoSearchView<LoadedContent: View>: View {
+public struct VideoSearchView<LoadedContent: View, StartContent: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.locale) private var locale
     private let model: BrowseViewModel
@@ -12,7 +12,9 @@ public struct VideoSearchView<LoadedContent: View>: View {
     private let makeLoadedContent: (LoadedFeedContent<SearchVideoCardPresentation>) -> LoadedContent
     private let onSelect: (String) -> Void
     private let onClearFilters: () -> Void
+    private let startContent: () -> StartContent
 
+    /// `startContent` 在尚未提交搜索时显示（搜索历史与热搜）。
     public init(
         model: BrowseViewModel,
         submittedSearchCriteria: VideoSearchCriteria?,
@@ -20,7 +22,8 @@ public struct VideoSearchView<LoadedContent: View>: View {
         makeLoadedContent:
             @escaping (LoadedFeedContent<SearchVideoCardPresentation>) -> LoadedContent,
         onSelect: @escaping (String) -> Void,
-        onClearFilters: @escaping () -> Void
+        onClearFilters: @escaping () -> Void,
+        @ViewBuilder startContent: @escaping () -> StartContent
     ) {
         self.model = model
         self.submittedSearchCriteria = submittedSearchCriteria
@@ -28,6 +31,7 @@ public struct VideoSearchView<LoadedContent: View>: View {
         self.makeLoadedContent = makeLoadedContent
         self.onSelect = onSelect
         self.onClearFilters = onClearFilters
+        self.startContent = startContent
     }
 
     public var body: some View {
@@ -68,7 +72,7 @@ public struct VideoSearchView<LoadedContent: View>: View {
             )
             searchResults(for: request)
         } else {
-            searchPrompt
+            startContent()
         }
     }
 
@@ -117,7 +121,7 @@ public struct VideoSearchView<LoadedContent: View>: View {
                 retry: { model.retry(request) }
             )
         default:
-            searchPrompt
+            startContent()
         }
     }
 
@@ -161,16 +165,6 @@ public struct VideoSearchView<LoadedContent: View>: View {
                 .background(.regularMaterial, in: Capsule())
             }
         }
-    }
-
-    private var searchPrompt: some View {
-        ContentUnavailableView(
-            BrowseFeatureStrings.localized("搜索视频", locale: locale),
-            systemImage: "magnifyingglass",
-            description: Text(
-                BrowseFeatureStrings.localized("输入关键词后按下 Return 或点击搜索。", locale: locale)
-            )
-        )
     }
 }
 

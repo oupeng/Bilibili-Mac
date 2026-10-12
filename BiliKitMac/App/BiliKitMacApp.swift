@@ -13,6 +13,7 @@ struct BiliKitMacApp: App {
     @State private var accountSessionCoordinator: AccountSessionCoordinator
     @State private var systemNowPlayingController = SystemNowPlayingController()
     @State private var appSettingsModel: AppSettingsModel
+    @State private var searchHistoryStore = SearchHistoryStore()
 
     init() {
         let accountSessionCoordinator = AccountSessionCoordinator()
@@ -32,7 +33,8 @@ struct BiliKitMacApp: App {
             AppRootView(
                 accountSessionCoordinator: accountSessionCoordinator,
                 systemNowPlayingController: systemNowPlayingController,
-                appSettingsModel: appSettingsModel
+                appSettingsModel: appSettingsModel,
+                searchHistoryStore: searchHistoryStore
             )
         }
         .defaultSize(width: 1_320, height: 820)

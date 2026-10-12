@@ -569,6 +569,7 @@ struct DanmakuLaneAllocatorTests {
                 text: "fixture",
                 fontSize: 24,
                 colorRGB: 0xFF_FF_FF,
+                colorStyle: .solid,
                 weight: 5
             ),
             width: width,

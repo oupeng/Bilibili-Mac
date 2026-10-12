@@ -52,7 +52,8 @@ BiliNetworking 不依赖任何 Bili 模块
 - 新 target 需同时具备稳定独立领域、独立状态或安全／性能边界、真实调用方与测试；默认在现有
   target 内加子目录。不建立 `Common`／`Shared`／`Utils`，不建立空占位 target。
 - `BiliUI` 只在出现至少两个真实调用方且语义稳定时才接收新组件；B 站主机、图片参数、计数和日期
-  格式化留在拥有语义的 Feature。
+  格式化留在拥有语义的 Feature；评论资源是不透明引用，其图片地址与缩略参数只由 BiliAPI 的 resolver
+  生成。
 
 ## 关键决策
 
@@ -97,6 +98,9 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   手写 wire reader 要长期自维护 varint、未知字段和恶意长度边界，成本高于约 1.8 MiB 的体积。
 - wire 类型解码后立即映射为 `BiliModels.DanmakuEvent`；`BiliDanmaku` 只见 Models/Application。
 - renderer 使用 Core Animation layer 与纹理缓存，调度与 lane 分配可用虚拟时间独立测试。
+- 大会员彩色弹幕：元素字段 24 `colorful` 为 60001 时映射为 `DanmakuColorStyle.vipGradient`，其余类型按普通
+  弹幕显示。外观按官方贴图的结论内置：白色填充、0.5pt 描边从文字左缘到右缘按采样色标做横向渐变、阴影
+  仍为深色；不下载分段回复 `colorfulSrc` 给的贴图，纹理同步绘制，官方更换贴图时不会跟随。
 
 ### 原生 AppKit 集合视图
 
@@ -118,6 +122,23 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   “返回顶部”玻璃按钮与评论区共用 `NativeScrollToTopScrollView`。
 - 封面、头像与评论图片由 `AppWindowOwner` 持有的窗口级匿名、有界 `NativeVideoImagePipeline`
   加载（Now Playing 封面另有进程级实例）；cell 离屏、复用和 teardown 取消等待者。
+- 评论列表图片与头像请求图床按框缩小的 WebP（`@{宽}w_{高}h.webp`，图床按比例缩进框内、不放大），框按
+  用途只在 `NativePlaybackCommentAssetSizing` 定义：列表为最大显示尺寸的 2 倍，头像为解码上限；表情与
+  预览请求原图。预览先显示列表里已缓存的缩小图并标出原图加载中，原图到达后原位替换，原图失败时保留缩小图并提供重试。
+- 评论图片预览右上角的「保存图片」（⌘S）由窗口级的 `NativeCommentImageSaver` 拥有：保存面板以 sheet 挂在
+  预览自己的窗口上，选好位置后再取原图在后台原样写入；已确认的保存不随预览关闭而丢失，关窗时取消。
+- 评论动图：管线按解码出的帧数判断（接口没有可靠的动图标记），列表格子拿到图床转出的动态 WebP，预览拿到
+  原图；`NativeAnimatedImagePlayback` 用 ImageIO 边解码边播放，不预先解出所有帧，始终无限循环。只在宿主
+  真正可见时播放（在窗口里、没被隐藏、可见区域非空、窗口没被遮住、系统没开「减少动态效果」），每帧检查
+  一次，停下时换回第一帧；停下后监听滚动、窗口遮挡与辅助功能设置变化，宿主布局完成时也重新判断。动图数据
+  是引用类型，同一张图重新配置时继续播放。列表格子角上显示自绘的 GIF 角标；预览里缩小图占位不播放，逐帧
+  只替换图片内容，不改尺寸与缩放状态。正文里的动态表情不在此列。
+- 评论图片预览的图片区是 AppKit `NSScrollView`（`NativeCommentImageZoomView`）：SwiftUI 没有现成的
+  “触控板双指缩放 + 两指平移 + 回弹”容器。倍率以适配可视区为 1，上限与单击倍率在
+  `NativeCommentImageZoomGeometry`；单击图片（双击只算一次、两指双击同样）在适配与放大之间切换，放大后
+  可拖动平移，拖动超过阈值不算单击；指针用系统放大镜（`NSCursor.zoomIn`／`zoomOut`），读屏用自定义操作
+  切换。点图片四周空白或背景关闭；关闭手势只挂在背景上，挂在外层容器会让点图片同时关闭。图片区不接收
+  键盘焦点，方向键照旧翻页；换图回到适配，同一张从缩小图换成原图、改窗口大小时保留缩放与可视位置。
 
 ### 播放页布局
 
@@ -159,8 +180,61 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
 - UP 主空间只在登录后可用（匿名请求会被间歇风控，见 `SECURITY-MODEL.md`），从播放侧栏的 UP 主行或
   评论作者（头像与昵称，含楼中楼）进入，两处共用限定区域的点击与手形指针（`NativeClickRegion`），
   VoiceOver 通过昵称上的自定义操作进入；评论正文里的 @ 提及同样在应用内打开空间（@ 用户的昵称与头像
-  来自评论接口的 `members`），未登录时空间层显示登录提示。按页替换，底部悬浮页码条翻页与跳页，不做
-  无限流。
+  来自评论接口的 `members`），未登录时空间层显示登录提示。正文里的空间链接只有 MID：空间先以 UID
+  作头部打开，`/x/web-interface/card` 名片到达后补上名字与头像。按页替换，底部悬浮页码条翻页与跳页，
+  不做无限流。
+- 评论正文链接（`jump_url`；`pc_url` 为空时用正文里作键的网址，b23.tv 短链就是这种形状）由 BiliAPI
+  分类：桌面版、手机版与裸域的视频地址（BV 号，或在本地换算的 av 号）在应用内播放，链接里的 `p` 作为分 P 序号偏好（超出范围按默认分 P，命中时续播该分 P 的上次
+  位置）；空间主页与投稿列表链接在侧栏空间层打开，合集、收藏夹等其他空间子页面应用内没有对应页面，
+  交给浏览器；搜索词链接（`is_word_search`）不生成链接，因为跳到搜索页会离开播放；站内目标按未解码的
+  host 与 path 精确匹配、不带端口，其余 HTTPS 地址交给系统浏览器。指向正在播放的视频时，带分 P 的
+  链接就地切换分 P，不带或超出范围的保持当前播放。
+- 接口链接带 `title` 时，站内目标（视频、空间、短链）的正文原文显示为标题；站外链接保留真实网址，
+  点击前能看到域名。`prefix_icon` 作为前置小图标与表情走同一套附件加载（先占位、失败去掉、重新测量），
+  在固定边长的正方形里按原比例绘制；标题与图标都带同一个链接，点图标经附件点击回调走同一条打开路径。
+  与表情重叠的链接不替换，表情优先。读屏读渲染后的文字：链接读标题、表情保留原文写法。
+  `match_once` 只链接第一处，其余同文出现由正文识别处理。正文自己识别的链接没有标题，保持原文。
+- 接口没标出的纯文字由 BiliAPI 的 `CommentTextLinkDetector` 识别，结果走同一分类：网址（只取 ASCII
+  字符，不含 `[` `]`，所以紧跟的中文与表情不算进来，末尾句读与不成对的右括号剔除）、不带协议头的
+  b23.tv、BV 号与至少 5 位数字的 av 号（`AV1` 编码这类短写法不算）。`http` 网址只在指向站内目标时
+  升级为 HTTPS，通不过公开 HTTPS 复核的外链不显示为链接；网址整段先占位，里面的片段不再单独识别；
+  接口链接与表情覆盖的文字不再识别。
+- 时间跳转：正文时间戳（`m:ss`、`h:mm:ss`，前后紧挨字母或数字、全角冒号都不认）与视频链接的 `t`
+  （只认正整数秒）都在当前视频里跳转并播放。可跳转范围只由 `VideoContext.seekableDurationSeconds`
+  决定（充电试看取试看时长）：时间戳只在播放器就绪且在范围内时显示为链接，切换分 P 时只重新配置含
+  时间戳的评论（行高不变）；点击后由 Composition 的 `seekPlayback` 校验播放器 item 仍属该视频再跳转。
+  `t` 指向正在播放的分 P 时原地跳转，不经导航去重；指向别的分 P 或视频时作为起播位置传给播放器
+  （只有 DASH 采用，progressive 从头播），优先于续播位置、不显示续播提示，超出范围时忽略。链接起播
+  时间开播成功后即用过，之后的重试由视频模型按续播规则处理，不跳回链接时间。
+- b23.tv 短链在点击后由 BiliAPI 的 `BiliShortLinkResolver` 读一次跳转目标，再走同一分类；Composition 的
+  `CommentLinkRouting` 是链接目标到 App 路由（`CommentLinkRoute`）的唯一翻译处，在途解析由窗口级
+  `CommentShortLinkResolution` 拥有，评论所属视频变化或关窗时取消，解析不出时打开原短链。
+- 视频简介与评论正文共用同一套链接目标、识别、路由与时间戳规则。正文按 `desc_v2` 分段拼出：@ 段
+  （`type` 2，`raw_text` 不带 @）按官方显示为「@昵称 」（后跟一个空格，拼出的正文与 `desc` 逐字一致），
+  `biz_id` 为正整数 MID 时标为 @ 用户、在应用内打开空间，没有头像时空间头部先显示占位；
+  分段缺失、形状不对或任一段解码失败时整体退回 `desc`。其余文字由 `CommentTextLinkDetector` 识别。
+  简介链接只改颜色、不改字形，测量仍用纯文字；链接属性的编码、点击解码与时间戳可跳转判断只在
+  `NativePlaybackTextLinks` 一处，分 P 时长变化时只有含时间戳的简介重新配置。
+
+### 搜索起始页
+
+- 未提交搜索时，搜索页主区显示 `SearchStartView`：本机搜索历史与 B 站热搜。点选任一词等同于填入
+  搜索框后提交，历史在 `performSearch()` 里统一写入。
+- 搜索历史由 App 的进程级 `SearchHistoryStore` 持有（`BiliKitMacApp` 创建，所有窗口共享），Feature
+  只接收词列表与删除、清除回调；持久化规则见 `SECURITY-MODEL.md` §6。
+- 热搜由每个窗口一个 `TrendingSearchViewModel` 持有，起始页每次出现时刷新；port 独立于
+  `FeedRepository`。首次加载失败只在热搜区显示错误与重试，刷新失败保留已显示的结果。图标地址在 BiliAPI 映射时经 `BiliBFSImageURLPolicy` 校验，由 App 注入的视图走
+  窗口图片管线加载，Feature 不接触图片管线。
+- 工具栏正中的搜索框是 AppKit `NSSearchField`（`ToolbarSearchField`），挂系统联想菜单
+  （`NSTextSuggestionsDelegate`，macOS 15 起）。SwiftUI `.searchable` 放在工具栏正中时不显示
+  `.searchSuggestions`，系统联想菜单只能挂在 AppKit 文本框上；Apple Music 的居中搜索框也是这一做法。
+- 联想菜单分两区：“搜索历史”最多 3 条包含当前输入的本机历史词，立即作为中间结果给出；“搜索联想”是
+  B 站联想，去掉已在历史区的词，停顿后作为最终结果补上（规则在 `SearchSuggestionPolicy`）。选中联想
+  只回调一次 `didSelect`，与点选起始页的词走同一条搜索路径；直接回车照常提交。
+- 联想 port 独立于 `FeedRepository`；接口没有联想时以状态码 3 回复，BiliAPI 映射为空列表。搜索词按
+  `URLQueryUnreservedEncoding` 编码，与 WBI 签名一致（`queryItems` 会保留 `+`，被服务端当成空格）。
+- 搜索框只把外部改动（点选词、关窗清空）写回字段，且在输入法组字时不写：直接赋值会丢掉未确认的
+  拼音或假名。
 
 ### 认证
 

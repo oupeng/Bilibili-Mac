@@ -119,6 +119,80 @@ struct BiliAPIClientTests {
         #expect(collection.embeddedCountMatchesReportedCount == false)
     }
 
+    /// 简介按 `desc_v2` 分段拼出：@ 段带上 MID，其余文字按评论正文规则识别网址、BV 号与时间戳。
+    @Test
+    func videoDetailSummaryLinksMentionsAndDetectedTargets() async throws {
+        let segments =
+            #"[{"raw_text":"感谢 ","type":1,"biz_id":0},{"raw_text":"合作者","type":2,"biz_id":"20002"},{"raw_text":"参与\n上期 BV1xx411c7mD 1:30 开始 https://www.bilibili.com/video/BV1GJ411x7h7","type":1,"biz_id":0}]"#
+        let client = BiliAPIClient(
+            transport: StubTransport(responses: [
+                jsonResponse(
+                    #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"旧简介","desc_v2":"#
+                        + segments
+                        + #","pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":120,"pubdate":1720000000}}"#
+                )
+            ])
+        )
+
+        let detail = try await client.videoDetail(for: "BV1FixtureA1")
+
+        #expect(
+            detail.summary
+                == "感谢 @合作者 参与\n上期 BV1xx411c7mD 1:30 开始 https://www.bilibili.com/video/BV1GJ411x7h7"
+        )
+        #expect(
+            detail.summaryLinks.map(\.target) == [
+                .member(CommentAuthor(id: CommentAuthorID(rawValue: "20002"), name: "合作者")),
+                .video(bvid: "BV1xx411c7mD", page: nil, startSeconds: nil),
+                .timestamp(seconds: 90),
+                .video(bvid: "BV1GJ411x7h7", page: nil, startSeconds: nil)
+            ]
+        )
+        #expect(detail.summaryLinks.first?.range == CommentTextRange(location: 3, length: 4))
+    }
+
+    /// 分段缺失、不是数组或有任一段解码失败时退回 `desc`，同样识别其中的链接。
+    @Test(arguments: [
+        "",
+        #","desc_v2":null"#,
+        #","desc_v2":"坏数据""#,
+        #","desc_v2":[{"raw_text":"片段","type":1},{"type":2,"biz_id":1}]"#
+    ])
+    func videoDetailSummaryFallsBackToDesc(descV2: String) async throws {
+        let client = BiliAPIClient(
+            transport: StubTransport(responses: [
+                jsonResponse(
+                    #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"见 b23.tv/abc123 和 2:05""#
+                        + descV2
+                        + #","pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":120,"pubdate":1720000000}}"#
+                )
+            ])
+        )
+
+        let detail = try await client.videoDetail(for: "BV1FixtureA1")
+
+        #expect(detail.summary == "见 b23.tv/abc123 和 2:05")
+        #expect(detail.summaryLinks.count == 2)
+        #expect(detail.summaryLinks.last?.target == .timestamp(seconds: 125))
+    }
+
+    /// MID 不合法的 @ 段照样显示为「@昵称 」，只是不生成链接。
+    @Test
+    func videoDetailSummaryIgnoresMentionsWithoutValidMemberID() async throws {
+        let client = BiliAPIClient(
+            transport: StubTransport(responses: [
+                jsonResponse(
+                    #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"","desc_v2":[{"raw_text":"无名","type":2,"biz_id":0},{"raw_text":"@有名","type":2,"biz_id":"--"}],"pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":120,"pubdate":1720000000}}"#
+                )
+            ])
+        )
+
+        let detail = try await client.videoDetail(for: "BV1FixtureA1")
+
+        #expect(detail.summary == "@无名 @有名 ")
+        #expect(detail.summaryLinks.isEmpty)
+    }
+
     @Test
     func videoDetailRejectsDuplicatePageIdentity() async {
         let pages =
@@ -316,7 +390,15 @@ struct BiliAPIClientTests {
 
         let profile = try await client.uploaderProfile(for: 10_001)
 
-        #expect(profile == UploaderProfile(signature: "用影像记录生活", isVIP: true))
+        #expect(
+            profile
+                == UploaderProfile(
+                    name: "虚构作者",
+                    avatarURL: URL(string: "https://image.example.invalid/avatar.jpg"),
+                    signature: "用影像记录生活",
+                    isVIP: true
+                )
+        )
         let request = try #require(transport.capturedRequests().first)
         #expect(request.method == .get)
         #expect(request.url.scheme == "https")
@@ -368,6 +450,28 @@ struct BiliAPIClientTests {
             try await client.uploaderProfile(for: 10_001)
                 == UploaderProfile(signature: "签名", isVIP: false)
         )
+    }
+
+    /// 名字与头像只用于补齐只凭 MID 打开的空间：字段异常或头像不是 HTTPS 时按缺省处理，签名照常返回。
+    @Test(
+        arguments: [
+            #""name":42,"face":["x"]"#,
+            #""name":"作者","face":"ftp://example.invalid/a.jpg""#
+        ]
+    )
+    func uploaderProfileTreatsMalformedNameAndFaceAsAbsent(fields: String) async throws {
+        let response = jsonResponse(
+            #"{"code":0,"data":{"card":{"mid":"10001","sign":"签名","#
+                + fields + "}}}"
+        )
+        let client = BiliAPIClient(
+            transport: StubTransport(responses: [response])
+        )
+
+        let profile = try await client.uploaderProfile(for: 10_001)
+
+        #expect(profile.signature == "签名")
+        #expect(profile.avatarURL == nil)
     }
 
     @Test

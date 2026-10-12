@@ -31,7 +31,9 @@ enum NativePlaybackCommentAuthorSpace {
         return VideoOwner(
             id: id,
             name: author.name,
-            avatarURL: author.avatar.flatMap(resolveAvatar)
+            avatarURL: author.avatar.flatMap {
+                resolveAvatar($0, NativePlaybackCommentAssetSizing.pixelBox(for: .avatar))
+            }
         )
     }
 }

@@ -18,10 +18,17 @@ final class AppWindowOwner {
     let authenticationModel: AuthenticationViewModel
     let historyModel: WatchHistoryViewModel
     let uploaderSpaceModel: UploaderSpaceViewModel?
+    let trendingSearchModel: TrendingSearchViewModel?
+    let searchSuggestionSource: SearchSuggestionSource?
     let playerContent: AnyView
     let commentAssetURLResolver: CommentAssetURLResolver
-    let commentVideoLinkResolver: CommentVideoLinkResolver
-    let commentLinkURLResolver: CommentLinkURLResolver
+    let commentLinkRouter: CommentLinkRouter
+    /// 在当前视频的播放器里跳到某秒并播放；播放器 item 不属于该视频时不动作。
+    let seekPlayback: @MainActor (_ bvid: String, _ seconds: Int) -> Void
+    /// 评论短链的在途解析；换视频与关窗时取消。
+    let commentShortLinks = CommentShortLinkResolution()
+    /// 评论图片的保存；预览关闭后已确认的保存照常完成，关窗时取消。
+    let commentImageSaver = NativeCommentImageSaver()
     /// 窗口内所有封面、头像与评论图片共用的匿名有界图片管线。
     let imagePipeline: NativeVideoImagePipeline
     private let imagePipelineOwner: NativeVideoImagePipelineOwner
@@ -69,13 +76,15 @@ final class AppWindowOwner {
             authenticationModel: environment.makeAuthenticationViewModel(),
             historyModel: environment.makeWatchHistoryViewModel(),
             uploaderSpaceModel: uploaderSpaceModel,
+            trendingSearchModel: environment.makeTrendingSearchViewModel(),
+            searchSuggestionSource: environment.makeSearchSuggestionSource(),
             playerContent: environment.makePlayerView(
                 videoModel: videoModel,
                 danmakuModel: danmakuModel
             ),
             commentAssetURLResolver: environment.commentAssetURLResolver,
-            commentVideoLinkResolver: environment.commentVideoLinkResolver,
-            commentLinkURLResolver: environment.commentLinkURLResolver,
+            commentLinkRouter: environment.commentLinkRouter,
+            seekPlayback: environment.seekPlayback(bvid:toSeconds:),
             playbackPreferencesController: environment.playbackPreferencesController,
             systemNowPlayingController: systemNowPlayingController,
             systemNowPlayingConnection:
@@ -86,23 +95,72 @@ final class AppWindowOwner {
         )
     }
 
+    /// 链接带 `t=` 且指向正在播放、播放器已装好的分 P（没给分 P 视为当前分 P）、秒数在可跳转范围内时，
+    /// 返回要原地跳到的秒数；其余情况交给导航打开或切换分 P。
+    static func inPlaceStartSeconds(
+        for intent: PlaybackSelectionIntent,
+        currentPlaybackBVID: String?,
+        videoModel: VideoViewModel
+    ) -> Int? {
+        guard let startSeconds = intent.preferredStartSeconds,
+            intent.preferredCID == nil,
+            intent.bvid == currentPlaybackBVID,
+            intent.bvid == videoModel.presentedBVID,
+            videoModel.canSeekPresentedPage(
+                number: intent.preferredPageNumber,
+                toSeconds: startSeconds
+            )
+        else { return nil }
+        return startSeconds
+    }
+
+    /// 播放失败后的重试交给视频模型。
+    ///
+    /// 它记得链接起播时间是否已经用过，开播后才失败的重试不会跳回链接时间。不在失败状态（例如已被
+    /// 重置）时重新发出当前导航意图。
+    static func retryPlayback(
+        coordinator: AppNavigationCoordinator,
+        videoModel: VideoViewModel
+    ) {
+        switch videoModel.state {
+        case .failed, .failedPage:
+            videoModel.retry()
+        case .idle, .loading, .loadingPage, .preparingPlayback, .ready:
+            coordinator.retryPlayback()
+        }
+    }
+
     static func handlePlaybackSelection(
         _ intent: PlaybackSelectionIntent,
         with videoModel: VideoViewModel
     ) {
+        // 只在已呈现且正在请求的就是这个视频、并且没有整体失败时就地处理。另一个视频加载中残留的
+        // 旧详情不算；整体失败（详情或播放器准备失败）重新加载，重试才不会被同一身份的去重吞掉。
+        var isFailed = false
+        if case .failed = videoModel.state { isFailed = true }
         guard videoModel.presentedBVID == intent.bvid,
-            let preferredCID = intent.preferredCID
+            videoModel.requestedSelectionBVID == intent.bvid,
+            !isFailed
         else {
             videoModel.loadVideo(
                 intent.bvid,
-                preferredCID: intent.preferredCID
+                preferredCID: intent.preferredCID,
+                preferredPageNumber: intent.preferredPageNumber,
+                startSeconds: intent.preferredStartSeconds
             )
             return
         }
-        if videoModel.failedPageCID == preferredCID {
+        // 当前视频的分 P 序号直接换算为 CID，在现有 pages 内切换。没给分 P 或序号超出范围时
+        // 已经在看这个视频，保持当前播放。
+        let presentedPageCID = intent.preferredPageNumber.flatMap(
+            videoModel.presentedPageCID(forNumber:)
+        )
+        guard let preferredCID = intent.preferredCID ?? presentedPageCID else { return }
+        // 失败的分 P 收到带新起播秒数的链接时按新秒数重开，否则沿用重试。
+        if videoModel.failedPageCID == preferredCID, intent.preferredStartSeconds == nil {
             videoModel.retry()
         } else {
-            videoModel.selectPage(cid: preferredCID)
+            videoModel.selectPage(cid: preferredCID, startSeconds: intent.preferredStartSeconds)
         }
     }
 
@@ -115,10 +173,12 @@ final class AppWindowOwner {
         authenticationModel: AuthenticationViewModel,
         historyModel: WatchHistoryViewModel,
         uploaderSpaceModel: UploaderSpaceViewModel? = nil,
+        trendingSearchModel: TrendingSearchViewModel? = nil,
+        searchSuggestionSource: SearchSuggestionSource? = nil,
         playerContent: AnyView,
-        commentAssetURLResolver: @escaping CommentAssetURLResolver = { _ in nil },
-        commentVideoLinkResolver: @escaping CommentVideoLinkResolver = { _ in nil },
-        commentLinkURLResolver: @escaping CommentLinkURLResolver = { _ in nil },
+        commentAssetURLResolver: @escaping CommentAssetURLResolver = { _, _ in nil },
+        commentLinkRouter: @escaping CommentLinkRouter = { _ in nil },
+        seekPlayback: @escaping @MainActor (String, Int) -> Void = { _, _ in },
         imagePipelineOwner: NativeVideoImagePipelineOwner =
             NativeVideoImagePipelineOwner(),
         playbackPreferencesController: PlaybackPreferencesController? = nil,
@@ -136,10 +196,12 @@ final class AppWindowOwner {
         self.authenticationModel = authenticationModel
         self.historyModel = historyModel
         self.uploaderSpaceModel = uploaderSpaceModel
+        self.trendingSearchModel = trendingSearchModel
+        self.searchSuggestionSource = searchSuggestionSource
         self.playerContent = playerContent
         self.commentAssetURLResolver = commentAssetURLResolver
-        self.commentVideoLinkResolver = commentVideoLinkResolver
-        self.commentLinkURLResolver = commentLinkURLResolver
+        self.commentLinkRouter = commentLinkRouter
+        self.seekPlayback = seekPlayback
         self.imagePipelineOwner = imagePipelineOwner
         imagePipeline = imagePipelineOwner.pipeline
         self.playbackPreferencesController = playbackPreferencesController
@@ -168,6 +230,8 @@ final class AppWindowOwner {
     func close() {
         guard !isClosed else { return }
         isClosed = true
+        commentShortLinks.cancel()
+        commentImageSaver.cancel()
         watchProgressConnection?.stop()
         systemNowPlayingCoordinator?.close()
         imagePipelineOwner.shutdown()

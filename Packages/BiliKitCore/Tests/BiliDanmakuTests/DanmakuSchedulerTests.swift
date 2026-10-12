@@ -454,6 +454,7 @@ struct DanmakuSchedulerTests {
             text: "fixture",
             fontSize: 25,
             colorRGB: 0xFF_FF_FF,
+            colorStyle: .solid,
             weight: weight
         )
     }

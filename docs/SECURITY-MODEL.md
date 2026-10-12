@@ -38,7 +38,11 @@
 
 ## 3. 哪些请求可以带凭据
 
-默认所有网络匿名，且不带任何 Cookie。唯一的非凭据例外是搜索 `/x/web-interface/wbi/search/type`：
+默认所有网络匿名，且不带任何 Cookie。搜索页的 B 站热搜（`/x/web-interface/search/square`）与
+搜索框联想（`/x/web-interface/suggest`）无论是否登录都匿名读取，不签 WBI。联想是唯一会发送未提交
+输入的请求：只在搜索框获得焦点或编辑、系统索取联想时发出，停顿 250 ms 后才请求，新输入、提交、选中
+或失去焦点都取消在途请求；输入按
+搜索规则规范化（≤ 100 字），结果只在内存中用于当次菜单，不持久化。唯一的非凭据例外是搜索 `/x/web-interface/wbi/search/type`：
 该接口要求 Cookie 含 `buvid3`，`BiliAPI` 为此在进程内存中随机生成一个 `buvid3=<小写 UUID>infoc`，
 不持久化、不激活、不与账户关联；匿名与账户读取两条搜索路径都在授权之后附加它（账户读取时与授权器
 给出的 Cookie 并列），任何其他请求（含 WBI nav）都不携带。只有两个授权器，均由 Composition 注入
@@ -68,7 +72,7 @@
 - 不建立离线队列，不持久化位置或待发送请求，不崩溃恢复写入。
 - 任何其他写操作都需要新的产品决定、精确 endpoint／method／schema 和对应授权器，不得泛化此授权器。
 
-**永不携带凭据**：WBI nav、图片、视频／音频 CDN、字幕正文、loopback server、二维码 URL、评论外链、
+**永不携带凭据**：WBI nav、图片、视频／音频 CDN、字幕正文、loopback server、二维码 URL、评论外链与短链解析、
 Sparkle 更新网络，以及任何 redirect 后的主机。不使用 `*.bilibili.com` 后缀匹配。
 
 ## 4. 远端来源与重定向
@@ -82,14 +86,20 @@ storage、无 URL cache，并拒绝 redirect。`PublicHTTPSURLPolicy` 是基线�
 | --- | --- | --- |
 | 媒体（DASH、progressive） | `BiliMediaCDNURLPolicy`：`bilivideo.com`／`bilivideo.cn`／`szbdyd.com` 及子域、`upos-*.akamaized.net` | DTO 映射与实际连接前各检查一次；响应须为精确 206、`Content-Range`、长度；映射后的媒体 headers 去除 `Cookie`／`Authorization` |
 | 字幕正文 | `SubtitleURLPolicy`：`https://aisubtitle.hdslb.com/bfs/...` | 正文 ≤ 2 MiB；新主机先失败关闭 |
-| 评论头像、表情、正文图片 | `i0`／`i1`／`i2.hdslb.com` 的 `/bfs/` 路径 | 拒绝 query、fragment、点段、编码分隔符 |
+| 评论头像、表情、正文图片、链接前置图标，热搜图标 | `BiliBFSImageURLPolicy`：`i0`／`i1`／`i2.hdslb.com` 与相册域名 `album.biliimg.com`（较早的评论图片）的 `/bfs/` 路径（热搜图标的 `http:` 与协议相对地址先升级为 HTTPS） | 拒绝 query、fragment、点段、编码分隔符；评论列表图片与头像的缩略参数写在 path 上（`@{宽}w_{高}h.webp`），加参数后的地址再过一次同一规则；热搜图标不合规时只丢图标、保留文字 |
 | 视频封面 | 接口返回的 HTTPS URL（`http:`、协议相对地址升级为 HTTPS） | 由图片管线限制 |
-| 评论外链 | 视频链接只回送合法 BVID；@ 成员只允许正整数 MID，在应用内打开空间，仅空间不可用时才回退到 `space.bilibili.com`；其他目标经公开 HTTPS 形状复核 | 仅用户点击后交给系统 `OpenURLAction`；不预取、不解析 DNS、不附加凭据 |
+| 评论与简介外链 | 视频链接只回送合法 BVID（av 号在本地换算，不发请求），分 P 序号与起播秒数 `t` 只取正整数，`t` 超出可跳转时长（充电试看取试看时长）时忽略；正文时间戳只在当前视频的播放器里跳转；@ 成员与空间链接只允许正整数 MID，在应用内打开空间，仅空间不可用时才回退到 `space.bilibili.com`；搜索词链接不生成；正文纯文字里识别出的网址只认 `https`（`http` 仅在指向站内目标时升级），外链须先通过公开 HTTPS 复核才显示为链接；其他目标经公开 HTTPS 形状复核 | 仅用户点击后交给系统 `OpenURLAction`；不预取、不解析 DNS、不附加凭据 |
+| 评论与简介短链 | 只认 `https://b23.tv/{1–16 位 ASCII 字母数字}`，请求时去掉 query 与 fragment；其他短链域名按评论外链处理 | 仅用户点击后发一次无凭据 `HEAD`（拒绝 redirect、5 秒超时、不读正文），只读一次 3xx 的绝对或协议相对 `Location`，目标按评论外链同一规则分类；目标仍在 b23.tv（不论形状）、不是跳转或失败时，把原短链交给系统浏览器；同一窗口同时只解析一个，新点击、换视频或关窗取消，关窗时释放 session；不记录短码与目标地址 |
 
 - 弹幕分段与评论页须通过状态、Content-Type 与 2 MiB 上限，再交给解码器；JSON、protobuf、HTML 错误页和
   空响应不能互相降级解析。未知接口状态失败关闭。
 - 图片管线（`NativeVideoImagePipeline`）：无凭据 session，响应必须 2xx、HTTPS、同主机、`image/*`、
-  ≤ 8 MiB；按用途限制解码尺寸；只有有界内存 cache，没有磁盘 cache。
+  ≤ 8 MiB（评论图片预览请求原图，按 B 站评论图片 20 MB 上传上限单独放宽到 ≤ 20 MiB）；按用途限制解码尺寸；
+  只有有界内存 cache，没有磁盘 cache。评论图片的列表格子与预览另保留动图的编码数据（计入 cache 成本），
+  只有多帧、帧数 ≤ 1000 且每帧像素 ≤ 2048×2048 的才播放，超出的只显示第一帧。
+- 评论图片预览的「保存图片」：先由系统保存面板选位置，再经图片管线同一套请求与响应校验、≤ 20 MiB 上限
+  重新请求原图（不缓存），只有 ImageIO 能识别的位图才原样写入所选文件（SVG、HTML 等拒绝）；默认文件名取
+  图床文件名并去掉开头的点。失败只提示，不重试。
 
 ## 5. 本地回环服务
 
@@ -102,8 +112,13 @@ storage、无 URL cache，并拒绝 redirect。`PublicHTTPSURLPolicy` 是基线�
 
 ## 6. 本地持久化
 
-- UserDefaults 只保存非内容偏好：播放音量、静音、首选倍速；弹幕速度、透明度、显示区域、密度；
+- UserDefaults 保存非内容偏好：播放音量、静音、首选倍速；弹幕速度、透明度、显示区域、密度；
   版本化播放线路 route identifier 与响度均一化开关。未知或损坏值回退默认。
+- 本机搜索历史（`SearchHistoryStore`，schema 1）是 UserDefaults 中唯一的内容数据：保存用户提交的
+  搜索词原文，只做搜索规则的规范化（去首尾空白、≤ 100 字），因此可能包含用户自己输入的 BV 号或链接；
+  最近在前、去重，最多 20 条，没有时间期限。它属于本机而不属于账号：BiliKit 不附加账号标识，未登录也
+  记录，登出不清理；用户可在搜索页逐条删除或全部清除，清除时移除对应键。schema 不符或类型错写时启动即
+  删除这两个键；非法条目不显示，下次写入时被覆盖。B 站热搜结果只在窗口内存中，不持久化。
 - 不持久化 BVID、CID、AID、播放位置、标题、字幕／弹幕正文、字幕选择、远端 URL、测速样本与结果，
   以及任何响应正文。观看 identity 与位置只存在于当前进程内存；服务端返回的续播位置只作一次性
   内存候选，匿名响应丢弃该字段。
@@ -118,8 +133,9 @@ storage、无 URL cache，并拒绝 redirect。`PublicHTTPSURLPolicy` 是基线�
   非标准端口）、32 字节 `SUPublicEDKey`、`SURequireSignedFeed`、`SUVerifyUpdateBeforeExtraction`、
   `SUSignedFeedFailureExpirationInterval = 0`、启用 Installer XPC、禁用 Downloader XPC；另关闭
   `SUEnableSystemProfiling`。
-- entitlement 只为 Sparkle 增加 `$(PRODUCT_BUNDLE_IDENTIFIER)-spks`／`-spki` mach lookup，不加文件权限或
-  runtime exception。
+- entitlement 只为 Sparkle 增加 `$(PRODUCT_BUNDLE_IDENTIFIER)-spks`／`-spki` mach lookup，不加 runtime
+  exception。唯一的文件权限是 `com.apple.security.files.user-selected.read-write`，只供评论图片预览的
+  「保存图片」经系统保存面板写入用户所选位置。
 - 自动下载与安装默认关闭。不添加账号标识、查询参数或自定义请求头。
 - Cloudflare 只托管已签名 `appcast.xml` 与 `_headers`；DMG 只来自固定仓库的 GitHub Release
   `/releases/download/<tag>/<file>.dmg`，拒绝草稿、latest 与 query。build 号正整数递增，资产不覆盖，

@@ -38,6 +38,7 @@ struct BiliDanmakuRepositoryTests {
         #expect(event.text == "fixture danmaku")
         #expect(event.fontSize == 25)
         #expect(event.colorRGB == 0xFF_FF_FF)
+        #expect(event.colorStyle == .solid)
         #expect(event.weight == 5)
         #expect(event.description == "DanmakuEvent(redacted)")
 
@@ -289,6 +290,37 @@ struct BiliDanmakuRepositoryTests {
 
         #expect(events.count == 1)
         #expect(event.colorRGB == 0x12_3456)
+    }
+
+    /// 字段 24 只认大会员渐变 60001；缺失或其他彩色类型按普通弹幕显示。
+    @Test(
+        arguments: [
+            (Int32(60_001), DanmakuColorStyle.vipGradient),
+            (0, .solid),
+            (60_002, .solid)
+        ]
+    )
+    func decoderMapsOnlyTheVIPGradientColorfulType(
+        colorful: Int32,
+        expected: DanmakuColorStyle
+    ) throws {
+        var element = Bilikit_Danmaku_Element()
+        element.id = 5
+        element.progressMilliseconds = 1_000
+        element.mode = 1
+        element.fontSize = 25
+        element.colorRgb = 0xFF_FFFF
+        element.content = "colorful fixture"
+        element.colorful = colorful
+        var payload = Bilikit_Danmaku_SegmentReply()
+        payload.elements = [element]
+
+        let event = try #require(
+            try DanmakuPayloadDecoder.events(from: payload.serializedData()).first
+        )
+
+        #expect(event.colorStyle == expected)
+        #expect(event.colorRGB == 0xFF_FFFF)
     }
 
     @Test

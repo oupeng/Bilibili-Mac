@@ -99,6 +99,75 @@ struct VideoUseCaseTests {
         #expect(await repository.playbackCIDs() == [900_002])
     }
 
+    /// 链接里的分 P 序号按分 P 的 `index` 选择，不按数组位置，也不被服务器记录的上次分 P 改写。
+    @Test
+    func linkPageNumberSelectsThatPart() async throws {
+        let repository = ContentRepositoryStub(
+            resumeMetadata: PlaybackResumeMetadata(
+                lastPlayedCID: 900_001,
+                positionMilliseconds: 5_000
+            )
+        )
+        let useCase = VideoUseCase(repository: repository)
+
+        let context = try await useCase.prepareVideo(
+            bvid: "BV1FixtureA1",
+            preferredPageNumber: 2
+        )
+
+        #expect(context.selectedPage.cid == 900_002)
+        #expect(context.resumePositionSeconds == nil)
+        #expect(await repository.playbackCIDs() == [900_002])
+    }
+
+    /// 链接给的分 P 正是上次看到的分 P 时照常续播（常见于单 P 视频带 `?p=1` 的链接）。
+    @Test
+    func linkPageNumberKeepsTheResumePositionOfThatPart() async throws {
+        let repository = ContentRepositoryStub(
+            resumeMetadata: PlaybackResumeMetadata(
+                lastPlayedCID: 900_002,
+                positionMilliseconds: 42_500
+            )
+        )
+        let useCase = VideoUseCase(repository: repository)
+
+        let context = try await useCase.prepareVideo(
+            bvid: "BV1FixtureA1",
+            preferredPageNumber: 2
+        )
+
+        #expect(context.selectedPage.cid == 900_002)
+        #expect(context.resumePositionSeconds == 42.5)
+    }
+
+    /// 链接给出的分 P 序号不可信：超出范围时按默认规则选择，不报错。
+    @Test(arguments: [0, 3])
+    func outOfRangeLinkPageNumberFallsBackToTheDefaultPart(_ number: Int) async throws {
+        let repository = ContentRepositoryStub()
+        let useCase = VideoUseCase(repository: repository)
+
+        let context = try await useCase.prepareVideo(
+            bvid: "BV1FixtureA1",
+            preferredPageNumber: number
+        )
+
+        #expect(context.selectedPage.cid == 900_001)
+    }
+
+    @Test
+    func explicitCIDWinsOverLinkPageNumber() async throws {
+        let repository = ContentRepositoryStub()
+        let useCase = VideoUseCase(repository: repository)
+
+        let context = try await useCase.prepareVideo(
+            bvid: "BV1FixtureA1",
+            preferredCID: 900_001,
+            preferredPageNumber: 2
+        )
+
+        #expect(context.selectedPage.cid == 900_001)
+    }
+
     @Test
     func invalidExplicitCIDNeverRequestsPlayback() async {
         let repository = ContentRepositoryStub()
@@ -215,6 +284,40 @@ struct VideoUseCaseTests {
         )
 
         #expect(context.accessNotice == expected)
+    }
+
+    /// 可跳转时长是时间戳与链接起播的唯一规则：充电试看取试看时长；只有 DASH 采用链接起播位置。
+    @Test
+    func seekableDurationAndLinkStartFollowTheDeliveredMedia() throws {
+        let page = VideoPage(cid: 900_001, index: 1, title: "P1", durationSeconds: 2_255)
+        let previewContext = VideoContext(
+            detail: makeAccessDetail(
+                access: VideoAccess(
+                    isUPowerExclusive: true,
+                    isUPowerPreviewAvailable: true,
+                    isUPowerPlayable: false
+                )
+            ),
+            pages: [page],
+            selectedPage: page,
+            playback: try progressivePreview()
+        )
+        let dashContext = VideoContext(
+            detail: makeAccessDetail(access: VideoAccess()),
+            pages: [page],
+            selectedPage: page,
+            playback: try makeFixturePlayback(resumeMetadata: nil)
+        )
+
+        #expect(previewContext.seekableDurationSeconds == 884)
+        #expect(previewContext.acceptsSeek(toSeconds: 883))
+        #expect(!previewContext.acceptsSeek(toSeconds: 884))
+        #expect(previewContext.linkStartPosition(seconds: 60) == nil)
+        #expect(dashContext.seekableDurationSeconds == 2_255)
+        #expect(dashContext.linkStartPosition(seconds: 60) == 60)
+        #expect(dashContext.linkStartPosition(seconds: 2_255) == nil)
+        #expect(dashContext.linkStartPosition(seconds: nil) == nil)
+        #expect(!VideoContext.accepts(seconds: 0, seekableDurationSeconds: nil))
     }
 
     @Test(

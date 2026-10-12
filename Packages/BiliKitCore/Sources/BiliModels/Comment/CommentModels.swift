@@ -38,11 +38,31 @@ public struct CommentAuthorID: Sendable, Equatable, Hashable {
     ///
     /// 成员外链与评论作者进入空间共用这一判定。
     public var memberID: Int64? {
-        guard !rawValue.isEmpty,
-            rawValue.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }),
-            let value = Int64(rawValue), value > 0
+        Int64(positiveDecimal: rawValue)
+    }
+}
+
+extension Int64 {
+    /// 只由 ASCII 十进制数字组成的正整数；含符号、空白、非 ASCII 数字或溢出时为 nil。
+    ///
+    /// 评论里的 MID、av 号与分 P 序号共用这一判定。
+    package init?(positiveDecimal text: some StringProtocol) {
+        guard !text.isEmpty,
+            text.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }),
+            let value = Int64(text), value > 0
         else { return nil }
-        return value
+        self = value
+    }
+}
+
+/// 请求评论图片时希望图片缩进的像素框；不带框表示请求原图。
+public struct CommentAssetPixelBox: Sendable, Equatable, Hashable {
+    public let width: Int
+    public let height: Int
+
+    public init(width: Int, height: Int) {
+        self.width = width
+        self.height = height
     }
 }
 
@@ -174,19 +194,40 @@ public enum CommentEmoteSize: Sendable, Equatable, Hashable {
 }
 
 public enum CommentLinkTarget: Sendable, Equatable, Hashable {
-    case video(bvid: String)
+    /// 站内视频；`page` 是链接里的分 P 序号（从 1 开始），`startSeconds` 是链接里的起播秒数（`t=`），
+    /// 没有时为 nil。
+    case video(bvid: String, page: Int?, startSeconds: Int?)
+    /// 正文里的时间戳；在当前视频正在播的分 P 里跳到该秒数。
+    case timestamp(seconds: Int)
     /// 正文里 @ 的用户；只填 MID、昵称与头像，进入空间时与评论作者走同一入口。
     case member(CommentAuthor)
+    /// 指向 UP 主空间的链接；只有 MID，名字与头像由空间层另行取得。
+    case space(memberID: Int64)
+    /// b23.tv 短链；点击后才解析出真正的去向，解析失败时按外链打开原短链。
+    case shortLink(CommentExternalLinkReference)
     case external(CommentExternalLinkReference)
 }
 
 public struct CommentLink: Sendable, Equatable, Hashable {
     public let range: CommentTextRange
     public let target: CommentLinkTarget
+    /// 接口给的显示标题，有标题时正文里这段原文（多为网址）显示为标题。
+    ///
+    /// 正文自己识别的链接没有标题。
+    public let title: String?
+    /// 接口给的前置小图标，显示在链接文字前。
+    public let icon: CommentAssetReference?
 
-    public init(range: CommentTextRange, target: CommentLinkTarget) {
+    public init(
+        range: CommentTextRange,
+        target: CommentLinkTarget,
+        title: String? = nil,
+        icon: CommentAssetReference? = nil
+    ) {
         self.range = range
         self.target = target
+        self.title = title
+        self.icon = icon
     }
 }
 
@@ -215,22 +256,19 @@ public struct CommentContent: Sendable, Equatable {
     public let links: [CommentLink]
     public let pictures: [CommentImage]
     public let pictureCount: Int
-    public let hasNote: Bool
 
     public init(
         message: String,
         emotes: [CommentEmote] = [],
         links: [CommentLink] = [],
         pictures: [CommentImage] = [],
-        pictureCount: Int? = nil,
-        hasNote: Bool = false
+        pictureCount: Int? = nil
     ) {
         self.message = message
         self.emotes = emotes
         self.links = links
         self.pictures = pictures
         self.pictureCount = pictureCount ?? pictures.count
-        self.hasNote = hasNote
     }
 }
 
