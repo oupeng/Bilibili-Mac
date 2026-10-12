@@ -11,13 +11,27 @@ struct NearEndTailState<Identity: Equatable>: Equatable {
 
 /// 网格与评论侧栏共用的近尾部自动分页。
 ///
-/// 进入阈值时每个尾部只触发一次，必须先离开阈值才会为新尾部重新布防；一次实时滚动手势
-/// 最多自动加载一页。
+/// 进入阈值时每个尾部只触发一次，加载中不触发；新尾部到来时视野仍在阈值内的处理由
+/// `TailChangeInsideThreshold` 决定。一次实时滚动手势最多自动加载一页。
 struct NearEndPagination<Identity: Equatable> {
+    /// 新尾部到来时视野仍在阈值内的处理。
+    enum TailChangeInsideThreshold {
+        /// 先离开阈值再为新尾部布防：阈值比一页矮的调用方（评论侧栏）用它避免短页接连触发。
+        case requiresExit
+        /// 立即布防：网格的阈值是 1.5 屏，可能比一页还高，否则到底后不再翻页；仍受每尾部一次、
+        /// 加载中不触发与一次手势一页约束，效果是保持阈值内有内容储备。
+        case rearms
+    }
+
+    private let tailChangeInsideThreshold: TailChangeInsideThreshold
     private var tailIdentity: Identity?
     private var wasInsideThreshold = false
     private var triggeredTailIdentity: Identity?
     private var requiresNewGesture = false
+
+    init(tailChangeInsideThreshold: TailChangeInsideThreshold) {
+        self.tailChangeInsideThreshold = tailChangeInsideThreshold
+    }
 
     /// 新的实时滚动手势开始或内容整体替换时解除背压。
     mutating func releaseBackpressure() {
@@ -57,7 +71,7 @@ struct NearEndPagination<Identity: Equatable> {
                 && wasInsideThreshold && isInsideThreshold
             tailIdentity = state.tailIdentity
             triggeredTailIdentity = nil
-            if changedWhileStillInside {
+            if changedWhileStillInside, tailChangeInsideThreshold == .requiresExit {
                 wasInsideThreshold = true
                 return false
             }
