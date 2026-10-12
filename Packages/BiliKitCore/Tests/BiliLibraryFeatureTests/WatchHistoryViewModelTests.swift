@@ -338,6 +338,151 @@ struct WatchHistoryViewModelTests {
         #expect(model.successfulReloadGeneration == 1)
     }
 
+    /// 已有条目时刷新原地进行：刷新期间条目保持显示且不分页，成功后整体替换并推进刷新代次。
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func refreshKeepsItemsVisibleUntilTheNewPageArrives() async throws {
+        let repository = HistoryRepositoryStub(
+            results: [
+                .success(WatchHistoryPage(items: [item("BV1HistoryA1")], continuation: token(1))),
+                .success(WatchHistoryPage(items: [item("BV1HistoryB2")], continuation: nil))
+            ],
+            suspendedCalls: [2]
+        )
+        let model = WatchHistoryViewModel(useCase: WatchHistoryUseCase(repository: repository))
+        model.reload()
+        await model.waitForCurrentTask()
+
+        model.reload()
+        try await repository.waitUntilCallCount(2)
+        let duringRefresh = model.state
+        let wasRefreshing = model.isRefreshing
+        let wasBusy = model.isBusy
+        model.loadMore()
+        let tailDuringRefresh = model.paginationTailIdentity
+        await repository.releaseCall(2)
+        await model.waitForCurrentTask()
+
+        #expect(wasRefreshing)
+        #expect(wasBusy)
+        #expect(tailDuringRefresh == nil)
+        guard case .loaded(let oldItems, _, _) = duringRefresh else {
+            Issue.record("刷新期间历史状态不是 loaded")
+            return
+        }
+        #expect(oldItems.map(\.bvid) == ["BV1HistoryA1"])
+        guard case .loaded(let newItems, _, _) = model.state else {
+            Issue.record("刷新后历史状态不是 loaded")
+            return
+        }
+        #expect(newItems.map(\.bvid) == ["BV1HistoryB2"])
+        #expect(!model.isRefreshing)
+        #expect(model.refreshError == nil)
+        #expect(model.successfulReloadGeneration == 2)
+        #expect(await repository.observedContinuations() == [nil, nil])
+    }
+
+    /// 原地刷新失败保留已显示条目并恢复自动分页；登录失效仍进入终态，触发登录提示。
+    @Test(arguments: [
+        (WatchHistoryError.transportFailure, true),
+        (.authenticationRequired, false)
+    ])
+    @MainActor
+    func refreshFailureKeepsItemsUnlessAuthenticationExpired(
+        failure: WatchHistoryError,
+        keepsItems: Bool
+    ) async {
+        let repository = HistoryRepositoryStub(
+            results: [
+                .success(WatchHistoryPage(items: [item("BV1HistoryA1")], continuation: token(1))),
+                .failure(failure)
+            ]
+        )
+        let model = WatchHistoryViewModel(useCase: WatchHistoryUseCase(repository: repository))
+        model.reload()
+        await model.waitForCurrentTask()
+
+        model.reload()
+        await model.waitForCurrentTask()
+
+        #expect(!model.isRefreshing)
+        if keepsItems {
+            guard case .loaded(let items, let continuation, nil) = model.state else {
+                Issue.record("刷新失败后历史状态不是 loaded")
+                return
+            }
+            #expect(items.map(\.bvid) == ["BV1HistoryA1"])
+            #expect(continuation == token(1))
+            #expect(model.refreshError == failure)
+            #expect(model.paginationTailIdentity != nil)
+            #expect(model.successfulReloadGeneration == 1)
+        } else {
+            #expect(model.state == .failed(failure))
+            #expect(model.requiresAuthentication)
+        }
+    }
+
+    /// 需要用户显式继续的分页状态在刷新失败后原样保留，不会变成自动连续扫描。
+    @Test
+    @MainActor
+    func failedRefreshKeepsTheManualContinueGate() async {
+        let manual = token(904)
+        let repository = HistoryRepositoryStub(
+            results: [
+                .success(WatchHistoryPage(items: [item("BV1HistoryA1")], continuation: token(1)))
+            ] + emptyPagesEnding(at: manual) + [.failure(WatchHistoryError.transportFailure)]
+        )
+        let model = WatchHistoryViewModel(useCase: WatchHistoryUseCase(repository: repository))
+        model.reload()
+        await model.waitForCurrentTask()
+        model.loadMore()
+        await model.waitForCurrentTask()
+        #expect(model.requiresManualLoadMore)
+
+        model.reload()
+        await model.waitForCurrentTask()
+
+        #expect(model.refreshError == .transportFailure)
+        #expect(model.requiresManualLoadMore)
+        #expect(model.paginationTailIdentity == nil)
+        guard case .loaded(_, let continuation, _) = model.state else {
+            Issue.record("刷新失败后历史状态不是 loaded")
+            return
+        }
+        #expect(continuation == manual)
+    }
+
+    /// 离开页面会取消原地刷新，保留条目、恢复刷新前的分页状态，并清掉刷新错误。
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func leavingDuringRefreshKeepsItems() async throws {
+        let repository = HistoryRepositoryStub(
+            results: [
+                .success(WatchHistoryPage(items: [item("BV1HistoryA1")], continuation: token(1))),
+                .success(WatchHistoryPage(items: [item("BV1HistoryB2")], continuation: nil))
+            ],
+            suspendedCalls: [2]
+        )
+        let model = WatchHistoryViewModel(useCase: WatchHistoryUseCase(repository: repository))
+        model.reload()
+        await model.waitForCurrentTask()
+
+        model.reload()
+        try await repository.waitUntilCallCount(2)
+        model.deactivateRoute()
+        await repository.releaseCall(2)
+        await model.waitForCurrentTask()
+
+        #expect(!model.isRefreshing)
+        guard case .loaded(let items, _, _) = model.state else {
+            Issue.record("离开后历史状态不是 loaded")
+            return
+        }
+        #expect(items.map(\.bvid) == ["BV1HistoryA1"])
+        #expect(model.paginationTailIdentity != nil)
+        #expect(model.successfulReloadGeneration == 1)
+    }
+
     @Test
     @MainActor
     func resetClearsPersonalizedItemsFromMemory() async {

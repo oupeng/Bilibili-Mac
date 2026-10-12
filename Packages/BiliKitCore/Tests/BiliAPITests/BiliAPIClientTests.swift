@@ -1461,6 +1461,7 @@ struct BiliAPIClientTests {
         #expect(page.items[0].coverURL?.scheme == "https")
         #expect(page.items[0].owner.avatarURL?.scheme == "https")
         #expect(page.items[1].owner.avatarURL == nil)
+        #expect(page.items.map(\.device) == [.phone, .web])
         let continuation = try #require(page.continuation)
         _ = try await client.watchHistory(
             after: continuation,
@@ -1491,6 +1492,25 @@ struct BiliAPIClientTests {
                 URLQueryItem(name: "business", value: "archive")
             ) == true
         )
+    }
+
+    /// 历史的观看设备按 `dt` 区分；缺失、未知取值或形状不对时没有设备，不影响整条历史。
+    @Test(arguments: [
+        (#","dt":3"#, WatchHistoryDevice?.some(.phone)),
+        (#","dt":6"#, .pad),
+        (#","dt":"2""#, .web),
+        (#","dt":33"#, .tv),
+        (#","dt":0"#, nil),
+        (#","dt":true"#, nil),
+        ("", nil)
+    ])
+    func historyDeviceComesFromTheDeviceType(field: String, expected: WatchHistoryDevice?) throws {
+        let payload = try JSONDecoder().decode(
+            WatchHistoryIdentityPayload.self,
+            from: Data(#"{"bvid":"BV1HistoryA1","business":"archive"\#(field)}"#.utf8)
+        )
+
+        #expect(payload.device == expected)
     }
 
     @Test

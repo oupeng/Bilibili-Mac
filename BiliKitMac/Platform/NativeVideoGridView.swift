@@ -85,6 +85,7 @@ struct NativeVideoGridView: NSViewRepresentable {
         private var pendingViewportAnchor: NativeVideoGridViewportAnchor?
         private var pendingAnchorScrollGeneration: UInt64?
         private var scrollGeneration: UInt64 = 0
+        private var topPin = NativeVideoGridTopPin()
         private var isApplyingRestoration = false
         private var isLiveScrolling = false
         private var isResizingDocument = false
@@ -252,8 +253,12 @@ struct NativeVideoGridView: NSViewRepresentable {
                 pendingRestoreOffsetY == nil,
                 pendingViewportAnchor == nil
             {
-                pendingViewportAnchor = captureViewportAnchor()
-                pendingAnchorScrollGeneration = scrollGeneration
+                if topPin.keepsTop(atScrollGeneration: scrollGeneration) {
+                    pendingRestoreOffsetY = 0
+                } else {
+                    pendingViewportAnchor = captureViewportAnchor()
+                    pendingAnchorScrollGeneration = scrollGeneration
+                }
             }
             contents = updatedContents
 
@@ -541,6 +546,9 @@ struct NativeVideoGridView: NSViewRepresentable {
             let target = min(pendingRestoreOffsetY, maximumLogicalScrollOffsetY)
             applyLogicalScrollOffset(target, synchronizingBinding: false)
             self.pendingRestoreOffsetY = nil
+            if target <= 0 {
+                topPin.pin(atScrollGeneration: scrollGeneration)
+            }
             retainedScrollOffset.markPersisted(target)
             synchronizeBinding(to: target)
             if let acknowledgementID = pendingScrollResetAcknowledgementID {

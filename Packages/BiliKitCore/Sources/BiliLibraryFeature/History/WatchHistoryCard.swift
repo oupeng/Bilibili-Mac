@@ -12,6 +12,8 @@ public struct WatchHistoryCardPresentation: Sendable, Equatable {
     public let progressText: String
     public let footerLeadingText: String
     public let footerTrailingText: String
+    /// 日期前的观看设备图标（SF Symbol 名）；设备未知时为 nil。
+    public let footerTrailingSymbolName: String?
     public let accessibilityLabel: String
 
     public init(item: WatchHistoryItem, locale: Locale = .current) {
@@ -37,6 +39,7 @@ public struct WatchHistoryCardPresentation: Sendable, Equatable {
         progressText = progress
         footerLeadingText = item.owner.name
         footerTrailingText = viewedAt
+        footerTrailingSymbolName = item.device.map(WatchHistoryCardFormatting.symbolName)
         accessibilityLabel = ListFormatter.localizedString(
             byJoining: [
                 item.title,
@@ -44,6 +47,8 @@ public struct WatchHistoryCardPresentation: Sendable, Equatable {
                 LibraryFeatureStrings.localized("观看进度 \(progress)", locale: locale),
                 viewedAt
             ]
+                + [item.device.map { WatchHistoryCardFormatting.deviceLabel($0, locale: locale) }]
+                .compactMap(\.self)
         )
     }
 }
@@ -71,6 +76,24 @@ private func optimizedHistoryImageURL(
 }
 
 enum WatchHistoryCardFormatting {
+    static func symbolName(_ device: WatchHistoryDevice) -> String {
+        switch device {
+        case .phone: "smartphone"
+        case .pad: "ipad"
+        case .web: "desktopcomputer"
+        case .tv: "tv"
+        }
+    }
+
+    static func deviceLabel(_ device: WatchHistoryDevice, locale: Locale = .current) -> String {
+        switch device {
+        case .phone: LibraryFeatureStrings.localized("在手机上观看", locale: locale)
+        case .pad: LibraryFeatureStrings.localized("在平板上观看", locale: locale)
+        case .web: LibraryFeatureStrings.localized("在网页上观看", locale: locale)
+        case .tv: LibraryFeatureStrings.localized("在电视上观看", locale: locale)
+        }
+    }
+
     static func progress(
         progressSeconds: Int,
         durationSeconds: Int,

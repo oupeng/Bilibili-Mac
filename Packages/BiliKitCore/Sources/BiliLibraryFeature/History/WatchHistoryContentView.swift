@@ -142,6 +142,13 @@ struct WatchHistoryContentView<LoadedContent: View>: View {
                     select: onSelect
                 )
             )
+            .overlay(alignment: .top) {
+                RefreshStatusCapsule(
+                    isRefreshing: model.isRefreshing,
+                    refreshingLabel: LibraryFeatureStrings.localized("正在刷新观看历史", locale: locale),
+                    errorMessage: model.refreshError.map(message(for:))
+                )
+            }
 
             if isLoadingMore {
                 ProgressView(LibraryFeatureStrings.localized("正在加载更早的记录…", locale: locale))

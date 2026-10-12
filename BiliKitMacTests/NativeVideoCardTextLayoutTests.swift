@@ -83,6 +83,49 @@ struct NativeVideoCardTextLayoutTests {
         }
     }
 
+    /// 尾部图标算进尾部宽度，贴在尾部区域左缘，文字随之右移；胶囊样式与复用后不显示图标。
+    @Test @MainActor
+    func trailingSymbolSitsBeforeTheTextAndCountsTowardItsWidth() throws {
+        let renderer = NativeVideoCardTextRenderer()
+        let parent = CALayer()
+        renderer.install(in: parent)
+        let appearance = try #require(NSAppearance(named: .aqua))
+        let font = NSFont.preferredFont(forTextStyle: .body)
+        renderer.configure(title: "标题", footerLeading: "作者", footerTrailing: "昨天")
+        let plainWidth = renderer.trailingWidth(font: font)
+
+        renderer.configure(
+            title: "标题",
+            footerLeading: "作者",
+            footerTrailing: "昨天",
+            footerTrailingSymbolName: "smartphone"
+        )
+        let symbol = try #require(
+            NativeVideoCardTextLayout.footerSymbol(named: "smartphone", pointSize: font.pointSize)
+        )
+        layout(renderer, scale: 2, appearance: appearance)
+
+        let advance = ceil(symbol.size.width) + NativeVideoCardTextLayout.footerSymbolSpacing
+        #expect(renderer.trailingWidth(font: font) == plainWidth + advance)
+        #expect(!renderer.footerTrailingIconLayer.isHidden)
+        #expect(renderer.footerTrailingIconLayer.frame.minX == 152)
+        #expect(renderer.footerTrailingLayer.frame.minX == 152 + advance)
+        #expect(renderer.footerTrailingLayer.frame.maxX == 224)
+
+        renderer.configure(
+            title: "推荐视频",
+            footerLeading: "作者",
+            footerTrailing: "正在流行",
+            footerTrailingSymbolName: "smartphone",
+            footerTrailingStyle: .brandOutlinedCapsule
+        )
+        layout(renderer, scale: 2, appearance: appearance)
+        #expect(renderer.footerTrailingIconLayer.isHidden)
+
+        renderer.reset()
+        #expect(renderer.footerTrailingIconLayer.isHidden)
+    }
+
     @Test @MainActor
     func cardRetainsAggregatedButtonAccessibilityAcrossReset() {
         let card = NativeVideoCardView(

@@ -8,6 +8,23 @@ enum NativeVideoCardTextLayout {
     static let recommendationCapsuleSpacing: CGFloat = 5
     static let recommendationCapsuleVerticalAdjustment: CGFloat = -1
     static let recommendationCapsuleTextVerticalAdjustment: CGFloat = -1
+    /// 尾部图标与文字之间的间距。
+    static let footerSymbolSpacing: CGFloat = 4
+
+    @MainActor private static var footerSymbolCache: [String: NSImage] = [:]
+
+    /// 尾部图标：按页脚字号取小号 SF Symbol，作为遮罩着色；同名同字号复用。
+    @MainActor
+    static func footerSymbol(named name: String, pointSize: CGFloat) -> NSImage? {
+        let key = "\(name)|\(pointSize)"
+        if let cached = footerSymbolCache[key] { return cached }
+        let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(
+                NSImage.SymbolConfiguration(pointSize: pointSize, weight: .regular, scale: .small)
+            )
+        footerSymbolCache[key] = image
+        return image
+    }
     static func singleLineWidth(
         _ text: String,
         font: NSFont
@@ -92,10 +109,14 @@ final class NativeVideoCardTextRenderer {
         NativeVideoCardTextRenderer.makeVerticallyCenteredTextLayer(
             alignmentMode: .right
         )
+    /// 尾部文字前的图标：底色取页脚颜色，SF Symbol 作遮罩，随外观与文字同色。
+    let footerTrailingIconLayer = CALayer()
+    private let footerTrailingIconMask = CALayer()
 
     private var title = ""
     private var footerLeading = ""
     private var footerTrailing: String?
+    private var footerTrailingSymbolName: String?
     private var footerTrailingStyle: NativeVideoCardFooterTrailingStyle = .plain
     private var footerTrailingWidthCache = NativeVideoSingleLineWidthCache()
 
@@ -108,6 +129,11 @@ final class NativeVideoCardTextRenderer {
         parentLayer.addSublayer(titleLayer)
         parentLayer.addSublayer(footerLeadingLayer)
         parentLayer.addSublayer(footerTrailingLayer)
+        footerTrailingIconLayer.actions = NativeVideoCardTextLayout.disabledLayerActions
+        footerTrailingIconMask.actions = NativeVideoCardTextLayout.disabledLayerActions
+        footerTrailingIconMask.contentsGravity = .resizeAspect
+        footerTrailingIconLayer.mask = footerTrailingIconMask
+        parentLayer.addSublayer(footerTrailingIconLayer)
         reset()
     }
 
@@ -115,11 +141,13 @@ final class NativeVideoCardTextRenderer {
         title: String,
         footerLeading: String,
         footerTrailing: String?,
+        footerTrailingSymbolName: String? = nil,
         footerTrailingStyle: NativeVideoCardFooterTrailingStyle = .plain
     ) {
         self.title = title
         self.footerLeading = footerLeading
         self.footerTrailing = footerTrailing
+        self.footerTrailingSymbolName = footerTrailingSymbolName
         self.footerTrailingStyle = footerTrailingStyle
     }
 
@@ -127,8 +155,11 @@ final class NativeVideoCardTextRenderer {
         title = ""
         footerLeading = ""
         footerTrailing = nil
+        footerTrailingSymbolName = nil
         footerTrailingStyle = .plain
         footerTrailingWidthCache.reset()
+        footerTrailingIconLayer.isHidden = true
+        footerTrailingIconMask.contents = nil
         for textLayer in [titleLayer, footerLeadingLayer, footerTrailingLayer] {
             textLayer.removeAllAnimations()
             textLayer.string = nil
@@ -158,7 +189,9 @@ final class NativeVideoCardTextRenderer {
         }
         switch footerTrailingStyle {
         case .plain:
-            return textWidth
+            guard let symbol = trailingSymbol(font: font) else { return textWidth }
+            return textWidth + ceil(symbol.size.width)
+                + NativeVideoCardTextLayout.footerSymbolSpacing
         case .brandOutlinedCapsule:
             return textWidth
                 + NativeVideoCardTextLayout.recommendationCapsuleHorizontalPadding
@@ -199,6 +232,12 @@ final class NativeVideoCardTextRenderer {
         footerTrailingLayer.frame = footerTrailingFrame
         footerTrailingLayer.string = footerTrailing
         footerTrailingLayer.isHidden = footerTrailing == nil
+        layoutTrailingIcon(
+            in: footerTrailingFrame,
+            font: footerCTFont,
+            color: colors.footer,
+            contentsScale: contentsScale
+        )
         switch footerTrailingStyle {
         case .plain:
             footerTrailingLayer.font = footerCTFont
@@ -226,6 +265,50 @@ final class NativeVideoCardTextRenderer {
         }
 
         CATransaction.commit()
+    }
+
+    private func trailingSymbol(font: CTFont) -> NSImage? {
+        guard footerTrailingStyle == .plain, footerTrailing != nil,
+            let footerTrailingSymbolName
+        else { return nil }
+        return NativeVideoCardTextLayout.footerSymbol(
+            named: footerTrailingSymbolName,
+            pointSize: CTFontGetSize(font)
+        )
+    }
+
+    /// 图标贴在尾部区域左缘，竖直方向对齐文字的大写字母中线；文字区域相应右移，宽度不足时只截断文字。
+    private func layoutTrailingIcon(
+        in trailingFrame: NSRect,
+        font: CTFont,
+        color: NSColor,
+        contentsScale: CGFloat
+    ) {
+        guard let symbol = trailingSymbol(font: font) else {
+            footerTrailingIconLayer.isHidden = true
+            footerTrailingIconMask.contents = nil
+            return
+        }
+        let size = NSSize(width: ceil(symbol.size.width), height: ceil(symbol.size.height))
+        let textCenterY =
+            trailingFrame.minY + CTFontGetAscent(font) - CTFontGetCapHeight(font) / 2
+        let scale = max(1, contentsScale)
+        footerTrailingIconLayer.frame = NSRect(
+            x: round(trailingFrame.minX * scale) / scale,
+            y: round((textCenterY - size.height / 2) * scale) / scale,
+            width: size.width,
+            height: size.height
+        )
+        footerTrailingIconLayer.backgroundColor = color.cgColor
+        footerTrailingIconMask.frame = footerTrailingIconLayer.bounds
+        footerTrailingIconMask.contentsScale = scale
+        footerTrailingIconMask.contents = symbol.layerContents(forContentsScale: scale)
+        footerTrailingIconLayer.isHidden = false
+        let iconAdvance = size.width + NativeVideoCardTextLayout.footerSymbolSpacing
+        var textFrame = trailingFrame
+        textFrame.origin.x += iconAdvance
+        textFrame.size.width = max(0, textFrame.width - iconAdvance)
+        footerTrailingLayer.frame = textFrame
     }
 
     private func resolvedTitleFont(for font: NSFont) -> CTFont {

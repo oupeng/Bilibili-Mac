@@ -51,6 +51,22 @@ struct NativeVideoGridScrollResetGate {
     }
 }
 
+/// 程序把网格放回顶部之后、用户再次滚动之前，内容整体替换仍停在顶部。
+///
+/// 否则替换时会按旧内容第一张可见卡片做锚点恢复：刷新把新条目插到最前或把列表收回第一页时，
+/// 那张卡片的位置变了，视口就被带离顶部。用户滚动会推进滚动代次，置顶随之失效。
+struct NativeVideoGridTopPin: Equatable {
+    private var pinnedScrollGeneration: UInt64?
+
+    mutating func pin(atScrollGeneration generation: UInt64) {
+        pinnedScrollGeneration = generation
+    }
+
+    func keepsTop(atScrollGeneration generation: UInt64) -> Bool {
+        pinnedScrollGeneration == generation
+    }
+}
+
 struct NativeVideoGridScrollResetState: Equatable {
     private(set) var requestID: UInt64 = 0
     var acknowledgedRequestID: UInt64 = 0
@@ -106,6 +122,10 @@ struct NativeVideoScrollOffsetRetention {
 
 struct NativeVideoScrollBindingBridge {
     private(set) var synchronizedOffsetY: CGFloat
+    /// 刚被同步替换掉的旧值，binding 赶上新值后清除。
+    ///
+    /// SwiftUI 在同一轮更新里仍可能把它交回来，它不是新的请求。
+    private var supersededOffsetY: CGFloat?
 
     init(initialOffsetY: CGFloat) {
         synchronizedOffsetY = max(0, initialOffsetY)
@@ -114,14 +134,23 @@ struct NativeVideoScrollBindingBridge {
     mutating func takeExternalRequest(_ offsetY: CGFloat) -> CGFloat? {
         let requestedOffsetY = max(0, offsetY)
         guard abs(requestedOffsetY - synchronizedOffsetY) > 0.5 else {
+            supersededOffsetY = nil
             return nil
         }
+        if let supersededOffsetY, abs(requestedOffsetY - supersededOffsetY) <= 0.5 {
+            return nil
+        }
+        supersededOffsetY = nil
         synchronizedOffsetY = requestedOffsetY
         return requestedOffsetY
     }
 
     mutating func markSynchronized(_ offsetY: CGFloat) {
-        synchronizedOffsetY = max(0, offsetY)
+        let offsetY = max(0, offsetY)
+        if abs(offsetY - synchronizedOffsetY) > 0.5 {
+            supersededOffsetY = synchronizedOffsetY
+        }
+        synchronizedOffsetY = offsetY
     }
 }
 
