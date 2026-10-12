@@ -4,6 +4,8 @@ public enum CommentReadError: Error, Sendable, Equatable {
     case authenticationInvalid
     case requestRestricted
     case serviceRejected(code: Int)
+    /// 评论区已关闭；不是可重试的失败。
+    case closed
     case transportFailure
     case invalidResponse
     case unavailable

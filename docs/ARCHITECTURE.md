@@ -72,7 +72,9 @@ session path，提供内存中生成的 master／media playlist，并把 AVPlaye
   它复用同一 route 的完整 fragment Range，不预读、不缓存。
 - 同一 AUDIO group 以原声 SIDX 起点为准；起点不一致的 AI 音轨在生成 master 前丢弃。
 - 没有 DASH 但有安全单段 `durl` 时注册 progressive MP4 route：原样保留 AVPlayer 的单一 Range，
-  验证后逐 chunk 写入 loopback，不累积整段；不支持多段 `durl` 拼接。
+  验证后逐 chunk 写入 loopback，不累积整段；不支持多段 `durl` 拼接。格式只接受 `mp4` 与 `hdmp4`
+  （较早视频只有整段文件，最高 720P），`flv*` 不支持；请求的清晰度只有 FLV 时，按 `support_formats`
+  里不高于请求的最高 MP4 清晰度重取一次。
 - `AVPlayerEngine` 是 `AVPlayerItem`、loopback server、原生字幕 route 的唯一 owner；替换、停止或
   释放时关闭 server 并取消连接与上游 Task。不使用私有 AVFoundation header 注入。
 
@@ -89,7 +91,7 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   time-jump 来源的竞态。`beginPlayback` 只按就绪位置报告续播或从头开始；“从头播放”仍是 seek 到 0。
 - 时间轴与交互记录器在 item 开始时得知起播位置：就绪时据此标记一次 discontinuity，弹幕从起播位置
   排起；落在起播位置的系统 time-jump 不算用户操作，否则会拒绝自动开播。
-- progressive 单文件（充电试看）没有 playlist，不续播，一律从头播放。
+- progressive 单文件（充电试看、没有 DASH 的较早视频）没有 playlist，不续播，一律从头播放。
 
 ### 弹幕
 
@@ -289,7 +291,8 @@ gain 只压低不放大：`min(−18 LUFS − I, 0)`，下限 −12 dB。不放�
 起播后按系统选中的音轨选项重算增益，只按语言与角色（原声／机器配音）匹配；`displayName` 是系统
 本地化后的界面名称，不能用来匹配。语言优先取选项保留的原始标签（`extendedLanguageTag`），字面不同
 时按 BCP 47 补全后比较。元数据缺失、音轨无法唯一映射或 tap 失败时保持 unity，播放不得
-失败。实时回调只读固定内存／原子值，不分配、不加锁、不记日志。
+失败。B 站未测量响度的视频（多为较早上传）四个测量值都是 `0.001` 占位，按无效元数据处理、原音量播放；
+不自行测量响度。实时回调只读固定内存／原子值，不分配、不加锁、不记日志。
 
 ### 分发
 

@@ -84,6 +84,7 @@ enum NativePlaybackCommentsStateKind: Hashable {
     case idle
     case loading
     case empty
+    case closed
     case failed
 }
 
@@ -181,6 +182,8 @@ extension NativePlaybackSidebarPresentation {
             items.append(.commentsState(subject: comments.subject, kind: .loading))
         case .empty:
             items.append(.commentsState(subject: comments.subject, kind: .empty))
+        case .failed(.closed):
+            items.append(.commentsState(subject: comments.subject, kind: .closed))
         case .failed:
             items.append(.commentsState(subject: comments.subject, kind: .failed))
         case .loaded:

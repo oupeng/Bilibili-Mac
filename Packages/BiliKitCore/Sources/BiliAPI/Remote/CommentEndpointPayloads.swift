@@ -150,7 +150,8 @@ struct CommentCursorPayload: Decodable, Sendable {
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        allCount = try container.decode(Int.self, forKey: .allCount)
+        // 评论区为空时 cursor 不带 `all_count`。
+        allCount = try container.decodeIfPresent(Int.self, forKey: .allCount) ?? 0
         isEnd = try container.decode(Bool.self, forKey: .isEnd)
         paginationReply = container.decodeLossyIfPresent(
             CommentPaginationReplyPayload.self,

@@ -276,6 +276,7 @@ public struct VideoPage: Identifiable, Sendable, Equatable {
 
     public let cid: Int64
     public let index: Int
+    /// 分 P 标题；较早的单 P 视频可能为空字符串。
     public let title: String
     public let durationSeconds: Int
     public let dimension: VideoDimension?

@@ -2,6 +2,7 @@ import AppKit
 import BiliApplication
 import BiliBrowseFeature
 import BiliModels
+import BiliUI
 import Foundation
 import Testing
 
@@ -561,6 +562,26 @@ struct NativePlaybackSidebarTests {
                 changedItemIDs: changed,
                 hasSnapshotInFlight: false
             ) == .reloadChangedItems
+        )
+    }
+
+    /// 分 P 菜单项在标题为空时省略标题段，不出现「P1 ·  · 时长」。
+    @Test
+    @MainActor
+    func pageMenuTitleOmitsAnEmptyPartTitle() {
+        #expect(
+            NativePlaybackSidebarSelectionItem.pageMenuTitle(
+                index: 1,
+                title: "第一部分",
+                durationSeconds: 61
+            ) == "P1 · 第一部分 · " + VideoDurationFormatting.string(seconds: 61)
+        )
+        #expect(
+            NativePlaybackSidebarSelectionItem.pageMenuTitle(
+                index: 2,
+                title: " ",
+                durationSeconds: 988
+            ) == "P2 · " + VideoDurationFormatting.string(seconds: 988)
         )
     }
 
@@ -1185,6 +1206,41 @@ struct NativePlaybackSidebarTests {
                 stabilized,
                 "width \(width), relativeY \(currentRelativeY), expected \(expectedRelativeY), pending \(pendingCount)"
             )
+        }
+    }
+
+    /// 评论区已关闭是终态说明，不提供重试；其余失败仍显示可重试的失败状态。
+    @Test
+    @MainActor
+    func closedCommentSectionShowsATerminalStateWithoutRetry() {
+        let subject = CommentSubjectIdentity.video(aid: 700_001)
+        for (error, kind) in [
+            (CommentReadError.closed, NativePlaybackCommentsStateKind.closed),
+            (.transportFailure, .failed)
+        ] {
+            let comments = NativePlaybackCommentsPresentation(
+                subject: subject,
+                sort: .hot,
+                rootState: .failed(error),
+                totalCount: 0,
+                threads: []
+            )
+            #expect(
+                presentation(bvid: "BVCurrent", comments: comments).itemIDs.last
+                    == .commentsState(subject: subject, kind: kind)
+            )
+        }
+
+        for (kind, offersRetry) in [
+            (NativePlaybackCommentsStateKind.closed, false),
+            (.failed, true)
+        ] {
+            let item = NativePlaybackCommentsStateItem()
+            item.configure(kind: kind, onRetry: {})
+            let visibleButtons = descendants(of: item.view)
+                .compactMap { $0 as? NSButton }
+                .filter { !$0.isHidden }
+            #expect(visibleButtons.isEmpty != offersRetry)
         }
     }
 

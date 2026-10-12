@@ -122,6 +122,35 @@ struct CommentAPIClientTests {
         )
     }
 
+    /// 评论区为空时 cursor 不带 `all_count`，结果是空的末页而不是数据错误。
+    @Test
+    func emptyCommentSectionWithoutAllCountIsAnEmptyLastPage() async throws {
+        let repository = BiliCommentRepository(
+            client: BiliAPIClient(
+                transport: StubTransport(
+                    responses: [
+                        try fixtureResponse("nav"),
+                        jsonResponse(
+                            #"{"code":0,"message":"OK","data":{"cursor":{"is_begin":true,"prev":0,"next":2,"is_end":true,"pagination_reply":{},"mode":3,"name":"热门评论"},"replies":[],"top":{"admin":null,"upper":null,"vote":null},"top_replies":[],"upper":{"mid":113524}}}"#
+                        )
+                    ]
+                ),
+                timestampProvider: { 1_700_000_000 }
+            )
+        )
+
+        let page = try await repository.rootComments(
+            for: .video(aid: 423_029),
+            sort: .hot,
+            after: nil
+        )
+
+        #expect(page.threads.isEmpty)
+        #expect(page.totalCount == 0)
+        #expect(page.isEnd)
+        #expect(page.continuation == nil)
+    }
+
     @Test
     func replyPageUsesRootAndTenItemPageContract() async throws {
         let transport = StubTransport(
@@ -236,6 +265,7 @@ struct CommentAPIClientTests {
         (jsonResponse("", statusCode: 412), .requestRestricted),
         (jsonResponse(#"{"code":-412,"message":"fixture"}"#), .requestRestricted),
         (jsonResponse(#"{"code":-500,"message":"fixture"}"#), .serviceRejected(code: -500)),
+        (jsonResponse(#"{"code":12002,"message":"评论区已关闭"}"#), .closed),
         (jsonResponse("", statusCode: 500), .unavailable),
         (jsonResponse("{"), .invalidResponse)
     ])

@@ -60,29 +60,22 @@ extension BiliAPIClient {
         }
         let playbackSessionEpoch = authenticatedSessionEpoch
         let referer = Self.videoReferer(bvid)
-        let parameters = ["voice_balance": "1"]
-        let resolved: AuthorizedResponse<PlayURLPayload>
-        do {
-            resolved = try await signedPlayURL(
+        var resolved = try await resolvedPlayURL(
+            bvid: bvid,
+            cid: cid,
+            quality: quality,
+            playbackSessionEpoch: playbackSessionEpoch
+        )
+        // 较早视频没有 DASH，请求的清晰度可能只有 FLV；改用不高于请求的最高 MP4 清晰度重取一次。
+        if resolved.payload.dash == nil, !resolved.payload.hasProgressiveMP4Format,
+            let mp4Quality = resolved.payload.progressiveMP4Qualities.filter({ $0 < quality }).max()
+        {
+            resolved = try await resolvedPlayURL(
                 bvid: bvid,
                 cid: cid,
-                quality: quality,
-                parameters: parameters,
-                access: .accountRead(
-                    missingCredential: .fail,
-                    mapsAuthenticationInvalidation: true
-                )
+                quality: mp4Quality,
+                playbackSessionEpoch: playbackSessionEpoch
             )
-        } catch BiliAPIError.authorizationRequired {
-            // 本地明确无凭据：同一 endpoint 匿名请求，并且只有这里带游客参数。
-            resolved = try await signedPlayURL(
-                bvid: bvid,
-                cid: cid,
-                quality: quality,
-                parameters: parameters.merging(Self.guestPlayURLParameters) { $1 },
-                access: .anonymous
-            )
-            try requireAuthenticatedSessionEpoch(playbackSessionEpoch)
         }
         let payload = resolved.payload
 
@@ -111,7 +104,7 @@ extension BiliAPIClient {
         case .single(let payload):
             segment = payload
         }
-        guard payload.format?.lowercased() == "mp4" else {
+        guard payload.hasProgressiveMP4Format else {
             throw BiliAPIError.unsupportedProgressiveMedia(.unsupportedContainer)
         }
         if resolved.authorizationProvenance == .authenticated {
@@ -127,6 +120,39 @@ extension BiliAPIClient {
                 resolved.authorizationProvenance == .authenticated
                 ? payload.resumeMetadata : nil
         )
+    }
+
+    /// 按本地凭据状态请求 playurl：有凭据时精确授权，本地明确无凭据时同一 endpoint 匿名请求。
+    private func resolvedPlayURL(
+        bvid: String,
+        cid: Int64,
+        quality: Int,
+        playbackSessionEpoch: UInt64
+    ) async throws -> AuthorizedResponse<PlayURLPayload> {
+        let parameters = ["voice_balance": "1"]
+        do {
+            return try await signedPlayURL(
+                bvid: bvid,
+                cid: cid,
+                quality: quality,
+                parameters: parameters,
+                access: .accountRead(
+                    missingCredential: .fail,
+                    mapsAuthenticationInvalidation: true
+                )
+            )
+        } catch BiliAPIError.authorizationRequired {
+            // 本地明确无凭据：同一 endpoint 匿名请求，并且只有这里带游客参数。
+            let resolved: AuthorizedResponse<PlayURLPayload> = try await signedPlayURL(
+                bvid: bvid,
+                cid: cid,
+                quality: quality,
+                parameters: parameters.merging(Self.guestPlayURLParameters) { $1 },
+                access: .anonymous
+            )
+            try requireAuthenticatedSessionEpoch(playbackSessionEpoch)
+            return resolved
+        }
     }
 
     /// 测速样本必须来自当前账户可消费的 playurl；没有凭据时失败而不匿名降级。

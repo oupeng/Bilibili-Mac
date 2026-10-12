@@ -389,11 +389,12 @@ private final class NativePlaybackSidebarSelectionView: NSView {
             let menu = NSMenu(title: AppStrings.localized("分 P"))
             var selectedItem: NSMenuItem?
             for page in pages {
-                let title =
-                    "P\(page.index) · \(page.title) · "
-                    + VideoDurationFormatting.string(seconds: page.durationSeconds)
                 let item = NSMenuItem(
-                    title: title,
+                    title: NativePlaybackSidebarSelectionItem.pageMenuTitle(
+                        index: page.index,
+                        title: page.title,
+                        durationSeconds: page.durationSeconds
+                    ),
                     action: #selector(selectPage(_:)),
                     keyEquivalent: ""
                 )
@@ -450,5 +451,16 @@ private final class NativePlaybackSidebarSelectionView: NSView {
 
     @objc private func retryPages() {
         onRetryPages?()
+    }
+}
+
+extension NativePlaybackSidebarSelectionItem {
+    /// 分 P 菜单项：「P1 · 标题 · 时长」，标题为空时省略这一段。
+    static func pageMenuTitle(index: Int, title: String, durationSeconds: Int) -> String {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return
+            (["P\(index)"] + (title.isEmpty ? [] : [title])
+            + [VideoDurationFormatting.string(seconds: durationSeconds)])
+            .joined(separator: " · ")
     }
 }

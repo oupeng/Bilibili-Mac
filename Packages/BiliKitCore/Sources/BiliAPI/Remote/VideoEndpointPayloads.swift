@@ -230,7 +230,8 @@ struct PagePayload: Decodable, Sendable {
     let dimension: DimensionPayload?
 
     func model() throws -> VideoPage {
-        guard cid > 0, page > 0, !part.isEmpty, duration >= 0 else {
+        // 较早的单 P 视频分 P 标题常为空字符串，不算数据错误；显示时省略。
+        guard cid > 0, page > 0, duration >= 0 else {
             throw BiliAPIError.decodingFailed
         }
         return VideoPage(

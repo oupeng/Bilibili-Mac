@@ -4,9 +4,16 @@ import BiliNetworking
 import Foundation
 
 struct PlayURLPayload: Decodable, Sendable {
+    /// 没有 DASH 时 AVPlayer 能直接播放的单段 durl 格式。
+    ///
+    /// `mp4` 与 `hdmp4`（较早视频的 720P 整段）都是 MP4 容器；`flv*` AVPlayer 不支持。
+    static let progressiveMP4Formats: Set<String> = ["mp4", "hdmp4"]
+
     let dash: DASHPayload?
     let durl: DURLPayloadSelection?
     let format: String?
+    /// 没有 DASH 时 `support_formats` 列出的 MP4 整段清晰度；当前格式是 FLV 时据此换清晰度重取。
+    let progressiveMP4Qualities: [Int]
     let volume: PlaybackVolumePayload?
     let currentLanguage: String?
     let currentProductionType: Int?
@@ -18,6 +25,7 @@ struct PlayURLPayload: Decodable, Sendable {
         case dash
         case durl
         case format
+        case supportFormats = "support_formats"
         case volume
         case currentLanguage = "cur_language"
         case currentProductionType = "cur_production_type"
@@ -38,6 +46,16 @@ struct PlayURLPayload: Decodable, Sendable {
             dash == nil
             ? try container.decodeIfPresent(String.self, forKey: .format)
             : nil
+        progressiveMP4Qualities =
+            dash == nil
+            ? ((try? container.decodeIfPresent(
+                [LossyDecodable<SupportFormatPayload>].self,
+                forKey: .supportFormats
+            )) ?? [])
+            .compactMap(\.value)
+            .filter { Self.progressiveMP4Formats.contains($0.format.lowercased()) }
+            .map(\.quality)
+            : []
         volume = try? container.decode(PlaybackVolumePayload.self, forKey: .volume)
         currentLanguage = try? container.decode(
             String.self,
@@ -55,6 +73,10 @@ struct PlayURLPayload: Decodable, Sendable {
         lastPlayCID = try? container.decode(Int64.self, forKey: .lastPlayCID)
     }
 
+    var hasProgressiveMP4Format: Bool {
+        format.map { Self.progressiveMP4Formats.contains($0.lowercased()) } ?? false
+    }
+
     var resumeMetadata: PlaybackResumeMetadata? {
         guard let lastPlayCID, let lastPlayTime else { return nil }
         return PlaybackResumeMetadata(
@@ -62,6 +84,11 @@ struct PlayURLPayload: Decodable, Sendable {
             positionMilliseconds: lastPlayTime
         )
     }
+}
+
+struct SupportFormatPayload: Decodable, Sendable {
+    let quality: Int
+    let format: String
 }
 
 enum DURLPayloadSelection: Decodable, Sendable {
