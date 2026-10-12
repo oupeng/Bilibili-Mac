@@ -81,7 +81,7 @@ final class UploaderSpaceVideoRowItem: NSCollectionViewItem, NativeHoverableColl
             let result = await imagePipeline.image(for: url, variant: .cover)
             guard let self, !Task.isCancelled, imageGeneration == generation, let result
             else { return }
-            rowView.cover.setImage(result.image, animated: result.origin.shouldAnimate)
+            rowView.cover.setImage(result.image, animated: result.origin.shouldFadeIn)
             hasCoverImage = true
             imageTask = nil
         }

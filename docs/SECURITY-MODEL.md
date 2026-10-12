@@ -95,7 +95,8 @@ storage、无 URL cache，并拒绝 redirect。`PublicHTTPSURLPolicy` 是基线�
   空响应不能互相降级解析。未知接口状态失败关闭。
 - 图片管线（`NativeVideoImagePipeline`）：无凭据 session，响应必须 2xx、HTTPS、同主机、`image/*`、
   ≤ 8 MiB（评论图片预览请求原图，按 B 站评论图片 20 MB 上传上限单独放宽到 ≤ 20 MiB）；按用途限制解码尺寸；
-  只有有界内存 cache，没有磁盘 cache。
+  只有有界内存 cache，没有磁盘 cache。评论图片的列表格子与预览另保留动图的编码数据（计入 cache 成本），
+  只有多帧、帧数 ≤ 1000 且每帧像素 ≤ 2048×2048 的才播放，超出的只显示第一帧。
 
 ## 5. 本地回环服务
 

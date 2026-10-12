@@ -94,7 +94,7 @@ final class NativePlaybackCommentAvatarView: NSView {
                     guard let result else { return }
                     self.apply(
                         result.image,
-                        animated: result.origin.shouldAnimate
+                        animated: result.origin.shouldFadeIn
                     )
                 }
             }

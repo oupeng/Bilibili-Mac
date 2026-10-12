@@ -52,6 +52,11 @@ final class NativePlaybackCommentPictureLoader {
         return imagePipeline.cachedImage(for: url, variant: variant)
     }
 
+    func cachedAnimation(for reference: CommentAssetReference) -> NativeAnimatedImage? {
+        guard let url = url(for: reference) else { return nil }
+        return imagePipeline.cachedAnimation(for: url, variant: variant)
+    }
+
     func image(
         for reference: CommentAssetReference
     ) async -> NativeVideoImageLoadResult? {

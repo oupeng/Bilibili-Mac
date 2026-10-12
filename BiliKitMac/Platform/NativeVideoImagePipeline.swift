@@ -8,12 +8,49 @@ enum NativeVideoImageLoadOrigin: Equatable {
     case memoryCache
     case network
 
-    var shouldAnimate: Bool { self == .network }
+    /// 刚从网络到达的图片淡入；内存缓存命中直接显示。
+    var shouldFadeIn: Bool { self == .network }
+}
+
+/// 动图的原始编码数据，由 `NativeAnimatedImagePlayback` 边解码边播放；不预先解出所有帧。
+///
+/// 用引用类型：缓存命中返回同一个实例，播放端按身份判断是不是同一张动图，不比较数据字节。
+final class NativeAnimatedImage: Sendable {
+    let data: Data
+
+    init(data: Data) {
+        self.data = data
+    }
 }
 
 struct NativeVideoImageLoadResult: Sendable {
+    /// 第一帧（静态图就是整张图），按用途限制解码尺寸。
     let image: CGImage
     let origin: NativeVideoImageLoadOrigin
+    /// 只有保留动图的用途、且源图是可播放的多帧图时才有。
+    let animation: NativeAnimatedImage?
+}
+
+/// 评论动图的播放门槛；数值待实际体验调整。
+enum NativeAnimatedImagePolicy {
+    /// 帧数上限，超过时只显示第一帧。
+    static let maximumFrameCount = 1_000
+    /// 每帧像素数上限：动图按原尺寸逐帧解码，过大的原图只显示第一帧，避免持续占用 CPU。
+    static let maximumPixelCount = 2_048 * 2_048
+
+    static func animation(from data: Data, source: CGImageSource) -> NativeAnimatedImage? {
+        let frameCount = CGImageSourceGetCount(source)
+        guard frameCount > 1, frameCount <= maximumFrameCount,
+            let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
+                as? [CFString: Any],
+            let width = properties[kCGImagePropertyPixelWidth] as? Int,
+            let height = properties[kCGImagePropertyPixelHeight] as? Int,
+            width > 0, height > 0
+        else { return nil }
+        let pixels = width.multipliedReportingOverflow(by: height)
+        guard !pixels.overflow, pixels.partialValue <= maximumPixelCount else { return nil }
+        return NativeAnimatedImage(data: data)
+    }
 }
 
 enum NativeVideoImageVariant: Hashable, Sendable {
@@ -23,6 +60,16 @@ enum NativeVideoImageVariant: Hashable, Sendable {
     case commentPicture
     case commentPicturePreview
     case trendingSearchIcon
+
+    /// 是否保留动图数据：评论图片的列表格子与预览会播放动图，其余用途只用第一帧。
+    var retainsAnimation: Bool {
+        switch self {
+        case .commentPicture, .commentPicturePreview:
+            true
+        case .cover, .avatar, .commentEmote, .trendingSearchIcon:
+            false
+        }
+    }
 
     var maximumDecodedPixelSize: Int {
         switch self {
@@ -324,7 +371,7 @@ final class NativeVideoImagePipeline: Sendable {
 
     private enum Lookup {
         case unavailable
-        case cached(CGImage)
+        case cached(CGImage, NativeAnimatedImage?)
         case request(
             requestID: UInt64,
             waiterID: UInt64,
@@ -369,6 +416,17 @@ final class NativeVideoImagePipeline: Sendable {
         }
     }
 
+    /// 已缓存图片的动图数据；静态图或没有缓存时为 nil。
+    func cachedAnimation(
+        for url: URL,
+        variant: NativeVideoImageVariant
+    ) -> NativeAnimatedImage? {
+        state.withLock { state in
+            guard !state.isShutdown else { return nil }
+            return state.cache.animation(for: NativeVideoImageKey(url: url, variant: variant))
+        }
+    }
+
     func image(
         for url: URL,
         variant: NativeVideoImageVariant
@@ -385,8 +443,12 @@ final class NativeVideoImagePipeline: Sendable {
         switch lookup(for: key) {
         case .unavailable:
             return nil
-        case .cached(let image):
-            return NativeVideoImageLoadResult(image: image, origin: .memoryCache)
+        case .cached(let image, let animation):
+            return NativeVideoImageLoadResult(
+                image: image,
+                origin: .memoryCache,
+                animation: animation
+            )
         case .request(let requestID, let waiterID, let waiter, let startsNetwork):
             if startsNetwork {
                 startRequest(key: key, requestID: requestID)
@@ -441,6 +503,17 @@ final class NativeVideoImagePipeline: Sendable {
         )
     }
 
+    /// 保留动图的用途里，多帧且在播放门槛内的源图返回动图数据。
+    nonisolated static func decodeAnimation(
+        _ data: Data,
+        variant: NativeVideoImageVariant
+    ) -> NativeAnimatedImage? {
+        guard variant.retainsAnimation,
+            let source = CGImageSourceCreateWithData(data as CFData, nil)
+        else { return nil }
+        return NativeAnimatedImagePolicy.animation(from: data, source: source)
+    }
+
     private func loadNetworkImage(
         for key: NativeVideoImageKey
     ) async -> NativeVideoImageLoadResult? {
@@ -457,8 +530,9 @@ final class NativeVideoImagePipeline: Sendable {
                 !Task.isCancelled,
                 let image = Self.decodeImage(transfer.data, variant: key.variant)
             else { return nil }
-            guard store(image, for: key) else { return nil }
-            return NativeVideoImageLoadResult(image: image, origin: .network)
+            let animation = Self.decodeAnimation(transfer.data, variant: key.variant)
+            guard store(image, animation: animation, for: key) else { return nil }
+            return NativeVideoImageLoadResult(image: image, origin: .network, animation: animation)
         } catch {
             return nil
         }
@@ -468,7 +542,7 @@ final class NativeVideoImagePipeline: Sendable {
         state.withLock { state in
             guard !state.isShutdown else { return .unavailable }
             if let image = state.cache.image(for: key) {
-                return .cached(image)
+                return .cached(image, state.cache.animation(for: key))
             }
             state.nextWaiterID &+= 1
             let waiterID = state.nextWaiterID
@@ -557,10 +631,14 @@ final class NativeVideoImagePipeline: Sendable {
         for waiter in waiters { waiter.finish(with: result) }
     }
 
-    private func store(_ image: CGImage, for key: NativeVideoImageKey) -> Bool {
+    private func store(
+        _ image: CGImage,
+        animation: NativeAnimatedImage?,
+        for key: NativeVideoImageKey
+    ) -> Bool {
         state.withLock { state in
             guard !state.isShutdown else { return false }
-            state.cache.insert(image, for: key)
+            state.cache.insert(image, animation: animation, for: key)
             return true
         }
     }
@@ -581,6 +659,7 @@ final class NativeVideoImagePipelineOwner {
 struct NativeVideoImageCache {
     private struct Entry {
         let image: CGImage
+        let animation: NativeAnimatedImage?
         let cost: Int
         var recency: UInt64
     }
@@ -605,14 +684,23 @@ struct NativeVideoImageCache {
         return entry.image
     }
 
-    mutating func insert(_ image: CGImage, for key: NativeVideoImageKey) {
-        let cost = image.bytesPerRow * image.height
+    func animation(for key: NativeVideoImageKey) -> NativeAnimatedImage? {
+        entries[key]?.animation
+    }
+
+    /// 成本是第一帧的解码字节数加动图编码数据的字节数。
+    mutating func insert(
+        _ image: CGImage,
+        animation: NativeAnimatedImage?,
+        for key: NativeVideoImageKey
+    ) {
+        let cost = image.bytesPerRow * image.height + (animation?.data.count ?? 0)
         guard cost <= costLimit, countLimit > 0, costLimit > 0 else { return }
         if let old = entries.removeValue(forKey: key) {
             totalCost -= old.cost
         }
         clock &+= 1
-        entries[key] = Entry(image: image, cost: cost, recency: clock)
+        entries[key] = Entry(image: image, animation: animation, cost: cost, recency: clock)
         totalCost += cost
         trimToLimits()
         count = entries.count
