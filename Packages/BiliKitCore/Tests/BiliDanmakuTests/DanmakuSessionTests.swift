@@ -28,6 +28,33 @@ struct DanmakuSessionTests {
         #expect(await waitUntil { session.state == .ready(identity) })
     }
 
+    /// 会话把呈现端给出的补位窗口交给调度：窗口跨进上一分段时一并请求上一分段。
+    @Test
+    func sessionUsesThePresentationCatchUpWindowForSegmentRequests() async throws {
+        let identity = PlaybackItemIdentity(bvid: "BV1CatchUpWindow", cid: 4)
+        let repository = StubDanmakuRepository()
+        let timeline = SessionTimeline()
+        let sink = SessionPresentationSink()
+        sink.catchUpWindowSeconds = 10
+        let session = DanmakuSession(
+            useCase: DanmakuSegmentUseCase(repository: repository),
+            timeline: timeline,
+            presentationSink: sink
+        )
+
+        session.start(for: identity)
+        timeline.publish(snapshot(identity: identity, position: 365, generation: 1))
+        try await repository.waitForRequestCount(2, identity: identity)
+        let firstRequests = await repository.requestedIndices(for: identity)
+        #expect(await waitUntil { session.state == .ready(identity) })
+        timeline.publish(snapshot(identity: identity, position: 365.5, generation: 1))
+        try await repository.waitForRequestCount(3, identity: identity)
+
+        #expect(firstRequests.sorted() == [1, 2])
+        #expect(await repository.requestedIndices(for: identity).sorted() == [1, 2, 3])
+        session.stop()
+    }
+
     @Test
     func replacingIdentityRejectsLateOldSegmentsAndStopReturnsIdle() async throws {
         let first = PlaybackItemIdentity(bvid: "BV1FirstFixture", cid: 1)
@@ -304,6 +331,7 @@ struct DanmakuSessionTests {
 
 @MainActor
 private final class SessionPresentationSink: DanmakuPresentationSink {
+    var catchUpWindowSeconds = 0.0
     private(set) var updates: [DanmakuPresentationUpdate] = []
     private(set) var clearCount = 0
     private(set) var stopCount = 0
