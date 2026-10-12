@@ -66,7 +66,11 @@ final class NativePlaybackCommentTextRenderer {
                 .paragraphStyle: NativePlaybackSidebarTextLayout.paragraphStyle
             ]
         )
-        let (linkTargets, appliedLinks) = applyLinks(content.links, to: attributed)
+        let (linkTargets, appliedLinks) = NativePlaybackTextLinks.apply(
+            content.links,
+            to: attributed,
+            timestampLimitSeconds: timestampLimitSeconds
+        )
 
         // 表情与带标题或图标的链接都要替换原文；从后往前替换，前面的位置不受影响，重叠的跳过。
         // 表情优先：与表情重叠的链接不替换，避免表情被拆开。
@@ -336,37 +340,6 @@ final class NativePlaybackCommentTextRenderer {
 
     private static func overlaps(_ lhs: CommentTextRange, _ rhs: CommentTextRange) -> Bool {
         lhs.location < rhs.location + rhs.length && rhs.location < lhs.location + lhs.length
-    }
-
-    /// 给链接原文加链接属性；返回点击时按序号查找的目标，以及实际加上的链接。
-    private func applyLinks(
-        _ links: [CommentLink],
-        to attributed: NSMutableAttributedString
-    ) -> (targets: [CommentLinkTarget], applied: [CommentLink]) {
-        var targets: [CommentLinkTarget] = []
-        var applied: [CommentLink] = []
-        for link in links {
-            let range = NSRange(
-                location: link.range.location,
-                length: link.range.length
-            )
-            guard range.location >= 0, range.length > 0,
-                NSMaxRange(range) <= attributed.length
-            else { continue }
-            if case .timestamp(let seconds) = link.target,
-                !VideoContext.accepts(
-                    seconds: seconds,
-                    seekableDurationSeconds: timestampLimitSeconds
-                )
-            {
-                continue
-            }
-            let value = "bilikit-comment-link-\(targets.count)"
-            targets.append(link.target)
-            applied.append(link)
-            attributed.addAttribute(.link, value: value, range: range)
-        }
-        return (targets, applied)
     }
 
     private static func sideLength(for size: CommentEmoteSize) -> CGFloat {
