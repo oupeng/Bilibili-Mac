@@ -64,6 +64,20 @@ final class NativePlaybackCommentPictureLoader {
         return await imagePipeline.image(for: url, variant: variant)
     }
 
+    /// 保存原图用的原始数据与默认文件名（图床上的原文件名）。
+    func originalData(for reference: CommentAssetReference) async -> Data? {
+        guard let url = url(for: reference) else { return nil }
+        return await imagePipeline.originalData(for: url, variant: variant)
+    }
+
+    /// 去掉开头的点，避免默认存成隐藏文件。
+    func suggestedFileName(for reference: CommentAssetReference) -> String? {
+        guard let name = url(for: reference)?.lastPathComponent else { return nil }
+        let visible = String(name.drop(while: { $0 == "." }))
+        guard !visible.isEmpty, visible != "/" else { return nil }
+        return visible
+    }
+
     private func url(for reference: CommentAssetReference) -> URL? {
         resolveURL(reference, NativePlaybackCommentAssetSizing.pixelBox(for: variant))
     }

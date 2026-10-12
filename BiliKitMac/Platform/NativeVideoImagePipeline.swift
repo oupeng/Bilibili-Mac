@@ -431,12 +431,7 @@ final class NativeVideoImagePipeline: Sendable {
         for url: URL,
         variant: NativeVideoImageVariant
     ) async -> NativeVideoImageLoadResult? {
-        guard
-            !Task.isCancelled,
-            url.scheme?.lowercased() == "https",
-            url.user == nil,
-            url.password == nil
-        else { return nil }
+        guard !Task.isCancelled, Self.acceptsRequestURL(url) else { return nil }
 
         let key = NativeVideoImageKey(url: url, variant: variant)
 
@@ -463,6 +458,43 @@ final class NativeVideoImagePipeline: Sendable {
             }
             return result
         }
+    }
+
+    /// 用户保存原图时取原始响应数据：不解码、不缓存，响应校验与大小上限与图片请求相同；失败、取消
+    /// 或已关闭时为 nil。
+    func originalData(
+        for url: URL,
+        variant: NativeVideoImageVariant
+    ) async -> Data? {
+        guard isActive, !Task.isCancelled, Self.acceptsRequestURL(url) else { return nil }
+        let data = try? await fetchData(for: url, maximumBytes: variant.maximumResponseBytes)
+        guard isActive, !Task.isCancelled, let data, Self.isBitmapImage(data) else { return nil }
+        return data
+    }
+
+    /// 只请求 HTTPS、不带用户信息的地址；图片加载与保存原图共用。
+    nonisolated static func acceptsRequestURL(_ url: URL) -> Bool {
+        url.scheme?.lowercased() == "https" && url.user == nil && url.password == nil
+    }
+
+    /// 数据能被 ImageIO 识别为位图（JPEG、PNG、GIF、WebP 等）；SVG、HTML 等不算，保存时拒绝。
+    nonisolated static func isBitmapImage(_ data: Data) -> Bool {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+            CGImageSourceGetType(source) != nil
+        else { return false }
+        return CGImageSourceGetCount(source) > 0
+    }
+
+    /// 无 Cookie 的请求经同一个 session delegate 做响应校验与大小上限；图片加载与保存原图共用。
+    private func fetchData(for url: URL, maximumBytes: Int) async throws -> Data {
+        var request = URLRequest(url: url)
+        request.httpShouldHandleCookies = false
+        return try await sessionDelegate.response(
+            for: request,
+            maximumBytes: maximumBytes,
+            using: session,
+            gate: sessionGate
+        ).data
     }
 
     func shutdown() {
@@ -518,19 +550,15 @@ final class NativeVideoImagePipeline: Sendable {
         for key: NativeVideoImageKey
     ) async -> NativeVideoImageLoadResult? {
         do {
-            var request = URLRequest(url: key.url)
-            request.httpShouldHandleCookies = false
-            let transfer = try await sessionDelegate.response(
-                for: request,
-                maximumBytes: key.variant.maximumResponseBytes,
-                using: session,
-                gate: sessionGate
+            let data = try await fetchData(
+                for: key.url,
+                maximumBytes: key.variant.maximumResponseBytes
             )
             guard
                 !Task.isCancelled,
-                let image = Self.decodeImage(transfer.data, variant: key.variant)
+                let image = Self.decodeImage(data, variant: key.variant)
             else { return nil }
-            let animation = Self.decodeAnimation(transfer.data, variant: key.variant)
+            let animation = Self.decodeAnimation(data, variant: key.variant)
             guard store(image, animation: animation, for: key) else { return nil }
             return NativeVideoImageLoadResult(image: image, origin: .network, animation: animation)
         } catch {

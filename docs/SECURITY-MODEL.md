@@ -97,6 +97,9 @@ storage、无 URL cache，并拒绝 redirect。`PublicHTTPSURLPolicy` 是基线�
   ≤ 8 MiB（评论图片预览请求原图，按 B 站评论图片 20 MB 上传上限单独放宽到 ≤ 20 MiB）；按用途限制解码尺寸；
   只有有界内存 cache，没有磁盘 cache。评论图片的列表格子与预览另保留动图的编码数据（计入 cache 成本），
   只有多帧、帧数 ≤ 1000 且每帧像素 ≤ 2048×2048 的才播放，超出的只显示第一帧。
+- 评论图片预览的「保存图片」：先由系统保存面板选位置，再经图片管线同一套请求与响应校验、≤ 20 MiB 上限
+  重新请求原图（不缓存），只有 ImageIO 能识别的位图才原样写入所选文件（SVG、HTML 等拒绝）；默认文件名取
+  图床文件名并去掉开头的点。失败只提示，不重试。
 
 ## 5. 本地回环服务
 
@@ -130,8 +133,9 @@ storage、无 URL cache，并拒绝 redirect。`PublicHTTPSURLPolicy` 是基线�
   非标准端口）、32 字节 `SUPublicEDKey`、`SURequireSignedFeed`、`SUVerifyUpdateBeforeExtraction`、
   `SUSignedFeedFailureExpirationInterval = 0`、启用 Installer XPC、禁用 Downloader XPC；另关闭
   `SUEnableSystemProfiling`。
-- entitlement 只为 Sparkle 增加 `$(PRODUCT_BUNDLE_IDENTIFIER)-spks`／`-spki` mach lookup，不加文件权限或
-  runtime exception。
+- entitlement 只为 Sparkle 增加 `$(PRODUCT_BUNDLE_IDENTIFIER)-spks`／`-spki` mach lookup，不加 runtime
+  exception。唯一的文件权限是 `com.apple.security.files.user-selected.read-write`，只供评论图片预览的
+  「保存图片」经系统保存面板写入用户所选位置。
 - 自动下载与安装默认关闭。不添加账号标识、查询参数或自定义请求头。
 - Cloudflare 只托管已签名 `appcast.xml` 与 `_headers`；DMG 只来自固定仓库的 GitHub Release
   `/releases/download/<tag>/<file>.dmg`，拒绝草稿、latest 与 query。build 号正整数递增，资产不覆盖，

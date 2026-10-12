@@ -35,6 +35,8 @@ expect_count 0 'path = Packages;' "$project" "本地 Package 不得重复注册�
     || fail "缺少出站网络 entitlement"
 [ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.network.server' "$entitlements")" = true ] \
     || fail "缺少 loopback server entitlement"
+[ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.files.user-selected.read-write' "$entitlements")" = true ] \
+    || fail "缺少评论图片保存所需的用户选择文件读写 entitlement"
 [ "$(/usr/libexec/PlistBuddy -c 'Print :keychain-access-groups:0' "$entitlements")" = '$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)' ] \
     || fail "Keychain access group 与 App 标识不一致"
 if /usr/libexec/PlistBuddy -c 'Print :keychain-access-groups:1' "$entitlements" >/dev/null 2>&1; then
@@ -44,7 +46,7 @@ top_level_key_count=$(
     /usr/bin/plutil -p "$entitlements" \
         | awk '/^  "/ { total += 1 } END { print total + 0 }'
 )
-[ "$top_level_key_count" -eq 4 ] \
+[ "$top_level_key_count" -eq 5 ] \
     || fail "entitlements 出现未审计的额外能力"
 
 expect_count 2 'CODE_SIGN_ENTITLEMENTS = BiliKitMac/BiliKitMac.entitlements;' "$project" "App 配置必须使用同一 entitlement"

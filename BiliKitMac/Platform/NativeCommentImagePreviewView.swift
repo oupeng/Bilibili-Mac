@@ -11,14 +11,25 @@ struct NativeCommentImagePreviewRequest: Identifiable {
     let restoreFocus: () -> Void
 }
 
+/// 预览所在宿主视图的弱引用：保存面板以 sheet 挂在预览自己的窗口上，不取当时的 key window。
+@MainActor
+final class NativeCommentImagePreviewAnchor {
+    weak var view: NSView?
+}
+
 struct NativeCommentImagePreviewView: View {
     let request: NativeCommentImagePreviewRequest
     let imagePipeline: NativeVideoImagePipeline
     let resolveURL: CommentAssetURLResolver
+    /// 窗口级的保存 owner：预览关闭后已确认的保存照常完成。
+    let imageSaver: NativeCommentImageSaver
     let onDismiss: () -> Void
+
+    @State private var anchor = NativeCommentImagePreviewAnchor()
 
     var body: some View {
         NativeCommentImagePreviewHost(
+            anchor: anchor,
             content: NativeCommentImagePreviewContent(
                 request: request,
                 loader: NativePlaybackCommentPictureLoader(
@@ -31,6 +42,8 @@ struct NativeCommentImagePreviewView: View {
                     resolveURL: resolveURL,
                     variant: .commentPicture
                 ),
+                saver: imageSaver,
+                anchor: anchor,
                 onDismiss: onDismiss
             )
         )
@@ -88,10 +101,12 @@ final class NativeCommentImagePreviewHostingView<Content: View>: NSHostingView<C
 }
 
 private struct NativeCommentImagePreviewHost<Content: View>: NSViewRepresentable {
+    let anchor: NativeCommentImagePreviewAnchor
     let content: Content
 
     func makeNSView(context: Context) -> NativeCommentImagePreviewHostingView<Content> {
         let view = NativeCommentImagePreviewHostingView(rootView: content)
+        anchor.view = view
         view.sizingOptions = []
         // 预览铺满整个窗口（含隐藏工具栏后的标题栏区域），不按窗口安全区缩进背景与布局。
         view.safeAreaRegions = []
@@ -147,6 +162,7 @@ private struct NativeCommentImagePreviewContent: View {
     }
 
     private static let buttonInset: CGFloat = 18
+    private static let buttonSpacing: CGFloat = 10
     private static let counterBottomInset: CGFloat = 18
     private static let originalStatusInset: CGFloat = 12
 
@@ -154,6 +170,8 @@ private struct NativeCommentImagePreviewContent: View {
     let loader: NativePlaybackCommentPictureLoader
     /// 列表格子用的缩小图；只读缓存，用作原图到达前的占位，不为预览另发请求。
     let placeholderLoader: NativePlaybackCommentPictureLoader
+    let saver: NativeCommentImageSaver
+    let anchor: NativeCommentImagePreviewAnchor
     let onDismiss: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -166,11 +184,15 @@ private struct NativeCommentImagePreviewContent: View {
         request: NativeCommentImagePreviewRequest,
         loader: NativePlaybackCommentPictureLoader,
         placeholderLoader: NativePlaybackCommentPictureLoader,
+        saver: NativeCommentImageSaver,
+        anchor: NativeCommentImagePreviewAnchor,
         onDismiss: @escaping () -> Void
     ) {
         self.request = request
         self.loader = loader
         self.placeholderLoader = placeholderLoader
+        self.saver = saver
+        self.anchor = anchor
         self.onDismiss = onDismiss
         _selection = State(
             initialValue: NativeCommentImagePreviewSelection(
@@ -193,12 +215,21 @@ private struct NativeCommentImagePreviewContent: View {
                     .padding(.vertical, min(86, max(54, geometry.size.height * 0.08)))
             }
             .overlay(alignment: .topTrailing) {
-                iconButton(
-                    "xmark",
-                    label: AppStrings.localized("关闭图片预览"),
-                    action: onDismiss
-                )
-                .focused($focus, equals: .close)
+                HStack(spacing: Self.buttonSpacing) {
+                    iconButton(
+                        "square.and.arrow.down",
+                        label: AppStrings.localized("保存图片"),
+                        action: saveCurrentImage
+                    )
+                    .keyboardShortcut("s", modifiers: .command)
+                    .disabled(phase.image == nil || saver.isBusy)
+                    iconButton(
+                        "xmark",
+                        label: AppStrings.localized("关闭图片预览"),
+                        action: onDismiss
+                    )
+                    .focused($focus, equals: .close)
+                }
                 .padding(Self.buttonInset)
             }
             .overlay { navigation }
@@ -357,6 +388,16 @@ private struct NativeCommentImagePreviewContent: View {
                 button.buttonStyle(.bordered)
             }
         }
+    }
+
+    /// 保存当前这张的原图，保存面板挂在预览自己的窗口上。
+    private func saveCurrentImage() {
+        guard request.references.indices.contains(selection.index) else { return }
+        saver.save(
+            request.references[selection.index],
+            loader: loader,
+            in: anchor.view?.window
+        )
     }
 
     private func selectPrevious() {

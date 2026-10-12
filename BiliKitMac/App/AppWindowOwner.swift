@@ -27,6 +27,8 @@ final class AppWindowOwner {
     let seekPlayback: @MainActor (_ bvid: String, _ seconds: Int) -> Void
     /// 评论短链的在途解析；换视频与关窗时取消。
     let commentShortLinks = CommentShortLinkResolution()
+    /// 评论图片的保存；预览关闭后已确认的保存照常完成，关窗时取消。
+    let commentImageSaver = NativeCommentImageSaver()
     /// 窗口内所有封面、头像与评论图片共用的匿名有界图片管线。
     let imagePipeline: NativeVideoImagePipeline
     private let imagePipelineOwner: NativeVideoImagePipelineOwner
@@ -229,6 +231,7 @@ final class AppWindowOwner {
         guard !isClosed else { return }
         isClosed = true
         commentShortLinks.cancel()
+        commentImageSaver.cancel()
         watchProgressConnection?.stop()
         systemNowPlayingCoordinator?.close()
         imagePipelineOwner.shutdown()
