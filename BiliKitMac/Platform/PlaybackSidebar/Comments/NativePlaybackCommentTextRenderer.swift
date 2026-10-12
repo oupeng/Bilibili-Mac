@@ -20,6 +20,8 @@ final class NativePlaybackCommentTextRenderer {
         let attachments: [CommentAssetReference: [NSTextAttachment]]
         let pendingAssets: [PendingAsset]
         let linkTargets: [CommentLinkTarget]
+        /// 读屏文本：带标题的链接读标题，表情保留原文写法，图标不读。
+        let accessibilityText: String
     }
 
     private let imagePipeline: NativeVideoImagePipeline
@@ -39,6 +41,8 @@ final class NativePlaybackCommentTextRenderer {
     private var unavailableAssetOrder: [UnavailableAssetKey] = []
     private var unavailableAssetOrderHead = 0
     private static let standardPlaceholder = placeholderImage(side: 18)
+    /// 链接前置小图标的边长，与正文字号相近。
+    private static let linkIconSide: CGFloat = 16
     private static let largePlaceholder = placeholderImage(side: 36)
 
     init(
@@ -62,43 +66,54 @@ final class NativePlaybackCommentTextRenderer {
                 .paragraphStyle: NativePlaybackSidebarTextLayout.paragraphStyle
             ]
         )
-        let linkTargets = applyLinks(content.links, to: attributed)
+        let (linkTargets, appliedLinks) = applyLinks(content.links, to: attributed)
 
+        // 表情与带标题或图标的链接都要替换原文；从后往前替换，前面的位置不受影响，重叠的跳过。
+        // 表情优先：与表情重叠的链接不替换，避免表情被拆开。
         var attachments: [CommentAssetReference: [NSTextAttachment]] = [:]
         var pendingByReference: [CommentAssetReference: PendingAsset] = [:]
-        for emote in content.emotes.sorted(by: Self.reverseRangeOrder) {
-            guard
-                !unavailableAssets.contains(
-                    UnavailableAssetKey(scope: scope, reference: emote.asset)
-                ),
-                emote.size != .unknown,
-                let url = resolveURL(emote.asset, nil)
-            else { continue }
+        let spoken = NSMutableString(string: content.message)
+        let decoratedLinks = appliedLinks.filter { link in
+            (link.title != nil || link.icon != nil)
+                && !content.emotes.contains { Self.overlaps($0.range, link.range) }
+        }
+        let replacements =
+            content.emotes.map(Replacement.emote) + decoratedLinks.map(Replacement.link)
+        var replacedFrom = attributed.length
+        for replacement in replacements.sorted(by: Replacement.reverseRangeOrder) {
             let range = NSRange(
-                location: emote.range.location,
-                length: emote.range.length
+                location: replacement.range.location,
+                length: replacement.range.length
             )
             guard range.location >= 0, range.length > 0,
-                NSMaxRange(range) <= attributed.length
+                NSMaxRange(range) <= replacedFrom
             else { continue }
-
-            let image = imagePipeline.cachedImage(for: url, variant: .commentEmote)
-            let attachment = makeAttachment(
-                image: image,
-                size: emote.size,
-                font: font
-            )
-            attributed.replaceCharacters(
-                in: range,
-                with: NSAttributedString(attachment: attachment)
-            )
-            attachments[emote.asset, default: []].append(attachment)
-            if image == nil {
-                pendingByReference[emote.asset] = PendingAsset(
-                    reference: emote.asset,
-                    url: url
+            let replaced: NSAttributedString?
+            switch replacement {
+            case .emote(let emote):
+                replaced = emoteText(
+                    emote,
+                    scope: scope,
+                    font: font,
+                    attachments: &attachments,
+                    pending: &pendingByReference
+                )
+            case .link(let link):
+                if let title = link.title {
+                    spoken.replaceCharacters(in: range, with: title)
+                }
+                replaced = linkText(
+                    link,
+                    original: attributed.attributedSubstring(from: range),
+                    scope: scope,
+                    font: font,
+                    attachments: &attachments,
+                    pending: &pendingByReference
                 )
             }
+            guard let replaced else { continue }
+            attributed.replaceCharacters(in: range, with: replaced)
+            replacedFrom = range.location
         }
 
         return RenderedText(
@@ -107,7 +122,8 @@ final class NativePlaybackCommentTextRenderer {
             pendingAssets: pendingByReference.values.sorted {
                 $0.url.absoluteString < $1.url.absoluteString
             },
-            linkTargets: linkTargets
+            linkTargets: linkTargets,
+            accessibilityText: spoken as String
         )
     }
 
@@ -149,10 +165,7 @@ final class NativePlaybackCommentTextRenderer {
         to attachments: [NSTextAttachment]
     ) {
         for attachment in attachments {
-            attachment.image = NSImage(
-                cgImage: result.image,
-                size: attachment.bounds.size
-            )
+            attachment.image = Self.fittedImage(result.image, side: attachment.bounds.width)
         }
     }
 
@@ -182,12 +195,112 @@ final class NativePlaybackCommentTextRenderer {
         }
     }
 
+    private enum Replacement {
+        case emote(CommentEmote)
+        case link(CommentLink)
+
+        var range: CommentTextRange {
+            switch self {
+            case .emote(let emote): emote.range
+            case .link(let link): link.range
+            }
+        }
+
+        static func reverseRangeOrder(_ lhs: Self, _ rhs: Self) -> Bool {
+            if lhs.range.location != rhs.range.location {
+                return lhs.range.location > rhs.range.location
+            }
+            return lhs.range.length < rhs.range.length
+        }
+    }
+
+    /// 表情原文换成图片附件；资源不可用、尺寸未知或地址不合规时保留原文。
+    private func emoteText(
+        _ emote: CommentEmote,
+        scope: NativePlaybackCommentTextScope,
+        font: NSFont,
+        attachments: inout [CommentAssetReference: [NSTextAttachment]],
+        pending: inout [CommentAssetReference: PendingAsset]
+    ) -> NSAttributedString? {
+        guard emote.size != .unknown,
+            let attachment = assetAttachment(
+                emote.asset,
+                side: Self.sideLength(for: emote.size),
+                placeholder: Self.placeholder(for: emote.size),
+                scope: scope,
+                font: font,
+                attachments: &attachments,
+                pending: &pending
+            )
+        else { return nil }
+        return NSAttributedString(attachment: attachment)
+    }
+
+    /// 接口给了标题或图标的链接：原文（多为网址）换成「图标 + 标题」。
+    ///
+    /// 沿用原文的链接与字体属性，点图标也能打开链接；图标不可用时只显示标题。
+    private func linkText(
+        _ link: CommentLink,
+        original: NSAttributedString,
+        scope: NativePlaybackCommentTextScope,
+        font: NSFont,
+        attachments: inout [CommentAssetReference: [NSTextAttachment]],
+        pending: inout [CommentAssetReference: PendingAsset]
+    ) -> NSAttributedString {
+        let attributes = original.attributes(at: 0, effectiveRange: nil)
+        let text = NSMutableAttributedString()
+        if let icon = link.icon,
+            let attachment = assetAttachment(
+                icon,
+                side: Self.linkIconSide,
+                placeholder: Self.standardPlaceholder,
+                scope: scope,
+                font: font,
+                attachments: &attachments,
+                pending: &pending
+            )
+        {
+            text.append(NSAttributedString(attachment: attachment))
+        }
+        text.append(NSAttributedString(string: link.title ?? original.string))
+        text.addAttributes(attributes, range: NSRange(location: 0, length: text.length))
+        return text
+    }
+
+    /// 小图片附件：已缓存时直接显示，否则先放占位并登记待加载；本作用域内已标记不可用时为 nil。
+    private func assetAttachment(
+        _ reference: CommentAssetReference,
+        side: CGFloat,
+        placeholder: NSImage,
+        scope: NativePlaybackCommentTextScope,
+        font: NSFont,
+        attachments: inout [CommentAssetReference: [NSTextAttachment]],
+        pending: inout [CommentAssetReference: PendingAsset]
+    ) -> NSTextAttachment? {
+        guard
+            !unavailableAssets.contains(UnavailableAssetKey(scope: scope, reference: reference)),
+            let url = resolveURL(reference, nil)
+        else { return nil }
+        let image = imagePipeline.cachedImage(for: url, variant: .commentEmote)
+        let attachment = makeAttachment(
+            image: image,
+            side: side,
+            placeholder: placeholder,
+            font: font
+        )
+        attachments[reference, default: []].append(attachment)
+        if image == nil {
+            pending[reference] = PendingAsset(reference: reference, url: url)
+        }
+        return attachment
+    }
+
     private func makeAttachment(
         image: CGImage?,
-        size: CommentEmoteSize,
+        side: CGFloat,
+        placeholder: NSImage,
         font: NSFont
     ) -> NSTextAttachment {
-        let side = Self.sideLength(for: size)
         let attachment = NSTextAttachment()
         attachment.allowsTextAttachmentView = false
         attachment.bounds = NSRect(
@@ -196,18 +309,42 @@ final class NativePlaybackCommentTextRenderer {
             width: side,
             height: side
         )
-        attachment.image =
-            image.map {
-                NSImage(cgImage: $0, size: NSSize(width: side, height: side))
-            } ?? Self.placeholder(for: size)
+        attachment.image = image.map { Self.fittedImage($0, side: side) } ?? placeholder
         return attachment
     }
 
+    /// 在边长为 `side` 的正方形里按原比例居中绘制：附件占位尺寸固定（测量不依赖图片），非方图不变形。
+    private static func fittedImage(_ image: CGImage, side: CGFloat) -> NSImage {
+        let width = CGFloat(image.width)
+        let height = CGFloat(image.height)
+        guard width > 0, height > 0, width != height else {
+            return NSImage(cgImage: image, size: NSSize(width: side, height: side))
+        }
+        let scale = side / max(width, height)
+        let drawn = NSRect(
+            x: (side - width * scale) / 2,
+            y: (side - height * scale) / 2,
+            width: width * scale,
+            height: height * scale
+        )
+        return NSImage(size: NSSize(width: side, height: side), flipped: false) { _ in
+            guard let context = NSGraphicsContext.current?.cgContext else { return false }
+            context.draw(image, in: drawn)
+            return true
+        }
+    }
+
+    private static func overlaps(_ lhs: CommentTextRange, _ rhs: CommentTextRange) -> Bool {
+        lhs.location < rhs.location + rhs.length && rhs.location < lhs.location + lhs.length
+    }
+
+    /// 给链接原文加链接属性；返回点击时按序号查找的目标，以及实际加上的链接。
     private func applyLinks(
         _ links: [CommentLink],
         to attributed: NSMutableAttributedString
-    ) -> [CommentLinkTarget] {
+    ) -> (targets: [CommentLinkTarget], applied: [CommentLink]) {
         var targets: [CommentLinkTarget] = []
+        var applied: [CommentLink] = []
         for link in links {
             let range = NSRange(
                 location: link.range.location,
@@ -226,16 +363,10 @@ final class NativePlaybackCommentTextRenderer {
             }
             let value = "bilikit-comment-link-\(targets.count)"
             targets.append(link.target)
+            applied.append(link)
             attributed.addAttribute(.link, value: value, range: range)
         }
-        return targets
-    }
-
-    private static func reverseRangeOrder(_ lhs: CommentEmote, _ rhs: CommentEmote) -> Bool {
-        if lhs.range.location != rhs.range.location {
-            return lhs.range.location > rhs.range.location
-        }
-        return lhs.range.length < rhs.range.length
+        return (targets, applied)
     }
 
     private static func sideLength(for size: CommentEmoteSize) -> CGFloat {

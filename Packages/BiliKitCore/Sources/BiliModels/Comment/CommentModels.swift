@@ -211,10 +211,23 @@ public enum CommentLinkTarget: Sendable, Equatable, Hashable {
 public struct CommentLink: Sendable, Equatable, Hashable {
     public let range: CommentTextRange
     public let target: CommentLinkTarget
+    /// 接口给的显示标题，有标题时正文里这段原文（多为网址）显示为标题。
+    ///
+    /// 正文自己识别的链接没有标题。
+    public let title: String?
+    /// 接口给的前置小图标，显示在链接文字前。
+    public let icon: CommentAssetReference?
 
-    public init(range: CommentTextRange, target: CommentLinkTarget) {
+    public init(
+        range: CommentTextRange,
+        target: CommentLinkTarget,
+        title: String? = nil,
+        icon: CommentAssetReference? = nil
+    ) {
         self.range = range
         self.target = target
+        self.title = title
+        self.icon = icon
     }
 }
 

@@ -190,6 +190,91 @@ struct CommentRemoteLinkTests {
         #expect(targets.last == .video(bvid: "BV1xx411c7mD", page: nil, startSeconds: nil))
     }
 
+    /// 接口给的标题与前置图标跟随链接；标题去掉首尾空白、与原文相同时不替换；`match_once` 只链接
+    /// 第一处。
+    @Test
+    func jumpURLTitleIconAndMatchOnceFollowTheLink() throws {
+        let short = "https://b23.tv/Jf3cvv2"
+        let data = try JSONSerialization.data(
+            withJSONObject: [
+                "message": "\(short) 视频 \(short) 视频",
+                "jump_url": [
+                    short: [
+                        "pc_url": "",
+                        "title": " 韩语版《朋友的酒》 ",
+                        "prefix_icon": "https://i0.hdslb.com/bfs/activity-plat/static/icon.png",
+                        "match_once": true
+                    ],
+                    "视频": [
+                        "pc_url": "https://www.bilibili.com/video/BV1xx411c7mD",
+                        "title": "视频"
+                    ]
+                ]
+            ]
+        )
+        let payload = try JSONDecoder().decode(CommentContentPayload.self, from: data)
+
+        let links = try payload.model().links
+
+        // 第二处短链不再由接口标出（match_once），按正文自识别成为没有标题的链接。
+        #expect(links.map(\.range.location) == [0, 23, 26, 49])
+        #expect(links.first?.title == "韩语版《朋友的酒》")
+        #expect(
+            links.first?.icon?.remoteURL?.absoluteString
+                == "https://i0.hdslb.com/bfs/activity-plat/static/icon.png"
+        )
+        #expect(links.dropFirst().allSatisfy { $0.title == nil && $0.icon == nil })
+    }
+
+    /// 站外链接不替换标题：正文保留真实网址，点击前能看到域名；图标照常带上。
+    @Test
+    func externalLinksKeepTheirAddressText() throws {
+        let address = "https://example.com/shop"
+        let data = try JSONSerialization.data(
+            withJSONObject: [
+                "message": address,
+                "jump_url": [
+                    address: [
+                        "pc_url": address,
+                        "title": "商品名",
+                        "prefix_icon": "https://i0.hdslb.com/bfs/icon.png"
+                    ]
+                ]
+            ]
+        )
+        let payload = try JSONDecoder().decode(CommentContentPayload.self, from: data)
+
+        let link = try #require(try payload.model().links.first)
+
+        #expect(link.title == nil)
+        #expect(link.icon != nil)
+    }
+
+    /// 标题、图标与 `match_once` 形状异常时按缺省处理，链接照常生成。
+    @Test
+    func malformedDisplayFieldsKeepTheLink() throws {
+        let data = try JSONSerialization.data(
+            withJSONObject: [
+                "message": "视频",
+                "jump_url": [
+                    "视频": [
+                        "pc_url": "https://www.bilibili.com/video/BV1xx411c7mD",
+                        "title": 42,
+                        "prefix_icon": ["x"],
+                        "match_once": "yes"
+                    ]
+                ]
+            ]
+        )
+        let payload = try JSONDecoder().decode(CommentContentPayload.self, from: data)
+
+        let links = try payload.model().links
+
+        #expect(links.map(\.target) == [.video(bvid: "BV1xx411c7mD", page: nil, startSeconds: nil)])
+        #expect(links.first?.title == nil)
+        #expect(links.first?.icon == nil)
+    }
+
     /// `extra` 形状异常时按普通链接处理，不拖累整条 jump_url。
     @Test
     func malformedExtraKeepsTheLink() throws {
