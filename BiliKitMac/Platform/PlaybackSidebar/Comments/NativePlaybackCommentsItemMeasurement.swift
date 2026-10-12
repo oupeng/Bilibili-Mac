@@ -292,4 +292,9 @@ enum NativePlaybackCommentImageTransition {
 /// 评论图片在列表格子与预览中的共同外观。
 enum NativePlaybackCommentImageStyle {
     static let cornerRadius: CGFloat = 6
+    /// 动图角标：距格子右上角的边距、左右内边距、字号与圆角。
+    static let animationBadgeInset: CGFloat = 4
+    static let animationBadgePadding: CGFloat = 4
+    static let animationBadgeFontSize: CGFloat = 9
+    static let animationBadgeCornerRadius: CGFloat = 3
 }

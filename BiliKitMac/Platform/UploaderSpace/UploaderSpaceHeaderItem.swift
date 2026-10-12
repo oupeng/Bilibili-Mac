@@ -196,7 +196,7 @@ private final class UploaderSpaceHeaderView: NSView {
         avatarTask = Task { [weak self] in
             let result = await imagePipeline.image(for: url, variant: .avatar)
             guard let self, !Task.isCancelled, avatarURL == url, let result else { return }
-            avatar.setImage(result.image, animated: result.origin.shouldAnimate)
+            avatar.setImage(result.image, animated: result.origin.shouldFadeIn)
         }
     }
 }

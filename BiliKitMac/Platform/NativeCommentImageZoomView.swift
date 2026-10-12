@@ -45,6 +45,8 @@ enum NativeCommentImageZoomGeometry {
 /// 方向键与 Esc 仍由外层预览处理。
 struct NativeCommentImageZoomView: NSViewRepresentable {
     let image: CGImage
+    /// 动图数据；有时逐帧替换图片内容，不改尺寸与缩放状态。
+    let animation: NativeAnimatedImage?
     let accessibilityLabel: String
     let onDismissArea: () -> Void
 
@@ -59,7 +61,7 @@ struct NativeCommentImageZoomView: NSViewRepresentable {
     }
 
     private func update(_ view: NativeCommentImageZoomScrollView) {
-        view.setImage(image)
+        view.setImage(image, animation: animation)
         view.onDismissArea = onDismissArea
         view.imageView.setAccessibilityLabel(accessibilityLabel)
     }
@@ -76,6 +78,7 @@ final class NativeCommentImageZoomScrollView: NSScrollView {
     init() {
         super.init(frame: .zero)
         contentView = NativeCommentImageZoomClipView()
+        contentView.postsBoundsChangedNotifications = true
         drawsBackground = false
         contentView.drawsBackground = false
         hasVerticalScroller = false
@@ -109,16 +112,35 @@ final class NativeCommentImageZoomScrollView: NSScrollView {
         !NativeCommentImageZoomGeometry.isFitted(requestedMagnification ?? magnification)
     }
 
-    func setImage(_ image: CGImage) {
-        guard imageView.image !== image else { return }
-        imageView.image = image
-        needsLayout = true
+    /// 逐帧只替换图片层内容，不改文档视图尺寸与缩放状态；停下时换回第一帧。
+    private lazy var playback = NativeAnimatedImagePlayback(
+        host: imageView,
+        onFrame: { [weak self] frame in self?.imageView.layer?.contents = frame },
+        onRestoreFirstFrame: { [weak self] in
+            guard let self else { return }
+            self.imageView.layer?.contents = self.imageView.image
+        }
+    )
+
+    func setImage(_ image: CGImage, animation: NativeAnimatedImage?) {
+        if imageView.image !== image {
+            imageView.image = image
+            needsLayout = true
+        }
+        playback.play(animation)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        playback.hostVisibilityDidChange()
     }
 
     /// 文档视图始终是图片适配可视区（未缩放坐标）后的尺寸；可视区尺寸变化时重新适配，保留倍率与
     /// 可视中心在图片中的相对位置，避免改窗口大小或切全屏时画面跳动。
     override func layout() {
         super.layout()
+        // 尺寸确定后才有可见区域：首次布局或窗口变大后重新判断能否播放动图。
+        defer { playback.hostVisibilityDidChange() }
         guard let image = imageView.image else { return }
         let fitted = NativeCommentImageZoomGeometry.fittedSize(
             imageSize: CGSize(width: image.width, height: image.height),

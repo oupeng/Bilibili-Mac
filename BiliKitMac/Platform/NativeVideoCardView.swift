@@ -255,7 +255,7 @@ final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHoverableColl
                     coverTask = nil
                     if let result {
                         coverPhase = .loaded(coverURL)
-                        card.setCover(result.image, animated: result.origin.shouldAnimate)
+                        card.setCover(result.image, animated: result.origin.shouldFadeIn)
                     } else {
                         coverPhase = .failed(coverURL)
                     }
@@ -282,7 +282,7 @@ final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHoverableColl
                 avatarTask = nil
                 if let result {
                     avatarPhase = .loaded(avatarURL)
-                    card.setAvatar(result.image, animated: result.origin.shouldAnimate)
+                    card.setAvatar(result.image, animated: result.origin.shouldFadeIn)
                 } else {
                     avatarPhase = .failed(avatarURL)
                 }

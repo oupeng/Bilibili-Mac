@@ -118,14 +118,20 @@ private struct NativeCommentImagePreviewContent: View {
         case loading
         /// 原图到达前显示列表里已缓存的缩小图；`originalFailed` 表示原图加载失败，可重试。
         case placeholder(CGImage, originalFailed: Bool)
-        case loaded(CGImage)
+        /// 原图；动图另带编码数据，由缩放视图播放。缩小图占位不播放。
+        case loaded(CGImage, NativeAnimatedImage?)
         case failed
 
         var image: CGImage? {
             switch self {
-            case .placeholder(let image, _), .loaded(let image): image
+            case .placeholder(let image, _), .loaded(let image, _): image
             case .loading, .failed: nil
             }
+        }
+
+        var animation: NativeAnimatedImage? {
+            guard case .loaded(_, let animation) = self else { return nil }
+            return animation
         }
 
         /// 占位时原图是否失败；不是占位时为 nil。
@@ -224,7 +230,7 @@ private struct NativeCommentImagePreviewContent: View {
     @ViewBuilder
     private var phaseContent: some View {
         if let image = phase.image {
-            imageView(image, originalFailed: phase.originalFailed)
+            imageView(image, animation: phase.animation, originalFailed: phase.originalFailed)
         } else if case .failed = phase {
             VStack(spacing: 10) {
                 Text(AppStrings.localized("图片加载失败"))
@@ -242,7 +248,11 @@ private struct NativeCommentImagePreviewContent: View {
     ///
     /// 按序号重建（换图回到适配），同一张换成原图时只替换图片、保留缩放位置；原图状态贴在图片适配区域
     /// 的底边。
-    private func imageView(_ image: CGImage, originalFailed: Bool?) -> some View {
+    private func imageView(
+        _ image: CGImage,
+        animation: NativeAnimatedImage?,
+        originalFailed: Bool?
+    ) -> some View {
         GeometryReader { proxy in
             let fitted = NativeCommentImageZoomGeometry.fittedSize(
                 imageSize: CGSize(width: image.width, height: image.height),
@@ -250,6 +260,7 @@ private struct NativeCommentImagePreviewContent: View {
             )
             NativeCommentImageZoomView(
                 image: image,
+                animation: animation,
                 accessibilityLabel: imageAccessibilityLabel,
                 onDismissArea: onDismiss
             )
@@ -374,7 +385,7 @@ private struct NativeCommentImagePreviewContent: View {
         }
         let reference = request.references[selection.index]
         if let cached = loader.cachedImage(for: reference) {
-            phase = .loaded(cached)
+            phase = .loaded(cached, loader.cachedAnimation(for: reference))
             return
         }
         let placeholder = placeholderLoader.cachedImage(for: reference)
@@ -386,11 +397,11 @@ private struct NativeCommentImagePreviewContent: View {
             return
         }
         let animation: Animation? =
-            placeholder == nil && result.origin.shouldAnimate && !reduceMotion
+            placeholder == nil && result.origin.shouldFadeIn && !reduceMotion
             ? .easeOut(duration: NativePlaybackCommentImageTransition.duration)
             : nil
         withAnimation(animation) {
-            phase = .loaded(result.image)
+            phase = .loaded(result.image, result.animation)
         }
     }
 }
