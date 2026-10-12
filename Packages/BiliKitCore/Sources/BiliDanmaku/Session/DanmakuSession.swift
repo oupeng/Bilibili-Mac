@@ -12,9 +12,17 @@ public enum DanmakuSessionState: Sendable, Equatable {
 @MainActor
 /// 弹幕数据、时间线订阅、分段加载与 presentation 的会话 owner。
 ///
-/// 同时最多加载两个 segment，失败 segment 在当前 identity 内不自动重试；generation 阻止
-/// 切视频或 stop 后的迟到结果写回。`stop` 必须取消所有任务并清空 scheduler/presentation。
+/// 同时最多加载两个 segment；被风控拒绝的 segment 等 `restrictedRetryDelay` 后在会话层再请求一次
+/// （等待期间占用加载名额），其余失败与再次被拒的 segment 在当前 identity 内不再重试。generation
+/// 阻止切视频或 stop 后的迟到结果写回。`stop` 必须取消所有任务（含等待中的重试）并清空
+/// scheduler/presentation。
 public final class DanmakuSession: DanmakuPresentationControlling {
+    /// 被风控拒绝的分段在会话层再请求一次之前的等待时长。
+    ///
+    /// 弹幕分段请求会被间歇风控（游客更常见），稍后通常恢复。会话层只再请求一次，避免加重风控；
+    /// 客户端对 -403／v_voucher 的换 key 重试是另一层，不因此叠加更多会话重试。
+    static let restrictedRetryDelay: Duration = .seconds(2)
+
     public private(set) var state: DanmakuSessionState = .idle
 
     private let useCase: DanmakuSegmentUseCase
@@ -130,6 +138,9 @@ public final class DanmakuSession: DanmakuPresentationControlling {
 
     private func handle(_ snapshot: PlaybackTimelineSnapshot) {
         guard let identity, snapshot.identity == identity else { return }
+        if let presentationSink {
+            scheduler.setCatchUpWindow(presentationSink.catchUpWindowSeconds)
+        }
         let batch = scheduler.consume(snapshot)
         presentationSink?.apply(
             DanmakuPresentationUpdate(snapshot: snapshot, batch: batch)
@@ -153,10 +164,13 @@ public final class DanmakuSession: DanmakuPresentationControlling {
     ) {
         loadTasks[index] = Task { [weak self, useCase] in
             do {
-                let segment = try await useCase.segment(
-                    index: index,
-                    for: identity
-                )
+                let segment: DanmakuSegment
+                do {
+                    segment = try await useCase.segment(index: index, for: identity)
+                } catch DanmakuApplicationError.requestRestricted {
+                    try await Task.sleep(for: Self.restrictedRetryDelay)
+                    segment = try await useCase.segment(index: index, for: identity)
+                }
                 try Task.checkCancellation()
                 guard let self,
                     self.generation == requestGeneration,

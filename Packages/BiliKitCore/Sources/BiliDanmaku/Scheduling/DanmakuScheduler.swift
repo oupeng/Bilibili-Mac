@@ -31,29 +31,36 @@ public struct DanmakuFilter: Sendable, Equatable {
 }
 
 /// 某一播放 identity/generation 的增量呈现指令；`clearsExisting` 表示时间不再连续。
+///
+/// `catchesUp` 表示这批弹幕是补位：每条都按自己的时间点进场，呈现时从已经走过的位置开始，
+/// 而不是从当前时刻重新进场。
 public struct DanmakuBatch: Sendable, Equatable {
     public let identity: PlaybackItemIdentity
     public let discontinuityGeneration: UInt64
     public let events: [DanmakuEvent]
     public let clearsExisting: Bool
+    public let catchesUp: Bool
 
     public init(
         identity: PlaybackItemIdentity,
         discontinuityGeneration: UInt64,
         events: [DanmakuEvent],
-        clearsExisting: Bool
+        clearsExisting: Bool,
+        catchesUp: Bool
     ) {
         self.identity = identity
         self.discontinuityGeneration = discontinuityGeneration
         self.events = events
         self.clearsExisting = clearsExisting
+        self.catchesUp = catchesUp
     }
 }
 
 /// 以统一媒体时间线调度弹幕，并维护有界分段缓存与去重游标。
 ///
-/// identity、discontinuity 或时间回跳会清除投递记录并先发清屏 batch；暂停和倍速直接使用
-/// timeline 快照，不创建独立 wall-clock timer。
+/// identity、discontinuity 或时间回跳会清除投递记录并先发清屏 batch；之后第一个播放中的快照
+/// 补发回看窗口（`setCatchUpWindow`）内本应仍在屏上的弹幕，打开弹幕或覆盖窗口的分段迟到时同样
+/// 补位。暂停和倍速直接使用 timeline 快照，不创建独立 wall-clock timer。
 public struct DanmakuScheduler: Sendable {
     public static let segmentDurationSeconds = 360.0
     public static let maximumCachedSegments = 3
@@ -66,6 +73,9 @@ public struct DanmakuScheduler: Sendable {
     private var deliveredIDsBySegment: [Int: Set<String>] = [:]
     private var previousPositionSeconds: Double?
     private var discontinuityGeneration: UInt64?
+    /// 补位回看的时长，由呈现端按画面宽度与弹幕速度给出；为 0 时不补位。
+    private var catchUpWindowSeconds = 0.0
+    private var needsCatchUp = false
 
     public init() {}
 
@@ -84,6 +94,7 @@ public struct DanmakuScheduler: Sendable {
         deliveredIDsBySegment.removeAll(keepingCapacity: false)
         previousPositionSeconds = nil
         discontinuityGeneration = nil
+        needsCatchUp = false
     }
 
     public mutating func reset() {
@@ -93,6 +104,7 @@ public struct DanmakuScheduler: Sendable {
         deliveredIDsBySegment.removeAll(keepingCapacity: false)
         previousPositionSeconds = nil
         discontinuityGeneration = nil
+        needsCatchUp = false
     }
 
     public mutating func setEnabled(_ enabled: Bool) {
@@ -101,6 +113,11 @@ public struct DanmakuScheduler: Sendable {
         nextEventIndexBySegment.removeAll(keepingCapacity: true)
         deliveredIDsBySegment.removeAll(keepingCapacity: true)
         previousPositionSeconds = nil
+        needsCatchUp = enabled
+    }
+
+    public mutating func setCatchUpWindow(_ seconds: Double) {
+        catchUpWindowSeconds = seconds.isFinite ? max(seconds, 0) : 0
     }
 
     public mutating func setFilter(_ filter: DanmakuFilter) {
@@ -122,6 +139,12 @@ public struct DanmakuScheduler: Sendable {
             after: previousPositionSeconds ?? -.infinity,
             in: events
         )
+        // 迟到的分段若覆盖回看窗口，补上其中本应仍在屏上的弹幕；已投递的按 ID 去重。
+        if let previousPositionSeconds,
+            catchUpWindowOverlaps(segmentIndex: segment.index, endingAt: previousPositionSeconds)
+        {
+            needsCatchUp = true
+        }
         trimCache()
     }
 
@@ -131,6 +154,13 @@ public struct DanmakuScheduler: Sendable {
         guard snapshot.identity == identity else { return [] }
         let current = Self.segmentIndex(at: snapshot.positionSeconds)
         var indices = [current]
+        // 回看窗口跨进上一分段时一并请求（排在当前分段之后），补位才不会在分段边界缺一截。
+        let previous = current - 1
+        if previous >= 1,
+            catchUpWindowOverlaps(segmentIndex: previous, endingAt: snapshot.positionSeconds)
+        {
+            indices.append(previous)
+        }
         let next = current + 1
         if next <= DanmakuSegmentUseCase.maximumSegmentIndex,
             snapshot.durationSeconds.map({
@@ -142,7 +172,7 @@ public struct DanmakuScheduler: Sendable {
         return indices
     }
 
-    /// 消费相邻快照之间首次出现的事件；不连续时只返回清屏指令，不补喷跨越区间。
+    /// 消费相邻快照之间首次出现的事件；不连续时先返回清屏指令，之后只补回看窗口内的弹幕，不补喷跨越区间。
     public mutating func consume(
         _ snapshot: PlaybackTimelineSnapshot
     ) -> DanmakuBatch? {
@@ -153,11 +183,13 @@ public struct DanmakuScheduler: Sendable {
             previousPositionSeconds = snapshot.positionSeconds
             nextEventIndexBySegment.removeAll(keepingCapacity: true)
             deliveredIDsBySegment.removeAll(keepingCapacity: true)
+            needsCatchUp = true
             return DanmakuBatch(
                 identity: identity,
                 discontinuityGeneration: snapshot.discontinuityGeneration,
                 events: [],
-                clearsExisting: true
+                clearsExisting: true,
+                catchesUp: false
             )
         }
 
@@ -177,15 +209,27 @@ public struct DanmakuScheduler: Sendable {
             self.previousPositionSeconds = snapshot.positionSeconds
             nextEventIndexBySegment.removeAll(keepingCapacity: true)
             deliveredIDsBySegment.removeAll(keepingCapacity: true)
+            needsCatchUp = true
             return DanmakuBatch(
                 identity: identity,
                 discontinuityGeneration: snapshot.discontinuityGeneration,
                 events: [],
-                clearsExisting: true
+                clearsExisting: true,
+                catchesUp: false
             )
         }
 
-        let lowerIndex = Self.segmentIndex(at: previousPositionSeconds)
+        // 补位时从回看窗口起点开始收集，已投递的按 ID 去重；否则只收集相邻快照之间新出现的。
+        let catchesUp = needsCatchUp && catchUpWindowSeconds > 0
+        needsCatchUp = false
+        let lowerBound =
+            catchesUp
+            ? min(
+                catchUpWindowStart(endingAt: snapshot.positionSeconds),
+                previousPositionSeconds
+            )
+            : previousPositionSeconds
+        let lowerIndex = Self.segmentIndex(at: lowerBound)
         let upperIndex = Self.segmentIndex(at: snapshot.positionSeconds)
         trimDeliveredIDs(through: upperIndex)
         var emitted: [DanmakuEvent] = []
@@ -193,12 +237,15 @@ public struct DanmakuScheduler: Sendable {
             for index in lowerIndex...upperIndex {
                 guard let events = segments[index] else { continue }
                 var nextEventIndex =
-                    nextEventIndexBySegment[index]
-                    ?? Self.firstEventIndex(
-                        after: previousPositionSeconds,
-                        in: events
-                    )
-                if nextEventIndex < events.count,
+                    catchesUp
+                    ? Self.firstEventIndex(after: lowerBound, in: events)
+                    : nextEventIndexBySegment[index]
+                        ?? Self.firstEventIndex(
+                            after: previousPositionSeconds,
+                            in: events
+                        )
+                if !catchesUp,
+                    nextEventIndex < events.count,
                     events[nextEventIndex].timeSeconds <= previousPositionSeconds
                 {
                     nextEventIndex = Self.firstEventIndex(
@@ -231,8 +278,21 @@ public struct DanmakuScheduler: Sendable {
             identity: identity,
             discontinuityGeneration: snapshot.discontinuityGeneration,
             events: emitted,
-            clearsExisting: false
+            clearsExisting: false,
+            catchesUp: catchesUp
         )
+    }
+
+    /// 截至 `position` 的回看窗口起点；窗口为 0 时等于 `position`。
+    private func catchUpWindowStart(endingAt position: Double) -> Double {
+        max(max(position, 0) - catchUpWindowSeconds, 0)
+    }
+
+    /// 回看窗口 [起点, `position`) 是否落进该分段；窗口为 0 时为空，不触发补位或额外请求。
+    private func catchUpWindowOverlaps(segmentIndex: Int, endingAt position: Double) -> Bool {
+        let window = catchUpWindowStart(endingAt: position)..<max(position, 0)
+        let start = Double(segmentIndex - 1) * Self.segmentDurationSeconds
+        return (start..<(start + Self.segmentDurationSeconds)).overlaps(window)
     }
 
     private mutating func trimCache() {

@@ -369,6 +369,7 @@ final class NativeVideoCardView: NSView {
             title: presentation.title,
             footerLeading: presentation.footerLeadingText,
             footerTrailing: presentation.footerTrailingText,
+            footerTrailingSymbolName: presentation.footerTrailingSymbolName,
             footerTrailingStyle: presentation.footerTrailingStyle
         )
         setAccessibilityLabel(presentation.accessibilityLabel)

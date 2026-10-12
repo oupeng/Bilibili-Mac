@@ -1,5 +1,13 @@
 import Foundation
 
+/// 观看这条历史时所用的设备。
+public enum WatchHistoryDevice: Sendable, Equatable {
+    case phone
+    case pad
+    case web
+    case tv
+}
+
 public struct WatchHistoryItem: Identifiable, Sendable, Equatable {
     public var id: String { bvid }
 
@@ -10,6 +18,8 @@ public struct WatchHistoryItem: Identifiable, Sendable, Equatable {
     public let progressSeconds: Int
     public let durationSeconds: Int
     public let viewedAt: Date
+    /// 接口未给出或无法识别时为 nil。
+    public let device: WatchHistoryDevice?
 
     public init(
         bvid: String,
@@ -18,7 +28,8 @@ public struct WatchHistoryItem: Identifiable, Sendable, Equatable {
         owner: VideoOwner,
         progressSeconds: Int,
         durationSeconds: Int,
-        viewedAt: Date
+        viewedAt: Date,
+        device: WatchHistoryDevice? = nil
     ) {
         self.bvid = bvid
         self.title = title
@@ -27,5 +38,6 @@ public struct WatchHistoryItem: Identifiable, Sendable, Equatable {
         self.progressSeconds = progressSeconds
         self.durationSeconds = durationSeconds
         self.viewedAt = viewedAt
+        self.device = device
     }
 }

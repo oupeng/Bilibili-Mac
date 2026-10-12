@@ -21,7 +21,7 @@ struct CDNBenchmarkSampleDiscovererTests {
         candidate.play = #""120""#
         let transport = StubTransport(
             responses: [
-                rank(popular, candidate), detail(candidate), try fixtureResponse("nav"),
+                rank(popular, candidate), try fixtureResponse("nav"), detail(candidate),
                 try playURL()
             ]
         )
@@ -38,15 +38,15 @@ struct CDNBenchmarkSampleDiscovererTests {
         #expect(
             requests.map(\.url.path) == [
                 "/x/web-interface/newlist_rank",
-                "/x/web-interface/view",
                 "/x/web-interface/nav",
+                "/x/web-interface/wbi/view",
                 "/x/player/wbi/playurl"
             ]
         )
         // 近期列表与 WBI nav 保持匿名；view 与 playurl 按账户读取。
         #expect(
             requests.map { $0.headers["Cookie"] } == [
-                nil, StubAuthorizer.cookie, nil, StubAuthorizer.cookie
+                nil, nil, StubAuthorizer.cookie, StubAuthorizer.cookie
             ]
         )
         #expect(requests.allSatisfy { $0.headers["Authorization"] == nil })
@@ -80,7 +80,7 @@ struct CDNBenchmarkSampleDiscovererTests {
         let rank = rank(Self.candidateA)
         let detail = detail(Self.candidateA)
         let transport = StubTransport([
-            .response(rank), .response(detail), .response(try fixtureResponse("nav")),
+            .response(rank), .response(try fixtureResponse("nav")), .response(detail),
             .cancellingCaller(try playURL()),
             .response(rank), .response(detail), .response(try playURL())
         ])
@@ -98,9 +98,9 @@ struct CDNBenchmarkSampleDiscovererTests {
         let transport = StubTransport(
             responses: [
                 rank(Self.candidateA, Self.candidateB),
+                try fixtureResponse("nav"),
                 detail(mismatched),
                 detail(Self.candidateB),
-                try fixtureResponse("nav"),
                 try playURL()
             ]
         )
@@ -111,9 +111,9 @@ struct CDNBenchmarkSampleDiscovererTests {
         #expect(
             transport.capturedRequests().map(\.url.path) == [
                 "/x/web-interface/newlist_rank",
-                "/x/web-interface/view",
-                "/x/web-interface/view",
                 "/x/web-interface/nav",
+                "/x/web-interface/wbi/view",
+                "/x/web-interface/wbi/view",
                 "/x/player/wbi/playurl"
             ]
         )
@@ -124,8 +124,8 @@ struct CDNBenchmarkSampleDiscovererTests {
         let transport = StubTransport(
             responses: [
                 rank(Self.candidateA, Self.candidateB),
-                detail(Self.candidateA),
                 try fixtureResponse("nav"),
+                detail(Self.candidateA),
                 try playURL(),
                 rank()
             ]
@@ -137,8 +137,8 @@ struct CDNBenchmarkSampleDiscovererTests {
         #expect(
             transport.capturedRequests().map(\.url.path) == [
                 "/x/web-interface/newlist_rank",
-                "/x/web-interface/view",
                 "/x/web-interface/nav",
+                "/x/web-interface/wbi/view",
                 "/x/player/wbi/playurl"
             ]
         )
@@ -149,8 +149,8 @@ struct CDNBenchmarkSampleDiscovererTests {
         let transport = StubTransport(
             responses: [
                 rank(Self.candidateA),
-                detail(Self.candidateA),
                 try fixtureResponse("nav"),
+                detail(Self.candidateA),
                 try playURL(removesAudio: true)
             ]
         )
@@ -168,8 +168,8 @@ struct CDNBenchmarkSampleDiscovererTests {
         let transport = StubTransport(
             responses: [
                 rank(Self.candidateA),
-                detail(Self.candidateA),
                 try fixtureResponse("nav"),
+                detail(Self.candidateA),
                 try playURL(),
                 rank(secondRegion),
                 detail(secondRegion),
@@ -184,11 +184,11 @@ struct CDNBenchmarkSampleDiscovererTests {
         #expect(
             transport.capturedRequests().map(\.url.path) == [
                 "/x/web-interface/newlist_rank",
-                "/x/web-interface/view",
                 "/x/web-interface/nav",
+                "/x/web-interface/wbi/view",
                 "/x/player/wbi/playurl",
                 "/x/web-interface/newlist_rank",
-                "/x/web-interface/view",
+                "/x/web-interface/wbi/view",
                 "/x/player/wbi/playurl"
             ]
         )
@@ -198,7 +198,7 @@ struct CDNBenchmarkSampleDiscovererTests {
     func resettingDiscoveryLifecycleAllowsTheSameAnonymousCandidateAgain() async throws {
         let transport = StubTransport(
             responses: [
-                rank(Self.candidateA), detail(Self.candidateA), try fixtureResponse("nav"),
+                rank(Self.candidateA), try fixtureResponse("nav"), detail(Self.candidateA),
                 try playURL(),
                 rank(Self.candidateA), detail(Self.candidateA), try playURL()
             ]
@@ -216,8 +216,8 @@ struct CDNBenchmarkSampleDiscovererTests {
         let transport = StubTransport(
             responses: [
                 rank(Self.candidateA),
-                detail(Self.candidateA),
                 try fixtureResponse("nav"),
+                detail(Self.candidateA),
                 try playURL(promotesAVCToHighQuality: false)
             ]
         )
@@ -232,7 +232,7 @@ struct CDNBenchmarkSampleDiscovererTests {
     func missingCredentialDoesNotFallBackToAnonymousDetail() async throws {
         let transport = StubTransport(
             responses: [
-                rank(Self.candidateA), detail(Self.candidateA), try fixtureResponse("nav"),
+                rank(Self.candidateA), try fixtureResponse("nav"), detail(Self.candidateA),
                 try playURL()
             ]
         )
@@ -240,9 +240,11 @@ struct CDNBenchmarkSampleDiscovererTests {
         await #expect(throws: BiliAPIError.authorizationRequired) {
             try await discoverer(transport, authorized: false).discover()
         }
+        // 签名需要的 WBI nav 是匿名请求；详情本身不会匿名发出。
         #expect(
             transport.capturedRequests().map(\.url.path) == [
-                "/x/web-interface/newlist_rank"
+                "/x/web-interface/newlist_rank",
+                "/x/web-interface/nav"
             ]
         )
     }

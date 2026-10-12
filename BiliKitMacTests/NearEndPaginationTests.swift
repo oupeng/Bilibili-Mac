@@ -30,6 +30,7 @@ struct NearEndPaginationTests {
 
     struct Scenario: CustomStringConvertible, Sendable {
         let description: String
+        var tailChange: NearEndPagination<Int>.TailChangeInsideThreshold = .requiresExit
         let steps: [Step]
     }
 
@@ -61,6 +62,26 @@ struct NearEndPaginationTests {
                 .evaluate(inside: true, tail: 2, loads: false),
                 .evaluate(inside: false, tail: 2, loads: false),
                 .evaluate(inside: true, tail: 2, loads: true)
+            ]
+        ),
+        Scenario(
+            description: "网格：仍在阈值内换尾部时立即布防，到底后继续翻页",
+            tailChange: .rearms,
+            steps: [
+                .evaluate(inside: true, tail: 1, loads: true),
+                .evaluate(inside: true, tail: 1, loading: true, loads: false),
+                .evaluate(inside: true, tail: 2, loads: true),
+                .evaluate(inside: true, tail: 2, loads: false)
+            ]
+        ),
+        Scenario(
+            description: "网格：立即布防仍受一次手势一页约束",
+            tailChange: .rearms,
+            steps: [
+                .evaluate(inside: true, tail: 1, live: true, loads: true),
+                .evaluate(inside: true, tail: 2, live: true, loads: false),
+                .releaseBackpressure,
+                .evaluate(inside: true, tail: 2, live: true, loads: true)
             ]
         ),
         Scenario(
@@ -112,7 +133,7 @@ struct NearEndPaginationTests {
 
     @Test(arguments: scenarios)
     func pagingFollowsThresholdAndGestureContract(_ scenario: Scenario) {
-        var pagination = NearEndPagination<Int>()
+        var pagination = NearEndPagination<Int>(tailChangeInsideThreshold: scenario.tailChange)
         for (index, step) in scenario.steps.enumerated() {
             switch step {
             case .evaluate(let inside, let tail, let loading, let live, let loads):

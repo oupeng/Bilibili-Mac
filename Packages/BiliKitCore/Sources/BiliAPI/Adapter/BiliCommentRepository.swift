@@ -101,6 +101,9 @@ public actor BiliCommentRepository: CommentRepository {
         )
     }
 
+    /// 评论区已关闭时 reply endpoint 返回的业务码。
+    private static let closedCommentsCode = 12002
+
     private static func readError(
         _ failure: BiliAPIError.Failure
     ) -> CommentReadError {
@@ -109,6 +112,8 @@ public actor BiliCommentRepository: CommentRepository {
             .authenticationInvalid
         case .restricted:
             .requestRestricted
+        case .rejected(let code) where code == closedCommentsCode:
+            .closed
         case .rejected(let code):
             .serviceRejected(code: code)
         case .transport:

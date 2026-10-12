@@ -206,6 +206,10 @@ private final class NativePlaybackCommentsStateView: NSView {
             titleLabel.stringValue = AppStrings.localized("暂无评论")
             detailLabel.stringValue = AppStrings.localized("这个视频还没有公开评论。")
             setAccessibilityLabel(AppStrings.localized("暂无评论，这个视频还没有公开评论"))
+        case .closed:
+            titleLabel.stringValue = AppStrings.localized("评论区已关闭")
+            detailLabel.stringValue = AppStrings.localized("这个视频的评论区已关闭。")
+            setAccessibilityLabel(AppStrings.localized("评论区已关闭"))
         case .failed:
             titleLabel.stringValue = AppStrings.localized("评论加载失败")
             detailLabel.stringValue = ""

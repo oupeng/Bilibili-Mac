@@ -116,22 +116,14 @@ public struct RecommendedFeedView<LoadedContent: View>: View {
         }
     }
 
-    @ViewBuilder
     private func refreshStatus(
         _ presentation: FeedPresentation
     ) -> some View {
-        if presentation.isRefreshing {
-            ProgressView()
-                .controlSize(.small)
-                .padding(8)
-                .background(.regularMaterial, in: Capsule())
-                .accessibilityLabel(BrowseFeatureStrings.localized("正在刷新首页推荐"))
-        } else if let error = presentation.refreshError {
-            Text(error.displayMessage)
-                .font(.caption)
-                .padding(8)
-                .background(.regularMaterial, in: Capsule())
-        }
+        RefreshStatusCapsule(
+            isRefreshing: presentation.isRefreshing,
+            refreshingLabel: BrowseFeatureStrings.localized("正在刷新首页推荐"),
+            errorMessage: presentation.refreshError?.displayMessage
+        )
     }
 
     private func isRefreshDisabled(

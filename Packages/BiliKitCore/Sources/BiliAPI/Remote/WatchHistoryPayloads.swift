@@ -122,7 +122,8 @@ struct WatchHistoryItemPayload: Decodable, Sendable {
             ),
             progressSeconds: normalizedProgress,
             durationSeconds: duration,
-            viewedAt: Date(timeIntervalSince1970: TimeInterval(viewedAt))
+            viewedAt: Date(timeIntervalSince1970: TimeInterval(viewedAt)),
+            device: history.device
         )
     }
 }
@@ -130,4 +131,22 @@ struct WatchHistoryItemPayload: Decodable, Sendable {
 struct WatchHistoryIdentityPayload: Decodable, Sendable {
     let bvid: String?
     let business: String
+    /// 观看设备 `dt`；缺失或形状不对时为 nil，不影响整条历史。
+    let deviceType: LossyDecodable<FlexibleInt64>?
+
+    private enum CodingKeys: String, CodingKey {
+        case bvid, business
+        case deviceType = "dt"
+    }
+
+    /// `dt`：1/3/5/7 手机端，2 网页端，4/6 平板端，33 电视端；其他取值不显示设备。
+    var device: WatchHistoryDevice? {
+        switch deviceType?.value?.value {
+        case 1, 3, 5, 7: .phone
+        case 2: .web
+        case 4, 6: .pad
+        case 33: .tv
+        default: nil
+        }
+    }
 }

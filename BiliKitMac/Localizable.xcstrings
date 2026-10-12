@@ -5853,6 +5853,34 @@
         }
       }
     },
+    "评论区已关闭" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comments are turned off"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コメントはオフになっています"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "评论区已关闭"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "評論區已關閉"
+          }
+        }
+      }
+    },
     "评论图片" : {
       "localizations" : {
         "en" : {
@@ -6521,6 +6549,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "返回詳情"
+          }
+        }
+      }
+    },
+    "这个视频的评论区已关闭。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comments are turned off for this video."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この動画のコメントはオフになっています。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这个视频的评论区已关闭。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這部影片的評論區已關閉。"
           }
         }
       }

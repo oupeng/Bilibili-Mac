@@ -9,12 +9,8 @@ extension BiliAPIClient {
         guard Self.isValidBVID(bvid) else {
             throw BiliAPIError.invalidRequest
         }
-        let payload: VideoDetailPayload = try await get(
-            url: try endpoint(
-                path: "/x/web-interface/view",
-                queryItems: [URLQueryItem(name: "bvid", value: bvid)]
-            ),
-            referer: Self.videoReferer(bvid),
+        let payload: VideoDetailPayload = try await signedVideoDetail(
+            bvid: bvid,
             access: .accountRead(
                 missingCredential: .useAnonymousRequest,
                 mapsAuthenticationInvalidation: true
@@ -25,6 +21,36 @@ extension BiliAPIClient {
             throw BiliAPIError.decodingFailed
         }
         return detail
+    }
+
+    /// 视频详情的唯一请求：Web 播放页同款 WBI 签名 endpoint，未签名的 `/view` 对游客稳定返回 HTTP 412。
+    ///
+    /// 主详情与测速样本共用，各自决定授权方式与解码形状。403 多为风控，只在 -403／v_voucher 时刷新 key 重试；
+    /// 取 key 与重试期间会话变化则取消，不以新会话或匿名身份补发。
+    func signedVideoDetail<Payload: Decodable & Sendable>(
+        bvid: String,
+        access: RequestAccess
+    ) async throws -> Payload {
+        let sessionEpoch = authenticatedSessionEpoch
+        return try await withWBIKeyRefresh(retryingHTTPForbidden: false) { forceKeyRefresh in
+            let keys = try await wbiKey(forceRefresh: forceKeyRefresh)
+            try requireAuthenticatedSessionEpoch(sessionEpoch)
+            let query = try wbiSigner.sign(
+                parameters: ["bvid": bvid],
+                keys: keys,
+                timestamp: timestampProvider()
+            )
+            let payload: Payload = try await get(
+                url: try endpoint(
+                    path: "/x/web-interface/wbi/view",
+                    percentEncodedQuery: query
+                ),
+                referer: Self.videoReferer(bvid),
+                access: access
+            )
+            try requireAuthenticatedSessionEpoch(sessionEpoch)
+            return payload
+        }
     }
 
     /// 登录增强地读取相关推荐；只有本地明确无凭据时匿名。

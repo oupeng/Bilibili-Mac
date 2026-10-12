@@ -228,33 +228,125 @@ struct PopularNativeGridTests {
         #expect(bridge.takeExternalRequest(0) == nil)
     }
 
+    /// 网格刚把位置同步出去时，同一轮更新里交回的旧值不算新请求；binding 赶上新值后旧值才重新算请求。
     @Test
-    func nearEndGeometryUsesViewportBoundaryWithoutVisibleItemEnumeration() {
+    func scrollBindingBridgeIgnoresTheValueItJustReplaced() {
+        var bridge = NativeVideoScrollBindingBridge(initialOffsetY: 3_066)
+
+        bridge.markSynchronized(0)
+        #expect(bridge.takeExternalRequest(3_066) == nil)
+        #expect(bridge.takeExternalRequest(0) == nil)
+        #expect(bridge.takeExternalRequest(3_066) == 3_066)
+    }
+
+    /// 程序回到顶部后、用户再次滚动前保持置顶；滚动代次前进后置顶失效。
+    @Test
+    func topPinHoldsOnlyUntilTheUserScrollsAgain() {
+        var pin = NativeVideoGridTopPin()
+        #expect(!pin.keepsTop(atScrollGeneration: 0))
+
+        pin.pin(atScrollGeneration: 3)
+
+        #expect(pin.keepsTop(atScrollGeneration: 3))
+        #expect(!pin.keepsTop(atScrollGeneration: 4))
+    }
+
+    /// 视野底边离内容底部不足 `nearEndViewportMultiple` 屏时请求下一页，与可见卡片无关。
+    @Test
+    func nearEndTriggersWithinTheNearEndMultipleOfTheContentBottom() {
         let width: CGFloat = 1_080
-        let triggerOriginY =
-            CGFloat(23)
-            * (NativeVideoGridGeometry.itemSize(for: width).height
-                + NativeVideoGridGeometry.verticalSpacing)
+        let viewportHeight: CGFloat = 800
+        let contentHeight = NativeVideoGridGeometry.contentHeight(for: width, itemCount: 100)
+        let threshold =
+            contentHeight - viewportHeight * NativeVideoGridGeometry.nearEndViewportMultiple
 
         #expect(
             !NativeVideoGridGeometry.isNearEnd(
                 itemCount: 100,
                 width: width,
-                visibleMaximumY: triggerOriginY
+                visibleMaximumY: threshold,
+                viewportHeight: viewportHeight
             )
         )
         #expect(
             NativeVideoGridGeometry.isNearEnd(
                 itemCount: 100,
                 width: width,
-                visibleMaximumY: triggerOriginY + 1
+                visibleMaximumY: threshold + 1,
+                viewportHeight: viewportHeight
             )
         )
         #expect(
             !NativeVideoGridGeometry.isNearEnd(
                 itemCount: 0,
                 width: width,
-                visibleMaximumY: 10_000
+                visibleMaximumY: 10_000,
+                viewportHeight: viewportHeight
+            )
+        )
+    }
+
+    /// 预备区域是视野上下各 `preparedViewportMultiple` 屏，夹在内容范围内；某一侧余量少于
+    /// `preparedRefreshViewportMultiple` 屏时才刷新，已到内容边缘的一侧不算不足。
+    @Test
+    func preparedContentKeepsAMarginAroundTheVisibleRect() {
+        let bounds = NSRect(x: 0, y: 0, width: 1_000, height: 20_000)
+        let visible = NSRect(x: 0, y: 8_000, width: 1_000, height: 800)
+        let margin = visible.height * NativeVideoGridGeometry.preparedViewportMultiple
+        let slack = visible.height * NativeVideoGridGeometry.preparedRefreshViewportMultiple
+        let target = visible.insetBy(dx: 0, dy: -margin)
+
+        #expect(
+            NativeVideoGridGeometry.preparedContentRect(visible: visible, bounds: bounds) == target
+        )
+        let atTop = NSRect(x: 0, y: 0, width: 1_000, height: 800)
+        #expect(
+            NativeVideoGridGeometry.preparedContentRect(visible: atTop, bounds: bounds)
+                == NSRect(x: 0, y: 0, width: 1_000, height: atTop.height + margin)
+        )
+        #expect(
+            !NativeVideoGridGeometry.needsPreparedContentRefresh(
+                prepared: target,
+                visible: visible,
+                bounds: bounds
+            )
+        )
+        var shortBelow = target
+        shortBelow.size.height = visible.maxY + slack - 1 - target.minY
+        #expect(
+            NativeVideoGridGeometry.needsPreparedContentRefresh(
+                prepared: shortBelow,
+                visible: visible,
+                bounds: bounds
+            )
+        )
+        var shortAbove = target
+        shortAbove.origin.y = visible.minY - slack + 1
+        shortAbove.size.height = target.maxY - shortAbove.minY
+        #expect(
+            NativeVideoGridGeometry.needsPreparedContentRefresh(
+                prepared: shortAbove,
+                visible: visible,
+                bounds: bounds
+            )
+        )
+        #expect(
+            NativeVideoGridGeometry.needsPreparedContentRefresh(
+                prepared: .zero,
+                visible: visible,
+                bounds: bounds
+            )
+        )
+        // 视野已到内容底部：下方没有可准备的内容，不算余量不足。
+        let bottom = NSRect(x: 0, y: bounds.maxY - 800, width: 1_000, height: 800)
+        #expect(
+            !NativeVideoGridGeometry.needsPreparedContentRefresh(
+                prepared: NativeVideoGridGeometry.preparedContentRect(
+                    visible: bottom,
+                    bounds: bounds
+                ),
+                visible: bottom,
+                bounds: bounds
             )
         )
     }

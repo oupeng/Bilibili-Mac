@@ -1,6 +1,7 @@
 import BiliApplication
 import BiliModels
 import Foundation
+import QuartzCore
 import Synchronization
 import Testing
 
@@ -215,12 +216,36 @@ struct CoreAnimationDanmakuRendererTests {
         #expect(renderer.outstandingPreparationCount == 0)
     }
 
+    /// 补位弹幕的动画开始时间移到过去，从已经走过的位置继续，而不是从右边缘重新进场。
+    @Test
+    func catchUpRenderStartsTheAnimationPartWay() async throws {
+        let renderer = CoreAnimationDanmakuRenderer(contentsScale: 2)
+        renderer.updateSurfaceSize(width: 800, height: 240)
+        let fixture = fixtureEvent(id: "catch-up", mode: .scrolling)
+
+        _ = try await prepareAndRender(
+            renderer: renderer,
+            event: fixture,
+            preparationID: 1,
+            originY: 20,
+            elapsedSeconds: 2
+        )
+        let layer = try #require(renderer.rootLayer.sublayers?.first)
+        let animation = try #require(layer.animation(forKey: "danmaku"))
+        let localNow = layer.convertTime(CACurrentMediaTime(), from: nil)
+
+        #expect(animation.beginTime < localNow - 1.5)
+        #expect(animation.beginTime > localNow - 2.5)
+        #expect(animation.duration == 4)
+    }
+
     private func prepareAndRender(
         renderer: CoreAnimationDanmakuRenderer,
         event: DanmakuEvent,
         preparationID: UInt64,
         generation: UInt64 = 0,
-        originY: Double
+        originY: Double,
+        elapsedSeconds: Double = 0
     ) async throws -> DanmakuTextMetrics {
         let result = await prepare(
             renderer: renderer,
@@ -235,7 +260,8 @@ struct CoreAnimationDanmakuRendererTests {
         let didRender = renderer.renderPrepared(
             placement(event: event, metrics: metrics, originY: originY),
             preparationID: preparationID,
-            generation: generation
+            generation: generation,
+            elapsedSeconds: elapsedSeconds
         )
         #expect(didRender)
         return metrics

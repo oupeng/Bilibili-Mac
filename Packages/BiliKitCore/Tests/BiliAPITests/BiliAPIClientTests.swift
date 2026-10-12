@@ -82,7 +82,7 @@ struct BiliAPIClientTests {
             """#
         )
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [response])
+            transport: StubTransport(responses: [try fixtureResponse("nav"), response])
         )
 
         let detail = try await client.videoDetail(for: "BV1FixtureA1")
@@ -107,7 +107,7 @@ struct BiliAPIClientTests {
             #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"说明","pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":120,"pubdate":1720000000,"pages":[{"cid":900001,"page":1,"part":"P1","duration":120}],"ugc_season":{"id":501,"title":"摘要合集","ep_count":20}}}"#
         )
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [response])
+            transport: StubTransport(responses: [try fixtureResponse("nav"), response])
         )
 
         let collection = try #require(
@@ -126,6 +126,7 @@ struct BiliAPIClientTests {
             #"[{"raw_text":"感谢 ","type":1,"biz_id":0},{"raw_text":"合作者","type":2,"biz_id":"20002"},{"raw_text":"参与\n上期 BV1xx411c7mD 1:30 开始 https://www.bilibili.com/video/BV1GJ411x7h7","type":1,"biz_id":0}]"#
         let client = BiliAPIClient(
             transport: StubTransport(responses: [
+                try fixtureResponse("nav"),
                 jsonResponse(
                     #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"旧简介","desc_v2":"#
                         + segments
@@ -161,6 +162,7 @@ struct BiliAPIClientTests {
     func videoDetailSummaryFallsBackToDesc(descV2: String) async throws {
         let client = BiliAPIClient(
             transport: StubTransport(responses: [
+                try fixtureResponse("nav"),
                 jsonResponse(
                     #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"见 b23.tv/abc123 和 2:05""#
                         + descV2
@@ -181,6 +183,7 @@ struct BiliAPIClientTests {
     func videoDetailSummaryIgnoresMentionsWithoutValidMemberID() async throws {
         let client = BiliAPIClient(
             transport: StubTransport(responses: [
+                try fixtureResponse("nav"),
                 jsonResponse(
                     #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"","desc_v2":[{"raw_text":"无名","type":2,"biz_id":0},{"raw_text":"@有名","type":2,"biz_id":"--"}],"pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":120,"pubdate":1720000000}}"#
                 )
@@ -193,12 +196,31 @@ struct BiliAPIClientTests {
         #expect(detail.summaryLinks.isEmpty)
     }
 
+    /// 较早的单 P 视频分 P 标题为空字符串，视频照常解析，标题保留为空。
     @Test
-    func videoDetailRejectsDuplicatePageIdentity() async {
+    func videoDetailAcceptsAnEmptyPageTitle() async throws {
+        let client = BiliAPIClient(
+            transport: StubTransport(responses: [
+                try fixtureResponse("nav"),
+                jsonResponse(
+                    #"{"code":0,"data":{"aid":8996792,"bvid":"BV1Fx411C7Ne","title":"较早的视频","desc":"","pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":988,"pubdate":1488737993,"pages":[{"cid":14854734,"page":1,"part":"","duration":988}]}}"#
+                )
+            ])
+        )
+
+        let detail = try await client.videoDetail(for: "BV1Fx411C7Ne")
+
+        #expect(detail.pages.map(\.cid) == [14_854_734])
+        #expect(detail.pages.first?.title == "")
+    }
+
+    @Test
+    func videoDetailRejectsDuplicatePageIdentity() async throws {
         let pages =
             #"[{"cid":900001,"page":1,"part":"P1","duration":60},{"cid":900001,"page":2,"part":"P2","duration":60}]"#
         let client = BiliAPIClient(
             transport: StubTransport(responses: [
+                try fixtureResponse("nav"),
                 jsonResponse(
                     #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"说明","pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":120,"pubdate":1720000000,"pages":"#
                         + pages + "}}"
@@ -217,7 +239,7 @@ struct BiliAPIClientTests {
             #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"说明","pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":120,"pubdate":1720000000,"pages":[{"cid":900001,"page":1,"part":"P1","duration":120}],"ugc_season":{"id":501,"title":"合集","ep_count":1,"sections":[{"season_id":501,"id":601,"title":"分部","episodes":[{"season_id":999,"section_id":601,"id":701,"aid":7001,"bvid":"BV1FixtureB2","cid":910001,"title":"","arc":{"aid":7002,"bvid":"BV1FixtureC3","duration":100},"page":{"cid":910002,"page":1,"part":"P1","duration":100}}]}]}}}"#
         )
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [response])
+            transport: StubTransport(responses: [try fixtureResponse("nav"), response])
         )
 
         let detail = try await client.videoDetail(for: "BV1FixtureA1")
@@ -235,7 +257,7 @@ struct BiliAPIClientTests {
             #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"说明","pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":120,"pubdate":1720000000,"pages":[{"cid":900001,"page":1,"part":"P1","duration":120}],"ugc_season":{"id":501,"title":"合集","sections":[{"season_id":501,"id":601,"title":"分部","episodes":[{"season_id":501,"section_id":601,"id":701,"bvid":"BV1FixtureB2","title":"一"},null,{"season_id":501,"section_id":601,"id":702,"bvid":"BV1FixtureC3","title":"二"}]},null]}}}"#
         )
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [response])
+            transport: StubTransport(responses: [try fixtureResponse("nav"), response])
         )
 
         let collection = try #require(
@@ -256,7 +278,7 @@ struct BiliAPIClientTests {
             #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"说明","pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":120,"pubdate":1720000000,"pages":[{"cid":900001,"page":1,"part":"P1","duration":120}],"ugc_season":{"id":501,"title":"合集","sections":[{"season_id":501,"section_id":601,"episodes":[{"season_id":501,"section_id":601,"id":701,"bvid":"BV1FixtureB2","title":"一"}]},{"season_id":501,"id":601,"episodes":[{"season_id":501,"section_id":601,"id":701,"bvid":"BV1FixtureC3","title":"二"}]}]}}}"#
         )
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [response])
+            transport: StubTransport(responses: [try fixtureResponse("nav"), response])
         )
 
         let sections = try #require(
@@ -278,7 +300,7 @@ struct BiliAPIClientTests {
             #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"说明","pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":120,"pubdate":1720000000,"pages":[{"cid":900001,"page":1,"part":"P1","duration":120}],"ugc_season":{"id":501,"title":"合集","sections":[{"season_id":501,"id":601,"section_id":602,"episodes":[]}]}}}"#
         )
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [response])
+            transport: StubTransport(responses: [try fixtureResponse("nav"), response])
         )
 
         let section = try #require(
@@ -306,6 +328,7 @@ struct BiliAPIClientTests {
             #"{"season_id":501,"section_id":601,"id":702,"aid":7002,"bvid":"BV1FixtureC3","cid":920001,"title":"二"}"#
         let client = BiliAPIClient(
             transport: StubTransport(responses: [
+                try fixtureResponse("nav"),
                 response(order: "[\(firstEpisode),\(secondEpisode)]"),
                 response(order: "[\(secondEpisode),\(firstEpisode)]")
             ])
@@ -326,7 +349,7 @@ struct BiliAPIClientTests {
             #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"说明","pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":120,"pubdate":1720000000,"pages":[{"cid":900001,"page":1,"part":"P1","duration":120}],"ugc_season":{"id":501,"title":"合集","sections":[{"season_id":501,"id":601,"title":"分部","episodes":[{"season_id":501,"section_id":601,"id":701,"aid":7001,"bvid":"BV1FixtureB2","cid":999999,"title":"视频","pages":[{"cid":910002,"page":2,"part":"P2","duration":50},{"cid":910001,"page":1,"part":"P1","duration":50}]}]}]}}}"#
         )
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [response])
+            transport: StubTransport(responses: [try fixtureResponse("nav"), response])
         )
 
         let episode = try #require(
@@ -769,13 +792,14 @@ struct BiliAPIClientTests {
         #expect(playback.dashManifest != nil)
     }
 
-    @Test
-    func playURLMapsSingleSafeDURLAsProgressiveMedia() async throws {
+    /// 没有 DASH 的单段 durl：`mp4`（360P）与较早视频的 `hdmp4`（720P）都按 progressive MP4 播放。
+    @Test(arguments: [ProgressiveShape.singleSafeSegment, .hdMP4Container])
+    func playURLMapsSingleSafeDURLAsProgressiveMedia(shape: ProgressiveShape) async throws {
         let client = BiliAPIClient(
             transport: StubTransport(
                 responses: [
                     try fixtureResponse("nav"),
-                    try ProgressiveShape.singleSafeSegment.response()
+                    try shape.response()
                 ]
             )
         )
@@ -812,6 +836,54 @@ struct BiliAPIClientTests {
         )
 
         #expect(playback.dashManifest != nil)
+    }
+
+    /// 较早视频的请求清晰度只有 FLV 时，按 `support_formats` 里不高于请求的最高 MP4 清晰度重取一次；
+    /// 单个格式条目损坏不影响其余条目。
+    @Test(arguments: [(120, ["120", "64"]), (32, ["32", "16"])])
+    func flvOnlyQualityRetriesAtTheHighestMP4QualityNotAboveTheRequest(
+        requested: Int,
+        expectedQualities: [String]
+    ) async throws {
+        let transport = StubTransport(
+            responses: [
+                try fixtureResponse("nav"),
+                legacyDURLResponse(format: "flv480", segments: ["part-1.flv", "part-2.flv"]),
+                legacyDURLResponse(format: "mp4", segments: ["whole.mp4"])
+            ]
+        )
+        let client = BiliAPIClient(transport: transport)
+
+        let playback = try await client.playback(
+            for: "BV1FixtureA1",
+            cid: 900_001,
+            quality: requested
+        )
+
+        guard case .progressive(let source) = playback.media else {
+            Issue.record("Expected progressive media")
+            return
+        }
+        #expect(source.primaryURL.lastPathComponent == "whole.mp4")
+        #expect(playURLQualities(transport) == expectedQualities)
+    }
+
+    /// 重取后仍是 FLV 时不再继续重试，按不支持的容器失败。
+    @Test
+    func flvRetryThatStillReturnsFLVFailsAsUnsupportedContainer() async throws {
+        let transport = StubTransport(
+            responses: [
+                try fixtureResponse("nav"),
+                legacyDURLResponse(format: "flv480", segments: ["part-1.flv"]),
+                legacyDURLResponse(format: "flv360", segments: ["part-1.flv"])
+            ]
+        )
+        let client = BiliAPIClient(transport: transport)
+
+        await #expect(throws: BiliAPIError.unsupportedProgressiveMedia(.unsupportedContainer)) {
+            try await client.playback(for: "BV1FixtureA1", cid: 900_001)
+        }
+        #expect(playURLQualities(transport) == ["120", "64"])
     }
 
     @Test(arguments: [
@@ -933,6 +1005,11 @@ struct BiliAPIClientTests {
             ),
             (
                 #"{"measured_i":1e400,"measured_lra":3,"measured_tp":-4,"measured_threshold":-30,"target_i":-14,"target_tp":-1}"#,
+                nil
+            ),
+            // B 站未测量响度的视频：四个测量值都是 0.001 占位。
+            (
+                #"{"measured_i":0.001,"measured_lra":0.001,"measured_tp":0.001,"measured_threshold":0.001,"target_offset":0.001,"target_i":-14,"target_tp":-1}"#,
                 nil
             )
         ] as [(String, Double?)]
@@ -1461,6 +1538,7 @@ struct BiliAPIClientTests {
         #expect(page.items[0].coverURL?.scheme == "https")
         #expect(page.items[0].owner.avatarURL?.scheme == "https")
         #expect(page.items[1].owner.avatarURL == nil)
+        #expect(page.items.map(\.device) == [.phone, .web])
         let continuation = try #require(page.continuation)
         _ = try await client.watchHistory(
             after: continuation,
@@ -1491,6 +1569,25 @@ struct BiliAPIClientTests {
                 URLQueryItem(name: "business", value: "archive")
             ) == true
         )
+    }
+
+    /// 历史的观看设备按 `dt` 区分；缺失、未知取值或形状不对时没有设备，不影响整条历史。
+    @Test(arguments: [
+        (#","dt":3"#, WatchHistoryDevice?.some(.phone)),
+        (#","dt":6"#, .pad),
+        (#","dt":"2""#, .web),
+        (#","dt":33"#, .tv),
+        (#","dt":0"#, nil),
+        (#","dt":true"#, nil),
+        ("", nil)
+    ])
+    func historyDeviceComesFromTheDeviceType(field: String, expected: WatchHistoryDevice?) throws {
+        let payload = try JSONDecoder().decode(
+            WatchHistoryIdentityPayload.self,
+            from: Data(#"{"bvid":"BV1HistoryA1","business":"archive"\#(field)}"#.utf8)
+        )
+
+        #expect(payload.device == expected)
     }
 
     @Test
@@ -1610,6 +1707,51 @@ struct BiliAPIClientTests {
         }
     }
 
+    /// 视频详情走 WBI 签名的 `/wbi/view`：未签名的 `/view` 对游客返回 412。
+    @Test
+    func videoDetailUsesTheSignedWBIEndpoint() async throws {
+        let transport = StubTransport(
+            responses: [try fixtureResponse("nav"), try fixtureResponse("view")]
+        )
+        let client = BiliAPIClient(transport: transport, timestampProvider: { 1_700_000_000 })
+
+        _ = try await client.videoDetail(for: "BV1FixtureA1")
+
+        let request = try #require(transport.capturedRequests().last)
+        #expect(request.url.path == "/x/web-interface/wbi/view")
+        let queryItems = URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems
+        #expect(queryItems?.contains(URLQueryItem(name: "bvid", value: "BV1FixtureA1")) == true)
+        #expect(queryItems?.contains(URLQueryItem(name: "wts", value: "1700000000")) == true)
+        #expect(queryItems?.first { $0.name == "w_rid" }?.value?.count == 32)
+    }
+
+    /// 取 WBI key 期间会话变化时取消详情，不以新会话或匿名身份补发。
+    @Test(.timeLimit(.minutes(1)))
+    func videoDetailIsCancelledWhenTheSessionChangesDuringWBIKeyFetch() async throws {
+        let firstTransport = StubTransport([
+            .suspended(try fixtureResponse("nav")), .response(try fixtureResponse("view"))
+        ])
+        let replacementTransport = StubTransport(responses: [try fixtureResponse("view")])
+        let transportFactory = SequentialTransportFactory(
+            transports: [firstTransport, replacementTransport]
+        )
+        let client = BiliAPIClient(
+            requestAuthorizer: StubAuthorizer(),
+            transportFactory: { transportFactory.makeTransport() }
+        )
+
+        let detailTask = Task { try await client.videoDetail(for: "BV1FixtureA1") }
+        await firstTransport.waitForRequests(1)
+        await client.invalidateAuthenticatedSession()
+        firstTransport.resumeSuspendedRequest()
+
+        await #expect(throws: CancellationError.self) {
+            try await detailTask.value
+        }
+        #expect(firstTransport.capturedRequests().map(\.url.path) == ["/x/web-interface/nav"])
+        #expect(replacementTransport.capturedRequests().isEmpty)
+    }
+
     @Test
     func cancellationIsNotCollapsedIntoTransportFailure() async {
         let client = BiliAPIClient(transport: StubTransport([.cancellation]))
@@ -1631,6 +1773,28 @@ struct BiliAPIClientTests {
     }
 
     /// 去掉 WBI key 的 nav 请求，只留下 playurl。
+    private func playURLQualities(_ transport: StubTransport) -> [String?] {
+        playURLRequests(transport).map { request in
+            URLComponents(url: request.url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first { $0.name == "qn" }?.value
+        }
+    }
+
+    /// 没有 DASH 的较早视频 playurl：`support_formats` 含一条损坏条目。
+    private func legacyDURLResponse(format: String, segments: [String]) -> HTTPResponse {
+        let durl = segments.map {
+            #"{"order":1,"length":144288,"size":21365404,"url":"https://media.fixture.bilivideo.com/"#
+                + $0 + #""}"#
+        }
+        let supportFormats =
+            #"[{"quality":80,"format":"flv"},{"quality":64,"format":"hdmp4"},"#
+            + #"{"quality":32,"format":"flv480"},{"quality":"bad"},{"quality":16,"format":"mp4"}]"#
+        return jsonResponse(
+            #"{"code":0,"message":"OK","data":{"format":""# + format + #"","durl":["#
+                + durl.joined(separator: ",") + #"],"support_formats":"# + supportFormats + "}}"
+        )
+    }
+
     private func playURLRequests(_ transport: StubTransport) -> [HTTPRequest] {
         transport.capturedRequests().filter { $0.url.path == "/x/player/wbi/playurl" }
     }
@@ -1792,8 +1956,8 @@ struct AccountReadCase: Sendable, CustomTestStringConvertible {
             call: { _ = try await $0.popular(page: 1, pageSize: 20) }
         ),
         AccountReadCase(
-            path: "/x/web-interface/view",
-            responses: { [try fixtureResponse("view")] },
+            path: "/x/web-interface/wbi/view",
+            responses: { [try fixtureResponse("nav"), try fixtureResponse("view")] },
             call: { _ = try await $0.videoDetail(for: "BV1FixtureA1") }
         ),
         AccountReadCase(
@@ -1830,7 +1994,7 @@ struct AccountReadCase: Sendable, CustomTestStringConvertible {
     var testDescription: String { path }
 }
 
-/// playurl 只返回 durl 时的各种形状；只有单段、安全来源、mp4 可以映射为 progressive 媒体。
+/// playurl 只返回 durl 时的各种形状；只有单段、安全来源、MP4（`mp4`／`hdmp4`）可以映射为 progressive 媒体。
 enum ProgressiveShape: Sendable {
     case singleSafeSegment
     case emptyDURL
@@ -1841,6 +2005,7 @@ enum ProgressiveShape: Sendable {
     case loopbackOnly
     case missingURL
     case flvContainer
+    case hdMP4Container
 
     func response() throws -> HTTPResponse {
         let backup = "https://backup.fixture.bilivideo.com/preview.mp4"
@@ -1860,7 +2025,7 @@ enum ProgressiveShape: Sendable {
         }
         let durl: [[String: Any]] =
             switch self {
-            case .singleSafeSegment, .flvContainer: [segment()]
+            case .singleSafeSegment, .flvContainer, .hdMP4Container: [segment()]
             case .emptyDURL: []
             case .twoSegments: [segment(), segment(path: "part-2.mp4")]
             case .malformedSecondSegment: [segment(), ["unexpected": true]]
@@ -1869,6 +2034,12 @@ enum ProgressiveShape: Sendable {
             case .loopbackOnly: [segment(url: "http://127.0.0.1/media.mp4", backupURLs: [])]
             case .missingURL: [["length": 884_983, "size": 50_000_000, "backup_url": []]]
             }
+        let format =
+            switch self {
+            case .flvContainer: "flv480"
+            case .hdMP4Container: "hdmp4"
+            default: "mp4"
+            }
         return HTTPResponse(
             statusCode: 200,
             headers: ["Content-Type": "application/json"],
@@ -1876,7 +2047,7 @@ enum ProgressiveShape: Sendable {
                 withJSONObject: [
                     "code": 0,
                     "message": "OK",
-                    "data": ["durl": durl, "format": self == .flvContainer ? "flv" : "mp4"]
+                    "data": ["durl": durl, "format": format]
                 ]
             )
         )

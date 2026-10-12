@@ -11,6 +11,9 @@
 - Bundle ID `com.shiinayane.BiliKit`；Debug／Release 相同。Keychain access group 固定为
   `$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)`，更换 Team 或 Bundle ID 等于换一个
   Keychain 范围，旧登录态不迁移，也不得扩大 access group 去读取。
+- 强调色是资源目录的 `AccentColor`：B 站粉调深，浅色 `#E84B85`、深色 `#F25D8E`，让上面的白字仍可读。
+  界面只通过系统强调色（`controlAccentColor`／`Color.accentColor`）取用；用户在系统设置里选了具体
+  主题颜色时以系统为准。
 
 ## 模块与依赖方向
 
@@ -72,7 +75,9 @@ session path，提供内存中生成的 master／media playlist，并把 AVPlaye
   它复用同一 route 的完整 fragment Range，不预读、不缓存。
 - 同一 AUDIO group 以原声 SIDX 起点为准；起点不一致的 AI 音轨在生成 master 前丢弃。
 - 没有 DASH 但有安全单段 `durl` 时注册 progressive MP4 route：原样保留 AVPlayer 的单一 Range，
-  验证后逐 chunk 写入 loopback，不累积整段；不支持多段 `durl` 拼接。
+  验证后逐 chunk 写入 loopback，不累积整段；不支持多段 `durl` 拼接。格式只接受 `mp4` 与 `hdmp4`
+  （较早视频只有整段文件，最高 720P），`flv*` 不支持；请求的清晰度只有 FLV 时，按 `support_formats`
+  里不高于请求的最高 MP4 清晰度重取一次。
 - `AVPlayerEngine` 是 `AVPlayerItem`、loopback server、原生字幕 route 的唯一 owner；替换、停止或
   释放时关闭 server 并取消连接与上游 Task。不使用私有 AVFoundation header 注入。
 
@@ -89,7 +94,7 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   time-jump 来源的竞态。`beginPlayback` 只按就绪位置报告续播或从头开始；“从头播放”仍是 seek 到 0。
 - 时间轴与交互记录器在 item 开始时得知起播位置：就绪时据此标记一次 discontinuity，弹幕从起播位置
   排起；落在起播位置的系统 time-jump 不算用户操作，否则会拒绝自动开播。
-- progressive 单文件（充电试看）没有 playlist，不续播，一律从头播放。
+- progressive 单文件（充电试看、没有 DASH 的较早视频）没有 playlist，不续播，一律从头播放。
 
 ### 弹幕
 
@@ -98,6 +103,15 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   手写 wire reader 要长期自维护 varint、未知字段和恶意长度边界，成本高于约 1.8 MiB 的体积。
 - wire 类型解码后立即映射为 `BiliModels.DanmakuEvent`；`BiliDanmaku` 只见 Models/Application。
 - renderer 使用 Core Animation layer 与纹理缓存，调度与 lane 分配可用虚拟时间独立测试。
+- 分段请求会被间歇风控（游客更常见），被拒的分段等 2 秒后由会话再请求一次（等待期间占一个加载名额）；
+  其余失败与再次被拒的分段在当前视频内不再请求，换视频或重开会话才重来。
+- 补位：seek、续播起点与时间回跳仍先清屏，播放中打开弹幕时从空屏开始；之后第一个播放中的快照补发回看窗口
+  内本应仍在屏上的弹幕（暂停时 seek 等到继续播放才补）。窗口由 `DanmakuMotionPolicy.catchUpWindow` 按画面
+  宽度与速度给出：顶部／底部 4 秒与“和画面等宽的滚动弹幕”跑完全程的时长取较大者。补位弹幕按自己的时间点做
+  车道准入（准备按入队顺序完成，准入时间不倒退）；同批纹理全部准备好后一起上屏，已走过的时长按上屏时刻
+  计算，renderer 把动画开始时间移到过去，从已走过的位置继续；等待期间已走完的丢弃，候选按车道数 × 重叠
+  层数 × 4 取最新的。窗口跨进上一分段时一并请求上一分段，覆盖窗口的分段迟到时再补一次并按 ID 去重。切换
+  弹幕类型显隐仍只清屏、不补位。
 - 大会员彩色弹幕：元素字段 24 `colorful` 为 60001 时映射为 `DanmakuColorStyle.vipGradient`，其余类型按普通
   弹幕显示。外观按官方贴图的结论内置：白色填充、0.5pt 描边从文字左缘到右缘按采样色标做横向渐变、阴影
   仍为深色；不下载分段回复 `colorfulSrc` 给的贴图，纹理同步绘制，官方更换贴图时不会跟随。
@@ -114,6 +128,20 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   `NSCollectionView` + 复用的原生卡片。热门 50 卡 A/B 表明 SwiftUI `LazyVGrid`/AttributeGraph
   是主要滚动成本；卡片 overlay 与文字改为持久 `CALayer`／`CATextLayer` 后，同样约 20 秒滚动
   cycles 下降约 39%，0 hitch。SwiftUI Feature 保留 loading／empty／failure 等状态所有权。
+- 网格提前准备：AppKit 默认只为视野内创建卡片，封面要等卡片露出来才开始加载。网格的集合视图把准备区域
+  设为视野上下各一屏（`prepareContent(in:)`），并在滚动、布局与内容更新时检查余量，不足半屏就主动刷新，
+  同时存在的卡片约为三屏；离开准备区域的卡片照常复用并取消封面等待。键盘选择的起点与滚动锚点只取与
+  视野相交的卡片，不取准备区域里看不见的卡片。视野底边离内容底部不足 1.5 屏时请求
+  下一页；新一页到来时若仍在阈值内（一页可能比阈值矮）立即再布防，保持内容储备，仍是每个尾部一次、
+  一次滚动手势最多一页。评论侧栏的阈值比一页矮，保留“先离开阈值再布防”。
+- 首页推荐、热门、搜索与观看历史在已有内容时都原地刷新：网格不卸载，顶部显示共用的 `RefreshStatusCapsule`
+  （BiliUI），成功后整体替换并由刷新代次把该来源的网格滚回顶部；失败保留已显示内容并在胶囊里给出原因。
+  历史只有登录失效时转入失败页，交给登录提示。首次加载仍是骨架屏。程序回到顶部后、用户再次滚动前，内容整体
+  替换保持在顶部（`NativeVideoGridTopPin`），不按旧内容第一张可见卡片做锚点恢复；网格同步出去的滚动位置在
+  同一轮更新里被交回旧值时不当作新的请求（`NativeVideoScrollBindingBridge`）。
+- 卡片尾部（历史的日期）前可带一个 SF Symbol 小图标，作为遮罩、底色取页脚颜色，随外观与文字同色；图标
+  宽度计入尾部宽度，名字放不下时只截断左侧名字。历史的观看设备来自接口 `history.dt`（1/3/5/7 手机、2 网页、
+  4/6 平板、33 电视），其他取值不显示。
 - **UP 主空间列表**：头部（返回、头像、名字、三段排序）与投稿行是同一个 `NSCollectionView` 的原生
   item，随列表滚到工具栏下由系统做边缘模糊。行高固定，不需要测量缓存；加载、空、失败与登录提示
   由 SwiftUI 叠在头部下方，返回按钮始终可点。加载用转圈而不是骨架：投稿数因人而异，占位行会误导数量。
@@ -274,7 +302,8 @@ gain 只压低不放大：`min(−18 LUFS − I, 0)`，下限 −12 dB。不放�
 起播后按系统选中的音轨选项重算增益，只按语言与角色（原声／机器配音）匹配；`displayName` 是系统
 本地化后的界面名称，不能用来匹配。语言优先取选项保留的原始标签（`extendedLanguageTag`），字面不同
 时按 BCP 47 补全后比较。元数据缺失、音轨无法唯一映射或 tap 失败时保持 unity，播放不得
-失败。实时回调只读固定内存／原子值，不分配、不加锁、不记日志。
+失败。B 站未测量响度的视频（多为较早上传）四个测量值都是 `0.001` 占位，按无效元数据处理、原音量播放；
+不自行测量响度。实时回调只读固定内存／原子值，不分配、不加锁、不记日志。
 
 ### 分发
 

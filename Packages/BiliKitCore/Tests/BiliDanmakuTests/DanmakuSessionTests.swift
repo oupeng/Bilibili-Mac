@@ -28,6 +28,33 @@ struct DanmakuSessionTests {
         #expect(await waitUntil { session.state == .ready(identity) })
     }
 
+    /// 会话把呈现端给出的补位窗口交给调度：窗口跨进上一分段时一并请求上一分段。
+    @Test
+    func sessionUsesThePresentationCatchUpWindowForSegmentRequests() async throws {
+        let identity = PlaybackItemIdentity(bvid: "BV1CatchUpWindow", cid: 4)
+        let repository = StubDanmakuRepository()
+        let timeline = SessionTimeline()
+        let sink = SessionPresentationSink()
+        sink.catchUpWindowSeconds = 10
+        let session = DanmakuSession(
+            useCase: DanmakuSegmentUseCase(repository: repository),
+            timeline: timeline,
+            presentationSink: sink
+        )
+
+        session.start(for: identity)
+        timeline.publish(snapshot(identity: identity, position: 365, generation: 1))
+        try await repository.waitForRequestCount(2, identity: identity)
+        let firstRequests = await repository.requestedIndices(for: identity)
+        #expect(await waitUntil { session.state == .ready(identity) })
+        timeline.publish(snapshot(identity: identity, position: 365.5, generation: 1))
+        try await repository.waitForRequestCount(3, identity: identity)
+
+        #expect(firstRequests.sorted() == [1, 2])
+        #expect(await repository.requestedIndices(for: identity).sorted() == [1, 2, 3])
+        session.stop()
+    }
+
     @Test
     func replacingIdentityRejectsLateOldSegmentsAndStopReturnsIdle() async throws {
         let first = PlaybackItemIdentity(bvid: "BV1FirstFixture", cid: 1)
@@ -249,7 +276,7 @@ struct DanmakuSessionTests {
             bvid: "BV1RecoveringDanmakuFixture",
             cid: 7
         )
-        let repository = StubDanmakuRepository(.failFirstAttemptPerSegment)
+        let repository = StubDanmakuRepository(.failFirstAttemptPerSegment(.unavailable))
         let timeline = SessionTimeline()
         let session = DanmakuSession(
             useCase: DanmakuSegmentUseCase(repository: repository),
@@ -269,6 +296,61 @@ struct DanmakuSessionTests {
         #expect(await waitUntil { session.state == .ready(identity) })
         #expect(await repository.requestCount(for: identity) == 4)
     }
+
+    /// 被风控拒绝的分段等一会儿重试一次，恢复后正常就绪，不需要重开会话。
+    @Test
+    func restrictedSegmentRecoversAfterOneDelayedRetry() async throws {
+        let identity = PlaybackItemIdentity(
+            bvid: "BV1RestrictedDanmakuFixture",
+            cid: 8
+        )
+        let repository = StubDanmakuRepository(.failFirstAttemptPerSegment(.requestRestricted))
+        let timeline = SessionTimeline()
+        let session = DanmakuSession(
+            useCase: DanmakuSegmentUseCase(repository: repository),
+            timeline: timeline
+        )
+
+        session.start(for: identity)
+        timeline.publish(snapshot(identity: identity, position: 0, generation: 1))
+        try await repository.waitForRequestCount(4, identity: identity)
+
+        #expect(await waitUntil(timeout: retryTimeout) { session.state == .ready(identity) })
+        #expect(await repository.requestCount(for: identity) == 4)
+    }
+
+    /// 重试后仍被拒的分段按失败关闭，当前视频内不再请求。
+    @Test
+    func restrictedSegmentIsRetriedOnlyOnce() async throws {
+        let identity = PlaybackItemIdentity(
+            bvid: "BV1AlwaysRestrictedFixture",
+            cid: 9
+        )
+        let repository = StubDanmakuRepository(.fail(.requestRestricted))
+        let timeline = SessionTimeline()
+        let sink = SessionPresentationSink()
+        let session = DanmakuSession(
+            useCase: DanmakuSegmentUseCase(repository: repository),
+            timeline: timeline,
+            presentationSink: sink
+        )
+
+        session.start(for: identity)
+        timeline.publish(snapshot(identity: identity, position: 0, generation: 1))
+        try await repository.waitForRequestCount(4, identity: identity)
+        #expect(
+            await waitUntil(timeout: retryTimeout) {
+                session.state == .failed(identity, .requestRestricted)
+            }
+        )
+
+        timeline.publish(snapshot(identity: identity, position: 0, generation: 1))
+        try await sink.waitForUpdateCount(2, identity: identity)
+        #expect(await repository.requestCount(for: identity) == 4)
+    }
+
+    /// 等待会话层延迟重试的超时：重试间隔之外再留出余量。
+    private var retryTimeout: Duration { DanmakuSession.restrictedRetryDelay + .seconds(5) }
 
     /// `DanmakuSession` 不可观察；只让出 main actor 给分段加载的续体，不按固定时长轮询。
     private func waitUntil(
@@ -304,6 +386,7 @@ struct DanmakuSessionTests {
 
 @MainActor
 private final class SessionPresentationSink: DanmakuPresentationSink {
+    var catchUpWindowSeconds = 0.0
     private(set) var updates: [DanmakuPresentationUpdate] = []
     private(set) var clearCount = 0
     private(set) var stopCount = 0
@@ -441,7 +524,7 @@ private actor StubDanmakuRepository: DanmakuSegmentRepository {
     enum Behavior: Sendable {
         case succeed
         case fail(DanmakuApplicationError)
-        case failFirstAttemptPerSegment
+        case failFirstAttemptPerSegment(DanmakuApplicationError)
         case holdUntilReleased
     }
 
@@ -481,8 +564,8 @@ private actor StubDanmakuRepository: DanmakuSegmentRepository {
             break
         case .fail(let error):
             throw error
-        case .failFirstAttemptPerSegment:
-            if isFirstAttempt { throw DanmakuApplicationError.unavailable }
+        case .failFirstAttemptPerSegment(let error):
+            if isFirstAttempt { throw error }
         case .holdUntilReleased:
             // 挂起期间忽略取消以模拟迟到结果，但记录取消事件供测试确认旧会话已取消加载。
             await withTaskCancellationHandler {

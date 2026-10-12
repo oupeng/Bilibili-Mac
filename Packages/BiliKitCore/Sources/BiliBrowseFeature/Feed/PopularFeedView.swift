@@ -82,13 +82,7 @@ public struct PopularFeedView<LoadedContent: View>: View {
             description: Text(BrowseFeatureStrings.localized("稍后重试或检查网络连接。"))
         )
         .overlay(alignment: .top) {
-            ZStack {
-                refreshStatus(presentation)
-            }
-            .animation(
-                LoadingStateTransition.animation(reduceMotion: reduceMotion),
-                value: refreshVisualPhase(presentation)
-            )
+            refreshStatus(presentation)
         }
     }
 
@@ -108,13 +102,7 @@ public struct PopularFeedView<LoadedContent: View>: View {
             )
         )
         .overlay(alignment: .top) {
-            ZStack {
-                refreshStatus(presentation)
-            }
-            .animation(
-                LoadingStateTransition.animation(reduceMotion: reduceMotion),
-                value: refreshVisualPhase(presentation)
-            )
+            refreshStatus(presentation)
         }
         .overlay(alignment: .bottom) {
             if pagination.isLoadingMore {
@@ -138,24 +126,14 @@ public struct PopularFeedView<LoadedContent: View>: View {
         }
     }
 
-    @ViewBuilder
     private func refreshStatus(
         _ presentation: FeedPresentation
     ) -> some View {
-        if presentation.isRefreshing {
-            ProgressView()
-                .controlSize(.small)
-                .padding(8)
-                .background(.regularMaterial, in: Capsule())
-                .accessibilityLabel(BrowseFeatureStrings.localized("正在刷新热门视频"))
-                .transition(.opacity)
-        } else if let error = presentation.refreshError {
-            Text(error.displayMessage)
-                .font(.caption)
-                .padding(8)
-                .background(.regularMaterial, in: Capsule())
-                .transition(.opacity)
-        }
+        RefreshStatusCapsule(
+            isRefreshing: presentation.isRefreshing,
+            refreshingLabel: BrowseFeatureStrings.localized("正在刷新热门视频"),
+            errorMessage: presentation.refreshError?.displayMessage
+        )
     }
 
     private func isRefreshDisabled(
@@ -164,14 +142,6 @@ public struct PopularFeedView<LoadedContent: View>: View {
         if presentation.isRefreshing { return true }
         if case .loading = presentation.state { return true }
         return false
-    }
-
-    private func refreshVisualPhase(
-        _ presentation: FeedPresentation
-    ) -> LoadingVisualPhase {
-        if presentation.isRefreshing { return .loading }
-        if presentation.refreshError != nil { return .failure }
-        return .idle
     }
 
     private func visualPhase(for state: FeedState) -> LoadingVisualPhase {

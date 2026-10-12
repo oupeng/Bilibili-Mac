@@ -68,7 +68,9 @@ struct NativeVideoGridView: NSViewRepresentable {
         private var accessibilityLabel: String
         private var tailState: NativeVideoGridTailState
         private var scrollResetGate: NativeVideoGridScrollResetGate
-        private var nearEndPagination = NearEndPagination<String>()
+        private var nearEndPagination = NearEndPagination<String>(
+            tailChangeInsideThreshold: .rearms
+        )
         private var onScroll: (CGFloat) -> Void
         private var onAcknowledgeScrollReset: (UInt64) -> Void
         private var onNearEnd: () -> Void
@@ -85,6 +87,7 @@ struct NativeVideoGridView: NSViewRepresentable {
         private var pendingViewportAnchor: NativeVideoGridViewportAnchor?
         private var pendingAnchorScrollGeneration: UInt64?
         private var scrollGeneration: UInt64 = 0
+        private var topPin = NativeVideoGridTopPin()
         private var isApplyingRestoration = false
         private var isLiveScrolling = false
         private var isResizingDocument = false
@@ -169,7 +172,7 @@ struct NativeVideoGridView: NSViewRepresentable {
             scrollView.onViewportLayout = { [weak self] in
                 self?.resizeDocument()
                 self?.restorePendingOffsetIfPossible()
-                self?.evaluateNearEnd()
+                self?.viewportDidChange()
             }
             scrollView.onContentInsetsChange = { [weak self] oldInsets, newInsets in
                 self?.contentInsetsDidChange(from: oldInsets, to: newInsets)
@@ -199,7 +202,7 @@ struct NativeVideoGridView: NSViewRepresentable {
             DispatchQueue.main.async { [weak self] in
                 self?.resizeDocument()
                 self?.restorePendingOffsetIfPossible()
-                self?.evaluateNearEnd()
+                self?.viewportDidChange()
             }
             return scrollView
         }
@@ -252,8 +255,12 @@ struct NativeVideoGridView: NSViewRepresentable {
                 pendingRestoreOffsetY == nil,
                 pendingViewportAnchor == nil
             {
-                pendingViewportAnchor = captureViewportAnchor()
-                pendingAnchorScrollGeneration = scrollGeneration
+                if topPin.keepsTop(atScrollGeneration: scrollGeneration) {
+                    pendingRestoreOffsetY = 0
+                } else {
+                    pendingViewportAnchor = captureViewportAnchor()
+                    pendingAnchorScrollGeneration = scrollGeneration
+                }
             }
             contents = updatedContents
 
@@ -291,7 +298,7 @@ struct NativeVideoGridView: NSViewRepresentable {
                     } else {
                         self.resizeDocument(restoringViewport: false)
                     }
-                    self.evaluateNearEnd()
+                    self.viewportDidChange()
                 }
             } else if !updatePlan.changedExistingIDs.isEmpty {
                 reconfigureVisibleItems(updatePlan.changedExistingIDs)
@@ -299,7 +306,7 @@ struct NativeVideoGridView: NSViewRepresentable {
 
             if !updatePlan.identityChanged {
                 restorePendingOffsetIfPossible()
-                evaluateNearEnd()
+                viewportDidChange()
             }
         }
 
@@ -444,7 +451,7 @@ struct NativeVideoGridView: NSViewRepresentable {
             else { return }
             hover.updateForCurrentPointerLocation(in: collectionView)
             recordCurrentScrollOffset(requireAttachedWindow: true)
-            evaluateNearEnd()
+            viewportDidChange()
         }
 
         @discardableResult
@@ -496,7 +503,7 @@ struct NativeVideoGridView: NSViewRepresentable {
                 )
             else { return nil }
             let visibleTop = collectionView.visibleRect.minY
-            let candidates = collectionView.indexPathsForVisibleItems().compactMap {
+            let candidates = collectionView.indexPathsIntersectingVisibleRect().compactMap {
                 indexPath -> (IndexPath, NSCollectionViewLayoutAttributes)? in
                 guard let attributes = layout.layoutAttributesForItem(at: indexPath) else {
                     return nil
@@ -541,6 +548,9 @@ struct NativeVideoGridView: NSViewRepresentable {
             let target = min(pendingRestoreOffsetY, maximumLogicalScrollOffsetY)
             applyLogicalScrollOffset(target, synchronizingBinding: false)
             self.pendingRestoreOffsetY = nil
+            if target <= 0 {
+                topPin.pin(atScrollGeneration: scrollGeneration)
+            }
             retainedScrollOffset.markPersisted(target)
             synchronizeBinding(to: target)
             if let acknowledgementID = pendingScrollResetAcknowledgementID {
@@ -574,6 +584,12 @@ struct NativeVideoGridView: NSViewRepresentable {
             isApplyingRestoration = false
         }
 
+        /// 视野或内容变化后：先保持封面预加载的余量，再判断是否请求下一页。
+        private func viewportDidChange() {
+            collectionView.refreshPreparedContentIfNeeded()
+            evaluateNearEnd()
+        }
+
         private func evaluateNearEnd() {
             guard
                 !isReset,
@@ -587,7 +603,8 @@ struct NativeVideoGridView: NSViewRepresentable {
                 && NativeVideoGridGeometry.isNearEnd(
                     itemCount: contents.orderedIDs.count,
                     width: collectionView.bounds.width,
-                    visibleMaximumY: collectionView.visibleRect.maxY
+                    visibleMaximumY: collectionView.visibleRect.maxY,
+                    viewportHeight: collectionView.visibleRect.height
                 )
             if nearEndPagination.shouldLoadMore(
                 isInsideThreshold: isInside,
@@ -644,6 +661,40 @@ private final class NativeVideoGridScrollView: NSScrollView {
 
 @MainActor
 private final class NativeVideoCollectionView: NativeVideoCardCollectionView {
+    /// AppKit 默认只准备视野内的卡片，封面要等卡片露出来才开始加载；这里上下各多准备一屏。
+    ///
+    /// 因此 `indexPathsForVisibleItems()` 也包含视野外已准备的卡片；需要“看得见的卡片”时用
+    /// `indexPathsIntersectingVisibleRect()`。
+    override func prepareContent(in rect: NSRect) {
+        guard !visibleRect.isEmpty else {
+            super.prepareContent(in: rect)
+            return
+        }
+        super.prepareContent(
+            in: NativeVideoGridGeometry.preparedContentRect(visible: visibleRect, bounds: bounds)
+        )
+    }
+
+    /// 与视野相交的卡片：键盘选择的起点与滚动锚点只能取用户看得见的卡片。
+    func indexPathsIntersectingVisibleRect() -> [IndexPath] {
+        let visible = visibleRect
+        return indexPathsForVisibleItems().filter {
+            collectionViewLayout?.layoutAttributesForItem(at: $0)?.frame.intersects(visible) == true
+        }
+    }
+
+    func refreshPreparedContentIfNeeded() {
+        guard
+            window != nil,
+            NativeVideoGridGeometry.needsPreparedContentRefresh(
+                prepared: preparedContentRect,
+                visible: visibleRect,
+                bounds: bounds
+            )
+        else { return }
+        prepareContent(in: visibleRect)
+    }
+
     override func mouseDown(with event: NSEvent) {
         setShowsKeyboardSelection(false)
         let point = convert(event.locationInWindow, from: nil)
@@ -668,7 +719,7 @@ private final class NativeVideoCollectionView: NativeVideoCardCollectionView {
             for: event,
             rowLength: NativeVideoGridGeometry.columnCount(for: bounds.width)
         ), numberOfItems(inSection: 0) > 0 {
-            let visibleStart = indexPathsForVisibleItems().map(\.item).min() ?? 0
+            let visibleStart = indexPathsIntersectingVisibleRect().map(\.item).min() ?? 0
             let current = selectionIndexPaths.first?.item ?? visibleStart
             selectWithKeyboard(itemAt: current + delta, scrollPosition: .nearestVerticalEdge)
             return
