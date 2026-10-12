@@ -228,6 +228,29 @@ struct PopularNativeGridTests {
         #expect(bridge.takeExternalRequest(0) == nil)
     }
 
+    /// 网格刚把位置同步出去时，同一轮更新里交回的旧值不算新请求；binding 赶上新值后旧值才重新算请求。
+    @Test
+    func scrollBindingBridgeIgnoresTheValueItJustReplaced() {
+        var bridge = NativeVideoScrollBindingBridge(initialOffsetY: 3_066)
+
+        bridge.markSynchronized(0)
+        #expect(bridge.takeExternalRequest(3_066) == nil)
+        #expect(bridge.takeExternalRequest(0) == nil)
+        #expect(bridge.takeExternalRequest(3_066) == 3_066)
+    }
+
+    /// 程序回到顶部后、用户再次滚动前保持置顶；滚动代次前进后置顶失效。
+    @Test
+    func topPinHoldsOnlyUntilTheUserScrollsAgain() {
+        var pin = NativeVideoGridTopPin()
+        #expect(!pin.keepsTop(atScrollGeneration: 0))
+
+        pin.pin(atScrollGeneration: 3)
+
+        #expect(pin.keepsTop(atScrollGeneration: 3))
+        #expect(!pin.keepsTop(atScrollGeneration: 4))
+    }
+
     @Test
     func nearEndGeometryUsesViewportBoundaryWithoutVisibleItemEnumeration() {
         let width: CGFloat = 1_080

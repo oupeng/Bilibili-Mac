@@ -6,6 +6,52 @@ import Testing
 @testable import BiliLibraryFeature
 
 struct WatchHistoryCardFormattingTests {
+    /// 日期前按观看设备显示图标，读屏在最后读出设备；设备未知时都不显示。
+    @Test(arguments: [
+        (WatchHistoryDevice?.some(.phone), "smartphone" as String?),
+        (.pad, "ipad"),
+        (.web, "desktopcomputer"),
+        (.tv, "tv"),
+        (nil, nil)
+    ])
+    func deviceShowsAnIconBeforeTheDateAndInTheAccessibilityLabel(
+        device: WatchHistoryDevice?,
+        symbolName: String?
+    ) {
+        let locale = Locale(identifier: "zh-Hans")
+        let item = WatchHistoryItem(
+            bvid: "BV1HistoryDevice",
+            title: "历史卡片",
+            coverURL: nil,
+            owner: VideoOwner(id: 7, name: "历史作者"),
+            progressSeconds: 65,
+            durationSeconds: 600,
+            viewedAt: .now,
+            device: device
+        )
+        let presentation = WatchHistoryCardPresentation(item: item, locale: locale)
+        let withoutDevice = WatchHistoryCardPresentation(
+            item: WatchHistoryItem(
+                bvid: item.bvid,
+                title: item.title,
+                coverURL: nil,
+                owner: item.owner,
+                progressSeconds: item.progressSeconds,
+                durationSeconds: item.durationSeconds,
+                viewedAt: item.viewedAt
+            ),
+            locale: locale
+        )
+
+        #expect(presentation.footerTrailingSymbolName == symbolName)
+        if let device {
+            let spoken = WatchHistoryCardFormatting.deviceLabel(device, locale: locale)
+            #expect(presentation.accessibilityLabel.hasSuffix(spoken))
+        } else {
+            #expect(presentation.accessibilityLabel == withoutDevice.accessibilityLabel)
+        }
+    }
+
     @Test
     func loadedAndLoadingMoreProjectToTheSameStableSurface() {
         let item = WatchHistoryItem(

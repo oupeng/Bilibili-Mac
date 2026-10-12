@@ -114,6 +114,14 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   `NSCollectionView` + 复用的原生卡片。热门 50 卡 A/B 表明 SwiftUI `LazyVGrid`/AttributeGraph
   是主要滚动成本；卡片 overlay 与文字改为持久 `CALayer`／`CATextLayer` 后，同样约 20 秒滚动
   cycles 下降约 39%，0 hitch。SwiftUI Feature 保留 loading／empty／failure 等状态所有权。
+- 首页推荐、热门、搜索与观看历史在已有内容时都原地刷新：网格不卸载，顶部显示共用的 `RefreshStatusCapsule`
+  （BiliUI），成功后整体替换并由刷新代次把该来源的网格滚回顶部；失败保留已显示内容并在胶囊里给出原因。
+  历史只有登录失效时转入失败页，交给登录提示。首次加载仍是骨架屏。程序回到顶部后、用户再次滚动前，内容整体
+  替换保持在顶部（`NativeVideoGridTopPin`），不按旧内容第一张可见卡片做锚点恢复；网格同步出去的滚动位置在
+  同一轮更新里被交回旧值时不当作新的请求（`NativeVideoScrollBindingBridge`）。
+- 卡片尾部（历史的日期）前可带一个 SF Symbol 小图标，作为遮罩、底色取页脚颜色，随外观与文字同色；图标
+  宽度计入尾部宽度，名字放不下时只截断左侧名字。历史的观看设备来自接口 `history.dt`（1/3/5/7 手机、2 网页、
+  4/6 平板、33 电视），其他取值不显示。
 - **UP 主空间列表**：头部（返回、头像、名字、三段排序）与投稿行是同一个 `NSCollectionView` 的原生
   item，随列表滚到工具栏下由系统做边缘模糊。行高固定，不需要测量缓存；加载、空、失败与登录提示
   由 SwiftUI 叠在头部下方，返回按钮始终可点。加载用转圈而不是骨架：投稿数因人而异，占位行会误导数量。

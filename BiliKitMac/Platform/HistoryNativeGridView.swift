@@ -36,6 +36,7 @@ struct HistoryNativeGridView: View {
             coverTrailingText: presentation.progressText,
             footerLeadingText: presentation.footerLeadingText,
             footerTrailingText: presentation.footerTrailingText,
+            footerTrailingSymbolName: presentation.footerTrailingSymbolName,
             accessibilityLabel: presentation.accessibilityLabel
         )
     }

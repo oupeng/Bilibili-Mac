@@ -24,6 +24,8 @@ struct NativeVideoCardPresentation: Equatable, Sendable {
     let coverTrailingText: String?
     let footerLeadingText: String
     let footerTrailingText: String?
+    /// 尾部文字前的小图标（SF Symbol 名），只用于普通样式。
+    let footerTrailingSymbolName: String?
     let footerTrailingStyle: NativeVideoCardFooterTrailingStyle
     let accessibilityLabel: String
     let accessibilityHelp: String?
@@ -38,6 +40,7 @@ struct NativeVideoCardPresentation: Equatable, Sendable {
         coverTrailingText: String? = nil,
         footerLeadingText: String,
         footerTrailingText: String? = nil,
+        footerTrailingSymbolName: String? = nil,
         footerTrailingStyle: NativeVideoCardFooterTrailingStyle = .plain,
         accessibilityLabel: String,
         accessibilityHelp: String? = nil
@@ -51,6 +54,7 @@ struct NativeVideoCardPresentation: Equatable, Sendable {
         self.coverTrailingText = coverTrailingText
         self.footerLeadingText = footerLeadingText
         self.footerTrailingText = footerTrailingText
+        self.footerTrailingSymbolName = footerTrailingSymbolName
         self.footerTrailingStyle = footerTrailingStyle
         self.accessibilityLabel = accessibilityLabel
         self.accessibilityHelp = accessibilityHelp

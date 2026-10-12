@@ -21,7 +21,8 @@
         "duration": 600,
         "history": {
           "bvid": "BV1HistoryA1",
-          "business": "archive"
+          "business": "archive",
+          "dt": 1
         }
       },
       {
@@ -49,7 +50,8 @@
         "duration": 300,
         "history": {
           "bvid": "BV1HistoryB2",
-          "business": "archive"
+          "business": "archive",
+          "dt": 2
         }
       }
     ]

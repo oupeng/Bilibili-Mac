@@ -96,23 +96,14 @@ public struct VideoSearchView<LoadedContent: View, StartContent: View>: View {
         case .loaded(.search(_, let page)):
             loadedResults(criteria: request.searchCriteria, page: page)
                 .overlay(alignment: .top) {
-                    if presentation.isRefreshing {
-                        ProgressView()
-                            .controlSize(.small)
-                            .padding(8)
-                            .background(.regularMaterial, in: Capsule())
-                            .accessibilityLabel(
-                                BrowseFeatureStrings.localized(
-                                    "正在刷新搜索结果",
-                                    locale: locale
-                                )
-                            )
-                    } else if let error = presentation.refreshError {
-                        Text(error.displayMessage)
-                            .font(.caption)
-                            .padding(8)
-                            .background(.regularMaterial, in: Capsule())
-                    }
+                    RefreshStatusCapsule(
+                        isRefreshing: presentation.isRefreshing,
+                        refreshingLabel: BrowseFeatureStrings.localized(
+                            "正在刷新搜索结果",
+                            locale: locale
+                        ),
+                        errorMessage: presentation.refreshError?.displayMessage
+                    )
                 }
         case .failed(request: .search, let error):
             BrowseFailureView(
