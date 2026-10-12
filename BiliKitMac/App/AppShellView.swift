@@ -24,6 +24,7 @@ struct AppShellView: View {
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentLinkRouter: CommentLinkRouter
     let commentShortLinks: CommentShortLinkResolution
+    let commentImageSaver: NativeCommentImageSaver
     let seekPlayback: @MainActor (_ bvid: String, _ seconds: Int) -> Void
     let imagePipeline: NativeVideoImagePipeline
     @Binding var isAuthenticationPresented: Bool
@@ -112,6 +113,7 @@ struct AppShellView: View {
                     request: commentImagePreview,
                     imagePipeline: imagePipeline,
                     resolveURL: commentAssetURLResolver,
+                    imageSaver: commentImageSaver,
                     onDismiss: {
                         dismissCommentImagePreview(restoringFocus: true)
                     }

@@ -108,6 +108,7 @@ struct AppRootView: View {
             commentAssetURLResolver: windowOwner.commentAssetURLResolver,
             commentLinkRouter: windowOwner.commentLinkRouter,
             commentShortLinks: windowOwner.commentShortLinks,
+            commentImageSaver: windowOwner.commentImageSaver,
             seekPlayback: windowOwner.seekPlayback,
             imagePipeline: windowOwner.imagePipeline,
             isAuthenticationPresented: $isAuthenticationPresented,

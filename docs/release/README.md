@@ -46,7 +46,7 @@ python3 Scripts/release/release.py prepare --output /private/tmp/bilikit-release
 
 - Archive 为 macOS App Archive，Products 只有预期 App；App 主程序仅 `arm64`，嵌套 Mach-O 均含 `arm64`。
 - Developer ID、Hardened Runtime、secure timestamp 与嵌套签名正确；entitlement 只含最小能力，无
-  `get-task-allow`、多余文件权限、App Group 或 runtime exception。
+  `get-task-allow`、用户选择文件读写以外的文件权限、App Group 或 runtime exception。
 - App／DMG 不含源码、fixture、reference、trace、日志、dSYM、凭据或开发产物。
 - SwiftProtobuf 版本、revision、license 与 `THIRD_PARTY_NOTICES.md` 一致。
 - App 与 DMG 公证 Accepted、完整 log 无未裁决问题、ticket 已 staple/validate；记录最终 DMG SHA-256 与字节数。
