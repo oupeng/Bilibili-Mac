@@ -167,40 +167,52 @@ struct NativeVideoGridOperationEpoch {
     }
 }
 
-/// 网格几何来自 BiliUI，与加载骨架共用；近尾部判断只属于原生网格。
+/// 网格几何来自 BiliUI，与加载骨架共用；预备区域与近尾部判断只属于原生网格。
 typealias NativeVideoGridGeometry = VideoCardGridGeometry
 
 extension VideoCardGridGeometry {
-    static func nearEndTriggerIndex(
-        itemCount: Int,
-        width: CGFloat,
-        prefetchRows: Int = 2
-    ) -> Int? {
-        guard itemCount > 0 else { return nil }
-        let count = columnCount(for: width)
-        return max(0, itemCount - count * max(1, prefetchRows))
+    /// 视野上下各多准备的高度（视野高度的倍数）：卡片提前创建，封面在滚到之前就开始加载。
+    static let preparedViewportMultiple: CGFloat = 1
+    /// 已准备区域在视野某一侧的余量少于这个倍数的视野高度时刷新（已到内容边缘的一侧除外）。
+    static let preparedRefreshViewportMultiple: CGFloat = 0.5
+    /// 视野底边离内容底部不足这么多个视野高度时请求下一页，下一页的卡片与封面在滚到之前就绪。
+    static let nearEndViewportMultiple: CGFloat = 1.5
+
+    /// 视野上下各一屏，夹在内容范围内；不并入系统建议，避免准备区域随滚动越积越大。
+    static func preparedContentRect(visible: NSRect, bounds: NSRect) -> NSRect {
+        let margin = visible.height * preparedViewportMultiple
+        return visible.insetBy(dx: 0, dy: -margin).intersection(bounds)
+    }
+
+    /// AppKit 只在视野超出已准备区域时才再次准备；余量不足时由网格主动刷新，保持提前量。
+    static func needsPreparedContentRefresh(
+        prepared: NSRect,
+        visible: NSRect,
+        bounds: NSRect
+    ) -> Bool {
+        let target = preparedContentRect(visible: visible, bounds: bounds)
+        guard !target.isEmpty else { return false }
+        guard !prepared.isEmpty else { return true }
+        let slack = visible.height * preparedRefreshViewportMultiple
+        let isShortBelow = prepared.maxY < min(target.maxY, visible.maxY + slack)
+        let isShortAbove = prepared.minY > max(target.minY, visible.minY - slack)
+        return isShortBelow || isShortAbove
     }
 
     static func isNearEnd(
         itemCount: Int,
         width: CGFloat,
         visibleMaximumY: CGFloat,
-        prefetchRows: Int = 2
+        viewportHeight: CGFloat
     ) -> Bool {
         guard
+            itemCount > 0,
             isRenderableViewport(width: width),
             visibleMaximumY.isFinite,
-            let triggerIndex = nearEndTriggerIndex(
-                itemCount: itemCount,
-                width: width,
-                prefetchRows: prefetchRows
-            )
+            viewportHeight.isFinite,
+            viewportHeight > 0
         else { return false }
-        let columns = columnCount(for: width)
-        let triggerRow = triggerIndex / columns
-        let triggerOriginY =
-            topContentPadding
-            + CGFloat(triggerRow) * (itemSize(for: width).height + verticalSpacing)
-        return visibleMaximumY > triggerOriginY
+        let remaining = contentHeight(for: width, itemCount: itemCount) - visibleMaximumY
+        return remaining < viewportHeight * nearEndViewportMultiple
     }
 }
