@@ -158,7 +158,8 @@ struct PlayerHostViewIdentityTests {
                 identity: identity,
                 discontinuityGeneration: 1,
                 events: [event],
-                clearsExisting: false
+                clearsExisting: false,
+                catchesUp: false
             )
         )
     }
