@@ -27,6 +27,35 @@ public struct VideoContext: Sendable, Equatable {
         return .upowerExclusive
     }
 
+    /// 当前分 P 里可以跳到的秒数上限（不含）；时长未知时为 nil。
+    ///
+    /// 充电试看只播放试看片段，上限是试看时长。评论时间戳是否显示为链接、链接起播与原地跳转都按它判断。
+    public var seekableDurationSeconds: Int? {
+        if case .upowerPreview(let previewDurationSeconds, _) = accessNotice {
+            return previewDurationSeconds > 0 ? previewDurationSeconds : nil
+        }
+        return selectedPage.durationSeconds > 0 ? selectedPage.durationSeconds : nil
+    }
+
+    /// 秒数是否在可跳转范围内：不小于 0 且小于上限。
+    public static func accepts(seconds: Int, seekableDurationSeconds: Int?) -> Bool {
+        guard let seekableDurationSeconds else { return false }
+        return seconds >= 0 && seconds < seekableDurationSeconds
+    }
+
+    public func acceptsSeek(toSeconds seconds: Int) -> Bool {
+        Self.accepts(seconds: seconds, seekableDurationSeconds: seekableDurationSeconds)
+    }
+
+    /// 链接给的起播位置：只有能从指定位置起播的媒体（DASH）且在可跳转范围内时采用；progressive
+    /// 总是从头播放，返回 nil。
+    public func linkStartPosition(seconds: Int?) -> Double? {
+        guard let seconds, case .dash = playback.media, acceptsSeek(toSeconds: seconds) else {
+            return nil
+        }
+        return Double(seconds)
+    }
+
     public init(
         detail: VideoDetail,
         pages: [VideoPage],

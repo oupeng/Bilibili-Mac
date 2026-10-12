@@ -103,7 +103,11 @@ enum CommentRemoteLink {
         if videoHosts.contains(host), parts.count == 2, parts[0] == "video",
             let bvid = bvid(fromVideoID: parts[1])
         {
-            return .video(bvid: bvid, page: pageNumber(in: components))
+            return .video(
+                bvid: bvid,
+                page: positiveQueryInteger("p", in: components),
+                startSeconds: positiveQueryInteger("t", in: components)
+            )
         }
         let memberID: Int64?
         if host == spaceHost, let first = parts.first,
@@ -131,12 +135,13 @@ enum CommentRemoteLink {
         return BiliVideoAID.bvid(fromAID: aid)
     }
 
-    /// 链接里的分 P 序号只是偏好：不是正整数时忽略，按视频默认分 P 打开。
-    private static func pageNumber(in components: URLComponents) -> Int? {
-        guard let value = components.queryItems?.first(where: { $0.name == "p" })?.value,
-            let page = Int64(positiveDecimal: value)
+    /// 链接里的分 P 序号（`p`）与起播秒数（`t`）只是偏好：只认正整数，其他写法（小数、`1m30s`）
+    /// 忽略，按视频默认分 P／位置打开。
+    private static func positiveQueryInteger(_ name: String, in components: URLComponents) -> Int? {
+        guard let value = components.queryItems?.first(where: { $0.name == name })?.value,
+            let number = Int64(positiveDecimal: value)
         else { return nil }
-        return Int(exactly: page)
+        return Int(exactly: number)
     }
 
     private static func components(_ value: String?) -> URLComponents? {

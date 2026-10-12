@@ -84,7 +84,8 @@ struct CommentLinkResolverTests {
     @Test
     func leavesVideoLinksForInAppNavigation() {
         #expect(
-            resolver.externalURL(for: .video(bvid: "BV1FixtureA1", page: nil)) == nil
+            resolver.externalURL(for: .video(bvid: "BV1FixtureA1", page: nil, startSeconds: nil))
+                == nil
         )
     }
 }

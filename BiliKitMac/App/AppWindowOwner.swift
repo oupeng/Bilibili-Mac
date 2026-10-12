@@ -23,6 +23,8 @@ final class AppWindowOwner {
     let playerContent: AnyView
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentLinkRouter: CommentLinkRouter
+    /// 在当前视频的播放器里跳到某秒并播放；播放器 item 不属于该视频时不动作。
+    let seekPlayback: @MainActor (_ bvid: String, _ seconds: Int) -> Void
     /// 评论短链的在途解析；换视频与关窗时取消。
     let commentShortLinks = CommentShortLinkResolution()
     /// 窗口内所有封面、头像与评论图片共用的匿名有界图片管线。
@@ -80,6 +82,7 @@ final class AppWindowOwner {
             ),
             commentAssetURLResolver: environment.commentAssetURLResolver,
             commentLinkRouter: environment.commentLinkRouter,
+            seekPlayback: environment.seekPlayback(bvid:toSeconds:),
             playbackPreferencesController: environment.playbackPreferencesController,
             systemNowPlayingController: systemNowPlayingController,
             systemNowPlayingConnection:
@@ -88,6 +91,41 @@ final class AppWindowOwner {
             openEnvironment: environment.open,
             closeEnvironment: environment.close
         )
+    }
+
+    /// 链接带 `t=` 且指向正在播放、播放器已装好的分 P（没给分 P 视为当前分 P）、秒数在可跳转范围内时，
+    /// 返回要原地跳到的秒数；其余情况交给导航打开或切换分 P。
+    static func inPlaceStartSeconds(
+        for intent: PlaybackSelectionIntent,
+        currentPlaybackBVID: String?,
+        videoModel: VideoViewModel
+    ) -> Int? {
+        guard let startSeconds = intent.preferredStartSeconds,
+            intent.preferredCID == nil,
+            intent.bvid == currentPlaybackBVID,
+            intent.bvid == videoModel.presentedBVID,
+            videoModel.canSeekPresentedPage(
+                number: intent.preferredPageNumber,
+                toSeconds: startSeconds
+            )
+        else { return nil }
+        return startSeconds
+    }
+
+    /// 播放失败后的重试交给视频模型。
+    ///
+    /// 它记得链接起播时间是否已经用过，开播后才失败的重试不会跳回链接时间。不在失败状态（例如已被
+    /// 重置）时重新发出当前导航意图。
+    static func retryPlayback(
+        coordinator: AppNavigationCoordinator,
+        videoModel: VideoViewModel
+    ) {
+        switch videoModel.state {
+        case .failed, .failedPage:
+            videoModel.retry()
+        case .idle, .loading, .loadingPage, .preparingPlayback, .ready:
+            coordinator.retryPlayback()
+        }
     }
 
     static func handlePlaybackSelection(
@@ -105,7 +143,8 @@ final class AppWindowOwner {
             videoModel.loadVideo(
                 intent.bvid,
                 preferredCID: intent.preferredCID,
-                preferredPageNumber: intent.preferredPageNumber
+                preferredPageNumber: intent.preferredPageNumber,
+                startSeconds: intent.preferredStartSeconds
             )
             return
         }
@@ -115,10 +154,11 @@ final class AppWindowOwner {
             videoModel.presentedPageCID(forNumber:)
         )
         guard let preferredCID = intent.preferredCID ?? presentedPageCID else { return }
-        if videoModel.failedPageCID == preferredCID {
+        // 失败的分 P 收到带新起播秒数的链接时按新秒数重开，否则沿用重试。
+        if videoModel.failedPageCID == preferredCID, intent.preferredStartSeconds == nil {
             videoModel.retry()
         } else {
-            videoModel.selectPage(cid: preferredCID)
+            videoModel.selectPage(cid: preferredCID, startSeconds: intent.preferredStartSeconds)
         }
     }
 
@@ -136,6 +176,7 @@ final class AppWindowOwner {
         playerContent: AnyView,
         commentAssetURLResolver: @escaping CommentAssetURLResolver = { _, _ in nil },
         commentLinkRouter: @escaping CommentLinkRouter = { _ in nil },
+        seekPlayback: @escaping @MainActor (String, Int) -> Void = { _, _ in },
         imagePipelineOwner: NativeVideoImagePipelineOwner =
             NativeVideoImagePipelineOwner(),
         playbackPreferencesController: PlaybackPreferencesController? = nil,
@@ -158,6 +199,7 @@ final class AppWindowOwner {
         self.playerContent = playerContent
         self.commentAssetURLResolver = commentAssetURLResolver
         self.commentLinkRouter = commentLinkRouter
+        self.seekPlayback = seekPlayback
         self.imagePipelineOwner = imagePipelineOwner
         imagePipeline = imagePipelineOwner.pipeline
         self.playbackPreferencesController = playbackPreferencesController

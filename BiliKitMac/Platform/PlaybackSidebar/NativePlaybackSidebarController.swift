@@ -168,6 +168,8 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
                 )
             } ?? []
         )
+        commentTextRenderer.timestampLimitSeconds =
+            presentation.content?.commentTimestampLimitSeconds
         commentTextRenderer.retainFailureScopes(
             Set(commentThreadsByItemID.values.map(\.textScope))
         )

@@ -176,6 +176,16 @@ struct AppEnvironment {
         )
     }
 
+    /// 评论时间戳与链接 `t=` 的跳转：只在播放器当前 item 属于该视频时跳到该秒数并播放；超出时长、
+    /// 还没有 item 或已换视频时不动作。
+    func seekPlayback(bvid: String, toSeconds seconds: Int) {
+        guard seconds >= 0,
+            playerEngine.currentTimelineSnapshot.identity?.bvid == bvid,
+            playerEngine.requestSeek(to: .seconds(seconds))
+        else { return }
+        playerEngine.play()
+    }
+
     func makePlayerView(
         videoModel: VideoViewModel,
         danmakuModel: DanmakuControlsViewModel

@@ -33,7 +33,7 @@ struct BiliShortLinkResolverTests {
 
         let resolved = await resolver.resolve(try shortLink())
 
-        #expect(resolved == .video(bvid: "BV1xx411c7mD", page: 2))
+        #expect(resolved == .video(bvid: "BV1xx411c7mD", page: 2, startSeconds: nil))
         let request = try #require(transport.capturedRequests().first)
         #expect(transport.capturedRequests().count == 1)
         #expect(request.method == .head)
@@ -127,7 +127,7 @@ struct BiliShortLinkResolverTests {
 
         #expect(resolved.flatMap(BiliCommentLinkResolver().externalURL(for:)) == nil)
         switch resolved {
-        case .video, .member, .space, .shortLink:
+        case .video, .member, .space, .shortLink, .timestamp:
             Issue.record("不安全或仍在短链主机的 Location 不应得到站内目标")
         case .external, nil:
             break
@@ -147,7 +147,7 @@ struct BiliShortLinkResolverTests {
         let shortURL = try #require(URL(string: "https://b23.tv/AbCd123"))
         let malformedShortURL = try #require(URL(string: "https://b23.tv/a/b"))
         let targets: [CommentLinkTarget] = [
-            .video(bvid: "BV1xx411c7mD", page: nil),
+            .video(bvid: "BV1xx411c7mD", page: nil, startSeconds: nil),
             .space(memberID: 42),
             .external(CommentExternalLinkReference(remoteURL: shortURL)),
             .shortLink(CommentExternalLinkReference(remoteURL: malformedShortURL)),

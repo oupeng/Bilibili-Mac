@@ -82,6 +82,9 @@ public final class VideoViewModel {
     public private(set) var requestedPreferredCID: Int64?
     /// 外部链接给出的分 P 序号；详情到达前只用于重试，到达后换算为 `requestedPreferredCID`。
     private var requestedPreferredPageNumber: Int?
+    /// 外部链接给出的起播秒数（`t=`）；开播前失败的重试沿用，开播成功后即用过、清除，之后的重试
+    /// 不再跳回链接时间。
+    private var requestedStartSeconds: Int?
     /// 已经由播放器成功安装的媒体身份；切换开始和失败后必须为 nil。
     public private(set) var presentedPlaybackIdentity: PlaybackItemIdentity?
     /// 仅在确认凭据失效时递增，由 App 层协调账户重校验；其他播放失败不能触发登出。
@@ -142,7 +145,8 @@ public final class VideoViewModel {
     public func loadVideo(
         _ bvid: String,
         preferredCID: Int64? = nil,
-        preferredPageNumber: Int? = nil
+        preferredPageNumber: Int? = nil,
+        startSeconds: Int? = nil
     ) {
         loadTask.cancel()
         collectionEpisodes.cancelRequests()
@@ -155,6 +159,7 @@ public final class VideoViewModel {
         requestedSelectionBVID = bvid
         requestedPreferredCID = preferredCID
         requestedPreferredPageNumber = preferredPageNumber
+        requestedStartSeconds = startSeconds
         if let preferredCID {
             requestedPlaybackIdentity = PlaybackItemIdentity(
                 bvid: bvid,
@@ -170,6 +175,7 @@ public final class VideoViewModel {
                 bvid: bvid,
                 preferredCID: preferredCID,
                 preferredPageNumber: preferredPageNumber,
+                startSeconds: startSeconds,
                 isCurrent: isCurrent
             )
         }
@@ -193,13 +199,28 @@ public final class VideoViewModel {
         collectionEpisodes.pages(for: identity)
     }
 
+    /// 能否在播放器已经装好的分 P 里原地跳到某秒。
+    ///
+    /// `pageNumber` 为 nil 视为当前分 P，否则须与它相同；秒数按可跳转时长判断。还在加载、失败或没有
+    /// 视频时为 false。
+    public func canSeekPresentedPage(number pageNumber: Int?, toSeconds seconds: Int) -> Bool {
+        guard let context = presentedContext,
+            presentedPlaybackIdentity?.cid == context.selectedPage.cid,
+            pageNumber.map({ $0 == context.selectedPage.index }) ?? true
+        else { return false }
+        return context.acceptsSeek(toSeconds: seconds)
+    }
+
     /// 当前视频里分 P 序号（从 1 开始）对应的 CID；没有当前视频或序号超出范围时为 nil。
     public func presentedPageCID(forNumber number: Int) -> Int64? {
         presentedContext?.pages.first(where: { $0.index == number })?.cid
     }
 
     /// 在同一 BVID 的现有 pages 内替换 CID，不创建新的导航目的地或播放器 owner。
-    public func selectPage(cid: Int64) {
+    ///
+    /// `startSeconds` 来自外部链接（`t=`），从该处起播；应用内选分 P 不带它。同一分 P 正在加载时，
+    /// 带起播秒数的请求取消在途加载并重开，不被去重吞掉。
+    public func selectPage(cid: Int64, startSeconds: Int? = nil) {
         guard let context = presentedContext,
             let targetPage = context.pages.first(where: { $0.cid == cid })
         else { return }
@@ -212,7 +233,7 @@ public final class VideoViewModel {
         {
             return
         }
-        guard requestedPlaybackIdentity != targetIdentity else { return }
+        guard requestedPlaybackIdentity != targetIdentity || startSeconds != nil else { return }
 
         loadTask.cancel()
         playback.stop()
@@ -221,6 +242,7 @@ public final class VideoViewModel {
         requestedSelectionBVID = context.detail.bvid
         requestedPreferredCID = targetPage.cid
         requestedPreferredPageNumber = nil
+        requestedStartSeconds = startSeconds
         presentedPlaybackIdentity = nil
         let intent = PlaybackLoadIntent()
         playbackIntent = intent
@@ -230,6 +252,7 @@ public final class VideoViewModel {
                 context: context,
                 targetPage: targetPage,
                 intent: intent,
+                startSeconds: startSeconds,
                 isCurrent: isCurrent
             )
         }
@@ -242,11 +265,12 @@ public final class VideoViewModel {
             loadVideo(
                 bvid,
                 preferredCID: requestedPreferredCID,
-                preferredPageNumber: requestedPreferredPageNumber
+                preferredPageNumber: requestedPreferredPageNumber,
+                startSeconds: requestedStartSeconds
             )
         case .failedPage(_, let targetPage, _):
             requestedPlaybackIdentity = nil
-            selectPage(cid: targetPage.cid)
+            selectPage(cid: targetPage.cid, startSeconds: requestedStartSeconds)
         case .idle, .loading, .loadingPage, .preparingPlayback, .ready:
             break
         }
@@ -271,6 +295,7 @@ public final class VideoViewModel {
         requestedSelectionBVID = nil
         requestedPreferredCID = nil
         requestedPreferredPageNumber = nil
+        requestedStartSeconds = nil
         playbackIntent = nil
         clearResumeNotice()
         state = .idle
@@ -330,6 +355,7 @@ public final class VideoViewModel {
         bvid: String,
         preferredCID: Int64?,
         preferredPageNumber: Int?,
+        startSeconds: Int?,
         isCurrent: LatestTask.IsCurrent
     ) async {
         do {
@@ -369,10 +395,12 @@ public final class VideoViewModel {
                     context,
                     identity: identity,
                     intent: intent,
+                    startSeconds: startSeconds,
                     isCurrent: isCurrent
                 )
             else { return }
             presentedPlaybackIdentity = requestedPlaybackIdentity
+            requestedStartSeconds = nil
             state = .ready(context)
         } catch {
             guard isCurrent() else { return }
@@ -384,6 +412,7 @@ public final class VideoViewModel {
         context: VideoContext,
         targetPage: VideoPage,
         intent: PlaybackLoadIntent,
+        startSeconds: Int?,
         isCurrent: LatestTask.IsCurrent
     ) async {
         do {
@@ -405,10 +434,12 @@ public final class VideoViewModel {
                     replacement,
                     identity: identity,
                     intent: intent,
+                    startSeconds: startSeconds,
                     isCurrent: isCurrent
                 )
             else { return }
             presentedPlaybackIdentity = identity
+            requestedStartSeconds = nil
             state = .ready(replacement)
         } catch {
             guard isCurrent() else { return }
@@ -419,17 +450,22 @@ public final class VideoViewModel {
     }
 
     /// 安装并开播已准备好的 context；返回 false 表示意图已被取代，调用方不得再写状态。
+    ///
+    /// 链接给的起播秒数优先于续播位置；按 `VideoContext.linkStartPosition` 判断能否采用，采用时不显示
+    /// 续播提示。
     private func startPlayback(
         _ context: VideoContext,
         identity: PlaybackItemIdentity,
         intent: PlaybackLoadIntent,
+        startSeconds: Int?,
         isCurrent: LatestTask.IsCurrent
     ) async throws -> Bool {
+        let linkStartSeconds = context.linkStartPosition(seconds: startSeconds)
         try await playback.load(
             context.playback,
             identity: identity,
             intent: intent,
-            startPositionSeconds: context.resumePositionSeconds
+            startPositionSeconds: linkStartSeconds ?? context.resumePositionSeconds
         )
         try Task.checkCancellation()
         guard isCurrent() else { return false }
@@ -439,7 +475,11 @@ public final class VideoViewModel {
         )
         try Task.checkCancellation()
         guard isCurrent() else { return false }
-        applyResumeNotice(from: startOutcome)
+        if linkStartSeconds == nil {
+            applyResumeNotice(from: startOutcome)
+        } else {
+            resumeNotice = nil
+        }
         return true
     }
 

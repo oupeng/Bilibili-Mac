@@ -1,4 +1,5 @@
 import AppKit
+import BiliApplication
 import BiliModels
 
 struct NativePlaybackCommentTextScope: Hashable {
@@ -23,6 +24,10 @@ final class NativePlaybackCommentTextRenderer {
 
     private let imagePipeline: NativeVideoImagePipeline
     private let resolveURL: CommentAssetURLResolver
+    /// 正文时间戳可跳转的上限（不含），超出或为 nil 时时间戳按普通文字显示。
+    ///
+    /// 链接只改颜色、不改行高，所以测量不依赖它。
+    var timestampLimitSeconds: Int?
     private struct UnavailableAssetKey: Hashable {
         let scope: NativePlaybackCommentTextScope
         let reference: CommentAssetReference
@@ -211,6 +216,14 @@ final class NativePlaybackCommentTextRenderer {
             guard range.location >= 0, range.length > 0,
                 NSMaxRange(range) <= attributed.length
             else { continue }
+            if case .timestamp(let seconds) = link.target,
+                !VideoContext.accepts(
+                    seconds: seconds,
+                    seekableDurationSeconds: timestampLimitSeconds
+                )
+            {
+                continue
+            }
             let value = "bilikit-comment-link-\(targets.count)"
             targets.append(link.target)
             attributed.addAttribute(.link, value: value, range: range)

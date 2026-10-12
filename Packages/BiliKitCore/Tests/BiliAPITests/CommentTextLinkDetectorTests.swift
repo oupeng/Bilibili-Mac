@@ -32,9 +32,9 @@ struct CommentTextLinkDetectorTests {
         )
         #expect(
             links.map(\.target) == [
-                .video(bvid: "BV1xx411c7mD", page: nil),
-                .video(bvid: "BV17x411w7KC", page: nil),
-                .video(bvid: "BV17x411w7KC", page: 2)
+                .video(bvid: "BV1xx411c7mD", page: nil, startSeconds: nil),
+                .video(bvid: "BV17x411w7KC", page: nil, startSeconds: nil),
+                .video(bvid: "BV17x411w7KC", page: 2, startSeconds: nil)
             ]
         )
     }
@@ -81,7 +81,7 @@ struct CommentTextLinkDetectorTests {
         )
 
         #expect(links.map(\.text) == ["http://www.bilibili.com/video/BV1xx411c7mD"])
-        #expect(links.first?.target == .video(bvid: "BV1xx411c7mD", page: nil))
+        #expect(links.first?.target == .video(bvid: "BV1xx411c7mD", page: nil, startSeconds: nil))
     }
 
     /// 嵌在别的单词或标记里的不识别：前后紧挨字母或数字、不合法的 av 号、网址里的 BV 号不重复识别。
@@ -147,6 +147,49 @@ struct CommentTextLinkDetectorTests {
         )
     }
 
+    /// 时间戳：`m:ss`（分钟最多 3 位）与 `h:mm:ss`；是否超出视频时长到显示时再判断。
+    @Test
+    func timestampsInPlainText() {
+        let links = detected("1:23 处，还有 01:02:03 和 120:00，以及（12:34）")
+
+        #expect(links.map(\.text) == ["1:23", "01:02:03", "120:00", "12:34"])
+        #expect(
+            links.map(\.target) == [
+                .timestamp(seconds: 83),
+                .timestamp(seconds: 3_723),
+                .timestamp(seconds: 7_200),
+                .timestamp(seconds: 754)
+            ]
+        )
+    }
+
+    /// 不是时间的写法不识别：秒不是两位或不小于 60、比例、更长的数字串、全角冒号、网址里的时间。
+    @Test(
+        arguments: [
+            "1:2",
+            "1:60",
+            "3:2",
+            "16:9",
+            "1234:56",
+            "12:34:56:78",
+            "1:60:00",
+            "１：２３",
+            "p1:23",
+            "x264:10",
+            "1:23s",
+            "1：23",
+            "https://example.com/a?at=10:30"
+        ]
+    )
+    func nonTimestampsStayPlainText(message: String) {
+        #expect(
+            !detected(message).contains { link in
+                if case .timestamp = link.target { return true }
+                return false
+            }
+        )
+    }
+
     @Test
     func aVideoAddressContainingABVIDIsOneLink() {
         let links = detected("https://www.bilibili.com/video/BV1xx411c7mD")
@@ -160,13 +203,13 @@ struct CommentTextLinkDetectorTests {
         let message = "😀BV1xx411c7mD av170001"
         let marked = CommentLink(
             range: CommentTextRange(location: 2, length: 12),
-            target: .video(bvid: "BV1xx411c7mD", page: 1)
+            target: .video(bvid: "BV1xx411c7mD", page: 1, startSeconds: nil)
         )
 
         let links = CommentTextLinkDetector.links(in: message, excluding: [marked.range])
 
         #expect(links.map(\.range) == [CommentTextRange(location: 15, length: 8)])
-        #expect(links.map(\.target) == [.video(bvid: "BV17x411w7KC", page: nil)])
+        #expect(links.map(\.target) == [.video(bvid: "BV17x411w7KC", page: nil, startSeconds: nil)])
     }
 
     /// 接入评论正文映射：识别结果与 jump_url 链接合并，按出现位置排序。
@@ -189,7 +232,7 @@ struct CommentTextLinkDetectorTests {
                 CommentTextRange(location: 12, length: 12)
             ]
         )
-        #expect(links.first?.target == .video(bvid: "BV17x411w7KC", page: nil))
-        #expect(links.last?.target == .video(bvid: "BV17x411w7KC", page: nil))
+        #expect(links.first?.target == .video(bvid: "BV17x411w7KC", page: nil, startSeconds: nil))
+        #expect(links.last?.target == .video(bvid: "BV17x411w7KC", page: nil, startSeconds: nil))
     }
 }

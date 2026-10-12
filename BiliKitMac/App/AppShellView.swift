@@ -24,6 +24,7 @@ struct AppShellView: View {
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentLinkRouter: CommentLinkRouter
     let commentShortLinks: CommentShortLinkResolution
+    let seekPlayback: @MainActor (_ bvid: String, _ seconds: Int) -> Void
     let imagePipeline: NativeVideoImagePipeline
     @Binding var isAuthenticationPresented: Bool
     @Binding var searchFilterSelection: SearchFilterSelection
@@ -89,7 +90,7 @@ struct AppShellView: View {
                             danmakuModel: danmakuModel,
                             playerContent: playerContent,
                             imagePipeline: imagePipeline,
-                            onRetry: navigationCoordinator.retryPlayback,
+                            onRetry: retryPlayback,
                             onSelectRelatedVideo:
                                 navigationCoordinator.openPlayback
                         )
@@ -208,7 +209,7 @@ struct AppShellView: View {
             commentsModel: commentsModel,
             commentAssetURLResolver: commentAssetURLResolver,
             commentImagePipeline: imagePipeline,
-            onRetry: navigationCoordinator.retryPlayback,
+            onRetry: retryPlayback,
             onSelectPlayback: { bvid, preferredCID in
                 navigationCoordinator.openPlayback(
                     PlaybackSelectionIntent(
@@ -264,11 +265,24 @@ struct AppShellView: View {
     /// 评论正文链接：视频（含分 P）在应用内播放，空间链接在侧栏空间层打开，其余交给系统浏览器。
     ///
     /// @ 提及在侧栏内已进入空间，到这里只剩没有空间功能时的网页回退。短链先由窗口级 owner 解析，
-    /// 解析出的路由再走这里一次，解析不出时打开原短链。
+    /// 解析出的路由再走这里一次，解析不出时打开原短链。时间戳与指向正在播放分 P 的 `t=` 直接跳转，
+    /// 不经过导航去重，同一个时间点可以反复点。
     private func openCommentLink(_ route: CommentLinkRoute?) {
         switch route {
         case .playback(let intent):
-            navigationCoordinator.openPlayback(intent)
+            if let seconds = AppWindowOwner.inPlaceStartSeconds(
+                for: intent,
+                currentPlaybackBVID: navigationCoordinator.currentPlaybackBVID,
+                videoModel: videoModel
+            ) {
+                seekPlayback(intent.bvid, seconds)
+            } else {
+                navigationCoordinator.openPlayback(intent)
+            }
+        case .seek(let seconds):
+            if let bvid = navigationCoordinator.currentPlaybackBVID {
+                seekPlayback(bvid, seconds)
+            }
         case .space(let memberID, let webFallback):
             if let uploaderSpaceModel {
                 uploaderSpaceModel.open(ownerID: memberID)
@@ -284,6 +298,10 @@ struct AppShellView: View {
         case nil:
             break
         }
+    }
+
+    private func retryPlayback() {
+        AppWindowOwner.retryPlayback(coordinator: navigationCoordinator, videoModel: videoModel)
     }
 
     private func openCommentPictures(

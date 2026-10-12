@@ -18,11 +18,19 @@ struct PlaybackSelectionIntent: Hashable {
     let preferredCID: Int64?
     /// 外部链接（评论正文）给出的分 P 序号，从 1 开始；超出范围时按默认分 P 打开。
     let preferredPageNumber: Int?
+    /// 外部链接给出的起播秒数（`t=`）；超出分 P 时长时忽略。
+    let preferredStartSeconds: Int?
 
-    init(bvid: String, preferredCID: Int64? = nil, preferredPageNumber: Int? = nil) {
+    init(
+        bvid: String,
+        preferredCID: Int64? = nil,
+        preferredPageNumber: Int? = nil,
+        preferredStartSeconds: Int? = nil
+    ) {
         self.bvid = bvid
         self.preferredCID = preferredCID
         self.preferredPageNumber = preferredPageNumber
+        self.preferredStartSeconds = preferredStartSeconds
     }
 }
 

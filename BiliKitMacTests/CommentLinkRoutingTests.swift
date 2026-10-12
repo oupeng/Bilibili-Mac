@@ -14,13 +14,23 @@ struct CommentLinkRoutingTests {
     )
 
     @Test
-    func videoLinksBecomePlaybackIntentsWithTheirPage() {
-        guard case .playback(let intent) = routing.route(for: .video(bvid: "BV1xx411c7mD", page: 2))
+    func videoLinksBecomePlaybackIntentsWithTheirPageAndStart() {
+        guard
+            case .playback(let intent) = routing.route(
+                for: .video(bvid: "BV1xx411c7mD", page: 2, startSeconds: 30)
+            )
         else {
             Issue.record("视频链接应在应用内播放")
             return
         }
-        #expect(intent == PlaybackSelectionIntent(bvid: "BV1xx411c7mD", preferredPageNumber: 2))
+        #expect(
+            intent
+                == PlaybackSelectionIntent(
+                    bvid: "BV1xx411c7mD",
+                    preferredPageNumber: 2,
+                    preferredStartSeconds: 30
+                )
+        )
     }
 
     @Test
@@ -32,6 +42,15 @@ struct CommentLinkRoutingTests {
         }
         #expect(memberID == 42)
         #expect(webFallback?.absoluteString == "https://space.bilibili.com/42")
+    }
+
+    @Test
+    func timestampsSeekTheCurrentPlayback() {
+        guard case .seek(let seconds) = routing.route(for: .timestamp(seconds: 83)) else {
+            Issue.record("时间戳应在当前播放里跳转")
+            return
+        }
+        #expect(seconds == 83)
     }
 
     /// 短链先解析再打开；没有地址的引用既不发请求也没有回退。

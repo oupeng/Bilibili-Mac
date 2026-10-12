@@ -655,8 +655,10 @@ struct CommentContentPayload: Decodable, Sendable {
 
     private static func linkOrderKey(_ target: CommentLinkTarget) -> String {
         switch target {
-        case .video(let bvid, let page):
-            "0:\(bvid):\(page.map(String.init) ?? "")"
+        case .video(let bvid, let page, let startSeconds):
+            "0:\(bvid):\(page.map(String.init) ?? ""):\(startSeconds.map(String.init) ?? "")"
+        case .timestamp(let seconds):
+            "4:\(seconds)"
         case .member(let user):
             "1:\(user.id.rawValue)"
         case .space(let memberID):

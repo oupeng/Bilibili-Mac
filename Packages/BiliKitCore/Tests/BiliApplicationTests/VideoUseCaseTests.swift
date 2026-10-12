@@ -286,6 +286,40 @@ struct VideoUseCaseTests {
         #expect(context.accessNotice == expected)
     }
 
+    /// 可跳转时长是时间戳与链接起播的唯一规则：充电试看取试看时长；只有 DASH 采用链接起播位置。
+    @Test
+    func seekableDurationAndLinkStartFollowTheDeliveredMedia() throws {
+        let page = VideoPage(cid: 900_001, index: 1, title: "P1", durationSeconds: 2_255)
+        let previewContext = VideoContext(
+            detail: makeAccessDetail(
+                access: VideoAccess(
+                    isUPowerExclusive: true,
+                    isUPowerPreviewAvailable: true,
+                    isUPowerPlayable: false
+                )
+            ),
+            pages: [page],
+            selectedPage: page,
+            playback: try progressivePreview()
+        )
+        let dashContext = VideoContext(
+            detail: makeAccessDetail(access: VideoAccess()),
+            pages: [page],
+            selectedPage: page,
+            playback: try makeFixturePlayback(resumeMetadata: nil)
+        )
+
+        #expect(previewContext.seekableDurationSeconds == 884)
+        #expect(previewContext.acceptsSeek(toSeconds: 883))
+        #expect(!previewContext.acceptsSeek(toSeconds: 884))
+        #expect(previewContext.linkStartPosition(seconds: 60) == nil)
+        #expect(dashContext.seekableDurationSeconds == 2_255)
+        #expect(dashContext.linkStartPosition(seconds: 60) == 60)
+        #expect(dashContext.linkStartPosition(seconds: 2_255) == nil)
+        #expect(dashContext.linkStartPosition(seconds: nil) == nil)
+        #expect(!VideoContext.accepts(seconds: 0, seekableDurationSeconds: nil))
+    }
+
     @Test(
         arguments: [
             (

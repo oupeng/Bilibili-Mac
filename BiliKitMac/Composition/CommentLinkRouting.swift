@@ -5,6 +5,8 @@ import Foundation
 /// 评论正文链接的去向，由 Composition 按链接目标翻译；App 外壳只执行，不接触评论模型。
 enum CommentLinkRoute: Sendable {
     case playback(PlaybackSelectionIntent)
+    /// 正文时间戳：在当前视频正在播的分 P 里跳到该秒数并播放。
+    case seek(seconds: Int)
     /// 在侧栏空间层打开；没有空间功能时打开 `webFallback`。
     case space(memberID: Int64, webFallback: URL?)
     case web(URL)
@@ -21,8 +23,16 @@ struct CommentLinkRouting: Sendable {
 
     func route(for target: CommentLinkTarget) -> CommentLinkRoute? {
         switch target {
-        case .video(let bvid, let page):
-            return .playback(PlaybackSelectionIntent(bvid: bvid, preferredPageNumber: page))
+        case .video(let bvid, let page, let startSeconds):
+            return .playback(
+                PlaybackSelectionIntent(
+                    bvid: bvid,
+                    preferredPageNumber: page,
+                    preferredStartSeconds: startSeconds
+                )
+            )
+        case .timestamp(let seconds):
+            return .seek(seconds: seconds)
         case .space(let memberID):
             return .space(memberID: memberID, webFallback: linkResolver.externalURL(for: target))
         case .member, .external:

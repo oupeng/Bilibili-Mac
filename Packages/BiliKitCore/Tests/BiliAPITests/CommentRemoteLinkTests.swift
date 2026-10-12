@@ -13,7 +13,7 @@ struct CommentRemoteLinkTests {
             ("https://m.bilibili.com/video/BV1FixtureA1/", "BV1FixtureA1", nil),
             ("https://bilibili.com/video/BV1FixtureA1?p=3", "BV1FixtureA1", 3),
             ("//www.bilibili.com/video/av170001", "BV17x411w7KC", nil),
-            ("https://WWW.bilibili.com/video/AV2/?p=2&t=30", "BV1xx411c7mD", 2),
+            ("https://WWW.bilibili.com/video/AV2/?p=2", "BV1xx411c7mD", 2),
             ("https://www.bilibili.com/video/BV1FixtureA1?p=0", "BV1FixtureA1", nil),
             ("https://www.bilibili.com/video/BV1FixtureA1?p=abc", "BV1FixtureA1", nil),
             ("https://www.bilibili.com/video/BV1FixtureA1?p=+3", "BV1FixtureA1", nil),
@@ -24,7 +24,26 @@ struct CommentRemoteLinkTests {
         ] as [(String, String, Int?)]
     )
     func videoAddressesOpenInApp(value: String, bvid: String, page: Int?) {
-        #expect(CommentRemoteLink.target(value) == .video(bvid: bvid, page: page))
+        #expect(
+            CommentRemoteLink.target(value) == .video(bvid: bvid, page: page, startSeconds: nil)
+        )
+    }
+
+    /// 链接里的起播秒数 `t` 与分 P 一样只认正整数；小数与 `1m30s` 这类写法忽略。
+    @Test(
+        arguments: [
+            ("?p=2&t=30", 2, 30),
+            ("?t=90", nil, 90),
+            ("?t=0", nil, nil),
+            ("?t=12.5", nil, nil),
+            ("?t=1m30s", nil, nil)
+        ] as [(String, Int?, Int?)]
+    )
+    func startSecondsComeFromTheTParameter(query: String, page: Int?, startSeconds: Int?) {
+        #expect(
+            CommentRemoteLink.target("https://www.bilibili.com/video/BV1xx411c7mD\(query)")
+                == .video(bvid: "BV1xx411c7mD", page: page, startSeconds: startSeconds)
+        )
     }
 
     @Test(
@@ -135,7 +154,7 @@ struct CommentRemoteLinkTests {
 
         let links = try payload.model().links
 
-        #expect(links.map(\.target) == [.video(bvid: "BV1FixtureA1", page: nil)])
+        #expect(links.map(\.target) == [.video(bvid: "BV1FixtureA1", page: nil, startSeconds: nil)])
         #expect(links.map(\.range) == [CommentTextRange(location: 13, length: 2)])
     }
 
@@ -168,7 +187,7 @@ struct CommentRemoteLinkTests {
             return
         }
         #expect(reference.remoteURL?.absoluteString == short)
-        #expect(targets.last == .video(bvid: "BV1xx411c7mD", page: nil))
+        #expect(targets.last == .video(bvid: "BV1xx411c7mD", page: nil, startSeconds: nil))
     }
 
     /// `extra` 形状异常时按普通链接处理，不拖累整条 jump_url。
@@ -188,7 +207,9 @@ struct CommentRemoteLinkTests {
         let payload = try JSONDecoder().decode(CommentContentPayload.self, from: data)
 
         #expect(
-            try payload.model().links.map(\.target) == [.video(bvid: "BV1FixtureA1", page: nil)]
+            try payload.model().links.map(\.target) == [
+                .video(bvid: "BV1FixtureA1", page: nil, startSeconds: nil)
+            ]
         )
     }
 }
