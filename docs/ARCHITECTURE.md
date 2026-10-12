@@ -11,6 +11,9 @@
 - Bundle ID `com.shiinayane.BiliKit`；Debug／Release 相同。Keychain access group 固定为
   `$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)`，更换 Team 或 Bundle ID 等于换一个
   Keychain 范围，旧登录态不迁移，也不得扩大 access group 去读取。
+- 强调色是资源目录的 `AccentColor`：B 站粉调深，浅色 `#E84B85`、深色 `#F25D8E`，让上面的白字仍可读。
+  界面只通过系统强调色（`controlAccentColor`／`Color.accentColor`）取用；用户在系统设置里选了具体
+  主题颜色时以系统为准。
 
 ## 模块与依赖方向
 
