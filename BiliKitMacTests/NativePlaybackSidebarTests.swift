@@ -315,6 +315,168 @@ struct NativePlaybackSidebarTests {
         #expect(NativeCommentAvatarMark(author: author) == expected)
     }
 
+    /// 接口给了标题的链接：原文网址显示为「图标 + 标题」，图标与标题都带同一个链接；后面的链接位置
+    /// 不受前面替换影响，没有标题的链接保持原文。
+    @Test
+    @MainActor
+    func titledLinksShowIconAndTitleInPlaceOfTheAddress() throws {
+        let short = "https://b23.tv/Jf3cvv2"
+        let message = "看 \(short) 和 BV17x411w7KC"
+        let source = message as NSString
+        let shortRange = source.range(of: short)
+        let bvidRange = source.range(of: "BV17x411w7KC")
+        let iconURL = try #require(URL(string: "https://i0.hdslb.com/bfs/icon.png"))
+        let content = CommentContent(
+            message: message,
+            links: [
+                CommentLink(
+                    range: CommentTextRange(
+                        location: shortRange.location,
+                        length: shortRange.length
+                    ),
+                    target: .shortLink(CommentExternalLinkReference()),
+                    title: "韩语版《朋友的酒》",
+                    icon: CommentAssetReference()
+                ),
+                CommentLink(
+                    range: CommentTextRange(location: bvidRange.location, length: bvidRange.length),
+                    target: .video(bvid: "BV17x411w7KC", page: nil, startSeconds: nil)
+                )
+            ]
+        )
+        let rendered = makeCommentTextRenderer(resolveURL: { _, _ in iconURL }).render(
+            content,
+            scope: NativePlaybackCommentTextScope(
+                subject: .video(aid: 700_001),
+                rootID: CommentID(rawValue: 1),
+                revision: 1
+            )
+        )
+        let text = rendered.attributedString.string as NSString
+        let titleRange = text.range(of: "韩语版《朋友的酒》")
+        let iconLocation = titleRange.location - 1
+        func link(at location: Int) -> String? {
+            rendered.attributedString.attribute(.link, at: location, effectiveRange: nil) as? String
+        }
+
+        #expect(!rendered.attributedString.string.contains(short))
+        #expect(titleRange.location != NSNotFound)
+        #expect(
+            rendered.attributedString.attribute(.attachment, at: iconLocation, effectiveRange: nil)
+                is NSTextAttachment
+        )
+        #expect(link(at: iconLocation) == "bilikit-comment-link-0")
+        #expect(link(at: titleRange.location) == "bilikit-comment-link-0")
+        #expect(link(at: text.range(of: "BV17x411w7KC").location) == "bilikit-comment-link-1")
+        #expect(rendered.pendingAssets.map(\.url) == [iconURL])
+    }
+
+    /// 图标地址不合规（解析不出）时只显示标题。
+    @Test
+    @MainActor
+    func titledLinksWithoutAUsableIconShowOnlyTheTitle() {
+        let content = CommentContent(
+            message: "https://b23.tv/Jf3cvv2",
+            links: [
+                CommentLink(
+                    range: CommentTextRange(location: 0, length: 22),
+                    target: .shortLink(CommentExternalLinkReference()),
+                    title: "视频标题",
+                    icon: CommentAssetReference()
+                )
+            ]
+        )
+
+        let rendered = makeCommentTextRenderer().render(
+            content,
+            scope: NativePlaybackCommentTextScope(
+                subject: .video(aid: 700_001),
+                rootID: CommentID(rawValue: 1),
+                revision: 1
+            )
+        )
+
+        #expect(rendered.attributedString.string == "视频标题")
+        #expect(rendered.pendingAssets.isEmpty)
+        #expect(rendered.accessibilityText == "视频标题")
+    }
+
+    /// 图标在本作用域加载失败后重新渲染：只剩标题，不再登记加载；读屏文本读标题而不是网址。
+    @Test
+    @MainActor
+    func failedLinkIconsFallBackToTheTitle() throws {
+        let icon = CommentAssetReference()
+        let iconURL = try #require(URL(string: "https://i0.hdslb.com/bfs/icon.png"))
+        let content = CommentContent(
+            message: "看 https://b23.tv/Jf3cvv2",
+            links: [
+                CommentLink(
+                    range: CommentTextRange(location: 2, length: 22),
+                    target: .shortLink(CommentExternalLinkReference()),
+                    title: "视频标题",
+                    icon: icon
+                )
+            ]
+        )
+        let scope = NativePlaybackCommentTextScope(
+            subject: .video(aid: 700_001),
+            rootID: CommentID(rawValue: 1),
+            revision: 1
+        )
+        let renderer = makeCommentTextRenderer(resolveURL: { _, _ in iconURL })
+        renderer.retainFailureScopes([scope])
+        #expect(renderer.render(content, scope: scope).pendingAssets.count == 1)
+
+        #expect(renderer.markUnavailable(icon, in: scope))
+        let rendered = renderer.render(content, scope: scope)
+
+        #expect(rendered.attributedString.string == "看 视频标题")
+        #expect(rendered.pendingAssets.isEmpty)
+        #expect(rendered.accessibilityText == "看 视频标题")
+    }
+
+    /// 表情优先：与表情重叠的链接不替换成图标与标题，表情照常显示；读屏文本保留表情原文。
+    @Test
+    @MainActor
+    func emotesWinOverOverlappingDecoratedLinks() throws {
+        let emoteURL = try #require(URL(string: "https://i0.hdslb.com/bfs/emote.png"))
+        let content = CommentContent(
+            message: "[原神_哈哈]",
+            emotes: [
+                CommentEmote(
+                    text: "[原神_哈哈]",
+                    range: CommentTextRange(location: 0, length: 7),
+                    asset: CommentAssetReference(),
+                    size: .standard
+                )
+            ],
+            links: [
+                CommentLink(
+                    range: CommentTextRange(location: 1, length: 2),
+                    target: .video(bvid: "BV1xx411c7mD", page: nil, startSeconds: nil),
+                    title: "游戏",
+                    icon: CommentAssetReference()
+                )
+            ]
+        )
+
+        let rendered = makeCommentTextRenderer(resolveURL: { _, _ in emoteURL }).render(
+            content,
+            scope: NativePlaybackCommentTextScope(
+                subject: .video(aid: 700_001),
+                rootID: CommentID(rawValue: 1),
+                revision: 1
+            )
+        )
+
+        #expect(rendered.attributedString.length == 1)
+        #expect(
+            rendered.attributedString.attribute(.attachment, at: 0, effectiveRange: nil)
+                is NSTextAttachment
+        )
+        #expect(rendered.accessibilityText == "[原神_哈哈]")
+    }
+
     /// 时间戳只在播放器已装好（有上限）且不超出当前分 P 时长时显示为链接。
     @Test
     @MainActor

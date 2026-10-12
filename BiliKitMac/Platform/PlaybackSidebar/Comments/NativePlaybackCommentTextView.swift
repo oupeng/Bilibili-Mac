@@ -74,7 +74,7 @@ final class NativePlaybackCommentTextView: NSTextView, NSTextViewDelegate {
             previousSelections,
             textLength: rendered.attributedString.length
         )
-        setAccessibilityLabel(content.message)
+        setAccessibilityLabel(rendered.accessibilityText)
         scheduleLoads(rendered)
     }
 
@@ -173,5 +173,18 @@ final class NativePlaybackCommentTextView: NSTextView, NSTextViewDelegate {
         else { return true }
         onOpenLink?(linkTargets[index])
         return true
+    }
+
+    /// 链接前的图标是图片附件，点它时系统走附件点击而不是链接点击；读出同一个链接值，与点标题走同一条路径。
+    func textView(
+        _ textView: NSTextView,
+        clickedOn cell: any NSTextAttachmentCellProtocol,
+        in cellFrame: NSRect,
+        at charIndex: Int
+    ) {
+        guard let textStorage, charIndex >= 0, charIndex < textStorage.length,
+            let link = textStorage.attribute(.link, at: charIndex, effectiveRange: nil)
+        else { return }
+        _ = self.textView(textView, clickedOnLink: link, at: charIndex)
     }
 }

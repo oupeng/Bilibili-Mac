@@ -6,10 +6,19 @@ struct CommentJumpURLPayload: Decodable, Sendable {
     let pcURL: String?
     /// 搜索词链接：点击会离开播放去搜索页，与应用动线冲突，不生成链接。
     let isWordSearch: Bool
+    /// 官方客户端显示的标题（如短链指向的视频名）。
+    let title: String?
+    /// 显示在链接前的小图标地址。
+    let prefixIcon: String?
+    /// 正文里同一段文字多次出现时只链接第一处。
+    let matchesOnce: Bool
 
     private enum CodingKeys: String, CodingKey {
         case pcURL = "pc_url"
         case extra
+        case title
+        case prefixIcon = "prefix_icon"
+        case matchOnce = "match_once"
     }
 
     private struct ExtraPayload: Decodable, Sendable {
@@ -30,6 +39,29 @@ struct CommentJumpURLPayload: Decodable, Sendable {
         pcURL = try container.decodeIfPresent(String.self, forKey: .pcURL)
         let extra = try? container.decodeIfPresent(ExtraPayload.self, forKey: .extra)
         isWordSearch = extra?.isWordSearch == true
+        // 标题、图标与只链接一次都只影响显示，字段异常时按缺省处理，不拖累链接本身。
+        title = try? container.decodeIfPresent(String.self, forKey: .title)
+        prefixIcon = try? container.decodeIfPresent(String.self, forKey: .prefixIcon)
+        matchesOnce = container.decodeLossyBool(forKey: .matchOnce) ?? false
+    }
+
+    /// 替换正文原文显示的标题：去掉首尾空白后非空、且与原文不同时才替换。
+    ///
+    /// 站外链接不替换，正文保留真实网址，点击前能看到要去的域名。
+    func displayTitle(label: String, target: CommentLinkTarget) -> String? {
+        if case .external = target { return nil }
+        guard let title = title?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !title.isEmpty, title != label
+        else { return nil }
+        return title
+    }
+
+    /// 前置小图标的资源引用；来源限制在解析图片地址时统一复核，这里只拒绝带用户信息的地址。
+    var icon: CommentAssetReference? {
+        guard let url = prefixIcon.flatMap(WebImageURL.parse),
+            url.user == nil, url.password == nil
+        else { return nil }
+        return CommentAssetReference(remoteURL: url)
     }
 
     /// 链接地址：`pc_url` 缺失或为空时，正文里的网址本身（如 b23.tv 短链）就是键，退回用键。
