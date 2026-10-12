@@ -2,14 +2,16 @@ import Foundation
 
 /// B 站 BFS 图床图片的来源规则：评论头像、表情、正文图片与热搜图标共用。
 ///
-/// 只接受 `i0`／`i1`／`i2.hdslb.com` 上 `/bfs/` 下的 HTTPS 路径，拒绝 query、fragment、点段与
-/// 编码分隔符；图片仍由无凭据的图片管线加载。
+/// 只接受 `i0`／`i1`／`i2.hdslb.com` 与 `album.biliimg.com` 上 `/bfs/` 下的 HTTPS 路径，拒绝 query、
+/// fragment、点段与编码分隔符；图片仍由无凭据的图片管线加载。`album.biliimg.com` 是同一图床的相册域名，
+/// 较早的评论图片用它，缩略参数同样可用。
 enum BiliBFSImageURLPolicy {
     private static let bfsPathPrefix = "/bfs/"
     private static let allowedHosts: Set<String> = [
         "i0.hdslb.com",
         "i1.hdslb.com",
-        "i2.hdslb.com"
+        "i2.hdslb.com",
+        "album.biliimg.com"
     ]
 
     static func allows(_ url: URL) -> Bool {
