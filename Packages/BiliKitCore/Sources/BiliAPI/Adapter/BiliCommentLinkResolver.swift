@@ -9,7 +9,7 @@ public struct BiliCommentLinkResolver: Sendable {
 
     public func externalURL(for target: CommentLinkTarget) -> URL? {
         switch target {
-        case .video:
+        case .video, .timestamp:
             return nil
         case .member(let user):
             guard let memberID = user.id.memberID else { return nil }

@@ -45,7 +45,7 @@ public struct BiliShortLinkResolver: Sendable {
             let resolved = CommentRemoteLink.target(location)
         else { return nil }
         switch resolved {
-        case .shortLink:
+        case .shortLink, .timestamp:
             return nil
         case .external(let reference) where CommentRemoteLink.isOnShortLinkHost(reference.remoteURL):
             return nil

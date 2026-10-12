@@ -89,7 +89,8 @@ struct NativePlaybackSidebarView: View {
                 ),
                 summary: context.detail.summary,
                 selection: selectionProjection(context),
-                comments: commentsPresentation(context)
+                comments: commentsPresentation(context),
+                commentTimestampLimitSeconds: commentTimestampLimitSeconds
             )
         }
         return NativePlaybackSidebarPresentation(
@@ -99,6 +100,12 @@ struct NativePlaybackSidebarView: View {
                 hasPresentedContent: content != nil
             )
         )
+    }
+
+    /// 播放器就绪的分 P 的可跳转时长；加载、切换分 P 或失败时为 nil，时间戳按普通文字显示。
+    private var commentTimestampLimitSeconds: Int? {
+        guard case .ready(let context) = model.state else { return nil }
+        return context.seekableDurationSeconds
     }
 
     private func commentsPresentation(

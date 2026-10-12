@@ -231,7 +231,8 @@ struct NativePlaybackSidebarTests {
                 ),
                 summary: content.summary,
                 selection: content.selection,
-                comments: content.comments
+                comments: content.comments,
+                commentTimestampLimitSeconds: nil
             ),
             overlay: .none
         )
@@ -312,6 +313,91 @@ struct NativePlaybackSidebarTests {
         )
 
         #expect(NativeCommentAvatarMark(author: author) == expected)
+    }
+
+    /// 时间戳只在播放器已装好（有上限）且不超出当前分 P 时长时显示为链接。
+    @Test
+    @MainActor
+    func timestampsLinkOnlyWithinTheCurrentPartDuration() {
+        let content = CommentContent(
+            message: "1:00 和 5:00",
+            links: [
+                CommentLink(
+                    range: CommentTextRange(location: 0, length: 4),
+                    target: .timestamp(seconds: 60)
+                ),
+                CommentLink(
+                    range: CommentTextRange(location: 7, length: 4),
+                    target: .timestamp(seconds: 300)
+                )
+            ]
+        )
+        let scope = NativePlaybackCommentTextScope(
+            subject: .video(aid: 700_001),
+            rootID: CommentID(rawValue: 1),
+            revision: 1
+        )
+        let renderer = makeCommentTextRenderer()
+
+        #expect(renderer.render(content, scope: scope).linkTargets.isEmpty)
+        renderer.timestampLimitSeconds = 120
+        #expect(renderer.render(content, scope: scope).linkTargets == [.timestamp(seconds: 60)])
+        renderer.timestampLimitSeconds = 300
+        #expect(renderer.render(content, scope: scope).linkTargets == [.timestamp(seconds: 60)])
+    }
+
+    /// 切换分 P 后上限变化：只有含时间戳链接的评论重新配置，链接随之更新；行高不变，更新方式与
+    /// 正文修改相同。
+    @Test
+    @MainActor
+    func timestampLimitChangeReconfiguresOnlyThreadsWithTimestamps() throws {
+        let subject = CommentSubjectIdentity.video(aid: 700_001)
+        let threads = [
+            commentThread(
+                id: 1,
+                message: "1:00",
+                links: [
+                    CommentLink(
+                        range: CommentTextRange(location: 0, length: 4),
+                        target: .timestamp(seconds: 60)
+                    )
+                ]
+            ),
+            commentThread(id: 2, message: "第二条")
+        ]
+        let base = presentation(
+            bvid: "BVCurrent",
+            comments: commentsPresentation(subject: subject, threads: threads)
+        )
+        func limited(_ seconds: Int?) throws -> NativePlaybackSidebarPresentation {
+            let content = try #require(base.content)
+            return NativePlaybackSidebarPresentation(
+                content: NativePlaybackSidebarContent(
+                    bvid: content.bvid,
+                    uploader: content.uploader,
+                    summary: content.summary,
+                    selection: content.selection,
+                    comments: content.comments,
+                    commentTimestampLimitSeconds: seconds
+                ),
+                overlay: base.overlay
+            )
+        }
+        let short = try limited(120)
+        let long = try limited(600)
+
+        let changed = long.changedItemIDs(comparedTo: short)
+
+        #expect(changed == [.commentThread(subject: subject, rootID: CommentID(rawValue: 1))])
+        #expect(try limited(120).changedItemIDs(comparedTo: short).isEmpty)
+        #expect(
+            NativePlaybackSidebarCollectionUpdatePolicy.resolve(
+                current: short.snapshotSections,
+                next: long.snapshotSections,
+                changedItemIDs: changed,
+                hasSnapshotInFlight: false
+            ) == .reloadChangedItems
+        )
     }
 
     @Test
@@ -526,7 +612,7 @@ struct NativePlaybackSidebarTests {
                 links: [
                     CommentLink(
                         range: range,
-                        target: .video(bvid: "BV1FixtureA1", page: nil)
+                        target: .video(bvid: "BV1FixtureA1", page: nil, startSeconds: nil)
                     )
                 ],
                 author: verifiedAuthor
@@ -539,7 +625,10 @@ struct NativePlaybackSidebarTests {
                 id: 1,
                 message: message,
                 links: [
-                    CommentLink(range: range, target: .video(bvid: "BV1FixtureA1", page: nil))
+                    CommentLink(
+                        range: range,
+                        target: .video(bvid: "BV1FixtureA1", page: nil, startSeconds: nil)
+                    )
                 ],
                 pictures: [CommentImage(asset: CommentAssetReference())],
                 author: verifiedAuthor
@@ -952,11 +1041,11 @@ struct NativePlaybackSidebarTests {
                         location: videoRange.location,
                         length: videoRange.length
                     ),
-                    target: .video(bvid: "BV1FixtureA1", page: nil)
+                    target: .video(bvid: "BV1FixtureA1", page: nil, startSeconds: nil)
                 ),
                 CommentLink(
                     range: CommentTextRange(location: message.utf16.count, length: 4),
-                    target: .video(bvid: "BV1OutOfRange", page: nil)
+                    target: .video(bvid: "BV1OutOfRange", page: nil, startSeconds: nil)
                 ),
                 CommentLink(
                     range: CommentTextRange(
@@ -993,11 +1082,14 @@ struct NativePlaybackSidebarTests {
 
         #expect(
             rendered.linkTargets == [
-                .video(bvid: "BV1FixtureA1", page: nil),
+                .video(bvid: "BV1FixtureA1", page: nil, startSeconds: nil),
                 .member(CommentAuthor(id: CommentAuthorID(rawValue: "301"), name: "回复用户"))
             ]
         )
-        #expect(target(at: videoRange.location) == .video(bvid: "BV1FixtureA1", page: nil))
+        #expect(
+            target(at: videoRange.location)
+                == .video(bvid: "BV1FixtureA1", page: nil, startSeconds: nil)
+        )
         #expect(
             target(at: memberRange.location)
                 == .member(CommentAuthor(id: CommentAuthorID(rawValue: "301"), name: "回复用户"))
@@ -1577,11 +1669,15 @@ struct NativePlaybackSidebarTests {
         }
 
         open(.member(mentioned), hasSpace: true)
-        open(.video(bvid: "BV1FixtureA1", page: nil), hasSpace: true)
+        open(.video(bvid: "BV1FixtureA1", page: nil, startSeconds: nil), hasSpace: true)
         open(.member(mentioned), hasSpace: false)
 
         #expect(openedSpaces == [mentioned])
-        #expect(otherLinks == [.video(bvid: "BV1FixtureA1", page: nil), .member(mentioned)])
+        #expect(
+            otherLinks == [
+                .video(bvid: "BV1FixtureA1", page: nil, startSeconds: nil), .member(mentioned)
+            ]
+        )
     }
 
     @Test(arguments: [2, 3])
@@ -2061,7 +2157,8 @@ struct NativePlaybackSidebarTests {
                 ),
                 summary: context.detail.summary,
                 selection: selectionProjection(context: context),
-                comments: comments
+                comments: comments,
+                commentTimestampLimitSeconds: nil
             ),
             overlay: .none
         )
@@ -2101,7 +2198,8 @@ struct NativePlaybackSidebarTests {
                 uploader: content.uploader,
                 summary: content.summary,
                 selection: content.selection,
-                comments: comments
+                comments: comments,
+                commentTimestampLimitSeconds: nil
             ),
             overlay: .none
         ).sections.first { $0.id == .comments }?.items ?? []

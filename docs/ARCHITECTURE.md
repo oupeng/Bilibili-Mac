@@ -183,6 +183,13 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   b23.tv、BV 号与至少 5 位数字的 av 号（`AV1` 编码这类短写法不算）。`http` 网址只在指向站内目标时
   升级为 HTTPS，通不过公开 HTTPS 复核的外链不显示为链接；网址整段先占位，里面的片段不再单独识别；
   接口链接与表情覆盖的文字不再识别。
+- 时间跳转：正文时间戳（`m:ss`、`h:mm:ss`，前后紧挨字母或数字、全角冒号都不认）与视频链接的 `t`
+  （只认正整数秒）都在当前视频里跳转并播放。可跳转范围只由 `VideoContext.seekableDurationSeconds`
+  决定（充电试看取试看时长）：时间戳只在播放器就绪且在范围内时显示为链接，切换分 P 时只重新配置含
+  时间戳的评论（行高不变）；点击后由 Composition 的 `seekPlayback` 校验播放器 item 仍属该视频再跳转。
+  `t` 指向正在播放的分 P 时原地跳转，不经导航去重；指向别的分 P 或视频时作为起播位置传给播放器
+  （只有 DASH 采用，progressive 从头播），优先于续播位置、不显示续播提示，超出范围时忽略。链接起播
+  时间开播成功后即用过，之后的重试由视频模型按续播规则处理，不跳回链接时间。
 - b23.tv 短链在点击后由 BiliAPI 的 `BiliShortLinkResolver` 读一次跳转目标，再走同一分类；Composition 的
   `CommentLinkRouting` 是链接目标到 App 路由（`CommentLinkRoute`）的唯一翻译处，在途解析由窗口级
   `CommentShortLinkResolution` 拥有，评论所属视频变化或关窗时取消，解析不出时打开原短链。
