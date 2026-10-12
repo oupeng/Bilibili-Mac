@@ -69,17 +69,13 @@ extension BiliAPIClient {
         return Array((payload.result ?? []).prefix(pageSize))
     }
 
-    /// 与主客户端的详情请求一样按账户读取：不带 Cookie 的连续匿名 view 会被 HTTP 412 风控。
+    /// 测速样本详情：与主详情共用签名请求，只按账户读取，样本必须是当前账户可消费的内容。
     func recentSubmissionDetail(
         for bvid: String
     ) async throws -> RecentSubmissionDetailPayload {
         guard Self.isValidBVID(bvid) else { throw BiliAPIError.invalidRequest }
-        return try await get(
-            url: try endpoint(
-                path: "/x/web-interface/view",
-                queryItems: [URLQueryItem(name: "bvid", value: bvid)]
-            ),
-            referer: Self.videoReferer(bvid),
+        return try await signedVideoDetail(
+            bvid: bvid,
             access: .accountRead(
                 missingCredential: .fail,
                 mapsAuthenticationInvalidation: true

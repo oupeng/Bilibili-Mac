@@ -82,7 +82,7 @@ struct BiliAPIClientTests {
             """#
         )
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [response])
+            transport: StubTransport(responses: [try fixtureResponse("nav"), response])
         )
 
         let detail = try await client.videoDetail(for: "BV1FixtureA1")
@@ -107,7 +107,7 @@ struct BiliAPIClientTests {
             #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"说明","pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":120,"pubdate":1720000000,"pages":[{"cid":900001,"page":1,"part":"P1","duration":120}],"ugc_season":{"id":501,"title":"摘要合集","ep_count":20}}}"#
         )
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [response])
+            transport: StubTransport(responses: [try fixtureResponse("nav"), response])
         )
 
         let collection = try #require(
@@ -126,6 +126,7 @@ struct BiliAPIClientTests {
             #"[{"raw_text":"感谢 ","type":1,"biz_id":0},{"raw_text":"合作者","type":2,"biz_id":"20002"},{"raw_text":"参与\n上期 BV1xx411c7mD 1:30 开始 https://www.bilibili.com/video/BV1GJ411x7h7","type":1,"biz_id":0}]"#
         let client = BiliAPIClient(
             transport: StubTransport(responses: [
+                try fixtureResponse("nav"),
                 jsonResponse(
                     #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"旧简介","desc_v2":"#
                         + segments
@@ -161,6 +162,7 @@ struct BiliAPIClientTests {
     func videoDetailSummaryFallsBackToDesc(descV2: String) async throws {
         let client = BiliAPIClient(
             transport: StubTransport(responses: [
+                try fixtureResponse("nav"),
                 jsonResponse(
                     #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"见 b23.tv/abc123 和 2:05""#
                         + descV2
@@ -181,6 +183,7 @@ struct BiliAPIClientTests {
     func videoDetailSummaryIgnoresMentionsWithoutValidMemberID() async throws {
         let client = BiliAPIClient(
             transport: StubTransport(responses: [
+                try fixtureResponse("nav"),
                 jsonResponse(
                     #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"","desc_v2":[{"raw_text":"无名","type":2,"biz_id":0},{"raw_text":"@有名","type":2,"biz_id":"--"}],"pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":120,"pubdate":1720000000}}"#
                 )
@@ -198,6 +201,7 @@ struct BiliAPIClientTests {
     func videoDetailAcceptsAnEmptyPageTitle() async throws {
         let client = BiliAPIClient(
             transport: StubTransport(responses: [
+                try fixtureResponse("nav"),
                 jsonResponse(
                     #"{"code":0,"data":{"aid":8996792,"bvid":"BV1Fx411C7Ne","title":"较早的视频","desc":"","pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":988,"pubdate":1488737993,"pages":[{"cid":14854734,"page":1,"part":"","duration":988}]}}"#
                 )
@@ -211,11 +215,12 @@ struct BiliAPIClientTests {
     }
 
     @Test
-    func videoDetailRejectsDuplicatePageIdentity() async {
+    func videoDetailRejectsDuplicatePageIdentity() async throws {
         let pages =
             #"[{"cid":900001,"page":1,"part":"P1","duration":60},{"cid":900001,"page":2,"part":"P2","duration":60}]"#
         let client = BiliAPIClient(
             transport: StubTransport(responses: [
+                try fixtureResponse("nav"),
                 jsonResponse(
                     #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"说明","pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":120,"pubdate":1720000000,"pages":"#
                         + pages + "}}"
@@ -234,7 +239,7 @@ struct BiliAPIClientTests {
             #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"说明","pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":120,"pubdate":1720000000,"pages":[{"cid":900001,"page":1,"part":"P1","duration":120}],"ugc_season":{"id":501,"title":"合集","ep_count":1,"sections":[{"season_id":501,"id":601,"title":"分部","episodes":[{"season_id":999,"section_id":601,"id":701,"aid":7001,"bvid":"BV1FixtureB2","cid":910001,"title":"","arc":{"aid":7002,"bvid":"BV1FixtureC3","duration":100},"page":{"cid":910002,"page":1,"part":"P1","duration":100}}]}]}}}"#
         )
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [response])
+            transport: StubTransport(responses: [try fixtureResponse("nav"), response])
         )
 
         let detail = try await client.videoDetail(for: "BV1FixtureA1")
@@ -252,7 +257,7 @@ struct BiliAPIClientTests {
             #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"说明","pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":120,"pubdate":1720000000,"pages":[{"cid":900001,"page":1,"part":"P1","duration":120}],"ugc_season":{"id":501,"title":"合集","sections":[{"season_id":501,"id":601,"title":"分部","episodes":[{"season_id":501,"section_id":601,"id":701,"bvid":"BV1FixtureB2","title":"一"},null,{"season_id":501,"section_id":601,"id":702,"bvid":"BV1FixtureC3","title":"二"}]},null]}}}"#
         )
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [response])
+            transport: StubTransport(responses: [try fixtureResponse("nav"), response])
         )
 
         let collection = try #require(
@@ -273,7 +278,7 @@ struct BiliAPIClientTests {
             #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"说明","pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":120,"pubdate":1720000000,"pages":[{"cid":900001,"page":1,"part":"P1","duration":120}],"ugc_season":{"id":501,"title":"合集","sections":[{"season_id":501,"section_id":601,"episodes":[{"season_id":501,"section_id":601,"id":701,"bvid":"BV1FixtureB2","title":"一"}]},{"season_id":501,"id":601,"episodes":[{"season_id":501,"section_id":601,"id":701,"bvid":"BV1FixtureC3","title":"二"}]}]}}}"#
         )
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [response])
+            transport: StubTransport(responses: [try fixtureResponse("nav"), response])
         )
 
         let sections = try #require(
@@ -295,7 +300,7 @@ struct BiliAPIClientTests {
             #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"说明","pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":120,"pubdate":1720000000,"pages":[{"cid":900001,"page":1,"part":"P1","duration":120}],"ugc_season":{"id":501,"title":"合集","sections":[{"season_id":501,"id":601,"section_id":602,"episodes":[]}]}}}"#
         )
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [response])
+            transport: StubTransport(responses: [try fixtureResponse("nav"), response])
         )
 
         let section = try #require(
@@ -323,6 +328,7 @@ struct BiliAPIClientTests {
             #"{"season_id":501,"section_id":601,"id":702,"aid":7002,"bvid":"BV1FixtureC3","cid":920001,"title":"二"}"#
         let client = BiliAPIClient(
             transport: StubTransport(responses: [
+                try fixtureResponse("nav"),
                 response(order: "[\(firstEpisode),\(secondEpisode)]"),
                 response(order: "[\(secondEpisode),\(firstEpisode)]")
             ])
@@ -343,7 +349,7 @@ struct BiliAPIClientTests {
             #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"说明","pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":120,"pubdate":1720000000,"pages":[{"cid":900001,"page":1,"part":"P1","duration":120}],"ugc_season":{"id":501,"title":"合集","sections":[{"season_id":501,"id":601,"title":"分部","episodes":[{"season_id":501,"section_id":601,"id":701,"aid":7001,"bvid":"BV1FixtureB2","cid":999999,"title":"视频","pages":[{"cid":910002,"page":2,"part":"P2","duration":50},{"cid":910001,"page":1,"part":"P1","duration":50}]}]}]}}}"#
         )
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [response])
+            transport: StubTransport(responses: [try fixtureResponse("nav"), response])
         )
 
         let episode = try #require(
@@ -1701,6 +1707,51 @@ struct BiliAPIClientTests {
         }
     }
 
+    /// 视频详情走 WBI 签名的 `/wbi/view`：未签名的 `/view` 对游客返回 412。
+    @Test
+    func videoDetailUsesTheSignedWBIEndpoint() async throws {
+        let transport = StubTransport(
+            responses: [try fixtureResponse("nav"), try fixtureResponse("view")]
+        )
+        let client = BiliAPIClient(transport: transport, timestampProvider: { 1_700_000_000 })
+
+        _ = try await client.videoDetail(for: "BV1FixtureA1")
+
+        let request = try #require(transport.capturedRequests().last)
+        #expect(request.url.path == "/x/web-interface/wbi/view")
+        let queryItems = URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems
+        #expect(queryItems?.contains(URLQueryItem(name: "bvid", value: "BV1FixtureA1")) == true)
+        #expect(queryItems?.contains(URLQueryItem(name: "wts", value: "1700000000")) == true)
+        #expect(queryItems?.first { $0.name == "w_rid" }?.value?.count == 32)
+    }
+
+    /// 取 WBI key 期间会话变化时取消详情，不以新会话或匿名身份补发。
+    @Test(.timeLimit(.minutes(1)))
+    func videoDetailIsCancelledWhenTheSessionChangesDuringWBIKeyFetch() async throws {
+        let firstTransport = StubTransport([
+            .suspended(try fixtureResponse("nav")), .response(try fixtureResponse("view"))
+        ])
+        let replacementTransport = StubTransport(responses: [try fixtureResponse("view")])
+        let transportFactory = SequentialTransportFactory(
+            transports: [firstTransport, replacementTransport]
+        )
+        let client = BiliAPIClient(
+            requestAuthorizer: StubAuthorizer(),
+            transportFactory: { transportFactory.makeTransport() }
+        )
+
+        let detailTask = Task { try await client.videoDetail(for: "BV1FixtureA1") }
+        await firstTransport.waitForRequests(1)
+        await client.invalidateAuthenticatedSession()
+        firstTransport.resumeSuspendedRequest()
+
+        await #expect(throws: CancellationError.self) {
+            try await detailTask.value
+        }
+        #expect(firstTransport.capturedRequests().map(\.url.path) == ["/x/web-interface/nav"])
+        #expect(replacementTransport.capturedRequests().isEmpty)
+    }
+
     @Test
     func cancellationIsNotCollapsedIntoTransportFailure() async {
         let client = BiliAPIClient(transport: StubTransport([.cancellation]))
@@ -1905,8 +1956,8 @@ struct AccountReadCase: Sendable, CustomTestStringConvertible {
             call: { _ = try await $0.popular(page: 1, pageSize: 20) }
         ),
         AccountReadCase(
-            path: "/x/web-interface/view",
-            responses: { [try fixtureResponse("view")] },
+            path: "/x/web-interface/wbi/view",
+            responses: { [try fixtureResponse("nav"), try fixtureResponse("view")] },
             call: { _ = try await $0.videoDetail(for: "BV1FixtureA1") }
         ),
         AccountReadCase(
