@@ -18,7 +18,7 @@ enum NativePlaybackCommentsItemMeasurement {
     ) -> CGFloat {
         switch kind {
         case .loading: 244
-        case .idle, .empty: 112
+        case .idle, .empty, .closed: 112
         case .failed: 48
         }
     }
