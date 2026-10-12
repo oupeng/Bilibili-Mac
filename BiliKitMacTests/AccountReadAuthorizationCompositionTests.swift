@@ -27,15 +27,15 @@ struct AccountReadAuthorizationCompositionTests {
                 "/x/web-interface/card",
                 "/x/web-interface/history/cursor",
                 "/x/web-interface/popular",
-                "/x/web-interface/view",
                 "/x/web-interface/wbi/index/top/feed/rcmd",
-                "/x/web-interface/wbi/search/type"
+                "/x/web-interface/wbi/search/type",
+                "/x/web-interface/wbi/view"
             ]
         )
         #expect(
             AppEnvironment.cdnBenchmarkAccountReadAllowedPaths == [
                 "/x/player/wbi/playurl",
-                "/x/web-interface/view"
+                "/x/web-interface/wbi/view"
             ]
         )
         #expect(AppEnvironment.watchProgressAccountReadAllowedPaths == nil)

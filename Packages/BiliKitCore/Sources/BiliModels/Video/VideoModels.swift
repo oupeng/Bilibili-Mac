@@ -296,7 +296,7 @@ public struct VideoPage: Identifiable, Sendable, Equatable {
     }
 }
 
-/// 仅表示 `/x/web-interface/view` 的 `ugc_season`；不表示 series、投稿列表或 PGC season。
+/// 仅表示视频详情（`/x/web-interface/wbi/view`）的 `ugc_season`；不表示 series、投稿列表或 PGC season。
 public struct VideoCollection: Identifiable, Sendable, Equatable {
     public let id: Int64
     public let title: String
