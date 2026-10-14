@@ -262,6 +262,41 @@ struct BiliCredentialRequestAuthorizerTests {
         }
     }
 
+    @Test(arguments: [0, -101])
+    func explicitSignedOutAnswerPurgesWhicheverCodeCarriesIt(code: Int) async throws {
+        let store = MemoryWebCredentialStore(credential: try makeFixtureCredential())
+        let authorizer = BiliCredentialRequestAuthorizer(
+            store: store,
+            allowedPaths: fixtureNavigationAllowedPaths,
+            transport: RecordingAuthTransport(
+                responses: [navigationResponse(isLogin: false, code: code)]
+            )
+        )
+
+        #expect(
+            try await authorizer.restoreAccountSession()
+                == .signedOut(hadCredential: true)
+        )
+        #expect(store.deleteCount == 1)
+    }
+
+    @Test(arguments: [-412, -352])
+    func otherRejectionCodesKeepStoredCredential(code: Int) async throws {
+        let store = MemoryWebCredentialStore(credential: try makeFixtureCredential())
+        let authorizer = BiliCredentialRequestAuthorizer(
+            store: store,
+            allowedPaths: fixtureNavigationAllowedPaths,
+            transport: RecordingAuthTransport(
+                responses: [navigationResponse(isLogin: false, code: code)]
+            )
+        )
+
+        await #expect(throws: BiliRequestAuthorizationError.validationUnavailable) {
+            try await authorizer.restoreAccountSession()
+        }
+        #expect(store.deleteCount == 0)
+    }
+
     @Test
     func temporaryValidationFailureKeepsStoredCredential() async throws {
         let store = MemoryWebCredentialStore(credential: try makeFixtureCredential())

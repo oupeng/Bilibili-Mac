@@ -270,12 +270,16 @@ struct WebQRLoginSessionTests {
         case offline
         case htmlBody
         case qrCodeHostOutsideAllowlist
+        case qrCodeURLWithNonstandardPort
+        case qrCodeURLWithFragment
 
         var expected: WebQRLoginFailure {
             switch self {
             case .offline: .network
             case .htmlBody: .nonJSONResponse
-            case .qrCodeHostOutsideAllowlist: .invalidResponse
+            case .qrCodeHostOutsideAllowlist, .qrCodeURLWithNonstandardPort,
+                .qrCodeURLWithFragment:
+                .invalidResponse
             }
         }
 
@@ -294,19 +298,27 @@ struct WebQRLoginSessionTests {
                     ]
                 )
             case .qrCodeHostOutsideAllowlist:
-                RecordingAuthTransport(
-                    responses: [
-                        HTTPResponse(
-                            statusCode: 200,
-                            headers: ["Content-Type": "application/json"],
-                            body: Data(
-                                #"{"code":0,"data":{"url":"https://account.bilibili.com.evil.invalid/login","qrcode_key":"FIXTURE_QR_KEY_00000000000000000"}}"#
-                                    .utf8
-                            )
-                        )
-                    ]
-                )
+                Self.generateResponse(url: "https://account.bilibili.com.evil.invalid/login")
+            case .qrCodeURLWithNonstandardPort:
+                Self.generateResponse(url: "https://account.bilibili.com:8443/login")
+            case .qrCodeURLWithFragment:
+                Self.generateResponse(url: "https://account.bilibili.com/login#fixture")
             }
+        }
+
+        private static func generateResponse(url: String) -> RecordingAuthTransport {
+            RecordingAuthTransport(
+                responses: [
+                    HTTPResponse(
+                        statusCode: 200,
+                        headers: ["Content-Type": "application/json"],
+                        body: Data(
+                            #"{"code":0,"data":{"url":"\#(url)","qrcode_key":"FIXTURE_QR_KEY_00000000000000000"}}"#
+                                .utf8
+                        )
+                    )
+                ]
+            )
         }
     }
 }

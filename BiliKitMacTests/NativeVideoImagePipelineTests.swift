@@ -8,6 +8,20 @@ import UniformTypeIdentifiers
 
 @Suite(.timeLimit(.minutes(1)))
 struct NativeVideoImagePipelineTests {
+    @Test(arguments: [
+        ("https://i0.hdslb.com/bfs/archive/fixture.jpg", true),
+        ("https://album.biliimg.com/bfs/new_dyn/fixture.jpg", true),
+        ("http://i0.hdslb.com/bfs/archive/fixture.jpg", false),
+        ("https://127.0.0.1/cover.jpg", false),
+        ("https://localhost/cover.jpg", false),
+        ("https://i0.hdslb.com:8443/bfs/archive/fixture.jpg", false),
+        ("https://user@i0.hdslb.com/bfs/archive/fixture.jpg", false)
+    ])
+    func requestsOnlyPublicHTTPSImageAddresses(urlString: String, accepted: Bool) throws {
+        let url = try #require(URL(string: urlString))
+        #expect(NativeVideoImagePipeline.acceptsRequestURL(url) == accepted)
+    }
+
     @Test
     func waiterDeliversTheFirstResultWhetherItFinishesBeforeOrAfterSuspension() async throws {
         let image = try #require(Self.makeImage())

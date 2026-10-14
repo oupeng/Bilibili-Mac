@@ -342,12 +342,11 @@ public actor WebQRLoginSession {
         key.utf8.count == 32 && !key.utf8.contains(where: { $0 < 0x21 || $0 > 0x7E })
     }
 
+    /// 精确 `https://account.bilibili.com`：公开 HTTPS 基线（无 userinfo／fragment、端口缺省或 443）加固定主机。
     private static func isValidQRCodeURL(_ value: String) -> Bool {
         guard let url = URL(string: value) else { return false }
-        return url.scheme?.lowercased() == "https"
+        return PublicHTTPSURLPolicy().allows(url)
             && url.host?.lowercased() == qrCodeHost
-            && url.user == nil
-            && url.password == nil
     }
 
     private static func pendingCredential(

@@ -29,7 +29,8 @@
 - 成功后先在内存组 Cookie 请求 `/x/web-interface/nav`，`isLogin=true` 才在同一 actor generation 内
   写入 Keychain；旧 generation、取消、过期、校验或存储失败都清除临时秘密，不能返回登录成功。
 - 轮询有最小间隔、总时限和次数上限；ViewModel 拥有 Task，actor 用 generation 与 poll ID 隔离旧结果。
-- 恢复时重新校验：远端明确失效则清理；本地缺失／损坏／过期回退未登录；临时网络失败不删凭据。
+- 恢复时重新校验：远端明确失效则清理（nav 的 `data.isLogin=false`，`code` 为 0 或 -101；其他非 0 码按
+  校验不可用处理）；本地缺失／损坏／过期回退未登录；临时网络失败不删凭据。
 - 登出顺序：取消认证任务 → 清二维码与内存 → 删除 Keychain item → 失效并重建 session → 发布未登录。
   本地登出不依赖网络；Keychain 删除失败时不得发布未登录。
 - 账户变化（登出、换号、凭据失效）先全局推进所有窗口 API transport 的 authentication epoch；旧
@@ -90,7 +91,7 @@ storage、无 URL cache，并拒绝 redirect。`PublicHTTPSURLPolicy` 是基线�
 | 媒体（DASH、progressive） | `BiliMediaCDNURLPolicy`：`bilivideo.com`／`bilivideo.cn`／`szbdyd.com` 及子域、`upos-*.akamaized.net` | DTO 映射与实际连接前各检查一次；响应须为精确 206、`Content-Range`、长度；映射后的媒体 headers 去除 `Cookie`／`Authorization` |
 | 字幕正文 | `SubtitleURLPolicy`：`https://aisubtitle.hdslb.com/bfs/...` | 正文 ≤ 2 MiB；新主机先失败关闭 |
 | 评论头像、表情、正文图片、链接前置图标，热搜图标 | `BiliBFSImageURLPolicy`：`i0`／`i1`／`i2.hdslb.com` 与相册域名 `album.biliimg.com`（较早的评论图片）的 `/bfs/` 路径（热搜图标的 `http:` 与协议相对地址先升级为 HTTPS） | 拒绝 query、fragment、点段、编码分隔符；评论列表图片与头像的缩略参数写在 path 上（`@{宽}w_{高}h.webp`），加参数后的地址再过一次同一规则；热搜图标不合规时只丢图标、保留文字 |
-| 视频封面 | 接口返回的 HTTPS URL（`http:`、协议相对地址升级为 HTTPS） | 由图片管线限制 |
+| 视频封面 | 接口返回的 HTTPS URL（`http:`、协议相对地址升级为 HTTPS），映射时与图片管线请求前各过一次 `PublicHTTPSURLPolicy` | 由图片管线限制 |
 | 评论与简介外链 | 视频链接只回送合法 BVID（av 号在本地换算，不发请求），分 P 序号与起播秒数 `t` 只取正整数，`t` 超出可跳转时长（充电试看取试看时长）时忽略；正文时间戳只在当前视频的播放器里跳转；@ 成员与空间链接只允许正整数 MID，在应用内打开空间，仅空间不可用时才回退到 `space.bilibili.com`；搜索词链接不生成；正文纯文字里识别出的网址只认 `https`（`http` 仅在指向站内目标时升级），外链须先通过公开 HTTPS 复核才显示为链接；其他目标经公开 HTTPS 形状复核 | 仅用户点击后交给系统 `OpenURLAction`；不预取、不解析 DNS、不附加凭据 |
 | 评论与简介短链 | 只认 `https://b23.tv/{1–16 位 ASCII 字母数字}`，请求时去掉 query 与 fragment；其他短链域名按评论外链处理 | 仅用户点击后发一次无凭据 `HEAD`（拒绝 redirect、5 秒超时、不读正文），只读一次 3xx 的绝对或协议相对 `Location`，目标按评论外链同一规则分类；目标仍在 b23.tv（不论形状）、不是跳转或失败时，把原短链交给系统浏览器；同一窗口同时只解析一个，新点击、换视频或关窗取消，关窗时释放 session；不记录短码与目标地址 |
 
