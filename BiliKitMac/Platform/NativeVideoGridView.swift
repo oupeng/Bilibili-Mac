@@ -198,7 +198,7 @@ struct NativeVideoGridView: NSViewRepresentable {
                 collectionView?.refreshVisibleCardAppearance()
             }
 
-            applySnapshot(animatingDifferences: false)
+            applySnapshot()
             DispatchQueue.main.async { [weak self] in
                 self?.resizeDocument()
                 self?.restorePendingOffsetIfPossible()
@@ -257,9 +257,14 @@ struct NativeVideoGridView: NSViewRepresentable {
             {
                 if topPin.keepsTop(atScrollGeneration: scrollGeneration) {
                     pendingRestoreOffsetY = 0
-                } else {
-                    pendingViewportAnchor = captureViewportAnchor()
-                    pendingAnchorScrollGeneration = scrollGeneration
+                } else if let anchor = captureViewportAnchor() {
+                    if updatePlan.retains(anchor) {
+                        pendingViewportAnchor = anchor
+                        pendingAnchorScrollGeneration = scrollGeneration
+                    } else {
+                        // 停在旧偏移会被新内容高度截断到新内容底部，还会据此误判翻页。
+                        pendingRestoreOffsetY = 0
+                    }
                 }
             }
             contents = updatedContents
@@ -272,9 +277,7 @@ struct NativeVideoGridView: NSViewRepresentable {
                 let operationGeneration = updateEpoch.advance()
                 let capturedScrollGeneration = scrollGeneration
                 documentLayoutNeedsInvalidation = true
-                applySnapshot(
-                    animatingDifferences: updatePlan.animatesDifferences
-                ) { [weak self] in
+                applySnapshot { [weak self] in
                     guard
                         let self,
                         !self.isReset,
@@ -336,13 +339,11 @@ struct NativeVideoGridView: NSViewRepresentable {
             pendingAnchorScrollGeneration = nil
         }
 
-        private func applySnapshot(
-            animatingDifferences: Bool,
-            completion: (() -> Void)? = nil
-        ) {
+        /// 不做差异动画：动画期间新卡片要等动画结束才创建，而整体替换紧接着回顶，视野会空白一段。
+        private func applySnapshot(completion: (() -> Void)? = nil) {
             dataSource?.apply(
                 contents.makeSnapshot(),
-                animatingDifferences: animatingDifferences,
+                animatingDifferences: false,
                 completion: completion
             )
         }
@@ -484,6 +485,7 @@ struct NativeVideoGridView: NSViewRepresentable {
             guard !isReset else { return }
             if pendingRestoreOffsetY != nil {
                 restorePendingOffsetIfPossible()
+                viewportDidChange()
                 return
             }
             let logicalOffset = NativeVideoScrollCoordinateSpace.logicalOffset(
@@ -590,9 +592,12 @@ struct NativeVideoGridView: NSViewRepresentable {
             evaluateNearEnd()
         }
 
+        /// 重排 document 或等待恢复偏移时视口还在过渡：条目数已是新的，位置还是旧的，此时不判断翻页。
         private func evaluateNearEnd() {
             guard
                 !isReset,
+                !isResizingDocument,
+                pendingRestoreOffsetY == nil,
                 lastViewportSize != nil,
                 NativeVideoGridGeometry.isRenderableViewport(
                     width: collectionView.bounds.width

@@ -72,17 +72,30 @@ struct PopularNativeGridTests {
         )
 
         #expect(append.isStrictTailAppend)
-        #expect(!append.animatesDifferences)
         #expect(!append.restoresViewportAnchor)
         #expect(append.insertedIDs == ["BV-c"])
         #expect(append.changedExistingIDs.isEmpty)
         #expect(appendWithReload.isStrictTailAppend)
-        #expect(!appendWithReload.animatesDifferences)
         #expect(!appendWithReload.restoresViewportAnchor)
         #expect(appendWithReload.changedExistingIDs == ["BV-b"])
         #expect(!reorder.isStrictTailAppend)
-        #expect(reorder.animatesDifferences)
         #expect(reorder.restoresViewportAnchor)
+    }
+
+    @Test
+    func replacementKeepsAnchorOnlyWhileAnchorCardRemains() {
+        let refresh = NativeVideoGridUpdatePlan(
+            previousIDs: ["BV-a", "BV-b", "BV-c"],
+            previousContents: ["BV-a": "same", "BV-b": "same", "BV-c": "same"],
+            updatedIDs: ["BV-new", "BV-a"],
+            updatedContents: ["BV-new": "inserted", "BV-a": "same"]
+        )
+
+        let keptAnchor = NativeVideoGridViewportAnchor(id: "BV-a", offsetFromViewportTop: 0)
+        let replacedAnchor = NativeVideoGridViewportAnchor(id: "BV-c", offsetFromViewportTop: 0)
+
+        #expect(refresh.retains(keptAnchor))
+        #expect(!refresh.retains(replacedAnchor))
     }
 
     @Test
