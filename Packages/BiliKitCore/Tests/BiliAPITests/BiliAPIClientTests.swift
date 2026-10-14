@@ -655,10 +655,34 @@ struct BiliAPIClientTests {
         #expect(paths.filter { $0 == "/x/web-interface/wbi/search/type" }.count == 2)
     }
 
+    /// HTTP 403 是风控而不是 key 过期：按受限失败关闭，不换 key 再请求。
+    @Test
+    func httpForbiddenFailsClosedWithoutRefreshingWBIKey() async throws {
+        let transport = StubTransport(
+            responses: [
+                try fixtureResponse("nav"),
+                HTTPResponse(statusCode: 403, body: Data())
+            ]
+        )
+        let client = BiliAPIClient(
+            transport: transport,
+            timestampProvider: { 1_700_000_000 }
+        )
+
+        await #expect(throws: BiliAPIError.httpStatus(403)) {
+            try await search(client)
+        }
+        #expect(
+            transport.capturedRequests().map(\.url.path) == [
+                "/x/web-interface/nav",
+                "/x/web-interface/wbi/search/type"
+            ]
+        )
+    }
+
     @Test(arguments: [
         jsonResponse(#"{"code":-403,"message":"访问权限不足","data":{"unexpected":true}}"#),
-        jsonResponse(#"{"code":0,"message":"0","ttl":1,"data":{"v_voucher":"voucher_fixture"}}"#),
-        HTTPResponse(statusCode: 403, body: Data())
+        jsonResponse(#"{"code":0,"message":"0","ttl":1,"data":{"v_voucher":"voucher_fixture"}}"#)
     ])
     func signatureRejectionRefreshesWBIKeyOnce(rejection: HTTPResponse) async throws {
         let transport = StubTransport(

@@ -297,31 +297,9 @@ struct DanmakuSessionTests {
         #expect(await repository.requestCount(for: identity) == 4)
     }
 
-    /// 被风控拒绝的分段等一会儿重试一次，恢复后正常就绪，不需要重开会话。
+    /// 被风控拒绝的分段按失败关闭，当前视频内不再请求；412 的一次延迟重试由 API 客户端负责，会话不叠加。
     @Test
-    func restrictedSegmentRecoversAfterOneDelayedRetry() async throws {
-        let identity = PlaybackItemIdentity(
-            bvid: "BV1RestrictedDanmakuFixture",
-            cid: 8
-        )
-        let repository = StubDanmakuRepository(.failFirstAttemptPerSegment(.requestRestricted))
-        let timeline = SessionTimeline()
-        let session = DanmakuSession(
-            useCase: DanmakuSegmentUseCase(repository: repository),
-            timeline: timeline
-        )
-
-        session.start(for: identity)
-        timeline.publish(snapshot(identity: identity, position: 0, generation: 1))
-        try await repository.waitForRequestCount(4, identity: identity)
-
-        #expect(await waitUntil(timeout: retryTimeout) { session.state == .ready(identity) })
-        #expect(await repository.requestCount(for: identity) == 4)
-    }
-
-    /// 重试后仍被拒的分段按失败关闭，当前视频内不再请求。
-    @Test
-    func restrictedSegmentIsRetriedOnlyOnce() async throws {
+    func restrictedSegmentIsNotRetriedBySession() async throws {
         let identity = PlaybackItemIdentity(
             bvid: "BV1AlwaysRestrictedFixture",
             cid: 9
@@ -337,20 +315,13 @@ struct DanmakuSessionTests {
 
         session.start(for: identity)
         timeline.publish(snapshot(identity: identity, position: 0, generation: 1))
-        try await repository.waitForRequestCount(4, identity: identity)
-        #expect(
-            await waitUntil(timeout: retryTimeout) {
-                session.state == .failed(identity, .requestRestricted)
-            }
-        )
+        try await repository.waitForRequestCount(2, identity: identity)
+        #expect(await waitUntil { session.state == .failed(identity, .requestRestricted) })
 
         timeline.publish(snapshot(identity: identity, position: 0, generation: 1))
         try await sink.waitForUpdateCount(2, identity: identity)
-        #expect(await repository.requestCount(for: identity) == 4)
+        #expect(await repository.requestCount(for: identity) == 2)
     }
-
-    /// 等待会话层延迟重试的超时：重试间隔之外再留出余量。
-    private var retryTimeout: Duration { DanmakuSession.restrictedRetryDelay + .seconds(5) }
 
     /// `DanmakuSession` 不可观察；只让出 main actor 给分段加载的续体，不按固定时长轮询。
     private func waitUntil(

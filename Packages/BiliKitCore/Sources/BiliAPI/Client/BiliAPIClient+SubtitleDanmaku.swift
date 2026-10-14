@@ -7,6 +7,11 @@ import Foundation
 extension BiliAPIClient {
     private static let maximumSubtitleCatalogSize = 1 * 1_024 * 1_024
     private static let maximumDanmakuSegmentSize = 2 * 1_024 * 1_024
+    /// 被 HTTP 412 拒绝的弹幕分段再请求一次之前的等待时长。
+    ///
+    /// 弹幕分段会被间歇风控（游客更常见），稍后通常恢复。只对 412 再请求一次，且不换 key；
+    /// -403／v_voucher 已由 `withWBIKeyRefresh` 重试过一次，不再叠加。
+    static let danmakuRestrictedRetryDelay: Duration = .seconds(2)
 
     func subtitleResources(
         for identity: PlaybackItemIdentity
@@ -35,11 +40,22 @@ extension BiliAPIClient {
         else {
             throw BiliAPIError.invalidRequest
         }
-        return try await withWBIKeyRefresh { forceKeyRefresh in
-            try await signedDanmakuSegmentData(
+        let sessionEpoch = authenticatedSessionEpoch
+        do {
+            return try await withWBIKeyRefresh { forceKeyRefresh in
+                try await signedDanmakuSegmentData(
+                    index: index,
+                    for: identity,
+                    forceKeyRefresh: forceKeyRefresh
+                )
+            }
+        } catch BiliAPIError.httpStatus(412) {
+            try await Task.sleep(for: Self.danmakuRestrictedRetryDelay)
+            try requireAuthenticatedSessionEpoch(sessionEpoch)
+            return try await signedDanmakuSegmentData(
                 index: index,
                 for: identity,
-                forceKeyRefresh: forceKeyRefresh
+                forceKeyRefresh: false
             )
         }
     }

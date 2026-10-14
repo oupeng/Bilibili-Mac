@@ -332,10 +332,10 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
         )
     }
 
-    /// WBI 签名请求被服务端以 -403、`v_voucher` 挑战（以及可选的 HTTP 403）拒绝时，
-    /// 强制刷新 WBI key 并只重试一次。
+    /// WBI 签名请求被服务端以 -403 或 `v_voucher` 挑战拒绝时，强制刷新 WBI key 并只重试一次。
+    ///
+    /// HTTP 403／412 是风控而不是 key 过期，按受限失败关闭，不换 key 重试，避免放大请求。
     func withWBIKeyRefresh<Value>(
-        retryingHTTPForbidden: Bool = true,
         _ request: (_ forceKeyRefresh: Bool) async throws -> Value
     ) async throws -> Value {
         do {
@@ -343,8 +343,6 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
         } catch BiliAPIError.apiRejected(let code, _) where code == -403 {
             return try await request(true)
         } catch BiliAPIError.riskControlVoucher {
-            return try await request(true)
-        } catch BiliAPIError.httpStatus(403) where retryingHTTPForbidden {
             return try await request(true)
         }
     }
