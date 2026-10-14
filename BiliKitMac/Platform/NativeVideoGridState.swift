@@ -10,8 +10,12 @@ struct NativeVideoGridUpdatePlan: Equatable {
     let changedExistingIDs: Set<String>
     let isStrictTailAppend: Bool
 
-    var animatesDifferences: Bool { identityChanged && !isStrictTailAppend }
     var restoresViewportAnchor: Bool { identityChanged && !isStrictTailAppend }
+
+    /// 锚点卡片仍在更新后的内容里时才有位置可保持；它被替换掉时网格回到顶部。
+    func retains(_ anchor: NativeVideoGridViewportAnchor) -> Bool {
+        !removedIDs.contains(anchor.id)
+    }
 
     init<Content: Equatable>(
         previousIDs: [String],
