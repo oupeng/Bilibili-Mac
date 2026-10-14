@@ -48,6 +48,7 @@ echo "[Gate] static"
 sh Scripts/check-architecture.sh
 sh Scripts/check-secrets.sh
 sh Scripts/check-project-contract.sh
+python3 -B Scripts/check-localization.py
 sh Scripts/check-swift-format.sh
 git diff --check
 git diff --cached --check
