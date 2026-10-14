@@ -12,6 +12,7 @@ public struct PopularVideoCardPresentation: Sendable, Equatable {
     public let danmakuCountText: String
     public let durationText: String
     public let footerText: String
+    public let accessibilityLabel: String
 
     public init(video: PopularVideo, locale: Locale = .current) {
         bvid = video.bvid
@@ -38,9 +39,20 @@ public struct PopularVideoCardPresentation: Sendable, Equatable {
         durationText = VideoDurationFormatting.string(
             seconds: video.durationSeconds
         )
-        footerText =
-            "\(video.owner.name) · "
-            + VideoMetadataFormatting.publishedDate(video.publishedAt, locale: locale)
+        let publishedDateText = VideoMetadataFormatting.publishedDate(
+            video.publishedAt,
+            locale: locale
+        )
+        footerText = "\(video.owner.name) · \(publishedDateText)"
+        accessibilityLabel = videoCardAccessibilityLabel(
+            title: video.title,
+            ownerName: video.owner.name,
+            viewCountText: viewCountText,
+            danmakuCountText: danmakuCountText,
+            durationText: durationText,
+            publishedDateText: publishedDateText,
+            locale: locale
+        )
     }
 }
 
@@ -55,6 +67,7 @@ public struct RecommendedVideoCardPresentation: Sendable, Equatable {
     public let durationText: String
     public let footerText: String
     public let recommendationReason: String?
+    public let accessibilityLabel: String
 
     public init(video: RecommendedVideo, locale: Locale = .current) {
         bvid = video.bvid
@@ -81,10 +94,22 @@ public struct RecommendedVideoCardPresentation: Sendable, Equatable {
         durationText = VideoDurationFormatting.string(
             seconds: video.durationSeconds
         )
-        footerText =
-            "\(video.owner.name) · "
-            + VideoMetadataFormatting.publishedDate(video.publishedAt, locale: locale)
+        let publishedDateText = VideoMetadataFormatting.publishedDate(
+            video.publishedAt,
+            locale: locale
+        )
+        footerText = "\(video.owner.name) · \(publishedDateText)"
         recommendationReason = video.recommendationReason
+        accessibilityLabel = videoCardAccessibilityLabel(
+            title: video.title,
+            ownerName: video.owner.name,
+            viewCountText: viewCountText,
+            danmakuCountText: danmakuCountText,
+            durationText: durationText,
+            publishedDateText: publishedDateText,
+            recommendationReason: video.recommendationReason,
+            locale: locale
+        )
     }
 }
 
@@ -130,19 +155,44 @@ public struct SearchVideoCardPresentation: Sendable, Equatable {
             locale: locale
         )
         footerText = "\(video.owner.name) · \(publishedDateText)"
-        accessibilityLabel = ListFormatter.localizedString(
-            byJoining: [
-                video.title,
-                video.owner.name,
-                BrowseFeatureStrings.localized("播放 \(viewCountText)", locale: locale),
-                BrowseFeatureStrings.localized("弹幕 \(danmakuCountText)", locale: locale),
-                durationText.map {
-                    BrowseFeatureStrings.localized("时长 \($0)", locale: locale)
-                },
-                BrowseFeatureStrings.localized("发布 \(publishedDateText)", locale: locale)
-            ].compactMap { $0 }
+        accessibilityLabel = videoCardAccessibilityLabel(
+            title: video.title,
+            ownerName: video.owner.name,
+            viewCountText: viewCountText,
+            danmakuCountText: danmakuCountText,
+            durationText: durationText,
+            publishedDateText: publishedDateText,
+            locale: locale
         )
     }
+}
+
+/// 推荐、热门与搜索卡片共用的 VoiceOver 标签：读出卡片上可见的全部信息。
+private func videoCardAccessibilityLabel(
+    title: String,
+    ownerName: String,
+    viewCountText: String,
+    danmakuCountText: String,
+    durationText: String?,
+    publishedDateText: String,
+    recommendationReason: String? = nil,
+    locale: Locale
+) -> String {
+    ListFormatter.localizedString(
+        byJoining: [
+            title,
+            ownerName,
+            BrowseFeatureStrings.localized("播放 \(viewCountText)", locale: locale),
+            BrowseFeatureStrings.localized("弹幕 \(danmakuCountText)", locale: locale),
+            durationText.map {
+                BrowseFeatureStrings.localized("时长 \($0)", locale: locale)
+            },
+            BrowseFeatureStrings.localized("发布 \(publishedDateText)", locale: locale),
+            recommendationReason.map {
+                BrowseFeatureStrings.localized("推荐理由 \($0)", locale: locale)
+            }
+        ].compactMap { $0 }
+    )
 }
 
 private func optimizedBiliImageURL(

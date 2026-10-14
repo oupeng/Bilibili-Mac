@@ -57,18 +57,7 @@ struct RecommendedNativeGridView: View {
                 footerTrailingStyle: presentation.recommendationReason == nil
                     ? .plain
                     : .brandOutlinedCapsule,
-                accessibilityLabel: ListFormatter.localizedString(
-                    byJoining: [
-                        presentation.title,
-                        presentation.ownerName,
-                        AppStrings.localized("播放 \(presentation.viewCountText)", locale: locale),
-                        AppStrings.localized("弹幕 \(presentation.danmakuCountText)", locale: locale),
-                        AppStrings.localized("时长 \(presentation.durationText)", locale: locale),
-                        presentation.recommendationReason.map {
-                            AppStrings.localized("推荐理由 \($0)", locale: locale)
-                        }
-                    ].compactMap { $0 }
-                )
+                accessibilityLabel: presentation.accessibilityLabel
             )
         }
     }

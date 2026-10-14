@@ -93,17 +93,14 @@ public struct VideoSearchView<LoadedContent: View, StartContent: View>: View {
                     )
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .top) {
+                refreshStatus(presentation)
+            }
         case .loaded(.search(_, let page)):
             loadedResults(criteria: request.searchCriteria, page: page)
                 .overlay(alignment: .top) {
-                    RefreshStatusCapsule(
-                        isRefreshing: presentation.isRefreshing,
-                        refreshingLabel: BrowseFeatureStrings.localized(
-                            "正在刷新搜索结果",
-                            locale: locale
-                        ),
-                        errorMessage: presentation.refreshError?.displayMessage
-                    )
+                    refreshStatus(presentation)
                 }
         case .failed(request: .search, let error):
             BrowseFailureView(
@@ -114,6 +111,18 @@ public struct VideoSearchView<LoadedContent: View, StartContent: View>: View {
         default:
             startContent()
         }
+    }
+
+    /// 同条件再次提交是原地刷新；结果为空时也要显示刷新中与刷新失败。
+    private func refreshStatus(_ presentation: FeedPresentation) -> some View {
+        RefreshStatusCapsule(
+            isRefreshing: presentation.isRefreshing,
+            refreshingLabel: BrowseFeatureStrings.localized(
+                "正在刷新搜索结果",
+                locale: locale
+            ),
+            errorMessage: presentation.refreshError?.displayMessage
+        )
     }
 
     private func loadedResults(

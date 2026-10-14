@@ -613,6 +613,35 @@ struct BrowseAndVideoViewModelTests {
 
     @Test
     @MainActor
+    func inPlaceRefreshWithdrawsPaginationTailUntilItSettles() async {
+        let fixture = ContentFixtures()
+        let repository = FeedRepositoryStub(popular: { request, attempt in
+            if attempt == 2 { throw ContentApplicationError.requestRestricted }
+            return fixture.popularPage(request, hasMore: true)
+        })
+        let model = BrowseViewModel(
+            useCase: FeedUseCase(repository: repository)
+        )
+        let request = FeedRequest.popular(page: 1, pageSize: 50)
+
+        model.activatePopular(pageSize: 50)
+        await model.waitForCurrentTask()
+        let loadedPagination = model.pagination(for: request)
+
+        model.refreshPopular(pageSize: 50)
+        let refreshingPagination = model.pagination(for: request)
+        await model.waitForCurrentTask()
+
+        #expect(loadedPagination.canLoadMore)
+        #expect(loadedPagination.tailIdentity != nil)
+        #expect(!refreshingPagination.canLoadMore)
+        #expect(refreshingPagination.tailIdentity == nil)
+        #expect(model.refreshError == .requestRestricted)
+        #expect(model.pagination(for: request) == loadedPagination)
+    }
+
+    @Test
+    @MainActor
     func onlySuccessfulSameQueryRefreshAdvancesSearchGeneration() async {
         let fixture = ContentFixtures()
         let repository = FeedRepositoryStub(search: { request, attempt in

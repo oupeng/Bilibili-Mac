@@ -53,15 +53,7 @@ struct PopularNativeGridView: View {
                 ],
                 coverTrailingText: presentation.durationText,
                 footerLeadingText: presentation.footerText,
-                accessibilityLabel: ListFormatter.localizedString(
-                    byJoining: [
-                        presentation.title,
-                        presentation.ownerName,
-                        AppStrings.localized("播放 \(presentation.viewCountText)", locale: locale),
-                        AppStrings.localized("弹幕 \(presentation.danmakuCountText)", locale: locale),
-                        AppStrings.localized("时长 \(presentation.durationText)", locale: locale)
-                    ]
-                )
+                accessibilityLabel: presentation.accessibilityLabel
             )
         }
     }

@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-enum AppTab: Hashable {
+enum AppTab: Hashable, CaseIterable {
     case search
     case home
     case popular
