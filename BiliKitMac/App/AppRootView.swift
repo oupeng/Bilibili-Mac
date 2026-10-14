@@ -127,7 +127,7 @@ struct AppRootView: View {
             await applyCommentActivation(aid: commentActivationAID)
         }
         .onAppear {
-            windowOwner.synchronizeAccountAccess(historyAccountScope)
+            windowOwner.synchronizeWatchProgressAccess(historyAccountScope)
             windowOwner.open()
         }
         .onChange(of: appearsActive, initial: true) { _, isActive in
@@ -146,8 +146,11 @@ struct AppRootView: View {
         .onChange(of: authenticationModel.state) { _, _ in
             synchronizeBenchmarkAuthentication()
         }
+        .onChange(of: isAccountSignedOutConfirmed, initial: true) { _, isConfirmed in
+            windowOwner.synchronizeSignedOutConfirmation(isConfirmed)
+        }
         .onChange(of: historyAccountScope) { previousScope, scope in
-            windowOwner.synchronizeAccountAccess(scope)
+            windowOwner.synchronizeWatchProgressAccess(scope)
             guard AccountSessionScope.isResolvedChange(from: previousScope, to: scope)
             else {
                 return
@@ -240,6 +243,14 @@ struct AppRootView: View {
 
     private var historyModel: WatchHistoryViewModel {
         windowOwner.historyModel
+    }
+
+    private var isAccountSignedOutConfirmed: Bool {
+        AccountSignedOutConfirmation.isConfirmed(
+            windowScope: authenticationModel.sessionScope,
+            resolutionPhase: authenticationModel.resolutionPhase,
+            processScope: accountSessionCoordinator.scope
+        )
     }
 
     private var historyAccountScope: AccountSessionScope {

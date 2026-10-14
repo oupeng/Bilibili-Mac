@@ -43,7 +43,7 @@ struct AppEnvironment {
     private let authenticationQRCodeProvider: any AuthenticationQRCodeProviding
     let open: @MainActor @Sendable () -> Void
     let close: @MainActor @Sendable () -> Void
-    let synchronizeAccountScope: @MainActor @Sendable (AccountSessionScope) -> Void
+    let synchronizeSignedOutConfirmation: @MainActor @Sendable (Bool) -> Void
 
     init(
         feedRepository: any FeedRepository,
@@ -66,7 +66,7 @@ struct AppEnvironment {
         authenticationQRCodeProvider: any AuthenticationQRCodeProviding,
         open: @escaping @MainActor @Sendable () -> Void,
         close: @escaping @MainActor @Sendable () -> Void,
-        synchronizeAccountScope: @escaping @MainActor @Sendable (AccountSessionScope) -> Void
+        synchronizeSignedOutConfirmation: @escaping @MainActor @Sendable (Bool) -> Void
     ) {
         precondition(
             playerEngine.nativeSubtitlesEnabled,
@@ -103,7 +103,7 @@ struct AppEnvironment {
         self.authenticationQRCodeProvider = authenticationQRCodeProvider
         self.open = open
         self.close = close
-        self.synchronizeAccountScope = synchronizeAccountScope
+        self.synchronizeSignedOutConfirmation = synchronizeSignedOutConfirmation
     }
 
     func makeSystemNowPlayingPlaybackConnection()
@@ -373,7 +373,7 @@ struct AppEnvironment {
                 sessionRegistration.close()
                 commentLinkRouting.shortLinkResolver.invalidate()
             },
-            synchronizeAccountScope: signedOutConfirmation.synchronize
+            synchronizeSignedOutConfirmation: signedOutConfirmation.synchronize
         )
     }
 
