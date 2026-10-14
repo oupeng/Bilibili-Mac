@@ -191,7 +191,7 @@ struct BiliDanmakuRepositoryTests {
         )
     }
 
-    /// 重试后仍被拒按受限失败关闭；签名被拒时只有一次换 key 重试，两层重试不叠加。
+    /// 重试后仍被拒按受限失败关闭；换 key 重试与 412 延迟重试共用一次重试机会，任何组合最多请求两次。
     @Test(arguments: RestrictedRejection.allCases)
     func restrictedSegmentIsRequestedAtMostTwice(rejection: RestrictedRejection) async throws {
         let transport = StubTransport(
@@ -213,6 +213,8 @@ struct BiliDanmakuRepositoryTests {
     enum RestrictedRejection: CaseIterable, Sendable {
         case repeated412
         case repeatedSignatureRejection
+        case signatureRejectionThen412
+        case intermittent412ThenSignatureRejection
 
         func responses() throws -> [HTTPResponse] {
             switch self {
@@ -224,14 +226,25 @@ struct BiliDanmakuRepositoryTests {
                     try fixtureResponse("nav-refreshed"),
                     jsonResponse(#"{"code":-403,"message":"fixture"}"#)
                 ]
+            case .signatureRejectionThen412:
+                [
+                    jsonResponse(#"{"code":-403,"message":"fixture"}"#),
+                    try fixtureResponse("nav-refreshed"),
+                    jsonResponse("", statusCode: 412)
+                ]
+            case .intermittent412ThenSignatureRejection:
+                [
+                    jsonResponse("", statusCode: 412),
+                    jsonResponse(#"{"code":-403,"message":"fixture"}"#)
+                ]
             }
         }
 
         var expectedPaths: [String] {
             switch self {
-            case .repeated412:
+            case .repeated412, .intermittent412ThenSignatureRejection:
                 ["/x/v2/dm/wbi/web/seg.so", "/x/v2/dm/wbi/web/seg.so"]
-            case .repeatedSignatureRejection:
+            case .repeatedSignatureRejection, .signatureRejectionThen412:
                 ["/x/v2/dm/wbi/web/seg.so", "/x/web-interface/nav", "/x/v2/dm/wbi/web/seg.so"]
             }
         }

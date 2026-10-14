@@ -332,18 +332,29 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
         )
     }
 
-    /// WBI 签名请求被服务端以 -403 或 `v_voucher` 挑战拒绝时，强制刷新 WBI key 并只重试一次。
+    /// WBI 签名请求的唯一重试策略：任何组合下最多请求两次。
     ///
-    /// HTTP 403／412 是风控而不是 key 过期，按受限失败关闭，不换 key 重试，避免放大请求。
+    /// 首次请求被 -403 或 `v_voucher` 挑战拒绝时强制刷新 WBI key 再请求一次。HTTP 403／412 是风控而不是
+    /// key 过期，默认按受限失败关闭；只有传入 `intermittentRestrictionRetryDelay` 的调用方在首次请求被
+    /// HTTP 412 拒绝时等待后用同一个 key 再请求一次，等待期间会话变化则取消。重试的结果不再进入任何重试。
     func withWBIKeyRefresh<Value>(
+        intermittentRestrictionRetryDelay: Duration? = nil,
         _ request: (_ forceKeyRefresh: Bool) async throws -> Value
     ) async throws -> Value {
+        let sessionEpoch = authenticatedSessionEpoch
         do {
             return try await request(false)
         } catch BiliAPIError.apiRejected(let code, _) where code == -403 {
             return try await request(true)
         } catch BiliAPIError.riskControlVoucher {
             return try await request(true)
+        } catch BiliAPIError.httpStatus(412) {
+            guard let intermittentRestrictionRetryDelay else {
+                throw BiliAPIError.httpStatus(412)
+            }
+            try await Task.sleep(for: intermittentRestrictionRetryDelay)
+            try requireAuthenticatedSessionEpoch(sessionEpoch)
+            return try await request(false)
         }
     }
 
