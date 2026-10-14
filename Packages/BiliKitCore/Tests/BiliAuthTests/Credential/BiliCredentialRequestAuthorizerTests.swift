@@ -297,6 +297,34 @@ struct BiliCredentialRequestAuthorizerTests {
         #expect(store.deleteCount == 0)
     }
 
+    /// 只有 -101 与 `isLogin=false` 同时出现才算明确未登录；矛盾或缺字段的响应按校验不可用，凭据保留。
+    @Test(arguments: [
+        #"{"code":-101,"data":{"isLogin":true}}"#,
+        #"{"code":-101,"message":"账号未登录"}"#,
+        #"{"code":-101,"data":{}}"#
+    ])
+    func malformedNotLoggedInAnswerKeepsStoredCredential(body: String) async throws {
+        let store = MemoryWebCredentialStore(credential: try makeFixtureCredential())
+        let authorizer = BiliCredentialRequestAuthorizer(
+            store: store,
+            allowedPaths: fixtureNavigationAllowedPaths,
+            transport: RecordingAuthTransport(
+                responses: [
+                    HTTPResponse(
+                        statusCode: 200,
+                        headers: ["Content-Type": "application/json"],
+                        body: Data(body.utf8)
+                    )
+                ]
+            )
+        )
+
+        await #expect(throws: BiliRequestAuthorizationError.validationUnavailable) {
+            try await authorizer.restoreAccountSession()
+        }
+        #expect(store.deleteCount == 0)
+    }
+
     @Test
     func temporaryValidationFailureKeepsStoredCredential() async throws {
         let store = MemoryWebCredentialStore(credential: try makeFixtureCredential())
