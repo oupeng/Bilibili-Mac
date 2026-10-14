@@ -5,6 +5,8 @@ import Testing
 
 @testable import BiliDanmaku
 
+/// 会话本身不可观察，测试只经产品出口判断：repository 收到的请求、presentation sink 收到的更新与
+/// 认证失效回调。「失败已被会话记下」没有通用出口，需要确定同步时以认证失效回调为信号。
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct DanmakuSessionTests {
@@ -13,9 +15,11 @@ struct DanmakuSessionTests {
         let identity = PlaybackItemIdentity(bvid: "BV1DanmakuFixture", cid: 1)
         let repository = StubDanmakuRepository(.holdUntilReleased)
         let timeline = SessionTimeline()
+        let sink = SessionPresentationSink()
         let session = DanmakuSession(
             useCase: DanmakuSegmentUseCase(repository: repository),
-            timeline: timeline
+            timeline: timeline,
+            presentationSink: sink
         )
 
         session.start(for: identity)
@@ -24,18 +28,27 @@ struct DanmakuSessionTests {
 
         #expect(await repository.requestedIndices(for: identity).sorted() == [1, 2])
         #expect(await repository.maximumActiveRequests() == 2)
+
+        // 分段返回后，同一位置的后续时间线更新只交给呈现端，不再重复请求。
         await repository.release(identity)
-        #expect(await waitUntil { session.state == .ready(identity) })
+        timeline.publish(snapshot(identity: identity, position: 0.5, generation: 1))
+        try await sink.waitForUpdateCount(2, identity: identity)
+        #expect(await repository.requestCount(for: identity) == 2)
+        session.stop()
     }
 
-    /// 会话把呈现端给出的补位窗口交给调度：窗口跨进上一分段时一并请求上一分段。
-    @Test
-    func sessionUsesThePresentationCatchUpWindowForSegmentRequests() async throws {
+    /// 会话把呈现端给出的补位窗口交给调度：窗口跨进上一分段时先请求当前与上一分段，
+    /// 没有窗口时请求当前与下一分段。
+    @Test(arguments: [(10.0, [1, 2]), (0.0, [2, 3])])
+    func sessionUsesThePresentationCatchUpWindowForSegmentRequests(
+        catchUpWindowSeconds: Double,
+        expectedIndices: [Int]
+    ) async throws {
         let identity = PlaybackItemIdentity(bvid: "BV1CatchUpWindow", cid: 4)
-        let repository = StubDanmakuRepository()
+        let repository = StubDanmakuRepository(.holdUntilReleased)
         let timeline = SessionTimeline()
         let sink = SessionPresentationSink()
-        sink.catchUpWindowSeconds = 10
+        sink.catchUpWindowSeconds = catchUpWindowSeconds
         let session = DanmakuSession(
             useCase: DanmakuSegmentUseCase(repository: repository),
             timeline: timeline,
@@ -45,25 +58,23 @@ struct DanmakuSessionTests {
         session.start(for: identity)
         timeline.publish(snapshot(identity: identity, position: 365, generation: 1))
         try await repository.waitForRequestCount(2, identity: identity)
-        let firstRequests = await repository.requestedIndices(for: identity)
-        #expect(await waitUntil { session.state == .ready(identity) })
-        timeline.publish(snapshot(identity: identity, position: 365.5, generation: 1))
-        try await repository.waitForRequestCount(3, identity: identity)
 
-        #expect(firstRequests.sorted() == [1, 2])
-        #expect(await repository.requestedIndices(for: identity).sorted() == [1, 2, 3])
+        #expect(await repository.requestedIndices(for: identity).sorted() == expectedIndices)
         session.stop()
+        await repository.releaseAll()
     }
 
     @Test
-    func replacingIdentityRejectsLateOldSegmentsAndStopReturnsIdle() async throws {
+    func replacingIdentityCancelsOldLoadsAndStopEndsTheSession() async throws {
         let first = PlaybackItemIdentity(bvid: "BV1FirstFixture", cid: 1)
         let second = PlaybackItemIdentity(bvid: "BV1SecondFixture", cid: 2)
         let repository = StubDanmakuRepository(.holdUntilReleased)
         let timeline = SessionTimeline()
+        let sink = SessionPresentationSink()
         let session = DanmakuSession(
             useCase: DanmakuSegmentUseCase(repository: repository),
-            timeline: timeline
+            timeline: timeline,
+            presentationSink: sink
         )
 
         session.start(for: first)
@@ -74,12 +85,20 @@ struct DanmakuSessionTests {
         timeline.publish(snapshot(identity: second, position: 0, generation: 2))
         try await repository.waitForRequestCount(2, identity: second)
         await repository.release(second)
-        #expect(await waitUntil { session.state == .ready(second) })
-
         await repository.release(first)
-        #expect(session.state == .ready(second))
+
+        // 旧视频迟到的分段不打乱新视频：继续推进时两边都不重复请求。
+        timeline.publish(snapshot(identity: second, position: 0.5, generation: 2))
+        try await sink.waitForUpdateCount(2, identity: second)
+        #expect(await repository.requestCount(for: first) == 2)
+        #expect(await repository.requestCount(for: second) == 2)
+
+        // stop 结束整个会话：退订时间线，之后的快照既不请求也不再交给呈现端。
         session.stop()
-        #expect(session.state == .idle)
+        await timeline.waitForSubscriberCount(0)
+        timeline.publish(snapshot(identity: second, position: 1, generation: 2))
+        #expect(await repository.requestCount(for: second) == 2)
+        #expect(sink.updateCount(for: second) == 2)
     }
 
     @Test
@@ -151,13 +170,17 @@ struct DanmakuSessionTests {
         #expect(sink.stopCount == 1)
     }
 
-    @Test
-    func failedSegmentsAreNotRetriedByEveryLaterTimelineUpdate() async throws {
+    /// 失败的分段（含被风控拒绝的）在当前视频内不再请求；412 的一次延迟重试由 API 客户端负责，
+    /// 会话不叠加。每次更新都等呈现端收到，期间失败结果有机会写回会话。
+    @Test(arguments: [DanmakuApplicationError.unavailable, .requestRestricted])
+    func failedSegmentsAreNotRetriedByEveryLaterTimelineUpdate(
+        error: DanmakuApplicationError
+    ) async throws {
         let identity = PlaybackItemIdentity(
             bvid: "BV1FailingDanmakuFixture",
             cid: 4
         )
-        let repository = StubDanmakuRepository(.fail(.unavailable))
+        let repository = StubDanmakuRepository(.fail(error))
         let timeline = SessionTimeline()
         let sink = SessionPresentationSink()
         let session = DanmakuSession(
@@ -176,7 +199,6 @@ struct DanmakuSessionTests {
             )
         )
         try await repository.waitForRequestCount(2, identity: identity)
-        #expect(await waitUntil { session.state == .failed(identity, .unavailable) })
 
         for ordinal in 2...updateCount {
             timeline.publish(
@@ -194,7 +216,6 @@ struct DanmakuSessionTests {
 
         let attempts = await repository.requestCount(for: identity)
         #expect(attempts == 2)
-        #expect(session.state == .failed(identity, .unavailable))
     }
 
     @Test
@@ -205,35 +226,38 @@ struct DanmakuSessionTests {
         )
         let repository = StubDanmakuRepository(.fail(.authenticationInvalid))
         let timeline = SessionTimeline()
+        let sink = SessionPresentationSink()
         let session = DanmakuSession(
             useCase: DanmakuSegmentUseCase(repository: repository),
-            timeline: timeline
+            timeline: timeline,
+            presentationSink: sink
         )
-        var invalidationCount = 0
+        let invalidations = InvalidationRecorder()
         session.setAuthenticationInvalidationHandler {
-            invalidationCount += 1
+            invalidations.record()
         }
 
         session.start(for: identity)
         timeline.publish(snapshot(identity: identity, position: 0, generation: 1))
         try await repository.waitForRequestCount(2, identity: identity)
-        #expect(
-            await waitUntil {
-                session.state == .failed(identity, .authenticationInvalid)
-            }
-        )
-        #expect(invalidationCount == 1)
+        await invalidations.wait(until: 1)
+
+        // 同一会话里另一个分段也以认证失效失败；继续推进时间线，回调仍只有一次。
+        timeline.publish(snapshot(identity: identity, position: 0.5, generation: 1))
+        try await sink.waitForUpdateCount(2, identity: identity)
+        #expect(invalidations.count == 1)
 
         session.stop()
         session.start(for: identity)
         timeline.publish(snapshot(identity: identity, position: 0, generation: 2))
         try await repository.waitForRequestCount(4, identity: identity)
 
-        #expect(await waitUntil { invalidationCount == 2 })
+        await invalidations.wait(until: 2)
     }
 
+    /// 换视频时清空失败记录：先等认证失效回调确认第一个视频的失败已被记下，再换到第二个视频。
     @Test
-    func failedSegmentMemoryIsClearedForReplacementAndStop() async throws {
+    func failedSegmentMemoryIsClearedForReplacement() async throws {
         let first = PlaybackItemIdentity(
             bvid: "BV1FirstFailureFixture",
             cid: 5
@@ -242,99 +266,62 @@ struct DanmakuSessionTests {
             bvid: "BV1SecondFailureFixture",
             cid: 6
         )
-        let repository = StubDanmakuRepository(.fail(.unavailable))
+        let repository = StubDanmakuRepository(.fail(.authenticationInvalid))
         let timeline = SessionTimeline()
         let session = DanmakuSession(
             useCase: DanmakuSegmentUseCase(repository: repository),
             timeline: timeline
         )
+        let invalidations = InvalidationRecorder()
+        session.setAuthenticationInvalidationHandler {
+            invalidations.record()
+        }
 
         session.start(for: first)
         timeline.publish(snapshot(identity: first, position: 0, generation: 1))
         try await repository.waitForRequestCount(2, identity: first)
-        #expect(await waitUntil { session.state == .failed(first, .unavailable) })
+        await invalidations.wait(until: 1)
 
         session.start(for: second)
         timeline.publish(snapshot(identity: second, position: 0, generation: 2))
         try await repository.waitForRequestCount(2, identity: second)
-        #expect(await waitUntil { session.state == .failed(second, .unavailable) })
+        await invalidations.wait(until: 2)
 
         #expect(await repository.requestCount(for: first) == 2)
         #expect(await repository.requestCount(for: second) == 2)
-        #expect(session.state == .failed(second, .unavailable))
-
-        session.stop()
-        await timeline.waitForSubscriberCount(0)
-        timeline.publish(snapshot(identity: second, position: 0, generation: 2))
-        #expect(await repository.requestCount(for: second) == 2)
-        #expect(session.state == .idle)
     }
 
+    /// stop 后重新开始同一视频时，上一轮失败的分段重新请求；失败同步方式同上。
     @Test
     func restartingSessionAllowsFailedSegmentsToRecover() async throws {
         let identity = PlaybackItemIdentity(
             bvid: "BV1RecoveringDanmakuFixture",
             cid: 7
         )
-        let repository = StubDanmakuRepository(.failFirstAttemptPerSegment(.unavailable))
+        let repository = StubDanmakuRepository(
+            .failFirstAttemptPerSegment(.authenticationInvalid)
+        )
         let timeline = SessionTimeline()
         let session = DanmakuSession(
             useCase: DanmakuSegmentUseCase(repository: repository),
             timeline: timeline
         )
+        let invalidations = InvalidationRecorder()
+        session.setAuthenticationInvalidationHandler {
+            invalidations.record()
+        }
 
         session.start(for: identity)
         timeline.publish(snapshot(identity: identity, position: 0, generation: 1))
         try await repository.waitForRequestCount(2, identity: identity)
-        #expect(await waitUntil { session.state == .failed(identity, .unavailable) })
+        await invalidations.wait(until: 1)
 
         session.stop()
         session.start(for: identity)
         timeline.publish(snapshot(identity: identity, position: 0, generation: 2))
         try await repository.waitForRequestCount(4, identity: identity)
 
-        #expect(await waitUntil { session.state == .ready(identity) })
-        #expect(await repository.requestCount(for: identity) == 4)
-    }
-
-    /// 被风控拒绝的分段按失败关闭，当前视频内不再请求；412 的一次延迟重试由 API 客户端负责，会话不叠加。
-    @Test
-    func restrictedSegmentIsNotRetriedBySession() async throws {
-        let identity = PlaybackItemIdentity(
-            bvid: "BV1AlwaysRestrictedFixture",
-            cid: 9
-        )
-        let repository = StubDanmakuRepository(.fail(.requestRestricted))
-        let timeline = SessionTimeline()
-        let sink = SessionPresentationSink()
-        let session = DanmakuSession(
-            useCase: DanmakuSegmentUseCase(repository: repository),
-            timeline: timeline,
-            presentationSink: sink
-        )
-
-        session.start(for: identity)
-        timeline.publish(snapshot(identity: identity, position: 0, generation: 1))
-        try await repository.waitForRequestCount(2, identity: identity)
-        #expect(await waitUntil { session.state == .failed(identity, .requestRestricted) })
-
-        timeline.publish(snapshot(identity: identity, position: 0, generation: 1))
-        try await sink.waitForUpdateCount(2, identity: identity)
-        #expect(await repository.requestCount(for: identity) == 2)
-    }
-
-    /// `DanmakuSession` 不可观察；只让出 main actor 给分段加载的续体，不按固定时长轮询。
-    private func waitUntil(
-        timeout: Duration = .seconds(5),
-        _ condition: () -> Bool
-    ) async -> Bool {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: timeout)
-        while !condition() {
-            guard clock.now < deadline else { return false }
-            await Task.yield()
-        }
-        return true
+        #expect(await repository.requestedIndices(for: identity).sorted() == [1, 1, 2, 2])
     }
 
     private func snapshot(
@@ -419,8 +406,31 @@ private final class SessionPresentationSink: DanmakuPresentationSink {
         )
     }
 
-    private func updateCount(for identity: PlaybackItemIdentity) -> Int {
+    func updateCount(for identity: PlaybackItemIdentity) -> Int {
         updates.lazy.filter { $0.snapshot.identity == identity }.count
+    }
+}
+
+/// 记录认证失效回调；回调在 MainActor 上同步发生，次数可直接断言，也可等到达某个次数。
+@MainActor
+private final class InvalidationRecorder {
+    private(set) var count = 0
+    private var waiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    func record() {
+        count += 1
+        let ready = waiters.filter { $0.count <= count }
+        waiters.removeAll { $0.count <= count }
+        for waiter in ready {
+            waiter.continuation.resume()
+        }
+    }
+
+    func wait(until expectedCount: Int) async {
+        guard count < expectedCount else { return }
+        await withCheckedContinuation { continuation in
+            waiters.append((expectedCount, continuation))
+        }
     }
 }
 

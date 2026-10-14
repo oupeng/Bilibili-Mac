@@ -26,8 +26,7 @@ public final class CoreAnimationDanmakuRenderer:
     public weak var delegate: (any DanmakuRenderingBackendDelegate)?
     public let rootLayer: CALayer
 
-    private(set) var renderEpoch: UInt64 = 0
-    var activeLayerCount: Int { entries.count }
+    private var renderEpoch: UInt64 = 0
 
     private var backingScale: Double
     private var entries: [String: Entry] = [:]
@@ -222,14 +221,6 @@ public final class CoreAnimationDanmakuRenderer:
         preparationOwner.cancelAllPreparations()
         removeAllEntries()
         setPlaybackRate(0)
-    }
-
-    func objectIdentity(forEventID eventID: String) -> UInt64? {
-        entries[eventID]?.objectIdentity
-    }
-
-    var outstandingPreparationCount: Int {
-        preparationOwner.outstandingRequestCount
     }
 
     func completeAnimation(

@@ -26,17 +26,13 @@ struct CoreAnimationDanmakuRendererTests {
             originY: 20
         )
         let layer = try #require(renderer.rootLayer.sublayers?.first)
-        let identity = try #require(
-            renderer.objectIdentity(forEventID: fixture.id)
-        )
 
         let opacity = try #require(DanmakuOpacity(0.35))
         renderer.setOpacity(opacity)
         #expect(abs(Double(renderer.rootLayer.opacity) - 0.35) < 0.001)
         #expect(layer.opacity == 1)
-        #expect(
-            renderer.objectIdentity(forEventID: fixture.id) == identity
-        )
+        #expect(renderer.rootLayer.sublayers?.count == 1)
+        #expect(renderer.rootLayer.sublayers?.first === layer)
         #expect(renderer.activeTextureByteCost > 0)
         #expect(
             renderer.activeTextureByteCost
@@ -44,6 +40,7 @@ struct CoreAnimationDanmakuRendererTests {
         )
         renderer.remove(eventID: fixture.id)
         #expect(renderer.activeTextureByteCost == 0)
+        #expect(renderer.rootLayer.sublayers?.isEmpty ?? true)
     }
 
     @Test
@@ -120,10 +117,7 @@ struct CoreAnimationDanmakuRendererTests {
             preparationID: 1,
             originY: 10
         )
-        let oldIdentity = try #require(
-            renderer.objectIdentity(forEventID: fixture.id)
-        )
-        let oldEpoch = renderer.renderEpoch
+        let oldRelay = try completionRelay(in: renderer)
 
         renderer.clearAll()
         _ = try await prepareAndRender(
@@ -133,26 +127,40 @@ struct CoreAnimationDanmakuRendererTests {
             generation: 1,
             originY: 10
         )
-        let newIdentity = try #require(
-            renderer.objectIdentity(forEventID: fixture.id)
-        )
-        let newEpoch = renderer.renderEpoch
+        let replacement = try #require(renderer.rootLayer.sublayers?.first)
+        let newRelay = try completionRelay(in: renderer)
 
-        renderer.completeAnimation(
-            eventID: fixture.id,
-            objectIdentity: oldIdentity,
-            renderEpoch: oldEpoch
-        )
-        #expect(renderer.activeLayerCount == 1)
+        // 按各自动画回调携带的身份完成；旧回调晚到也不能移除同一事件 ID 的新 layer。
+        complete(oldRelay, in: renderer)
+        #expect(renderer.rootLayer.sublayers?.count == 1)
+        #expect(renderer.rootLayer.sublayers?.first === replacement)
         #expect(delegate.finishedEventIDs.isEmpty)
 
-        renderer.completeAnimation(
-            eventID: fixture.id,
-            objectIdentity: newIdentity,
-            renderEpoch: newEpoch
-        )
-        #expect(renderer.activeLayerCount == 0)
+        complete(newRelay, in: renderer)
+        #expect(renderer.rootLayer.sublayers?.isEmpty ?? true)
         #expect(delegate.finishedEventIDs == [fixture.id])
+    }
+
+    /// 取出唯一活动 layer 上动画的完成回调；它携带渲染时记下的事件 ID、对象身份与 epoch。
+    private func completionRelay(
+        in renderer: CoreAnimationDanmakuRenderer
+    ) throws -> AnimationCompletionRelay {
+        let layers = try #require(renderer.rootLayer.sublayers)
+        try #require(layers.count == 1)
+        let animation = try #require(layers[0].animation(forKey: "danmaku"))
+        return try #require(animation.delegate as? AnimationCompletionRelay)
+    }
+
+    /// 与 `AnimationCompletionRelay.animationDidStop` 转交的调用相同，只是同步执行以便逐步断言。
+    private func complete(
+        _ relay: AnimationCompletionRelay,
+        in renderer: CoreAnimationDanmakuRenderer
+    ) {
+        renderer.completeAnimation(
+            eventID: relay.eventID,
+            objectIdentity: relay.objectIdentity,
+            renderEpoch: relay.renderEpoch
+        )
     }
 
     @Test
@@ -212,8 +220,19 @@ struct CoreAnimationDanmakuRendererTests {
                 preparationID: 2
             ) == .rejected(.oversized)
         )
-        #expect(renderer.activeLayerCount == 0)
-        #expect(renderer.outstandingPreparationCount == 0)
+        #expect(renderer.rootLayer.sublayers?.isEmpty ?? true)
+
+        // 拒绝的准备不占用 preparation owner 的有界名额。
+        let owner = DanmakuTexturePreparationOwner()
+        #expect(
+            await prepare(owner: owner, event: invalid, preparationID: 1)
+                == .rejected(.invalidInput)
+        )
+        #expect(
+            await prepare(owner: owner, event: oversized, preparationID: 2)
+                == .rejected(.oversized)
+        )
+        #expect(owner.outstandingRequestCount == 0)
     }
 
     /// 补位弹幕的动画开始时间移到过去，从已经走过的位置继续，而不是从右边缘重新进场。

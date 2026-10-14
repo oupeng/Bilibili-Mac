@@ -79,14 +79,6 @@ public struct DanmakuScheduler: Sendable {
 
     public init() {}
 
-    public var cachedSegmentCount: Int { segments.count }
-    var retainedDeliveredSegmentCount: Int {
-        deliveredIDsBySegment.count
-    }
-    var retainedDeliveredIDCount: Int {
-        deliveredIDsBySegment.values.reduce(0) { $0 + $1.count }
-    }
-
     public mutating func begin(for identity: PlaybackItemIdentity) {
         self.identity = identity
         segments.removeAll(keepingCapacity: false)

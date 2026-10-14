@@ -2,13 +2,6 @@ import BiliApplication
 import BiliModels
 import Foundation
 
-public enum DanmakuSessionState: Sendable, Equatable {
-    case idle
-    case loading(PlaybackItemIdentity)
-    case ready(PlaybackItemIdentity)
-    case failed(PlaybackItemIdentity, DanmakuApplicationError)
-}
-
 @MainActor
 /// 弹幕数据、时间线订阅、分段加载与 presentation 的会话 owner。
 ///
@@ -16,8 +9,6 @@ public enum DanmakuSessionState: Sendable, Equatable {
 /// 延迟重试在 API 客户端内完成，等待期间占用加载名额）。generation 阻止切视频或 stop 后的迟到结果
 /// 写回。`stop` 必须取消所有任务（含等待中的重试）并清空 scheduler/presentation。
 public final class DanmakuSession: DanmakuPresentationControlling {
-    public private(set) var state: DanmakuSessionState = .idle
-
     private let useCase: DanmakuSegmentUseCase
     private let timeline: any PlaybackTimelineProviding
     private weak var presentationSink: (any DanmakuPresentationSink)?
@@ -55,7 +46,6 @@ public final class DanmakuSession: DanmakuPresentationControlling {
         generation &+= 1
         self.identity = identity
         scheduler.begin(for: identity)
-        state = .loading(identity)
         let updates = timeline.timelineUpdates()
         timelineTask = Task { [weak self] in
             for await snapshot in updates {
@@ -126,7 +116,6 @@ public final class DanmakuSession: DanmakuPresentationControlling {
         authenticationInvalidationReported = false
         identity = nil
         scheduler.reset()
-        state = .idle
     }
 
     private func handle(_ snapshot: PlaybackTimelineSnapshot) {
@@ -165,26 +154,11 @@ public final class DanmakuSession: DanmakuPresentationControlling {
                 else { return }
                 self.scheduler.store(segment, for: identity)
                 self.loadTasks[index] = nil
-                self.state = .ready(identity)
             } catch is CancellationError {
                 guard let self,
                     self.generation == requestGeneration
                 else { return }
                 self.loadTasks[index] = nil
-            } catch let error as DanmakuApplicationError {
-                guard let self,
-                    self.generation == requestGeneration,
-                    self.identity == identity
-                else { return }
-                self.loadTasks[index] = nil
-                self.failedSegmentIndices.insert(index)
-                self.state = .failed(identity, error)
-                if error == .authenticationInvalid,
-                    !self.authenticationInvalidationReported
-                {
-                    self.authenticationInvalidationReported = true
-                    self.authenticationInvalidationHandler()
-                }
             } catch {
                 guard let self,
                     self.generation == requestGeneration,
@@ -192,7 +166,12 @@ public final class DanmakuSession: DanmakuPresentationControlling {
                 else { return }
                 self.loadTasks[index] = nil
                 self.failedSegmentIndices.insert(index)
-                self.state = .failed(identity, .unavailable)
+                if (error as? DanmakuApplicationError) == .authenticationInvalid,
+                    !self.authenticationInvalidationReported
+                {
+                    self.authenticationInvalidationReported = true
+                    self.authenticationInvalidationHandler()
+                }
             }
         }
     }
