@@ -170,8 +170,9 @@ struct DanmakuSessionTests {
         #expect(sink.stopCount == 1)
     }
 
-    /// 失败的分段（含被风控拒绝的）在当前视频内不再请求；412 的一次延迟重试由 API 客户端负责，
-    /// 会话不叠加。每次更新都等呈现端收到，期间失败结果有机会写回会话。
+    /// 失败的分段（含被风控拒绝的）在当前视频内不再请求。
+    ///
+    /// 412 的一次延迟重试由 API 客户端负责，会话不叠加。每次更新都等呈现端收到，期间失败结果有机会写回会话。
     @Test(arguments: [DanmakuApplicationError.unavailable, .requestRestricted])
     func failedSegmentsAreNotRetriedByEveryLaterTimelineUpdate(
         error: DanmakuApplicationError
