@@ -786,10 +786,10 @@ struct NativePlaybackSidebarTests {
             collectionView.visibleItems().lazy
                 .compactMap { $0 as? NativePlaybackSidebarUploaderItem }.first
         )
-        // UP 主行只有一个按钮，即名字右侧进入空间的箭头。
+        // 定位前提：UP 主行里的按钮只有名字右侧进入空间的箭头。
         let spaceButtons = descendants(of: uploaderItem.view).compactMap { $0 as? NSButton }
-        #expect(spaceButtons.count == 1)
-        let spaceButton = try #require(spaceButtons.first)
+        try #require(spaceButtons.count == 1)
+        let spaceButton = spaceButtons[0]
         #expect(!spaceButton.isHidden)
         #expect(spaceButton.accessibilityLabel() == AppStrings.localized("查看空间"))
 
@@ -1256,9 +1256,19 @@ struct NativePlaybackSidebarTests {
     @MainActor
     func commentLoadingAccessibilityDoesNotReuseStaleCountOrFooterState() throws {
         let subject = CommentSubjectIdentity.video(aid: 700_001)
-        let loaded = commentsPresentation(
+        // 总数取不易与界面其他数字相撞的值，按可见计数文字定位时不会找错控件。
+        let loaded = NativePlaybackCommentsPresentation(
             subject: subject,
-            threads: [commentThread(id: 1, message: "正文")]
+            sort: .hot,
+            rootState: .loaded,
+            totalCount: 12_345,
+            threads: [
+                NativePlaybackCommentThreadPresentation(
+                    subject: subject,
+                    thread: commentThread(id: 1, message: "正文"),
+                    replyState: nil
+                )
+            ]
         )
         let loading = NativePlaybackCommentsPresentation(
             subject: subject,
@@ -1272,10 +1282,10 @@ struct NativePlaybackSidebarTests {
         let loadedCount = CommentPresentationFormatting.compactCount(
             loaded.totalCount
         )
-        let countLabel = try #require(
-            descendants(of: header.view).compactMap { $0 as? NSTextField }
-                .first { $0.stringValue == loadedCount }
-        )
+        let countLabels = descendants(of: header.view).compactMap { $0 as? NSTextField }
+            .filter { $0.stringValue == loadedCount }
+        try #require(countLabels.count == 1)
+        let countLabel = countLabels[0]
         #expect(countLabel.isAccessibilityElement())
         #expect(
             countLabel.accessibilityLabel()

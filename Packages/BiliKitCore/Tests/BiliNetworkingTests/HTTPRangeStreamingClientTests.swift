@@ -229,7 +229,7 @@ struct HTTPRangeStreamingClientTests {
                 "Content-Length": "4",
                 "Content-Type": "video/mp4"
             ],
-            chunks: [Data([1, 2, 3, 4])],
+            chunks: [],
             withholdsBody: true
         )
         let task = Task { try await streamFourBytes() }
@@ -237,7 +237,6 @@ struct HTTPRangeStreamingClientTests {
         task.cancel()
         await #expect(throws: (any Error).self) { try await task.value }
         await StreamingRangeURLProtocol.state.waitUntilStopped()
-        #expect(StreamingRangeURLProtocol.state.deliveredBodyBytes == 0)
     }
 
     private func streamFourBytes(

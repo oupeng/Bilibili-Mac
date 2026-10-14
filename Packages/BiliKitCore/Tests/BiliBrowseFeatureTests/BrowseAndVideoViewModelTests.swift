@@ -1755,9 +1755,11 @@ struct BrowseAndVideoViewModelTests {
     func cancelledEpisodeFailureDoesNotRevalidateAuthentication() async throws {
         let fixtures = CollectionFixtures()
         let gate = TestGate()
+        let passedGate = TestEventCounter()
         let repository = VideoRepositoryStub(
             collection: fixtures,
             gate: gate,
+            passedGate: passedGate,
             episodeFailureAfterGate: .authenticationInvalid
         )
         let model = VideoViewModel(
@@ -1770,7 +1772,10 @@ struct BrowseAndVideoViewModelTests {
         model.selectCollectionEpisode(fixtures.lazyEpisode) { _, _ in }
         try await gate.waitForEntries()
         model.selectCollectionEpisode(fixtures.embeddedEpisode) { _, _ in }
+        // 改选分集必须先取消挂起的旧请求；放行后旧请求带着认证失效离开替身，才断言没有触发重新校验。
+        try await gate.waitForCancellations()
         await gate.open()
+        try await passedGate.wait(until: 1)
 
         #expect(model.authenticationRevalidationGeneration == 0)
         #expect(model.collectionEpisodePageStates[fixtures.lazyEpisode.id] == .idle)
@@ -2504,11 +2509,14 @@ extension VideoRepositoryStub {
         )
     }
 
-    /// 合集 fixture：根视频详情立即返回；其余 BVID 的详情先经过 `gate`（若有），
-    /// `failsFirstEpisodeDetail` 让每个 BVID 的首次详情请求失败，`episodeFailureAfterGate` 让放行后的请求失败。
+    /// 合集 fixture：根视频详情立即返回，其余 BVID 的详情先经过 `gate`（若有）。
+    ///
+    /// `failsFirstEpisodeDetail` 让每个 BVID 的首次详情请求失败，`episodeFailureAfterGate` 让放行后的请求失败；
+    /// `passedGate` 在请求通过闸门、即将返回或抛错时记一次，测试据此确认放行的请求已离开替身。
     fileprivate init(
         collection fixtures: CollectionFixtures,
         gate: TestGate? = nil,
+        passedGate: TestEventCounter? = nil,
         failsFirstEpisodeDetail: Bool = false,
         episodeFailureAfterGate: ContentApplicationError? = nil
     ) {
@@ -2519,6 +2527,7 @@ extension VideoRepositoryStub {
                     throw ContentApplicationError.transportFailure
                 }
                 await gate?.pass()
+                await passedGate?.signal()
                 if let episodeFailureAfterGate { throw episodeFailureAfterGate }
                 return fixtures.detail(for: bvid)
             },

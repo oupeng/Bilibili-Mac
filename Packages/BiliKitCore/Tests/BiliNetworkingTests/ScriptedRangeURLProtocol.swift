@@ -44,7 +44,7 @@ struct RangeURLProtocolScript: Sendable {
     let statusCode: Int
     let headers: [String: String]
     let chunks: [Data]
-    /// 只发响应头、始终不放行正文，用于证明 client 不等待正文即可拒绝或取消。
+    /// 只发响应头、始终不放行正文（不读取 `chunks`），用于证明 client 不等待正文即可拒绝或取消。
     let withholdsBody: Bool
 }
 
@@ -64,7 +64,6 @@ final class ScriptedRangeURLProtocolState: @unchecked Sendable {
     private var deliveryWaiters: [(bytes: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
     var wasStopped: Bool { lock.withLock { stopped } }
-    var deliveredBodyBytes: Int { lock.withLock { delivered } }
     var lastRequest: URLRequest? { lock.withLock { capturedRequest } }
 
     func configure(

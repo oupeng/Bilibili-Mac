@@ -37,6 +37,9 @@ func waitUntilSettled(_ model: VideoViewModel) async {
 /// 让替身中的请求挂起到测试放行；放行后后续请求直接通过。
 ///
 /// 挂起期间忽略取消以模拟迟到结果，但记录取消事件，测试据此确认旧意图已被新意图取消。
+///
+/// 使用约定：请求进入后到 `open()` 之前，只用不会 throw 的断言或本闸门自己的等待（它们失败时先放行）；
+/// 其他会 throw 的步骤放到 `open()` 之后，否则测试提前结束会让挂起的请求永不恢复。
 actor TestGate {
     private let entries = TestEventCounter()
     private let cancellations = TestEventCounter()
