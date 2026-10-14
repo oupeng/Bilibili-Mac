@@ -575,7 +575,7 @@ private actor AuthenticationServiceStub: AuthenticationServicing,
 
     func releaseFirstImage() {
         firstImageReleased = true
-        resume(&imageReleaseWaiters)
+        imageReleaseWaiters.resumeAll()
     }
 
     func waitForFirstRestoreStart() async throws {
@@ -589,7 +589,7 @@ private actor AuthenticationServiceStub: AuthenticationServicing,
 
     func releaseFirstRestore() {
         firstRestoreReleased = true
-        resume(&restoreReleaseWaiters)
+        restoreReleaseWaiters.resumeAll()
     }
 
     func waitForFirstFinalizeStart() async throws {
@@ -603,7 +603,7 @@ private actor AuthenticationServiceStub: AuthenticationServicing,
 
     func releaseFirstFinalize() {
         finalizeReleased = true
-        resume(&finalizeReleaseWaiters)
+        finalizeReleaseWaiters.resumeAll()
     }
 
     func waitForFirstLogoutStart() async throws {
@@ -617,7 +617,7 @@ private actor AuthenticationServiceStub: AuthenticationServicing,
 
     func releaseFirstLogout() {
         logoutReleased = true
-        resume(&logoutReleaseWaiters)
+        logoutReleaseWaiters.resumeAll()
     }
 
     private static func makeFixtureImage() -> CGImage? {
@@ -632,14 +632,6 @@ private actor AuthenticationServiceStub: AuthenticationServicing,
         )
         return context?.makeImage()
     }
-
-    private func resume(_ waiters: inout [CheckedContinuation<Void, Never>]) {
-        let pending = waiters
-        waiters.removeAll(keepingCapacity: false)
-        for waiter in pending {
-            waiter.resume()
-        }
-    }
 }
 
 enum StaleQRCodeCompletion: CaseIterable, Sendable {
@@ -648,49 +640,3 @@ enum StaleQRCodeCompletion: CaseIterable, Sendable {
 }
 
 private struct QRCodeFixtureError: Error {}
-
-private actor TestEventCounter {
-    private struct Waiter {
-        let expectedCount: Int
-        let continuation: CheckedContinuation<Void, any Error>
-    }
-
-    private var count = 0
-    private var waiters: [UUID: Waiter] = [:]
-
-    func signal() {
-        count += 1
-        let ready = waiters.filter { count >= $0.value.expectedCount }
-        for (id, waiter) in ready where waiters.removeValue(forKey: id) != nil {
-            waiter.continuation.resume()
-        }
-    }
-
-    func wait(until expectedCount: Int) async throws {
-        let id = UUID()
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                if count >= expectedCount {
-                    continuation.resume()
-                } else if Task.isCancelled {
-                    continuation.resume(throwing: CancellationError())
-                } else {
-                    waiters[id] = Waiter(
-                        expectedCount: expectedCount,
-                        continuation: continuation
-                    )
-                }
-            }
-        } onCancel: {
-            Task {
-                await self.cancelWaiter(id)
-            }
-        }
-    }
-
-    private func cancelWaiter(_ id: UUID) {
-        waiters.removeValue(forKey: id)?.continuation.resume(
-            throwing: CancellationError()
-        )
-    }
-}
