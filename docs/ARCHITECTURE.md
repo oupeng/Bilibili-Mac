@@ -74,6 +74,8 @@ session path，提供内存中生成的 master／media playlist，并把 AVPlaye
 - 只有全部 SIDX reference 从 type-1 SAP 开始且 `SAP_delta_time` 为 0 时才发布 I-frame rendition，
   它复用同一 route 的完整 fragment Range，不预读、不缓存。
 - 同一 AUDIO group 以原声 SIDX 起点为准；起点不一致的 AI 音轨在生成 master 前丢弃。
+- AI 配音只对账户读取请求，按语言逐个取 playurl；某个语言失败（风控、网络、业务拒绝）就停止后续配音
+  请求，只保留已拿到的音轨和原声，播放照常进行。凭据失效与会话变化仍让播放失败或取消。
 - 没有 DASH 但有安全单段 `durl` 时注册 progressive MP4 route：原样保留 AVPlayer 的单一 Range，
   验证后逐 chunk 写入 loopback，不累积整段；不支持多段 `durl` 拼接。格式只接受 `mp4` 与 `hdmp4`
   （较早视频只有整段文件，最高 720P），`flv*` 不支持；请求的清晰度只有 FLV 时，按 `support_formats`

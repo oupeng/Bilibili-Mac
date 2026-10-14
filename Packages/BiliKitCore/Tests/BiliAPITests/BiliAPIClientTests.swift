@@ -1225,32 +1225,26 @@ struct BiliAPIClientTests {
         #expect(playURLRequests(transport).count == 1)
     }
 
+    /// 配音是附加内容：某个语言请求失败时保留原声继续播放，并停止后续语言的配音请求。
     @Test(
         arguments: [
-            (HTTPResponse(statusCode: 403, body: Data()), BiliAPIError.httpStatus(403)),
-            (HTTPResponse(statusCode: 412, body: Data()), .httpStatus(412)),
-            (
-                jsonResponse(#"{"code":-404,"message":"fixture"}"#),
-                .apiRejected(code: -404, message: "fixture")
+            HTTPResponse(statusCode: 403, body: Data()),
+            HTTPResponse(statusCode: 412, body: Data()),
+            jsonResponse(#"{"code":-404,"message":"fixture"}"#),
+            HTTPResponse(
+                statusCode: 200,
+                headers: ["Content-Type": "text/html"],
+                body: Data("fixture".utf8)
             ),
-            (
-                HTTPResponse(
-                    statusCode: 200,
-                    headers: ["Content-Type": "text/html"],
-                    body: Data("fixture".utf8)
-                ),
-                .nonJSONResponse
-            ),
-            (nil, .transportFailure)
-        ] as [(HTTPResponse?, BiliAPIError)]
+            nil
+        ] as [HTTPResponse?]
     )
-    func aiAudioFailureFailsWholePlaybackClosed(
-        aiResponse: HTTPResponse?,
-        expected: BiliAPIError
+    func aiAudioFailureKeepsOriginalAndStopsFurtherDubRequests(
+        aiResponse: HTTPResponse?
     ) async throws {
         let base = try semanticAudioResponse(
             audioPath: "original-audio.m4s",
-            languageCatalog: machineGeneratedEnglishCatalog
+            languageCatalog: machineGeneratedEnglishAndJapaneseCatalog
         )
         let transport = StubTransport(
             responses: [try fixtureResponse("nav"), base] + [aiResponse].compactMap { $0 }
@@ -1260,10 +1254,35 @@ struct BiliAPIClientTests {
             requestAuthorizer: StubAuthorizer()
         )
 
-        await #expect(throws: expected) {
+        let playback = try await client.playback(for: "BV1FixtureA1", cid: 900_001)
+
+        let manifest = try #require(playback.dashManifest)
+        #expect(manifest.audioTracks.map(\.role) == [.original])
+        #expect(playURLRequests(transport).count == 2)
+    }
+
+    /// 凭据失效不属于配音自身的失败：仍让播放失败并交给账户复核。
+    @Test
+    func aiAudioAuthenticationInvalidationStillFailsPlayback() async throws {
+        let base = try semanticAudioResponse(
+            audioPath: "original-audio.m4s",
+            languageCatalog: machineGeneratedEnglishCatalog
+        )
+        let transport = StubTransport(
+            responses: [
+                try fixtureResponse("nav"),
+                base,
+                jsonResponse(#"{"code":-101,"message":"fixture"}"#)
+            ]
+        )
+        let client = BiliAPIClient(
+            transport: transport,
+            requestAuthorizer: StubAuthorizer()
+        )
+
+        await #expect(throws: BiliAPIError.authenticationInvalid) {
             try await client.playback(for: "BV1FixtureA1", cid: 900_001)
         }
-        #expect(playURLRequests(transport).count == 2)
     }
 
     @Test
@@ -1833,6 +1852,16 @@ struct BiliAPIClientTests {
                 page: 1
             )
         )
+    }
+
+    private var machineGeneratedEnglishAndJapaneseCatalog: [String: Any] {
+        [
+            "support": true,
+            "items": [
+                ["lang": "en", "title": "English（AI）", "production_type": 2],
+                ["lang": "ja", "title": "日本語（AI）", "production_type": 2]
+            ]
+        ]
     }
 
     private var machineGeneratedEnglishCatalog: [String: Any] {
