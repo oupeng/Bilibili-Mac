@@ -1,5 +1,3 @@
-import BiliApplication
-import BiliModels
 import Synchronization
 import Testing
 
@@ -7,7 +5,8 @@ import Testing
 
 // WBI key 缓存的生命周期：这些测试显式排 nav，并断言 nav 的次数与位置。
 extension BiliAPIClientTests {
-    /// 同一个 UTC 日内复用 key；`timestamp / 86_400` 变化后，下一个签名请求先重新取 nav。
+    /// 同一个 UTC 日内（直到当天最后一秒）复用 key；`timestamp / 86_400` 变化后，
+    /// 下一个签名请求先重新取 nav。
     @Test
     func wbiKeyIsRefetchedOnceTheUTCDayChanges() async throws {
         let dayStart: Int64 = 1_700_006_400
@@ -26,11 +25,11 @@ extension BiliAPIClientTests {
             timestampProvider: { clock.now }
         )
 
-        _ = try await searchVideos(client)
+        _ = try await search(client, "macOS")
         clock.now = dayStart + 86_399
-        _ = try await searchVideos(client)
+        _ = try await search(client, "Swift")
         clock.now = dayStart + 86_400
-        _ = try await searchVideos(client)
+        _ = try await search(client, "macOS")
 
         #expect(
             transport.capturedRequests().map(\.url.path) == [
@@ -59,9 +58,9 @@ extension BiliAPIClientTests {
             timestampProvider: { 1_700_000_000 }
         )
 
-        _ = try await searchVideos(client)
+        _ = try await search(client)
         await client.invalidateAuthenticatedSession()
-        _ = try await searchVideos(client)
+        _ = try await search(client)
 
         #expect(
             transport.capturedRequests().map(\.url.path) == [
@@ -70,15 +69,6 @@ extension BiliAPIClientTests {
                 StubTransport.wbiNavPath,
                 "/x/web-interface/wbi/search/type"
             ]
-        )
-    }
-
-    private func searchVideos(_ client: BiliAPIClient) async throws -> SearchPage {
-        try await client.searchVideos(
-            request: VideoSearchRequest(
-                criteria: VideoSearchCriteria(query: "macOS"),
-                page: 1
-            )
         )
     }
 }

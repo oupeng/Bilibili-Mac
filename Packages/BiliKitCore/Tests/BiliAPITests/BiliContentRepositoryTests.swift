@@ -58,7 +58,7 @@ struct BiliContentRepositoryTests {
                             body: Data(body.utf8)
                         )
                     ],
-                    answersWBINav: true
+                    answersWBINavOnce: true
                 )
             )
         )

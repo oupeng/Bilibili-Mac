@@ -96,7 +96,7 @@ struct BiliSubtitleRepositoryTests {
         let catalogRequests = catalogTransport.capturedRequests()
         #expect(
             catalogRequests.map(\.url.path) == [
-                "/x/web-interface/nav",
+                StubTransport.wbiNavPath,
                 "/x/player/wbi/v2"
             ]
         )
@@ -129,7 +129,7 @@ struct BiliSubtitleRepositoryTests {
                     responses: [
                         try catalogResponse(prependingEmptyURLTrack: true)
                     ],
-                    answersWBINav: true
+                    answersWBINavOnce: true
                 ),
                 requestAuthorizer: StubAuthorizer(),
                 timestampProvider: { 1_700_000_000 }
@@ -164,7 +164,7 @@ struct BiliSubtitleRepositoryTests {
             responses: [
                 try fixtureResponse("subtitle-catalog")
             ],
-            answersWBINav: true
+            answersWBINavOnce: true
         )
         let bodyTransport = StubTransport(responses: [])
         let repository = BiliSubtitleRepository(
@@ -235,7 +235,7 @@ struct BiliSubtitleRepositoryTests {
                 client: BiliAPIClient(
                     transport: StubTransport(
                         responses: [response].compactMap { $0 },
-                        answersWBINav: true
+                        answersWBINavOnce: true
                     ),
                     requestAuthorizer: StubAuthorizer(),
                     timestampProvider: { 1_700_000_000 }
@@ -303,7 +303,7 @@ struct BiliSubtitleRepositoryTests {
                     responses: [
                         try catalogResponse()
                     ],
-                    answersWBINav: true
+                    answersWBINavOnce: true
                 ),
                 requestAuthorizer: StubAuthorizer(),
                 timestampProvider: { 1_700_000_000 }
@@ -382,7 +382,7 @@ struct BiliSubtitleRepositoryTests {
                     responses: [
                         try catalogResponse()
                     ],
-                    answersWBINav: true
+                    answersWBINavOnce: true
                 ),
                 requestAuthorizer: StubAuthorizer(),
                 timestampProvider: { 1_700_000_000 }

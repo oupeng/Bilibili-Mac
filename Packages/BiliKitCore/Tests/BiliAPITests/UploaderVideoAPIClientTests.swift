@@ -12,7 +12,7 @@ struct UploaderVideoAPIClientTests {
         let client = BiliAPIClient(
             transport: StubTransport(
                 responses: [try fixtureResponse("uploader-videos")],
-                answersWBINav: true
+                answersWBINavOnce: true
             ),
             requestAuthorizer: StubAuthorizer(),
             timestampProvider: { 1_700_000_000 }
@@ -55,7 +55,7 @@ struct UploaderVideoAPIClientTests {
     ) async throws {
         let transport = StubTransport(
             responses: [try fixtureResponse("uploader-videos")],
-            answersWBINav: true
+            answersWBINavOnce: true
         )
         let client = BiliAPIClient(
             transport: transport,
@@ -88,7 +88,7 @@ struct UploaderVideoAPIClientTests {
             {"code":0,"data":{"list":{"vlist":[{"bvid":"BV1FixtureC3","title":"最后一条","pic":"","length":"00:30","play":1,"video_review":0,"created":1700000000}]},"page":{"count":61}}}
             """#
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [jsonResponse(body)], answersWBINav: true),
+            transport: StubTransport(responses: [jsonResponse(body)], answersWBINavOnce: true),
             requestAuthorizer: StubAuthorizer(),
             timestampProvider: { 1_700_000_000 }
         )
@@ -103,7 +103,7 @@ struct UploaderVideoAPIClientTests {
     func missingCredentialFailsWithoutAnonymousRequest() async throws {
         let transport = StubTransport(
             responses: [try fixtureResponse("uploader-videos")],
-            answersWBINav: true
+            answersWBINavOnce: true
         )
         let repository = BiliContentRepository(
             client: BiliAPIClient(
@@ -143,7 +143,7 @@ struct UploaderVideoAPIClientTests {
             ]},"page":{"count":2}}}
             """#
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [jsonResponse(body)], answersWBINav: true),
+            transport: StubTransport(responses: [jsonResponse(body)], answersWBINavOnce: true),
             requestAuthorizer: StubAuthorizer(),
             timestampProvider: { 1_700_000_000 }
         )
@@ -172,7 +172,7 @@ struct UploaderVideoAPIClientTests {
         }
         #expect(
             transport.capturedRequests().map(\.url.path)
-                == ["/x/web-interface/nav", "/x/space/wbi/arc/search"]
+                == [StubTransport.wbiNavPath, "/x/space/wbi/arc/search"]
         )
     }
 }

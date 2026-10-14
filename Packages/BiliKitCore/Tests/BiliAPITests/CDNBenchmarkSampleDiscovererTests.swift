@@ -38,7 +38,7 @@ struct CDNBenchmarkSampleDiscovererTests {
         #expect(
             requests.map(\.url.path) == [
                 "/x/web-interface/newlist_rank",
-                "/x/web-interface/nav",
+                StubTransport.wbiNavPath,
                 "/x/web-interface/wbi/view",
                 "/x/player/wbi/playurl"
             ]
@@ -85,7 +85,7 @@ struct CDNBenchmarkSampleDiscovererTests {
                 .cancellingCaller(try playURL()),
                 .response(rank), .response(detail), .response(try playURL())
             ],
-            answersWBINav: true
+            answersWBINavOnce: true
         )
         let discoverer = discoverer(transport)
 
@@ -105,7 +105,7 @@ struct CDNBenchmarkSampleDiscovererTests {
                 detail(Self.candidateB),
                 try playURL()
             ],
-            answersWBINav: true
+            answersWBINavOnce: true
         )
 
         let samples = try await discoverer(transport).discover()
@@ -130,7 +130,7 @@ struct CDNBenchmarkSampleDiscovererTests {
                 try playURL(),
                 rank()
             ],
-            answersWBINav: true
+            answersWBINavOnce: true
         )
 
         let samples = try await discoverer(transport, regionIDs: [201, 124]).discover()
@@ -153,7 +153,7 @@ struct CDNBenchmarkSampleDiscovererTests {
                 detail(Self.candidateA),
                 try playURL(removesAudio: true)
             ],
-            answersWBINav: true
+            answersWBINavOnce: true
         )
 
         let samples = try await discoverer(transport).discover()
@@ -175,7 +175,7 @@ struct CDNBenchmarkSampleDiscovererTests {
                 detail(secondRegion),
                 try playURL()
             ],
-            answersWBINav: true
+            answersWBINavOnce: true
         )
 
         let samples = try await discoverer(transport, regionIDs: [201, 124])
@@ -201,7 +201,7 @@ struct CDNBenchmarkSampleDiscovererTests {
                 rank(Self.candidateA), detail(Self.candidateA), try playURL(),
                 rank(Self.candidateA), detail(Self.candidateA), try playURL()
             ],
-            answersWBINav: true
+            answersWBINavOnce: true
         )
         let discoverer = discoverer(transport)
 
@@ -219,7 +219,7 @@ struct CDNBenchmarkSampleDiscovererTests {
                 detail(Self.candidateA),
                 try playURL(promotesAVCToHighQuality: false)
             ],
-            answersWBINav: true
+            answersWBINavOnce: true
         )
 
         let samples = try await discoverer(transport).discover()
@@ -244,7 +244,7 @@ struct CDNBenchmarkSampleDiscovererTests {
         #expect(
             transport.capturedRequests().map(\.url.path) == [
                 "/x/web-interface/newlist_rank",
-                "/x/web-interface/nav"
+                StubTransport.wbiNavPath
             ]
         )
     }

@@ -137,7 +137,7 @@ struct BiliWatchProgressRepositoryTests {
             responses: [
                 jsonResponse("{\"code\":\(code),\"message\":\"fixture\"}", statusCode: status)
             ],
-            answersWBINav: true
+            answersWBINavOnce: true
         )
     }
 

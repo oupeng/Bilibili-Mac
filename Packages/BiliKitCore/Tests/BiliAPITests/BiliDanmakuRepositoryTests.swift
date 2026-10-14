@@ -45,7 +45,7 @@ struct BiliDanmakuRepositoryTests {
         let requests = transport.capturedRequests()
         #expect(
             requests.map(\.url.path) == [
-                "/x/web-interface/nav",
+                StubTransport.wbiNavPath,
                 "/x/v2/dm/wbi/web/seg.so"
             ]
         )
@@ -85,7 +85,7 @@ struct BiliDanmakuRepositoryTests {
                             body: Data(#"{"code":-101,"message":"fixture"}"#.utf8)
                         )
                     ],
-                    answersWBINav: true
+                    answersWBINavOnce: true
                 ),
                 timestampProvider: { 1_700_000_000 }
             )
@@ -154,7 +154,7 @@ struct BiliDanmakuRepositoryTests {
             client: BiliAPIClient(
                 transport: StubTransport(
                     responses: [response],
-                    answersWBINav: true
+                    answersWBINavOnce: true
                 ),
                 requestAuthorizer: StubAuthorizer(authorization),
                 timestampProvider: { 1_700_000_000 }
@@ -185,7 +185,7 @@ struct BiliDanmakuRepositoryTests {
         #expect(segment.events.count == 1)
         #expect(
             transport.capturedRequests().map(\.url.path) == [
-                "/x/web-interface/nav",
+                StubTransport.wbiNavPath,
                 "/x/v2/dm/wbi/web/seg.so",
                 "/x/v2/dm/wbi/web/seg.so"
             ]
@@ -207,7 +207,7 @@ struct BiliDanmakuRepositoryTests {
         }
         #expect(
             transport.capturedRequests().map(\.url.path)
-                == ["/x/web-interface/nav"] + rejection.expectedPaths
+                == [StubTransport.wbiNavPath] + rejection.expectedPaths
         )
     }
 
@@ -246,7 +246,7 @@ struct BiliDanmakuRepositoryTests {
             case .repeated412, .intermittent412ThenSignatureRejection:
                 ["/x/v2/dm/wbi/web/seg.so", "/x/v2/dm/wbi/web/seg.so"]
             case .repeatedSignatureRejection, .signatureRejectionThen412:
-                ["/x/v2/dm/wbi/web/seg.so", "/x/web-interface/nav", "/x/v2/dm/wbi/web/seg.so"]
+                ["/x/v2/dm/wbi/web/seg.so", StubTransport.wbiNavPath, "/x/v2/dm/wbi/web/seg.so"]
             }
         }
     }
@@ -438,7 +438,7 @@ struct BiliDanmakuRepositoryTests {
                     responses: [
                         response
                     ],
-                    answersWBINav: true
+                    answersWBINavOnce: true
                 ),
                 timestampProvider: { 1_700_000_000 }
             )

@@ -41,7 +41,7 @@ struct BiliAPIClientTests {
         let response = jsonResponse(AccountReadCase.recommendationBody)
         let transport = StubTransport(
             responses: [response],
-            answersWBINav: true
+            answersWBINavOnce: true
         )
         let client = BiliAPIClient(
             transport: transport,
@@ -79,7 +79,7 @@ struct BiliAPIClientTests {
             """#
         )
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [response], answersWBINav: true)
+            transport: StubTransport(responses: [response], answersWBINavOnce: true)
         )
 
         let detail = try await client.videoDetail(for: "BV1FixtureA1")
@@ -104,7 +104,7 @@ struct BiliAPIClientTests {
             #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"说明","pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":120,"pubdate":1720000000,"pages":[{"cid":900001,"page":1,"part":"P1","duration":120}],"ugc_season":{"id":501,"title":"摘要合集","ep_count":20}}}"#
         )
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [response], answersWBINav: true)
+            transport: StubTransport(responses: [response], answersWBINavOnce: true)
         )
 
         let collection = try #require(
@@ -130,7 +130,7 @@ struct BiliAPIClientTests {
                             + #","pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":120,"pubdate":1720000000}}"#
                     )
                 ],
-                answersWBINav: true
+                answersWBINavOnce: true
             )
         )
 
@@ -168,7 +168,7 @@ struct BiliAPIClientTests {
                             + #","pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":120,"pubdate":1720000000}}"#
                     )
                 ],
-                answersWBINav: true
+                answersWBINavOnce: true
             )
         )
 
@@ -189,7 +189,7 @@ struct BiliAPIClientTests {
                         #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"","desc_v2":[{"raw_text":"无名","type":2,"biz_id":0},{"raw_text":"@有名","type":2,"biz_id":"--"}],"pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":120,"pubdate":1720000000}}"#
                     )
                 ],
-                answersWBINav: true
+                answersWBINavOnce: true
             )
         )
 
@@ -209,7 +209,7 @@ struct BiliAPIClientTests {
                         #"{"code":0,"data":{"aid":8996792,"bvid":"BV1Fx411C7Ne","title":"较早的视频","desc":"","pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":988,"pubdate":1488737993,"pages":[{"cid":14854734,"page":1,"part":"","duration":988}]}}"#
                     )
                 ],
-                answersWBINav: true
+                answersWBINavOnce: true
             )
         )
 
@@ -231,7 +231,7 @@ struct BiliAPIClientTests {
                             + pages + "}}"
                     )
                 ],
-                answersWBINav: true
+                answersWBINavOnce: true
             )
         )
 
@@ -246,7 +246,7 @@ struct BiliAPIClientTests {
             #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"说明","pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":120,"pubdate":1720000000,"pages":[{"cid":900001,"page":1,"part":"P1","duration":120}],"ugc_season":{"id":501,"title":"合集","ep_count":1,"sections":[{"season_id":501,"id":601,"title":"分部","episodes":[{"season_id":999,"section_id":601,"id":701,"aid":7001,"bvid":"BV1FixtureB2","cid":910001,"title":"","arc":{"aid":7002,"bvid":"BV1FixtureC3","duration":100},"page":{"cid":910002,"page":1,"part":"P1","duration":100}}]}]}}}"#
         )
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [response], answersWBINav: true)
+            transport: StubTransport(responses: [response], answersWBINavOnce: true)
         )
 
         let detail = try await client.videoDetail(for: "BV1FixtureA1")
@@ -264,7 +264,7 @@ struct BiliAPIClientTests {
             #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"说明","pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":120,"pubdate":1720000000,"pages":[{"cid":900001,"page":1,"part":"P1","duration":120}],"ugc_season":{"id":501,"title":"合集","sections":[{"season_id":501,"id":601,"title":"分部","episodes":[{"season_id":501,"section_id":601,"id":701,"bvid":"BV1FixtureB2","title":"一"},null,{"season_id":501,"section_id":601,"id":702,"bvid":"BV1FixtureC3","title":"二"}]},null]}}}"#
         )
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [response], answersWBINav: true)
+            transport: StubTransport(responses: [response], answersWBINavOnce: true)
         )
 
         let collection = try #require(
@@ -285,7 +285,7 @@ struct BiliAPIClientTests {
             #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"说明","pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":120,"pubdate":1720000000,"pages":[{"cid":900001,"page":1,"part":"P1","duration":120}],"ugc_season":{"id":501,"title":"合集","sections":[{"season_id":501,"section_id":601,"episodes":[{"season_id":501,"section_id":601,"id":701,"bvid":"BV1FixtureB2","title":"一"}]},{"season_id":501,"id":601,"episodes":[{"season_id":501,"section_id":601,"id":701,"bvid":"BV1FixtureC3","title":"二"}]}]}}}"#
         )
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [response], answersWBINav: true)
+            transport: StubTransport(responses: [response], answersWBINavOnce: true)
         )
 
         let sections = try #require(
@@ -307,7 +307,7 @@ struct BiliAPIClientTests {
             #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"说明","pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":120,"pubdate":1720000000,"pages":[{"cid":900001,"page":1,"part":"P1","duration":120}],"ugc_season":{"id":501,"title":"合集","sections":[{"season_id":501,"id":601,"section_id":602,"episodes":[]}]}}}"#
         )
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [response], answersWBINav: true)
+            transport: StubTransport(responses: [response], answersWBINavOnce: true)
         )
 
         let section = try #require(
@@ -339,7 +339,7 @@ struct BiliAPIClientTests {
                     response(order: "[\(firstEpisode),\(secondEpisode)]"),
                     response(order: "[\(secondEpisode),\(firstEpisode)]")
                 ],
-                answersWBINav: true
+                answersWBINavOnce: true
             )
         )
 
@@ -358,7 +358,7 @@ struct BiliAPIClientTests {
             #"{"code":0,"data":{"bvid":"BV1FixtureA1","title":"当前视频","desc":"说明","pic":"","owner":{"mid":10001,"name":"作者"},"stat":{"view":1,"danmaku":2,"like":3},"duration":120,"pubdate":1720000000,"pages":[{"cid":900001,"page":1,"part":"P1","duration":120}],"ugc_season":{"id":501,"title":"合集","sections":[{"season_id":501,"id":601,"title":"分部","episodes":[{"season_id":501,"section_id":601,"id":701,"aid":7001,"bvid":"BV1FixtureB2","cid":999999,"title":"视频","pages":[{"cid":910002,"page":2,"part":"P2","duration":50},{"cid":910001,"page":1,"part":"P1","duration":50}]}]}]}}}"#
         )
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [response], answersWBINav: true)
+            transport: StubTransport(responses: [response], answersWBINavOnce: true)
         )
 
         let episode = try #require(
@@ -526,7 +526,7 @@ struct BiliAPIClientTests {
             responses: [
                 try fixtureResponse("search")
             ],
-            answersWBINav: true
+            answersWBINavOnce: true
         )
         let client = BiliAPIClient(
             transport: transport,
@@ -591,7 +591,7 @@ struct BiliAPIClientTests {
         kind: HTTPRequestAuthorizationFailureKind,
         expected: BiliAPIError
     ) async throws {
-        let transport = StubTransport(responses: [], answersWBINav: true)
+        let transport = StubTransport(responses: [], answersWBINavOnce: true)
         let client = BiliAPIClient(
             transport: transport,
             requestAuthorizer: StubAuthorizer(.fail(kind)),
@@ -624,7 +624,7 @@ struct BiliAPIClientTests {
                     body: body
                 )
             ],
-            answersWBINav: true
+            answersWBINavOnce: true
         )
         let client = BiliAPIClient(
             transport: transport,
@@ -634,28 +634,6 @@ struct BiliAPIClientTests {
         let page = try await search(client, "macOS")
 
         #expect(page.videos[0].durationSeconds == nil)
-    }
-
-    @Test
-    func searchReusesSameDayWBIKey() async throws {
-        let transport = StubTransport(
-            responses: [
-                try fixtureResponse("nav"),
-                try fixtureResponse("search"),
-                try fixtureResponse("search")
-            ]
-        )
-        let client = BiliAPIClient(
-            transport: transport,
-            timestampProvider: { 1_700_000_000 }
-        )
-
-        _ = try await search(client, "macOS")
-        _ = try await search(client, "Swift")
-
-        let paths = transport.capturedRequests().map(\.url.path)
-        #expect(paths.filter { $0 == "/x/web-interface/nav" }.count == 1)
-        #expect(paths.filter { $0 == "/x/web-interface/wbi/search/type" }.count == 2)
     }
 
     /// HTTP 403 是风控而不是 key 过期：按受限失败关闭，不换 key 再请求。
@@ -677,7 +655,7 @@ struct BiliAPIClientTests {
         }
         #expect(
             transport.capturedRequests().map(\.url.path) == [
-                "/x/web-interface/nav",
+                StubTransport.wbiNavPath,
                 "/x/web-interface/wbi/search/type"
             ]
         )
@@ -708,9 +686,9 @@ struct BiliAPIClientTests {
         let requests = transport.capturedRequests()
         #expect(
             requests.map(\.url.path) == [
-                "/x/web-interface/nav",
+                StubTransport.wbiNavPath,
                 "/x/web-interface/wbi/search/type",
-                "/x/web-interface/nav",
+                StubTransport.wbiNavPath,
                 "/x/web-interface/wbi/search/type"
             ]
         )
@@ -733,7 +711,7 @@ struct BiliAPIClientTests {
     func playURLMapsOnlyAVCAndAACRepresentationsWithAnonymousMediaHeaders() async throws {
         let transport = StubTransport(
             responses: [try fixtureResponse("playurl")],
-            answersWBINav: true
+            answersWBINavOnce: true
         )
         let client = BiliAPIClient(
             transport: transport,
@@ -812,7 +790,7 @@ struct BiliAPIClientTests {
             $0["v_voucher"] = "voucher_fixture"
         }
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [response], answersWBINav: true)
+            transport: StubTransport(responses: [response], answersWBINavOnce: true)
         )
 
         let playback = try await client.playback(for: "BV1FixtureA1", cid: 900_001)
@@ -828,7 +806,7 @@ struct BiliAPIClientTests {
                 responses: [
                     try shape.response()
                 ],
-                answersWBINav: true
+                answersWBINavOnce: true
             )
         )
 
@@ -855,7 +833,7 @@ struct BiliAPIClientTests {
             $0["durl"] = [["unexpected": true]]
         }
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [response], answersWBINav: true)
+            transport: StubTransport(responses: [response], answersWBINavOnce: true)
         )
 
         let playback = try await client.playback(
@@ -878,7 +856,7 @@ struct BiliAPIClientTests {
                 legacyDURLResponse(format: "flv480", segments: ["part-1.flv", "part-2.flv"]),
                 legacyDURLResponse(format: "mp4", segments: ["whole.mp4"])
             ],
-            answersWBINav: true
+            answersWBINavOnce: true
         )
         let client = BiliAPIClient(transport: transport)
 
@@ -904,7 +882,7 @@ struct BiliAPIClientTests {
                 legacyDURLResponse(format: "flv480", segments: ["part-1.flv"]),
                 legacyDURLResponse(format: "flv360", segments: ["part-1.flv"])
             ],
-            answersWBINav: true
+            answersWBINavOnce: true
         )
         let client = BiliAPIClient(transport: transport)
 
@@ -929,7 +907,7 @@ struct BiliAPIClientTests {
         expected: ProgressiveMediaFailure
     ) async throws {
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [try shape.response()], answersWBINav: true)
+            transport: StubTransport(responses: [try shape.response()], answersWBINavOnce: true)
         )
 
         await #expect(throws: BiliAPIError.unsupportedProgressiveMedia(expected)) {
@@ -974,7 +952,7 @@ struct BiliAPIClientTests {
                     currentProductionType: 2
                 )
             ],
-            answersWBINav: true
+            answersWBINavOnce: true
         )
         let client = BiliAPIClient(
             transport: transport,
@@ -1068,7 +1046,7 @@ struct BiliAPIClientTests {
                     currentProductionType: 2
                 )
             ],
-            answersWBINav: true
+            answersWBINavOnce: true
         )
         let client = BiliAPIClient(
             transport: transport,
@@ -1122,7 +1100,7 @@ struct BiliAPIClientTests {
                     currentProductionType: currentProductionType
                 )
             ],
-            answersWBINav: true
+            answersWBINavOnce: true
         )
         let client = BiliAPIClient(
             transport: transport,
@@ -1147,7 +1125,7 @@ struct BiliAPIClientTests {
             $0["last_play_time"] = 42_500
         }
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [response], answersWBINav: true),
+            transport: StubTransport(responses: [response], answersWBINavOnce: true),
             requestAuthorizer: authenticated ? StubAuthorizer() : nil
         )
 
@@ -1172,7 +1150,7 @@ struct BiliAPIClientTests {
                     languageCatalog: machineGeneratedEnglishCatalog
                 )
             ],
-            answersWBINav: true
+            answersWBINavOnce: true
         )
         let client = BiliAPIClient(
             transport: transport,
@@ -1212,7 +1190,7 @@ struct BiliAPIClientTests {
                     languageCatalog: machineGeneratedEnglishCatalog
                 )
             ],
-            answersWBINav: true
+            answersWBINavOnce: true
         )
         let client = BiliAPIClient(
             transport: transport,
@@ -1252,7 +1230,7 @@ struct BiliAPIClientTests {
         )
         let transport = StubTransport(
             responses: [base] + [aiResponse].compactMap { $0 },
-            answersWBINav: true
+            answersWBINavOnce: true
         )
         let client = BiliAPIClient(
             transport: transport,
@@ -1339,7 +1317,7 @@ struct BiliAPIClientTests {
                     ]
                 )
             ],
-            answersWBINav: true
+            answersWBINavOnce: true
         )
         let client = BiliAPIClient(
             transport: transport,
@@ -1367,7 +1345,7 @@ struct BiliAPIClientTests {
         response: HTTPResponse,
         expected: BiliAPIError
     ) async throws {
-        let transport = StubTransport(responses: [response], answersWBINav: true)
+        let transport = StubTransport(responses: [response], answersWBINavOnce: true)
         let client = BiliAPIClient(
             transport: transport,
             requestAuthorizer: StubAuthorizer()
@@ -1392,7 +1370,7 @@ struct BiliAPIClientTests {
         kind: HTTPRequestAuthorizationFailureKind,
         expected: BiliAPIError
     ) async throws {
-        let transport = StubTransport(responses: [], answersWBINav: true)
+        let transport = StubTransport(responses: [], answersWBINavOnce: true)
         let client = BiliAPIClient(
             transport: transport,
             requestAuthorizer: StubAuthorizer(.fail(kind))
@@ -1407,7 +1385,7 @@ struct BiliAPIClientTests {
     @Test(.timeLimit(.minutes(1)))
     func cancelledMissingCredentialResolutionDoesNotSendAnonymousFallback() async throws {
         let authorizer = StubAuthorizer(.fail(.missingCredential), suspendingCall: 1)
-        let transport = StubTransport(responses: [], answersWBINav: true)
+        let transport = StubTransport(responses: [], answersWBINavOnce: true)
         let client = BiliAPIClient(
             transport: transport,
             requestAuthorizer: authorizer
@@ -1429,7 +1407,7 @@ struct BiliAPIClientTests {
     @Test(.timeLimit(.minutes(1)))
     func missingCredentialResolutionCannotCrossSessionInvalidationBoundary() async throws {
         let authorizer = StubAuthorizer(.fail(.missingCredential), suspendingCall: 1)
-        let transport = StubTransport(responses: [], answersWBINav: true)
+        let transport = StubTransport(responses: [], answersWBINavOnce: true)
         let client = BiliAPIClient(
             transport: transport,
             requestAuthorizer: authorizer
@@ -1452,7 +1430,7 @@ struct BiliAPIClientTests {
     func authenticatedRequestCannotCrossSessionInvalidationBoundary() async throws {
         let authorizer = StubAuthorizer(suspendingCall: 1)
         let response = try fixtureResponse("playurl")
-        let firstTransport = StubTransport(responses: [response], answersWBINav: true)
+        let firstTransport = StubTransport(responses: [response], answersWBINavOnce: true)
         let replacementTransport = StubTransport(responses: [response])
         let transportFactory = SequentialTransportFactory(
             transports: [firstTransport, replacementTransport]
@@ -1518,7 +1496,7 @@ struct BiliAPIClientTests {
             languageCatalog: machineGeneratedEnglishCatalog
         )
         let authorizer = StubAuthorizer(suspendingCall: 2)
-        let firstTransport = StubTransport(responses: [response], answersWBINav: true)
+        let firstTransport = StubTransport(responses: [response], answersWBINavOnce: true)
         let replacementTransport = StubTransport(responses: [response])
         let transportFactory = SequentialTransportFactory(
             transports: [firstTransport, replacementTransport]
@@ -1557,7 +1535,7 @@ struct BiliAPIClientTests {
             body: Data(invalidBody.utf8)
         )
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [response], answersWBINav: true)
+            transport: StubTransport(responses: [response], answersWBINavOnce: true)
         )
 
         let playback = try await client.playback(
@@ -1583,7 +1561,7 @@ struct BiliAPIClientTests {
             body: Data(unsafeBody.utf8)
         )
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [response], answersWBINav: true)
+            transport: StubTransport(responses: [response], answersWBINavOnce: true)
         )
 
         await #expect(throws: BiliAPIError.invalidMediaData) {
@@ -1791,7 +1769,7 @@ struct BiliAPIClientTests {
     func videoDetailUsesTheSignedWBIEndpoint() async throws {
         let transport = StubTransport(
             responses: [try fixtureResponse("view")],
-            answersWBINav: true
+            answersWBINavOnce: true
         )
         let client = BiliAPIClient(transport: transport, timestampProvider: { 1_700_000_000 })
 
@@ -1828,7 +1806,7 @@ struct BiliAPIClientTests {
         await #expect(throws: CancellationError.self) {
             try await detailTask.value
         }
-        #expect(firstTransport.capturedRequests().map(\.url.path) == ["/x/web-interface/nav"])
+        #expect(firstTransport.capturedRequests().map(\.url.path) == [StubTransport.wbiNavPath])
         #expect(replacementTransport.capturedRequests().isEmpty)
     }
 
@@ -1879,7 +1857,8 @@ struct BiliAPIClientTests {
         transport.capturedRequests().filter { $0.url.path == "/x/player/wbi/playurl" }
     }
 
-    private func search(
+    /// 本套件各文件共用的搜索调用。
+    func search(
         _ client: BiliAPIClient,
         _ query: String = "macOS"
     ) async throws -> SearchPage {
