@@ -316,6 +316,9 @@ gain 只压低不放大：`min(−18 LUFS − I, 0)`，下限 −12 dB。不放�
   `Testing.framework`，旧 runner 上的 Xcode 加载不了 27 构建的 bundle，而 Xcode 27 不支持 macOS 15。
 - 因此 macOS 15 只有“能启动并持续运行”的自动证据；AVFoundation、loopback 与窗口行为在最低系统上
   没有自动验证，deployment target 编译成功不能证明它们可用。
+- Gate 构建的 App 不签名，测试宿主的身份每次构建都变。App 测试不读仓库源文件：仓库在外接卷上时，
+  系统每次都会弹出访问授权，Gate 无法无人值守。字符串目录完整性这类源文件检查放在 static 阶段的
+  脚本里（`Scripts/check-localization.py`），App 测试只检查构建产物。
 
 ## 不采用
 
