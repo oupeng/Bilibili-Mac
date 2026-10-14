@@ -147,7 +147,9 @@ struct CoreAnimationDanmakuRendererTests {
     ) throws -> AnimationCompletionRelay {
         let layers = try #require(renderer.rootLayer.sublayers)
         try #require(layers.count == 1)
-        let animation = try #require(layers[0].animation(forKey: "danmaku"))
+        let animation = try #require(
+            layers[0].animation(forKey: CoreAnimationDanmakuRenderer.animationKey)
+        )
         return try #require(animation.delegate as? AnimationCompletionRelay)
     }
 
@@ -250,7 +252,9 @@ struct CoreAnimationDanmakuRendererTests {
             elapsedSeconds: 2
         )
         let layer = try #require(renderer.rootLayer.sublayers?.first)
-        let animation = try #require(layer.animation(forKey: "danmaku"))
+        let animation = try #require(
+            layer.animation(forKey: CoreAnimationDanmakuRenderer.animationKey)
+        )
         let localNow = layer.convertTime(CACurrentMediaTime(), from: nil)
 
         #expect(animation.beginTime < localNow - 1.5)
