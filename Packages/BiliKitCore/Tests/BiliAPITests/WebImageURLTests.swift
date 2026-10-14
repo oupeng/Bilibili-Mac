@@ -5,12 +5,15 @@ import Testing
 
 struct WebImageURLTests {
     @Test(arguments: [
-        ("//i0.hdslb.com/bfs/archive/fixture.jpg", "https://i0.hdslb.com/bfs/archive/fixture.jpg"),
-        ("http://i1.hdslb.com/bfs/face/fixture.jpg", "https://i1.hdslb.com/bfs/face/fixture.jpg"),
-        ("https://i2.hdslb.com/bfs/archive/fixture.jpg", "https://i2.hdslb.com/bfs/archive/fixture.jpg")
+        "//i0.hdslb.com/bfs/archive/fixture.jpg",
+        "http://i0.hdslb.com/bfs/archive/fixture.jpg",
+        "https://i0.hdslb.com/bfs/archive/fixture.jpg"
     ])
-    func upgradesPublicImageAddressesToHTTPS(value: String, expected: String) {
-        #expect(WebImageURL.parse(value)?.absoluteString == expected)
+    func upgradesPublicImageAddressesToHTTPS(value: String) {
+        #expect(
+            WebImageURL.parse(value)?.absoluteString
+                == "https://i0.hdslb.com/bfs/archive/fixture.jpg"
+        )
     }
 
     @Test(arguments: [
