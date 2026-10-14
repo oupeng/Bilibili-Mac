@@ -137,7 +137,10 @@ struct AppShellView: View {
             else {
                 return
             }
-            scrollToTop(.home, .search, .history)
+            // 账户变化会替换每个来源的内容（Browse 丢弃全部工作集，历史随账户重载），所有网格都回到顶部。
+            for tab in AppTab.allCases {
+                scrollToTop(tab)
+            }
         }
         .onChange(of: navigationCoordinator.currentPlaybackBVID) {
             previousBVID,

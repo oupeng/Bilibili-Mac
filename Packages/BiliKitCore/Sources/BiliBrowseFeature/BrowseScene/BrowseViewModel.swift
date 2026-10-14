@@ -213,8 +213,12 @@ public final class BrowseViewModel {
     }
 
     /// 分页 footer 投影；`request` 是该来源工作集的第一页请求。
+    ///
+    /// 原地刷新期间收起尾标：网格对同一尾标只触发一次，刷新中被忽略的近尾事件、或刷新取消的加载更多，
+    /// 都要等尾标重新出现（刷新失败恢复原尾标、成功给出新尾标）才会再次布防。
     func pagination(for request: FeedRequest) -> FeedPaginationPresentation {
         guard let workset = workset(for: request),
+            !workset.isRefreshing,
             case .loaded(let content) = workset.state
         else {
             return .unavailable

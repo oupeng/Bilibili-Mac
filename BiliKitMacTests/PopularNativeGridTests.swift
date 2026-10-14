@@ -586,9 +586,8 @@ struct PopularNativeGridTests {
         #expect(content.footerTrailingText == "正在流行")
         #expect(content.footerTrailingStyle == .brandOutlinedCapsule)
         #expect(
-            content.accessibilityLabel.contains(
-                AppStrings.localized("推荐理由 \("正在流行")")
-            )
+            content.accessibilityLabel
+                == RecommendedVideoCardPresentation(video: video).accessibilityLabel
         )
 
         let withoutReason = RecommendedVideo(
