@@ -12,6 +12,8 @@ enum AuthenticationHTTP {
     }
 
     static let maximumResponseSize = 256 * 1_024
+    /// Cookie 已在服务端失效（被踢下线、改密）时 nav 的业务码，`data.isLogin` 同时为 false。
+    static let notLoggedInCode = -101
 
     private static let navigationValidationURL: URL = {
         guard let url = URL(string: "https://api.bilibili.com/x/web-interface/nav") else {
@@ -56,11 +58,18 @@ enum AuthenticationHTTP {
                 NavigationAuthenticationEnvelope.self,
                 from: response.body
             ),
-            envelope.code == 0,
             let data = envelope.data
         else {
             throw .invalidResponse
         }
-        return data.authenticationResult
+        switch envelope.code {
+        case 0:
+            return data.authenticationResult
+        case notLoggedInCode where !data.isLogin:
+            // 服务端明确答复未登录，与 code 0 + isLogin false 同义；其他非 0 码仍失败关闭。
+            return .signedOut
+        default:
+            throw .invalidResponse
+        }
     }
 }

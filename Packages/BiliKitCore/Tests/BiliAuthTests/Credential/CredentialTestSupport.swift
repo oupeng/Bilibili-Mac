@@ -191,10 +191,13 @@ enum StubAuthError: Error {
     case storeUnavailable
 }
 
+/// 与线上 nav 同形：未登录时 `code` 为 -101、`data.isLogin` 为 false；`code` 可显式覆盖。
 func navigationResponse(
     isLogin: Bool,
-    includesIdentity: Bool = false
+    includesIdentity: Bool = false,
+    code: Int? = nil
 ) -> HTTPResponse {
+    let code = code ?? (isLogin ? 0 : -101)
     let identityFields =
         includesIdentity
         ? ",\"mid\":42,\"uname\":\"  Fixture Account  \""
@@ -204,7 +207,7 @@ func navigationResponse(
         statusCode: 200,
         headers: ["Content-Type": "application/json"],
         body: Data(
-            "{\"code\":0,\"data\":{\"isLogin\":\(isLogin)\(identityFields)}}".utf8
+            "{\"code\":\(code),\"data\":{\"isLogin\":\(isLogin)\(identityFields)}}".utf8
         )
     )
 }

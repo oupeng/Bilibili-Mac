@@ -1,4 +1,5 @@
 import AppKit
+import BiliNetworking
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -472,9 +473,9 @@ final class NativeVideoImagePipeline: Sendable {
         return data
     }
 
-    /// 只请求 HTTPS、不带用户信息的地址；图片加载与保存原图共用。
+    /// 只请求过公开 HTTPS 基线的地址（拒绝 IP、本机与内网域名、非 443 端口）；图片加载与保存原图共用。
     nonisolated static func acceptsRequestURL(_ url: URL) -> Bool {
-        url.scheme?.lowercased() == "https" && url.user == nil && url.password == nil
+        PublicHTTPSURLPolicy().allows(url)
     }
 
     /// 数据能被 ImageIO 识别为位图（JPEG、PNG、GIF、WebP 等）；SVG、HTML 等不算，保存时拒绝。
