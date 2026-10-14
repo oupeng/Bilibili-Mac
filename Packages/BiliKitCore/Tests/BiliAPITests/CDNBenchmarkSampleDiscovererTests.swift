@@ -79,11 +79,14 @@ struct CDNBenchmarkSampleDiscovererTests {
     func cancellationAfterFinalPlayURLDoesNotMarkSampleAsSeen() async throws {
         let rank = rank(Self.candidateA)
         let detail = detail(Self.candidateA)
-        let transport = StubTransport([
-            .response(rank), .response(try fixtureResponse("nav")), .response(detail),
-            .cancellingCaller(try playURL()),
-            .response(rank), .response(detail), .response(try playURL())
-        ])
+        let transport = StubTransport(
+            [
+                .response(rank), .response(detail),
+                .cancellingCaller(try playURL()),
+                .response(rank), .response(detail), .response(try playURL())
+            ],
+            answersWBINav: true
+        )
         let discoverer = discoverer(transport)
 
         let cancelled = Task { try await discoverer.discover() }
@@ -98,20 +101,19 @@ struct CDNBenchmarkSampleDiscovererTests {
         let transport = StubTransport(
             responses: [
                 rank(Self.candidateA, Self.candidateB),
-                try fixtureResponse("nav"),
                 detail(mismatched),
                 detail(Self.candidateB),
                 try playURL()
-            ]
+            ],
+            answersWBINav: true
         )
 
         let samples = try await discoverer(transport).discover()
 
         #expect(samples.count == 1)
         #expect(
-            transport.capturedRequests().map(\.url.path) == [
+            transport.businessRequests().map(\.url.path) == [
                 "/x/web-interface/newlist_rank",
-                "/x/web-interface/nav",
                 "/x/web-interface/wbi/view",
                 "/x/web-interface/wbi/view",
                 "/x/player/wbi/playurl"
@@ -124,20 +126,19 @@ struct CDNBenchmarkSampleDiscovererTests {
         let transport = StubTransport(
             responses: [
                 rank(Self.candidateA, Self.candidateB),
-                try fixtureResponse("nav"),
                 detail(Self.candidateA),
                 try playURL(),
                 rank()
-            ]
+            ],
+            answersWBINav: true
         )
 
         let samples = try await discoverer(transport, regionIDs: [201, 124]).discover()
 
         #expect(samples.count == 1)
         #expect(
-            transport.capturedRequests().map(\.url.path) == [
+            transport.businessRequests().map(\.url.path) == [
                 "/x/web-interface/newlist_rank",
-                "/x/web-interface/nav",
                 "/x/web-interface/wbi/view",
                 "/x/player/wbi/playurl"
             ]
@@ -149,10 +150,10 @@ struct CDNBenchmarkSampleDiscovererTests {
         let transport = StubTransport(
             responses: [
                 rank(Self.candidateA),
-                try fixtureResponse("nav"),
                 detail(Self.candidateA),
                 try playURL(removesAudio: true)
-            ]
+            ],
+            answersWBINav: true
         )
 
         let samples = try await discoverer(transport).discover()
@@ -168,13 +169,13 @@ struct CDNBenchmarkSampleDiscovererTests {
         let transport = StubTransport(
             responses: [
                 rank(Self.candidateA),
-                try fixtureResponse("nav"),
                 detail(Self.candidateA),
                 try playURL(),
                 rank(secondRegion),
                 detail(secondRegion),
                 try playURL()
-            ]
+            ],
+            answersWBINav: true
         )
 
         let samples = try await discoverer(transport, regionIDs: [201, 124])
@@ -182,9 +183,8 @@ struct CDNBenchmarkSampleDiscovererTests {
 
         #expect(samples.count == 2)
         #expect(
-            transport.capturedRequests().map(\.url.path) == [
+            transport.businessRequests().map(\.url.path) == [
                 "/x/web-interface/newlist_rank",
-                "/x/web-interface/nav",
                 "/x/web-interface/wbi/view",
                 "/x/player/wbi/playurl",
                 "/x/web-interface/newlist_rank",
@@ -198,17 +198,17 @@ struct CDNBenchmarkSampleDiscovererTests {
     func resettingDiscoveryLifecycleAllowsTheSameAnonymousCandidateAgain() async throws {
         let transport = StubTransport(
             responses: [
-                rank(Self.candidateA), try fixtureResponse("nav"), detail(Self.candidateA),
-                try playURL(),
+                rank(Self.candidateA), detail(Self.candidateA), try playURL(),
                 rank(Self.candidateA), detail(Self.candidateA), try playURL()
-            ]
+            ],
+            answersWBINav: true
         )
         let discoverer = discoverer(transport)
 
         #expect(try await discoverer.discover().count == 1)
         await discoverer.resetSeenSamples()
         #expect(try await discoverer.discover().count == 1)
-        #expect(transport.capturedRequests().count == 7)
+        #expect(transport.businessRequests().count == 6)
     }
 
     @Test
@@ -216,16 +216,16 @@ struct CDNBenchmarkSampleDiscovererTests {
         let transport = StubTransport(
             responses: [
                 rank(Self.candidateA),
-                try fixtureResponse("nav"),
                 detail(Self.candidateA),
                 try playURL(promotesAVCToHighQuality: false)
-            ]
+            ],
+            answersWBINav: true
         )
 
         let samples = try await discoverer(transport).discover()
 
         #expect(samples.isEmpty)
-        #expect(transport.capturedRequests().count == 4)
+        #expect(transport.businessRequests().count == 3)
     }
 
     @Test

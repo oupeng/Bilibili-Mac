@@ -127,9 +127,9 @@ struct BiliSubtitleRepositoryTests {
             client: BiliAPIClient(
                 transport: StubTransport(
                     responses: [
-                        try fixtureResponse("nav"),
                         try catalogResponse(prependingEmptyURLTrack: true)
-                    ]
+                    ],
+                    answersWBINav: true
                 ),
                 requestAuthorizer: StubAuthorizer(),
                 timestampProvider: { 1_700_000_000 }
@@ -162,9 +162,9 @@ struct BiliSubtitleRepositoryTests {
     func catalogRejectsUntrustedSubtitleOriginBeforeBodyTransport() async throws {
         let catalogTransport = StubTransport(
             responses: [
-                try fixtureResponse("nav"),
                 try fixtureResponse("subtitle-catalog")
-            ]
+            ],
+            answersWBINav: true
         )
         let bodyTransport = StubTransport(responses: [])
         let repository = BiliSubtitleRepository(
@@ -234,7 +234,8 @@ struct BiliSubtitleRepositoryTests {
             let repository = BiliSubtitleRepository(
                 client: BiliAPIClient(
                     transport: StubTransport(
-                        responses: [try fixtureResponse("nav")] + [response].compactMap { $0 }
+                        responses: [response].compactMap { $0 },
+                        answersWBINav: true
                     ),
                     requestAuthorizer: StubAuthorizer(),
                     timestampProvider: { 1_700_000_000 }
@@ -300,9 +301,9 @@ struct BiliSubtitleRepositoryTests {
             client: BiliAPIClient(
                 transport: StubTransport(
                     responses: [
-                        try fixtureResponse("nav"),
                         try catalogResponse()
-                    ]
+                    ],
+                    answersWBINav: true
                 ),
                 requestAuthorizer: StubAuthorizer(),
                 timestampProvider: { 1_700_000_000 }
@@ -379,9 +380,9 @@ struct BiliSubtitleRepositoryTests {
             client: BiliAPIClient(
                 transport: StubTransport(
                     responses: [
-                        try fixtureResponse("nav"),
                         try catalogResponse()
-                    ]
+                    ],
+                    answersWBINav: true
                 ),
                 requestAuthorizer: StubAuthorizer(),
                 timestampProvider: { 1_700_000_000 }

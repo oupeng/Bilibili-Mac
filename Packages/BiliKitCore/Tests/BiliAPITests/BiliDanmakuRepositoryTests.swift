@@ -79,13 +79,13 @@ struct BiliDanmakuRepositoryTests {
             client: BiliAPIClient(
                 transport: StubTransport(
                     responses: [
-                        try fixtureResponse("nav"),
                         HTTPResponse(
                             statusCode: 200,
                             headers: ["Content-Type": "application/json"],
                             body: Data(#"{"code":-101,"message":"fixture"}"#.utf8)
                         )
-                    ]
+                    ],
+                    answersWBINav: true
                 ),
                 timestampProvider: { 1_700_000_000 }
             )
@@ -153,7 +153,8 @@ struct BiliDanmakuRepositoryTests {
         let repository = BiliDanmakuRepository(
             client: BiliAPIClient(
                 transport: StubTransport(
-                    responses: [try fixtureResponse("nav"), response]
+                    responses: [response],
+                    answersWBINav: true
                 ),
                 requestAuthorizer: StubAuthorizer(authorization),
                 timestampProvider: { 1_700_000_000 }
@@ -435,9 +436,9 @@ struct BiliDanmakuRepositoryTests {
             client: BiliAPIClient(
                 transport: StubTransport(
                     responses: [
-                        try fixtureResponse("nav"),
                         response
-                    ]
+                    ],
+                    answersWBINav: true
                 ),
                 timestampProvider: { 1_700_000_000 }
             )

@@ -50,14 +50,16 @@ struct BiliContentRepositoryTests {
             .replacingOccurrences(of: "avc1.64001f", with: "hev1.1.6.L120.90")
         let repository = BiliContentRepository(
             client: BiliAPIClient(
-                transport: StubTransport(responses: [
-                    try fixtureResponse("nav"),
-                    HTTPResponse(
-                        statusCode: fixture.statusCode,
-                        headers: fixture.headers,
-                        body: Data(body.utf8)
-                    )
-                ])
+                transport: StubTransport(
+                    responses: [
+                        HTTPResponse(
+                            statusCode: fixture.statusCode,
+                            headers: fixture.headers,
+                            body: Data(body.utf8)
+                        )
+                    ],
+                    answersWBINav: true
+                )
             )
         )
 
