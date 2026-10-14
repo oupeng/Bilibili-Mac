@@ -194,6 +194,31 @@ struct BiliCredentialRequestAuthorizerTests {
         }
     }
 
+    /// Keychain 不可用：只有调用方已确认未登录时才按无凭据处理，否则失败关闭；都不改动 Keychain。
+    @Test(arguments: [
+        (true, BiliRequestAuthorizationError.missingCredential),
+        (false, .credentialStoreUnavailable)
+    ])
+    func unavailableStoreCountsAsMissingOnlyWhenSignedOutIsConfirmed(
+        isConfirmedSignedOut: Bool,
+        expected: BiliRequestAuthorizationError
+    ) async throws {
+        let endpoint = try #require(
+            URL(string: "https://api.bilibili.com/x/web-interface/nav")
+        )
+        let store = MemoryWebCredentialStore(loadError: StubAuthError.offline)
+        let authorizer = BiliCredentialRequestAuthorizer(
+            store: store,
+            allowedPaths: fixtureNavigationAllowedPaths,
+            isConfirmedSignedOut: { isConfirmedSignedOut }
+        )
+
+        await #expect(throws: expected) {
+            try await authorizer.authorize(HTTPRequest(url: endpoint))
+        }
+        #expect(store.deleteCount == 0)
+    }
+
     @Test
     func restoreValidCredentialUsesAuthorizedNavigationRequest() async throws {
         let transport = RecordingAuthTransport(

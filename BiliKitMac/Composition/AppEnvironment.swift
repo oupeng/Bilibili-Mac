@@ -43,6 +43,7 @@ struct AppEnvironment {
     private let authenticationQRCodeProvider: any AuthenticationQRCodeProviding
     let open: @MainActor @Sendable () -> Void
     let close: @MainActor @Sendable () -> Void
+    let synchronizeAccountScope: @MainActor @Sendable (AccountSessionScope) -> Void
 
     init(
         feedRepository: any FeedRepository,
@@ -64,7 +65,8 @@ struct AppEnvironment {
         authenticationService: any AuthenticationServicing,
         authenticationQRCodeProvider: any AuthenticationQRCodeProviding,
         open: @escaping @MainActor @Sendable () -> Void,
-        close: @escaping @MainActor @Sendable () -> Void
+        close: @escaping @MainActor @Sendable () -> Void,
+        synchronizeAccountScope: @escaping @MainActor @Sendable (AccountSessionScope) -> Void
     ) {
         precondition(
             playerEngine.nativeSubtitlesEnabled,
@@ -101,6 +103,7 @@ struct AppEnvironment {
         self.authenticationQRCodeProvider = authenticationQRCodeProvider
         self.open = open
         self.close = close
+        self.synchronizeAccountScope = synchronizeAccountScope
     }
 
     func makeSystemNowPlayingPlaybackConnection()
@@ -304,8 +307,10 @@ struct AppEnvironment {
         accountSessionCoordinator: AccountSessionCoordinator,
         appSettingsModel: AppSettingsModel? = nil
     ) -> AppEnvironment {
+        let signedOutConfirmation = AccountSignedOutConfirmation()
         let api = makeLiveAPIClient(
-            accountReadAllowedPaths: mainAccountReadAllowedPaths
+            accountReadAllowedPaths: mainAccountReadAllowedPaths,
+            isConfirmedSignedOut: { signedOutConfirmation.isConfirmed }
         )
         let sessionRegistration = AppEnvironmentSessionRegistration(
             coordinator: accountSessionCoordinator,
@@ -367,7 +372,8 @@ struct AppEnvironment {
             close: {
                 sessionRegistration.close()
                 commentLinkRouting.shortLinkResolver.invalidate()
-            }
+            },
+            synchronizeAccountScope: signedOutConfirmation.synchronize
         )
     }
 
@@ -403,12 +409,17 @@ struct AppEnvironment {
 
     static let watchProgressAccountReadAllowedPaths: Set<String>? = nil
 
+    /// `isConfirmedSignedOut` 只给窗口主 API：已确认未登录时 Keychain 不可用不影响游客浏览。
     private static func makeLiveAPIClient(
         accountReadAllowedPaths: Set<String>?,
-        historyWriteEnabled: Bool = false
+        historyWriteEnabled: Bool = false,
+        isConfirmedSignedOut: @escaping @Sendable () -> Bool = { false }
     ) -> BiliAPIClient {
         let requestAuthorizer = accountReadAllowedPaths.map {
-            BiliCredentialRequestAuthorizer(allowedPaths: $0)
+            BiliCredentialRequestAuthorizer(
+                allowedPaths: $0,
+                isConfirmedSignedOut: isConfirmedSignedOut
+            )
         }
         let historyWriteAuthorizer: (any HTTPRequestAuthorizing)? =
             historyWriteEnabled ? BiliPlaybackHeartbeatRequestAuthorizer() : nil

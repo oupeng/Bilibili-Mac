@@ -1,3 +1,4 @@
+import BiliAuthFeature
 import BiliNetworking
 import Foundation
 import Testing
@@ -7,6 +8,24 @@ import Testing
 
 @Suite(.timeLimit(.minutes(1)))
 struct AccountReadAuthorizationCompositionTests {
+    @Test
+    func signedOutConfirmationFollowsOnlyAResolvedSignedOutScope() {
+        let confirmation = AccountSignedOutConfirmation()
+        #expect(!confirmation.isConfirmed)
+
+        confirmation.synchronize(.signedOut)
+        #expect(confirmation.isConfirmed)
+
+        let otherScopes: [AccountSessionScope] = [
+            .unresolved, .signedIn(accountID: 42), .signedIn(accountID: nil)
+        ]
+        for scope in otherScopes {
+            confirmation.synchronize(.signedOut)
+            confirmation.synchronize(scope)
+            #expect(!confirmation.isConfirmed)
+        }
+    }
+
     @Test
     @MainActor
     func productionCapabilitiesStayExactAndMinimal() {

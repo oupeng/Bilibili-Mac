@@ -37,6 +37,8 @@ final class AppWindowOwner {
     private let watchProgressConnection: WatchProgressWindowConnection?
     private let openEnvironment: (@MainActor @Sendable () -> Void)?
     private let closeEnvironment: (@MainActor @Sendable () -> Void)?
+    private let synchronizeEnvironmentAccountScope:
+        (@MainActor @Sendable (AccountSessionScope) -> Void)?
     private var isOpen = false
     private var isClosed = false
 
@@ -91,7 +93,8 @@ final class AppWindowOwner {
                 environment.makeSystemNowPlayingPlaybackConnection(),
             watchProgressConnection: watchProgressConnection,
             openEnvironment: environment.open,
-            closeEnvironment: environment.close
+            closeEnvironment: environment.close,
+            synchronizeEnvironmentAccountScope: environment.synchronizeAccountScope
         )
     }
 
@@ -186,7 +189,9 @@ final class AppWindowOwner {
         systemNowPlayingConnection: SystemNowPlayingPlaybackConnection? = nil,
         watchProgressConnection: WatchProgressWindowConnection? = nil,
         openEnvironment: (@MainActor @Sendable () -> Void)? = nil,
-        closeEnvironment: (@MainActor @Sendable () -> Void)? = nil
+        closeEnvironment: (@MainActor @Sendable () -> Void)? = nil,
+        synchronizeEnvironmentAccountScope:
+            (@MainActor @Sendable (AccountSessionScope) -> Void)? = nil
     ) {
         self.navigationCoordinator = navigationCoordinator
         self.browseModel = browseModel
@@ -217,6 +222,7 @@ final class AppWindowOwner {
         self.watchProgressConnection = watchProgressConnection
         self.openEnvironment = openEnvironment
         self.closeEnvironment = closeEnvironment
+        self.synchronizeEnvironmentAccountScope = synchronizeEnvironmentAccountScope
     }
 
     func open() {
@@ -244,7 +250,9 @@ final class AppWindowOwner {
         systemNowPlayingCoordinator?.markWindowActive()
     }
 
-    func synchronizeWatchProgressAccess(_ scope: AccountSessionScope) {
+    /// 把账户状态同步给窗口内依赖它的部件：观看进度上报权限与主 API 的「已确认未登录」。
+    func synchronizeAccountAccess(_ scope: AccountSessionScope) {
+        synchronizeEnvironmentAccountScope?(scope)
         let isSignedIn: Bool
         if case .signedIn = scope {
             isSignedIn = true

@@ -127,7 +127,7 @@ struct AppRootView: View {
             await applyCommentActivation(aid: commentActivationAID)
         }
         .onAppear {
-            windowOwner.synchronizeWatchProgressAccess(historyAccountScope)
+            windowOwner.synchronizeAccountAccess(historyAccountScope)
             windowOwner.open()
         }
         .onChange(of: appearsActive, initial: true) { _, isActive in
@@ -147,7 +147,7 @@ struct AppRootView: View {
             synchronizeBenchmarkAuthentication()
         }
         .onChange(of: historyAccountScope) { previousScope, scope in
-            windowOwner.synchronizeWatchProgressAccess(scope)
+            windowOwner.synchronizeAccountAccess(scope)
             guard AccountSessionScope.isResolvedChange(from: previousScope, to: scope)
             else {
                 return
