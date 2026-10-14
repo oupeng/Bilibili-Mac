@@ -779,11 +779,19 @@ struct NativePlaybackSidebarTests {
         )
         #expect(focused != nil)
         #expect(window.firstResponder === focused)
-        let spaceButton = try #require(
-            descendants(of: controller.rootView).compactMap { $0 as? NSButton }.first {
-                $0.accessibilityLabel() == AppStrings.localized("查看空间")
-            }
+        let collectionView = try #require(
+            controller.rootView.scrollView.documentView as? NSCollectionView
         )
+        let uploaderItem = try #require(
+            collectionView.visibleItems().lazy
+                .compactMap { $0 as? NativePlaybackSidebarUploaderItem }.first
+        )
+        // UP 主行只有一个按钮，即名字右侧进入空间的箭头。
+        let spaceButtons = descendants(of: uploaderItem.view).compactMap { $0 as? NSButton }
+        #expect(spaceButtons.count == 1)
+        let spaceButton = try #require(spaceButtons.first)
+        #expect(!spaceButton.isHidden)
+        #expect(spaceButton.accessibilityLabel() == AppStrings.localized("查看空间"))
 
         spaceButton.performClick(nil)
 
@@ -1266,10 +1274,12 @@ struct NativePlaybackSidebarTests {
         )
         let countLabel = try #require(
             descendants(of: header.view).compactMap { $0 as? NSTextField }
-                .first {
-                    $0.accessibilityLabel()
-                        == AppStrings.localized("共 \(loadedCount) 条评论")
-                }
+                .first { $0.stringValue == loadedCount }
+        )
+        #expect(countLabel.isAccessibilityElement())
+        #expect(
+            countLabel.accessibilityLabel()
+                == AppStrings.localized("共 \(loadedCount) 条评论")
         )
         header.configure(presentation: loading, onSelectSort: { _ in })
         #expect(countLabel.stringValue.isEmpty)
