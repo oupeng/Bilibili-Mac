@@ -1261,6 +1261,37 @@ struct BiliAPIClientTests {
         #expect(playURLRequests(transport).count == 2)
     }
 
+    /// 停止之前已经拿到的配音音轨保留在结果里。
+    @Test
+    func aiAudioFailureKeepsDubsFetchedBeforeIt() async throws {
+        let transport = StubTransport(
+            responses: [
+                try fixtureResponse("nav"),
+                try semanticAudioResponse(
+                    audioPath: "original-audio.m4s",
+                    languageCatalog: machineGeneratedEnglishAndJapaneseCatalog
+                ),
+                try semanticAudioResponse(
+                    audioPath: "ai-en-audio.m4s",
+                    currentLanguage: "en",
+                    currentProductionType: 2
+                ),
+                HTTPResponse(statusCode: 412, body: Data())
+            ]
+        )
+        let client = BiliAPIClient(
+            transport: transport,
+            requestAuthorizer: StubAuthorizer()
+        )
+
+        let playback = try await client.playback(for: "BV1FixtureA1", cid: 900_001)
+
+        let manifest = try #require(playback.dashManifest)
+        #expect(manifest.audioTracks.map(\.id).last == "machine-generated:en")
+        #expect(manifest.audioTracks.map(\.role) == [.original, .machineGenerated])
+        #expect(playURLRequests(transport).count == 3)
+    }
+
     /// 凭据失效不属于配音自身的失败：仍让播放失败并交给账户复核。
     @Test
     func aiAudioAuthenticationInvalidationStillFailsPlayback() async throws {

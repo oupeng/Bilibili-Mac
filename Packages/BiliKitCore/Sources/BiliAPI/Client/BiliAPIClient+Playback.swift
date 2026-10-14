@@ -281,8 +281,9 @@ extension BiliAPIClient {
 
     /// 账户可用的 AI 配音音轨；配音是附加内容，原声已经可播放。
     ///
-    /// 某个语言的请求失败（风控、网络、业务拒绝等）时停止后续配音请求，只返回已经拿到的音轨，
-    /// 不让整次播放失败，也不在风控时继续放大请求。凭据失效与会话变化仍向上抛出，交给账户复核与取消。
+    /// 某个语言的请求失败（风控、网络、业务拒绝、本地授权不可用等）时停止后续语言的配音请求，只返回
+    /// 已经拿到的音轨，不让整次播放失败；失败的语言本身至多经过一次 WBI 重试。凭据失效与会话变化仍向上
+    /// 抛出，交给账户复核与取消。
     private func machineGeneratedAudioTracks(
         catalog: AudioLanguageCatalogPayload?,
         originalAudio: [MediaRepresentation],
