@@ -27,22 +27,14 @@ class ScriptedRangeURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        let deliver: @Sendable () -> Void = { [weak self] in
-            guard let self, !state.wasStopped else { return }
-            for chunk in script.chunks {
-                guard !state.wasStopped else { return }
-                state.markDelivered(chunk.count)
-                client?.urlProtocol(self, didLoad: chunk)
-            }
-            client?.urlProtocolDidFinishLoading(self)
+        // 闸门关闭时正文不送达，任务只能由 client 取消后经 `stopLoading` 结束。
+        guard !script.withholdsBody else { return }
+        for chunk in script.chunks {
+            guard !state.wasStopped else { return }
+            state.markDelivered(chunk.count)
+            client?.urlProtocol(self, didLoad: chunk)
         }
-        if script.delay > 0 {
-            DispatchQueue.global().asyncAfter(deadline: .now() + script.delay) {
-                deliver()
-            }
-        } else {
-            deliver()
-        }
+        client?.urlProtocolDidFinishLoading(self)
     }
 
     override func stopLoading() { Self.state.markStopped() }
@@ -52,8 +44,8 @@ struct RangeURLProtocolScript: Sendable {
     let statusCode: Int
     let headers: [String: String]
     let chunks: [Data]
-    /// 响应头之后延迟交付正文，用于证明 client 不等待正文即可拒绝。
-    let delay: TimeInterval
+    /// 只发响应头、始终不放行正文，用于证明 client 不等待正文即可拒绝或取消。
+    let withholdsBody: Bool
 }
 
 final class ScriptedRangeURLProtocolState: @unchecked Sendable {
@@ -62,7 +54,7 @@ final class ScriptedRangeURLProtocolState: @unchecked Sendable {
         statusCode: 500,
         headers: [:],
         chunks: [],
-        delay: 0
+        withholdsBody: false
     )
     private var stopped = false
     private var delivered = 0
@@ -79,14 +71,14 @@ final class ScriptedRangeURLProtocolState: @unchecked Sendable {
         statusCode: Int,
         headers: [String: String],
         chunks: [Data],
-        delay: TimeInterval = 0
+        withholdsBody: Bool = false
     ) {
         lock.withLock {
             script = RangeURLProtocolScript(
                 statusCode: statusCode,
                 headers: headers,
                 chunks: chunks,
-                delay: delay
+                withholdsBody: withholdsBody
             )
             stopped = false
             delivered = 0

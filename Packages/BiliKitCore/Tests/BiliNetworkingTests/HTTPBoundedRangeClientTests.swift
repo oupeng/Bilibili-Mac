@@ -9,9 +9,10 @@ struct HTTPBoundedRangeClientTests {
     func rejectsHTTP200WithoutWaitingForDeclaredFullBodyAndCancelsTask() async throws {
         BoundedRangeURLProtocol.state.configure(
             statusCode: 200,
-            headers: ["Content-Length": "104857600"],
+            // 声明 Content-Type 让 URLSession 不为内容嗅探等正文，响应头可在正文前交给 client。
+            headers: ["Content-Length": "104857600", "Content-Type": "video/mp4"],
             chunks: [Data(repeating: 0xaa, count: 1_024)],
-            delay: 0.05
+            withholdsBody: true
         )
         let client = makeClient()
 
@@ -24,7 +25,7 @@ struct HTTPBoundedRangeClientTests {
             )
         }
         await BoundedRangeURLProtocol.state.waitUntilStopped()
-        #expect(BoundedRangeURLProtocol.state.deliveredBodyBytes < 100 * 1_024 * 1_024)
+        #expect(BoundedRangeURLProtocol.state.deliveredBodyBytes == 0)
     }
 
     @Test
@@ -62,10 +63,11 @@ struct HTTPBoundedRangeClientTests {
             statusCode: 206,
             headers: [
                 "Content-Range": "bytes 0-2/100",
-                "Content-Length": "4"
+                "Content-Length": "4",
+                "Content-Type": "video/mp4"
             ],
             chunks: [Data([1, 2, 3, 4])],
-            delay: 0.05
+            withholdsBody: true
         )
 
         await #expect(
@@ -78,6 +80,8 @@ struct HTTPBoundedRangeClientTests {
                 collectBody: true
             )
         }
+        await BoundedRangeURLProtocol.state.waitUntilStopped()
+        #expect(BoundedRangeURLProtocol.state.deliveredBodyBytes == 0)
     }
 
     @Test
