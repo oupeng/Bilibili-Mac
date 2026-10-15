@@ -39,6 +39,11 @@ public final class WatchHistoryViewModel {
     ///
     /// 历史页只在已登录时渲染，所以读取时本地没有凭据也说明窗口的登录状态已过期，同样递增。
     public private(set) var authenticationRevalidationGeneration = 0
+    /// 本页因凭据缺失或失效请求了账户复核、复核尚未结束；失败页据此显示“正在重新确认”。
+    ///
+    /// 复核结束（`resumeAfterAuthenticationRevalidation`／`reportAuthenticationRevalidationFailure`）、
+    /// 加载成功、离开页面或 `reset` 时清除。
+    public private(set) var isAwaitingAuthenticationRevalidation = false
 
     public var isBusy: Bool {
         if isRefreshing { return true }
@@ -64,12 +69,9 @@ public final class WatchHistoryViewModel {
     @ObservationIgnored private var consumedContinuations: [WatchHistoryContinuation] = []
     /// 原地刷新开始前的分页状态；刷新失败或离开页面时原样恢复，条目没被替换就不改变分页行为。
     @ObservationIgnored private var refreshRestorePoint: PaginationRestorePoint?
-    /// 本页请求过账户复核，复核结束时由 `resumeAfterAuthenticationRevalidation` 或
-    /// `reportAuthenticationRevalidationFailure` 收尾。
-    @ObservationIgnored private var awaitsRevalidation = false
-    /// 同一会话内复核后已自动重载过一次，`reset` 时清除。
+    /// 复核后已自动重载过一次，加载成功或 `reset` 时清除。
     ///
-    /// 复核确认仍登录而重载又得到凭据失效时不再自动重载，避免“复核 → 重载 → 失效 → 复核”循环。
+    /// 复核确认仍登录而重载又得到凭据失效时不再自动重载，挡住连续的“复核 → 重载 → 失效 → 复核”。
     @ObservationIgnored private var hasReloadedAfterRevalidation = false
 
     private struct PaginationRestorePoint {
@@ -135,6 +137,8 @@ public final class WatchHistoryViewModel {
                     requiresManualLoadMore: first.items.isEmpty && continuation != nil
                 )
                 successfulReloadGeneration &+= 1
+                isAwaitingAuthenticationRevalidation = false
+                hasReloadedAfterRevalidation = false
             } catch is CancellationError {
                 // 本任务未被取消却收到取消：认证会话在请求途中切换。不是网络失败；已有条目原样保留，
                 // 否则回到 idle，由会话切换后的复核与 `resumeAfterAuthenticationRevalidation` 重新加载。
@@ -200,7 +204,13 @@ public final class WatchHistoryViewModel {
                 let wasCancelled = error is CancellationError
                 let failure: ContentApplicationError? =
                     wasCancelled ? nil : error as? ContentApplicationError ?? .unavailable
-                if let failure { recordAuthenticationFailureIfNeeded(failure) }
+                // 与刷新一致：凭据缺失或失效时不再显示该账户的条目，转入失败页并请求复核。
+                if let failure, Self.isCredentialFailure(failure) {
+                    recordAuthenticationFailureIfNeeded(failure)
+                    clearPagination()
+                    state = .failed(failure)
+                    return
+                }
                 applyLoaded(
                     items: items,
                     continuation: continuation,
@@ -215,22 +225,22 @@ public final class WatchHistoryViewModel {
     /// 取消请求并从内存删除全部个性化历史，供登出与窗口关闭调用。
     public func reset() {
         loadTask.cancel()
-        clearTailIdentity()
-        requiresManualLoadMore = false
-        loadingMoreWasManual = false
-        consumedContinuations.removeAll(keepingCapacity: false)
+        clearPagination()
         isRefreshing = false
         refreshError = nil
         refreshRestorePoint = nil
-        awaitsRevalidation = false
+        isAwaitingAuthenticationRevalidation = false
         hasReloadedAfterRevalidation = false
         state = .idle
     }
 
     /// 停用页面请求而不抹掉已加载条目；迟到结果由 `LatestTask` 拒绝。
+    ///
+    /// 离开页面后 App 不再把复核结果交给本页：停止等待复核，凭据失败页回到 idle，回来时重新加载。
     public func deactivateRoute() {
         loadTask.cancel()
         refreshError = nil
+        isAwaitingAuthenticationRevalidation = false
         if isRefreshing {
             isRefreshing = false
             restorePaginationAfterRefresh()
@@ -246,6 +256,8 @@ public final class WatchHistoryViewModel {
                 continuation: continuation,
                 loadMoreError: nil
             )
+        case .failed(let failure) where Self.isCredentialFailure(failure):
+            state = .idle
         case .idle, .loaded, .failed:
             break
         }
@@ -260,8 +272,8 @@ public final class WatchHistoryViewModel {
     /// 本页因凭据失效请求的复核，确认后自动重载一次；同一会话内只做一次，之后再失效只显示失败、
     /// 由用户重试。其余情况只在 idle 时加载。
     public func resumeAfterAuthenticationRevalidation() {
-        let requestedRevalidation = awaitsRevalidation
-        awaitsRevalidation = false
+        let requestedRevalidation = isAwaitingAuthenticationRevalidation
+        isAwaitingAuthenticationRevalidation = false
         guard requestedRevalidation, !hasReloadedAfterRevalidation else {
             loadIfNeeded()
             return
@@ -272,21 +284,16 @@ public final class WatchHistoryViewModel {
 
     /// 账户复核没能确认登录状态（网络或 Keychain 不可用）。
     ///
-    /// 给出可重试的“无法读取登录状态”，不是网络失败；已显示的条目保留。隐私清理仍由账户范围变化负责。
+    /// 给出可重试的“无法读取登录状态”，不是网络失败。凭据失败时条目已清空；隐私清理仍由账户范围
+    /// 变化负责。
     public func reportAuthenticationRevalidationFailure() {
-        let requestedRevalidation = awaitsRevalidation
-        awaitsRevalidation = false
+        let requestedRevalidation = isAwaitingAuthenticationRevalidation
+        isAwaitingAuthenticationRevalidation = false
         switch state {
         case .idle:
             state = .failed(.authenticationUnavailable)
         case .failed where requestedRevalidation:
             state = .failed(.authenticationUnavailable)
-        case .loaded(let items, let continuation, _) where requestedRevalidation:
-            state = .loaded(
-                items: items,
-                continuation: continuation,
-                loadMoreError: .authenticationUnavailable
-            )
         case .loading, .loadingMore, .loaded, .failed:
             break
         }
@@ -299,7 +306,7 @@ public final class WatchHistoryViewModel {
 
     private func recordAuthenticationFailureIfNeeded(_ error: ContentApplicationError) {
         guard Self.isCredentialFailure(error) else { return }
-        awaitsRevalidation = true
+        isAwaitingAuthenticationRevalidation = true
         authenticationRevalidationGeneration &+= 1
     }
 
@@ -335,6 +342,13 @@ public final class WatchHistoryViewModel {
 
     private func clearTailIdentity() {
         paginationTailIdentity = nil
+    }
+
+    private func clearPagination() {
+        clearTailIdentity()
+        requiresManualLoadMore = false
+        loadingMoreWasManual = false
+        consumedContinuations.removeAll(keepingCapacity: false)
     }
 
     /// 原地刷新开始时收起了分页尾标；刷新没有替换条目时原样恢复刷新前的分页状态。

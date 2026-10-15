@@ -115,7 +115,7 @@ struct WatchHistoryContentView<LoadedContent: View>: View {
                 Text(LibraryFeatureStrings.localized("在哔哩哔哩观看过的普通视频会显示在这里。", locale: locale))
             }
         } actions: {
-            if canLoadMore {
+            if canLoadMore, loadMoreError?.isRetryable ?? true {
                 Button(LibraryFeatureStrings.localized("加载更早的记录", locale: locale)) {
                     model.loadMore()
                 }
@@ -217,10 +217,17 @@ struct WatchHistoryContentView<LoadedContent: View>: View {
     }
 
     /// 历史只会遇到认证四态、风控、业务拒绝、网络与响应异常；其余内容错误归入通用说明。
+    ///
+    /// 凭据失败只在复核进行中说“正在重新确认”；复核结束仍失败时给静态说明。不可重试的错误不提“重试”。
     private func message(for error: ContentApplicationError) -> String {
         switch error {
-        case .authenticationRequired, .authenticationInvalid:
+        case .authenticationRequired where model.isAwaitingAuthenticationRevalidation,
+            .authenticationInvalid where model.isAwaitingAuthenticationRevalidation:
             LibraryFeatureStrings.localized("正在重新确认账户会话。", locale: locale)
+        case .authenticationInvalid:
+            LibraryFeatureStrings.localized("账户会话仍未恢复，请稍后重试或重新扫码登录。", locale: locale)
+        case .authenticationRequired:
+            LibraryFeatureStrings.localized("本机没有可用的登录凭据，请重新扫码登录。", locale: locale)
         case .authenticationUnavailable:
             LibraryFeatureStrings.localized("无法安全读取或确认本地登录状态，请稍后重试。", locale: locale)
         case .requestRestricted:
@@ -231,9 +238,11 @@ struct WatchHistoryContentView<LoadedContent: View>: View {
             LibraryFeatureStrings.localized("请检查网络连接后重试。", locale: locale)
         case .invalidResponse:
             LibraryFeatureStrings.localized("接口数据与当前客户端预期不一致。", locale: locale)
-        case .invalidRequest, .contentUnavailable, .unsupportedMedia, .playbackUnavailable,
-            .fullViewingEntitlementRequired, .unavailable:
+        case .playbackUnavailable, .unavailable:
             LibraryFeatureStrings.localized("暂时无法完成请求，请稍后重试。", locale: locale)
+        case .invalidRequest, .contentUnavailable, .unsupportedMedia,
+            .fullViewingEntitlementRequired:
+            LibraryFeatureStrings.localized("当前无法完成这次请求。", locale: locale)
         }
     }
 }
