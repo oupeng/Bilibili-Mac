@@ -110,8 +110,12 @@ public actor BiliCommentRepository: CommentRepository {
         _ failure: BiliAPIError.Failure
     ) -> CommentReadError {
         switch failure {
-        case .authorizationRequired, .authenticationInvalid:
+        case .authorizationRequired:
+            .authenticationRequired
+        case .authenticationInvalid:
             .authenticationInvalid
+        case .authorizationUnavailable:
+            .authenticationUnavailable
         case .restricted:
             .requestRestricted
         case .rejected(let code) where code == closedCommentsCode:
@@ -122,8 +126,7 @@ public actor BiliCommentRepository: CommentRepository {
             .transportFailure
         case .invalidRequest, .invalidResponse:
             .invalidResponse
-        case .authorizationUnavailable, .unexpectedHTTPStatus,
-            .unsupportedMedia, .noPlayableMedia:
+        case .unexpectedHTTPStatus, .unsupportedMedia, .noPlayableMedia:
             .unavailable
         }
     }

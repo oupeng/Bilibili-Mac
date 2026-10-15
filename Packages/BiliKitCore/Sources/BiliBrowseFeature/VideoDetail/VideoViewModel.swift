@@ -347,6 +347,9 @@ public final class VideoViewModel {
                 nextState = .failed(bvid: bvid, error: .unavailable)
             }
             guard let self, isCurrent() else { return }
+            if case .failed(_, let error) = nextState {
+                self.recordAuthenticationInvalidationIfNeeded(error)
+            }
             self.relatedVideoState = nextState
         }
     }
@@ -572,16 +575,21 @@ public final class VideoViewModel {
         }
         uploaderProfileState = .loading
         uploaderProfileTask.replace { [weak self] isCurrent in
-            // 名片只是增强：失败时不显示签名，名字按非大会员显示，也不留作下次沿用。
+            // 名片只是增强：失败时不显示签名，名字按非大会员显示，也不留作下次沿用；凭据失效仍要复核。
             let profile: UploaderProfile?
+            var failure: ContentApplicationError?
             do {
                 let resolved = try await uploaderProfileUseCase.profile(for: ownerID)
                 try Task.checkCancellation()
                 profile = resolved
             } catch {
                 profile = nil
+                failure = error as? ContentApplicationError
             }
             guard let self, isCurrent() else { return }
+            if let failure {
+                self.recordAuthenticationInvalidationIfNeeded(failure)
+            }
             if let profile {
                 self.lastUploaderProfile = (ownerID, profile)
             }

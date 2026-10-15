@@ -98,9 +98,20 @@ public final class UploaderSpaceViewModel {
     private func loadProfile(ownerID: Int64) {
         let profileUseCase = profileUseCase
         profileTask.replace { [weak self] isCurrent in
-            let profile = try? await profileUseCase.profile(for: ownerID)
-            guard let self, isCurrent(), let profile, let owner = self.owner, owner.id == ownerID
-            else { return }
+            let profile: UploaderProfile?
+            var failure: ContentApplicationError?
+            do {
+                profile = try await profileUseCase.profile(for: ownerID)
+            } catch {
+                profile = nil
+                failure = error as? ContentApplicationError
+            }
+            guard let self, isCurrent() else { return }
+            // 名片只是增强，失败时名字保持为空；凭据失效仍要复核。
+            if let failure, failure.requiresAccountRevalidation {
+                authenticationRevalidationGeneration += 1
+            }
+            guard let profile, let owner = self.owner, owner.id == ownerID else { return }
             self.owner = VideoOwner(
                 id: ownerID,
                 name: profile.name ?? owner.name,

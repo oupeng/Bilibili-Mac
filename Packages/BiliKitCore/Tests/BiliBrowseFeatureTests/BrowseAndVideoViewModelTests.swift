@@ -1517,6 +1517,35 @@ struct BrowseAndVideoViewModelTests {
         #expect(model.uploaderProfileState == .loaded(UploaderProfile()))
     }
 
+    /// 相关推荐与 UP 主名片只是增强，但凭据失效仍要交给窗口复核。
+    @Test
+    @MainActor
+    func enhancementCredentialInvalidationRequestsRevalidation() async {
+        let fixture = ContentFixtures()
+        let model = VideoViewModel(
+            useCase: VideoUseCase(
+                repository: VideoRepositoryStub(fixture)
+            ),
+            playback: PlayerStub(),
+            relatedVideoUseCase: RelatedVideoUseCase(
+                repository: RelatedRepositoryStub(responses: [.failure(.authenticationInvalid)])
+            ),
+            uploaderProfileUseCase: UploaderProfileUseCase(
+                repository: ProfileRepositoryStub(immediate: .failure(.authenticationInvalid))
+            )
+        )
+
+        model.loadVideo(fixture.bvid)
+        await waitUntilSettled(model)
+        await waitForObservedState {
+            model.uploaderProfileState != .loading
+                && model.relatedVideoState != .loading(bvid: fixture.bvid)
+        }
+
+        #expect(model.authenticationRevalidationGeneration == 2)
+        #expect(model.uploaderProfileState == .loaded(UploaderProfile()))
+    }
+
     @Test
     @MainActor
     func pageSwitchDoesNotReloadUploaderProfile() async {

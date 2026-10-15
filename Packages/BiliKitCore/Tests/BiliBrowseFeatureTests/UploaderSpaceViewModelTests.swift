@@ -331,6 +331,19 @@ struct UploaderSpaceViewModelTests {
         await profiles.releaseRequest(0, profile: UploaderProfile())
     }
 
+    /// 名片只是增强，失败时名字保持为空；但凭据失效仍要交给窗口复核。
+    @Test
+    func idOnlyProfileCredentialInvalidationRequestsRevalidation() async {
+        let repository = UploaderVideoRepositoryStub()
+        let profiles = ProfileRepositoryStub(immediate: .failure(.authenticationInvalid))
+        let model = makeModel(repository, profiles: profiles)
+
+        model.open(ownerID: owner.id)
+        await waitForObservedState { model.authenticationRevalidationGeneration == 1 }
+
+        #expect(model.owner?.name == "")
+    }
+
     @Test(arguments: [Int64(0), -1])
     func idOnlyOpenIgnoresInvalidMemberIDs(_ ownerID: Int64) async {
         let repository = UploaderVideoRepositoryStub()

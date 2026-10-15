@@ -371,7 +371,9 @@ private enum BenchmarkTestError: Error {
 
 enum SettingsBenchmarkFailureFixture: CaseIterable, Sendable {
     case transport
-    case authentication
+    case missingCredential
+    case invalidCredential
+    case unavailableCredential
     case riskControlStatus
     case riskControlVoucher
 
@@ -379,7 +381,9 @@ enum SettingsBenchmarkFailureFixture: CaseIterable, Sendable {
     var discoveryError: BiliAPIError? {
         switch self {
         case .transport: nil
-        case .authentication: .authenticationInvalid
+        case .missingCredential: .authorizationRequired
+        case .invalidCredential: .authenticationInvalid
+        case .unavailableCredential: .authorizationUnavailable
         case .riskControlStatus: .httpStatus(412)
         case .riskControlVoucher: .riskControlVoucher
         }
@@ -388,7 +392,9 @@ enum SettingsBenchmarkFailureFixture: CaseIterable, Sendable {
     var expectedState: PlaybackRouteBenchmarkState {
         switch self {
         case .transport: .networkOrProtocolFailure
-        case .authentication: .authenticationFailure
+        case .missingCredential: .authenticationRequired
+        case .invalidCredential: .authenticationInvalid
+        case .unavailableCredential: .authenticationUnavailable
         case .riskControlStatus, .riskControlVoucher: .restricted
         }
     }

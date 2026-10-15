@@ -189,6 +189,28 @@ struct CommentAPIClientTests {
         #expect(await authorizer.authorizationCount == 1)
     }
 
+    /// 本地凭据读不到（Keychain 不可用）与凭据失效分开：不触发账户复核。
+    @Test
+    func unavailableCredentialIsNotTreatedAsInvalidation() async {
+        let transport = StubTransport(responses: [], answersWBINavOnce: true)
+        let repository = BiliCommentRepository(
+            client: BiliAPIClient(
+                transport: transport,
+                requestAuthorizer: StubAuthorizer(.fail(.unavailable)),
+                timestampProvider: { 1_700_000_000 }
+            )
+        )
+
+        await #expect(throws: CommentReadError.authenticationUnavailable) {
+            try await repository.rootComments(
+                for: .video(aid: 700_001),
+                sort: .hot,
+                after: nil
+            )
+        }
+        #expect(transport.businessRequests().isEmpty)
+    }
+
     @Test
     func authenticationInvalidationIsPreservedForRootAndReplies() async throws {
         let rootTransport = StubTransport(
