@@ -332,11 +332,9 @@ struct AppEnvironment {
                 appSettingsModel?.playbackSourcePreference ?? .serverDefault
             },
             loudnessNormalizationEnabledProvider: {
-                if #available(macOS 26.0, *) {
-                    appSettingsModel?.loudnessNormalizationEnabled ?? false
-                } else {
-                    false
-                }
+                // 与设置界面、播放侧同一门槛（macOS 27 起）；更早系统上旧偏好不生效。
+                LoudnessNormalizationPolicy.isSupported
+                    && (appSettingsModel?.loudnessNormalizationEnabled ?? false)
             }
         )
         let contentRepository = BiliContentRepository(client: api)
