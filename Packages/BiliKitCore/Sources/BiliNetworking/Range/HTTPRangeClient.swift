@@ -174,12 +174,9 @@ public struct HTTPRangeClient: Sendable {
                 }
                 return result
             } catch {
-                // URLSession 在任务取消时可能报告 `URLError(.cancelled)`；它和 Task 取消一样
-                // 不是候选失败，不能在最后一个候选上被归为 allCandidatesFailed。
-                if Task.isCancelled
-                    || error is CancellationError
-                    || (error as? URLError)?.code == .cancelled
-                {
+                // 调用方取消后，上游无论以什么错误结束（含与取消竞争到达的 transport 失败）都不是
+                // 候选失败，不能在最后一个候选上被归为 allCandidatesFailed。
+                if Task.isCancelled || error is CancellationError {
                     throw CancellationError()
                 }
                 attempts.append(

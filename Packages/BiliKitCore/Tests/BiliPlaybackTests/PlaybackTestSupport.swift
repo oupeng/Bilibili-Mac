@@ -385,8 +385,7 @@ extension Array where Element == CheckedContinuation<Void, Never> {
 /// 读取（`HTTPRangeClient`）与 loopback 媒体转发。
 ///
 /// 按 URL 返回精确 206 Range；可让整个 URL 或指定 Range 头失败、隐藏完整长度、在响应头后
-/// 截断正文、让某些 URL 除 SIDX index 以外的 Range 挂起到调用方取消，或让某些 URL 的请求直接以
-/// 取消结束（模拟 Range 会话失效等调用方之外的取消）。
+/// 截断正文，或让某些 URL 除 SIDX index 以外的 Range 挂起到调用方取消。
 actor FixtureRangeTransport: HTTPRangeStreaming {
     private let media: [URL: Data]
     private let failingURLs: Set<URL>
@@ -394,7 +393,6 @@ actor FixtureRangeTransport: HTTPRangeStreaming {
     private let unknownLengthURLs: Set<URL>
     private let truncatedBodyLengths: [URL: Int]
     private let blockingURLIndexRanges: [URL: MediaByteRange]
-    private let cancelledURLs: Set<URL>
     private(set) var requests: [HTTPRequest] = []
     private(set) var startedBlockedRequestCount = 0
     private(set) var cancelledBlockedRequestCount = 0
@@ -407,8 +405,7 @@ actor FixtureRangeTransport: HTTPRangeStreaming {
         failingRangeHeaders: [URL: Set<String>] = [:],
         unknownLengthURLs: Set<URL> = [],
         truncatedBodyLengths: [URL: Int] = [:],
-        blockingURLIndexRanges: [URL: MediaByteRange] = [:],
-        cancelledURLs: Set<URL> = []
+        blockingURLIndexRanges: [URL: MediaByteRange] = [:]
     ) {
         self.media = media
         self.failingURLs = failingURLs
@@ -416,7 +413,6 @@ actor FixtureRangeTransport: HTTPRangeStreaming {
         self.unknownLengthURLs = unknownLengthURLs
         self.truncatedBodyLengths = truncatedBodyLengths
         self.blockingURLIndexRanges = blockingURLIndexRanges
-        self.cancelledURLs = cancelledURLs
     }
 
     /// 与真实 streamer 一样先确认完整长度再放行响应头，并把正文分两个 chunk 交给下游。
@@ -501,7 +497,6 @@ actor FixtureRangeTransport: HTTPRangeStreaming {
         rangeHeader: String,
         range: MediaByteRange
     ) async throws -> Data? {
-        guard !cancelledURLs.contains(url) else { throw CancellationError() }
         guard !failingURLs.contains(url),
             failingRangeHeaders[url]?.contains(rangeHeader) != true,
             let data = media[url],

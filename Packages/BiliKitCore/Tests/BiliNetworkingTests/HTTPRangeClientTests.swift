@@ -133,17 +133,17 @@ struct HTTPRangeClientTests {
         )
     }
 
-    /// URLSession 取消可能以 `URLError(.cancelled)` 结束；最后一个候选也必须报告为取消。
+    /// 调用方取消后上游即使以 transport 错误结束，最后一个候选也必须报告为取消。
     @Test(arguments: [false, true])
     func cancellationStopsTheActiveRequestWithoutTryingBackup(
-        urlSessionReportsCancellation: Bool
+        upstreamReportsTransportError: Bool
     ) async throws {
         let first = try #require(URL(string: "https://first.example/media"))
         let second = try #require(URL(string: "https://second.example/media"))
         let streamer = ScriptedRangeStreamer(outcomes: [
-            .hangUntilCancelled(reportsURLError: urlSessionReportsCancellation)
+            .hangUntilCancelled(reportsTransportError: upstreamReportsTransportError)
         ])
-        let candidates = urlSessionReportsCancellation ? [first] : [first, second]
+        let candidates = upstreamReportsTransportError ? [first] : [first, second]
         let range = try HTTPByteRange(start: 0, endInclusive: 2)
 
         let task = Task {
@@ -178,7 +178,7 @@ private actor ScriptedRangeStreamer: HTTPRangeStreaming {
         case body(Data)
         case failure(HTTPRangeResponseError)
         /// 挂起到调用方取消；60 秒只作超时。
-        case hangUntilCancelled(reportsURLError: Bool)
+        case hangUntilCancelled(reportsTransportError: Bool)
     }
 
     private var outcomes: [Outcome]
@@ -221,11 +221,13 @@ private actor ScriptedRangeStreamer: HTTPRangeStreaming {
             return HTTPRangeStreamResult(byteCount: UInt64(body.count))
         case .failure(let failure):
             throw failure
-        case .hangUntilCancelled(let reportsURLError):
+        case .hangUntilCancelled(let reportsTransportError):
             do {
                 try await Task.sleep(for: .seconds(60))
             } catch {
-                if reportsURLError { throw URLError(.cancelled) }
+                if reportsTransportError {
+                    throw HTTPRangeResponseError.transport(errorType: "NSURLError")
+                }
                 throw error
             }
             throw HTTPRangeResponseError.transport(errorType: "TimedOut")

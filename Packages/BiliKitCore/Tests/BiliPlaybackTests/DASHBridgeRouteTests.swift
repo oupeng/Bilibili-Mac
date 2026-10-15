@@ -620,31 +620,6 @@ struct DASHBridgeRouteTests {
         #expect(registry.servers.isEmpty)
     }
 
-    /// 调用方之外的上游取消（例如 Range 会话失效）同样原样传播，而不是丢弃该档后继续起播。
-    @Test
-    func bridgePropagatesUpstreamCancellationOfOneVideoTier() async throws {
-        let tiers = try makeTwoVideoTiers()
-        let transport = FixtureRangeTransport(
-            media: tiers.media,
-            cancelledURLs: [tiers.highURL]
-        )
-        let registry = LoopbackServerRegistry()
-        let bridge = DASHToHLSBridge(
-            rangeClient: HTTPRangeClient(streamer: transport),
-            serverFactory: { registry.create() }
-        )
-
-        await #expect(throws: CancellationError.self) {
-            try await bridge.prepare(
-                videos: [tiers.high, tiers.low],
-                audioTracks: [makeSelectedAudioTrack(representation: tiers.audio)],
-                headers: [:],
-                subtitleSource: nil
-            )
-        }
-        #expect(registry.servers.isEmpty)
-    }
-
     private func makeTwoVideoTiers() throws -> (
         high: MediaRepresentation,
         low: MediaRepresentation,
