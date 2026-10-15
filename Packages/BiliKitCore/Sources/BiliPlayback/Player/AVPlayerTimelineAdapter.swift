@@ -208,6 +208,9 @@ final class AVPlayerTimelineAdapter {
         interactionTracker.revision
     }
 
+    /// 记住的过期 seek 落点上限；只用来辨认迟到的系统 time-jump，最早的先丢。
+    private static let maximumStaleSeekLandings = 16
+
     private let player: AVPlayer
     private let store = PlaybackTimelineStore()
     private let observers = PlayerTimelineObserverBag()
@@ -678,7 +681,7 @@ final class AVPlayerTimelineAdapter {
 
     private func appendStaleSeekLanding(_ landing: SeekLanding) {
         staleSeekLandings.append(landing)
-        if staleSeekLandings.count > 16 {
+        if staleSeekLandings.count > Self.maximumStaleSeekLandings {
             staleSeekLandings.removeFirst()
         }
     }

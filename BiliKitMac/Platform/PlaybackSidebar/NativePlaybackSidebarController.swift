@@ -13,7 +13,7 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
     let rootView = NativePlaybackSidebarRootView()
     private let collectionView = NSCollectionView()
     private let layout = NativePlaybackSidebarLayout()
-    private let heightCache = NativePlaybackSidebarHeightCache(capacity: 2_048)
+    private let heightCache = NativePlaybackSidebarHeightCache()
     private let imageOwner: NativeVideoImagePipelineOwner?
     private let imagePipeline: NativeVideoImagePipeline
     private let commentAssetURLResolver: CommentAssetURLResolver
@@ -865,7 +865,7 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
                 let anchor = self.captureAnchor()
                 guard
                     self.layout.refineNextBatch(
-                        maximumCount: 32,
+                        maximumCount: NativePlaybackSidebarLayout.refinementBatchSize,
                         prioritizing: anchor?.itemID
                     )
                 else { break }
