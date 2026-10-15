@@ -523,29 +523,8 @@ public struct HLSMasterPlaylistBuilder: Sendable {
         let totalBits = segments.reduce(0) { $0 + $1.bits }
         let totalDuration = segments.reduce(0) { $0 + $1.duration }
         let average = try integerBitRate(totalBits / totalDuration)
-
-        let maximumDuration = segments.map(\.duration).max() ?? 0
-        let targetDuration = ceil(maximumDuration)
-        let minimumPeakWindow = 0.5 * targetDuration
-        let maximumPeakWindow = 1.5 * targetDuration
-        var peak = 0.0
-
-        for start in segments.indices {
-            var bits = 0.0
-            var duration = 0.0
-            for end in start..<segments.endIndex {
-                bits += segments[end].bits
-                duration += segments[end].duration
-                if duration > maximumPeakWindow {
-                    break
-                }
-                if duration >= minimumPeakWindow {
-                    peak = max(peak, bits / duration)
-                }
-            }
-        }
         return (
-            peak: try integerBitRate(peak),
+            peak: try HLSPeakBitRate.peak(of: index),
             average: average
         )
     }

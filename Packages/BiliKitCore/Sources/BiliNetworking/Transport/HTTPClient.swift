@@ -109,13 +109,16 @@ extension URLSessionConfiguration {
 /// `URLSession` adapter；实际 Cookie、缓存与重定向行为取决于注入的 session。
 ///
 /// 默认 `.shared` 不提供认证、媒体或字幕所需的隔离保证；这些调用方必须注入用途专属配置。
+/// 按配置自建的 session 归 transport 所有，transport 释放时让它完成在途任务后失效，session 与
+/// delegate 随之释放；注入的 session 由注入方负责生命周期。
 public final class URLSessionTransport: HTTPTransport, HTTPTransportInvalidating,
     @unchecked Sendable
 {
     private let session: URLSession
+    private let ownsSession: Bool
 
-    public init(session: URLSession = .shared) {
-        self.session = session
+    public convenience init(session: URLSession = .shared) {
+        self.init(session: session, ownsSession: false)
     }
 
     public convenience init(
@@ -134,8 +137,21 @@ public final class URLSessionTransport: HTTPTransport, HTTPTransportInvalidating
                 configuration: configuration,
                 delegate: delegate,
                 delegateQueue: nil
-            )
+            ),
+            ownsSession: true
         )
+    }
+
+    init(session: URLSession, ownsSession: Bool) {
+        self.session = session
+        self.ownsSession = ownsSession
+    }
+
+    deinit {
+        // 已被 `invalidateAndCancel` 失效的 session 再次失效是 no-op。
+        if ownsSession {
+            session.finishTasksAndInvalidate()
+        }
     }
 
     public func send(_ request: HTTPRequest) async throws -> HTTPResponse {

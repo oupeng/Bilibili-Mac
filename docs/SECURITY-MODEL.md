@@ -93,7 +93,7 @@ storage、无 URL cache，并拒绝 redirect。`PublicHTTPSURLPolicy` 是基线�
 
 | 用途 | 允许来源 | 其他限制 |
 | --- | --- | --- |
-| 媒体（DASH、progressive） | `BiliMediaCDNURLPolicy`：`bilivideo.com`／`bilivideo.cn`／`szbdyd.com` 及子域、`upos-*.akamaized.net` | DTO 映射时、bridge 读取 SIDX 前与 loopback 媒体资源构造时各检查一次；Range client 本身只执行 `PublicHTTPSURLPolicy`。响应须为精确 206 与起止一致的 `Content-Range`，正文逐字节计数、长度必须精确；媒体分段另核对 `Content-Range` 完整长度，progressive 另要求 `Content-Length` 与 `Content-Type`。构造每个 Range 请求时统一去除调用方 headers 里的 `Cookie`／`Authorization` |
+| 媒体（DASH、progressive） | `BiliMediaCDNURLPolicy`：`bilivideo.com`／`bilivideo.cn`／`szbdyd.com` 及子域、`upos-*.akamaized.net` | DTO 映射时、bridge 读取 SIDX 前与 loopback 媒体资源构造时各检查一次；Range client 本身只执行 `PublicHTTPSURLPolicy`。响应须为精确 206 与起止一致的 `Content-Range`，正文逐字节计数、长度必须精确；媒体分段另核对 `Content-Range` 完整长度，progressive 另要求 `Content-Length` 与 `Content-Type`。SIDX（≤ 1 MiB）与音频 init（≤ 2 MiB）区间超限时不发请求，读取同样先验证响应头再接收正文，超出区间立即取消。构造每个 Range 请求时统一去除调用方 headers 里的 `Cookie`／`Authorization` |
 | 字幕正文 | `SubtitleURLPolicy`：`https://aisubtitle.hdslb.com/bfs/...` | 正文 ≤ 2 MiB；新主机先失败关闭 |
 | 评论头像、表情、正文图片、链接前置图标，热搜图标 | `BiliBFSImageURLPolicy`：`i0`／`i1`／`i2.hdslb.com` 与相册域名 `album.biliimg.com`（较早的评论图片）的 `/bfs/` 路径（热搜图标的 `http:` 与协议相对地址先升级为 HTTPS） | 拒绝 query、fragment、点段、编码分隔符；评论列表图片与头像的缩略参数写在 path 上（`@{宽}w_{高}h.webp`），加参数后的地址再过一次同一规则；热搜图标不合规时只丢图标、保留文字 |
 | 视频封面 | 接口返回的 HTTPS URL（`http:`、协议相对地址升级为 HTTPS），映射时与图片管线请求前各过一次 `PublicHTTPSURLPolicy` | 由图片管线限制 |
@@ -126,6 +126,8 @@ storage、无 URL cache，并拒绝 redirect。`PublicHTTPSURLPolicy` 是基线�
   响应头验证的候选固定给后续 Range。上游请求去除 `Cookie`／`Authorization`。
 - DASH 分段不要求上游 `Content-Length`（部分 CDN／HTTP/2 省略），正文按逐字节计数核对；progressive
   要求上游 `Content-Length`。206 响应头发出后的任何失败只能断开连接，不换来源续传。
+- 收齐请求头后继续监听下游：EOF（包括客户端在响应前半关闭；AVPlayer 不半关闭）或连接错误即视为断开，
+  关闭连接并取消上游请求；向下游写入失败同样按取消处理，不换备用线路。
 - playlist 只在内存；媒体正文逐 chunk 转发并等待下游 send completion 形成背压，下游写入期间上游已到达
   的字节最多暂存 4 MiB，超出即失败；不整段缓存、不落盘。
 - 播放项目替换、停止、关窗或登出时关闭 server，取消连接与上游 Task。

@@ -381,12 +381,12 @@ extension Array where Element == CheckedContinuation<Void, Never> {
     }
 }
 
-/// BiliPlaybackTests 唯一的媒体 Range 替身，同时服务 `HTTPTransport`（SIDX／音频格式读取）
-/// 与 `HTTPRangeStreaming`（loopback 媒体转发）。
+/// BiliPlaybackTests 唯一的媒体 Range 替身，经 `HTTPRangeStreaming` 同时服务 SIDX／音频格式
+/// 读取（`HTTPRangeClient`）与 loopback 媒体转发。
 ///
 /// 按 URL 返回精确 206 Range；可让整个 URL 或指定 Range 头失败、隐藏完整长度、在响应头后
 /// 截断正文，或让某些 URL 除 SIDX index 以外的 Range 挂起到调用方取消。
-actor FixtureRangeTransport: HTTPTransport, HTTPRangeStreaming {
+actor FixtureRangeTransport: HTTPRangeStreaming {
     private let media: [URL: Data]
     private let failingURLs: Set<URL>
     private let failingRangeHeaders: [URL: Set<String>]
@@ -415,36 +415,12 @@ actor FixtureRangeTransport: HTTPTransport, HTTPRangeStreaming {
         self.blockingURLIndexRanges = blockingURLIndexRanges
     }
 
-    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
-        requests.append(request)
-        guard
-            let rangeHeader = request.headers.first(where: { name, _ in
-                name.caseInsensitiveCompare("Range") == .orderedSame
-            })?.value,
-            let range = Self.parseRange(rangeHeader),
-            let data = try await admit(request.url, rangeHeader: rangeHeader, range: range)
-        else {
-            return HTTPResponse(statusCode: 403, body: Data())
-        }
-        let completeLength =
-            unknownLengthURLs.contains(request.url)
-            ? "*" : String(data.count)
-        return HTTPResponse(
-            statusCode: 206,
-            headers: [
-                "Content-Range":
-                    "bytes \(range.start)-\(range.endInclusive)/\(completeLength)"
-            ],
-            body: Self.slice(data, range)
-        )
-    }
-
     /// 与真实 streamer 一样先确认完整长度再放行响应头，并把正文分两个 chunk 交给下游。
     func stream(
         from url: URL,
         rangeHeader: String,
         expectedRange: HTTPByteRange,
-        expectedCompleteLength: Int64,
+        expectedCompleteLength: Int64?,
         headers: [String: String],
         allowedContentTypes: Set<String>?,
         requiresContentLength: Bool,
@@ -462,21 +438,24 @@ actor FixtureRangeTransport: HTTPTransport, HTTPRangeStreaming {
         else {
             throw HTTPRangeResponseError.statusCode(403)
         }
-        guard !unknownLengthURLs.contains(url) else {
-            throw HTTPRangeResponseError.missingCompleteLength
-        }
-        guard Int64(data.count) == expectedCompleteLength else {
-            throw HTTPRangeResponseError.mismatchedCompleteLength(
-                expected: expectedCompleteLength,
-                actual: Int64(data.count)
-            )
+        let completeLength = unknownLengthURLs.contains(url) ? nil : Int64(data.count)
+        if let expectedCompleteLength {
+            guard let completeLength else {
+                throw HTTPRangeResponseError.missingCompleteLength
+            }
+            guard completeLength == expectedCompleteLength else {
+                throw HTTPRangeResponseError.mismatchedCompleteLength(
+                    expected: expectedCompleteLength,
+                    actual: completeLength
+                )
+            }
         }
         try await onResponse(
             HTTPRangeStreamResponse(
                 contentRange: try HTTPContentRange(
                     start: expectedRange.start,
                     endInclusive: expectedRange.endInclusive,
-                    completeLength: expectedCompleteLength
+                    completeLength: completeLength
                 ),
                 contentLength: expectedRange.length,
                 contentType: nil
@@ -544,28 +523,12 @@ actor FixtureRangeTransport: HTTPTransport, HTTPRangeStreaming {
     private static func slice(_ data: Data, _ range: MediaByteRange) -> Data {
         data.subdata(in: Int(range.start)..<(Int(range.endInclusive) + 1))
     }
-
-    private static func parseRange(_ value: String) -> MediaByteRange? {
-        guard value.hasPrefix("bytes=") else { return nil }
-        let bounds = value.dropFirst("bytes=".count).split(
-            separator: "-",
-            maxSplits: 1,
-            omittingEmptySubsequences: false
-        )
-        guard bounds.count == 2,
-            let start = Int64(bounds[0]),
-            let end = Int64(bounds[1])
-        else {
-            return nil
-        }
-        return try? MediaByteRange(start: start, endInclusive: end)
-    }
 }
 
 /// 用同一个 fixture 替身同时提供 SIDX 读取与 loopback 媒体转发的 bridge。
 func makeFixtureBridge(_ transport: FixtureRangeTransport) -> DASHToHLSBridge {
     DASHToHLSBridge(
-        rangeClient: HTTPRangeClient(transport: transport),
+        rangeClient: HTTPRangeClient(streamer: transport),
         serverFactory: { LoopbackPlaybackServer(rangeStreamer: transport) }
     )
 }

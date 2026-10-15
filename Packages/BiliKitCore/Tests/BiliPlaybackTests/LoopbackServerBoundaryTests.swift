@@ -609,8 +609,9 @@ struct LoopbackServerBoundaryTests {
         process.standardError = FileHandle.nullDevice
         try process.run()
         try input.fileHandleForWriting.write(contentsOf: request)
-        try input.fileHandleForWriting.close()
+        // 读完响应前不关闭 stdin：nc 在 stdin EOF 时半关闭连接，server 会把它当作下游断开。
         let response = output.fileHandleForReading.readDataToEndOfFile()
+        try input.fileHandleForWriting.close()
         process.waitUntilExit()
         return (process.terminationStatus, response)
     }

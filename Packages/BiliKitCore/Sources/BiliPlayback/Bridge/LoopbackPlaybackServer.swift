@@ -598,6 +598,26 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
         }
     }
 
+    /// 响应期间监听下游断开，立即关闭连接并取消上游 Task，不让上游请求白跑。
+    ///
+    /// 请求头之后 AVPlayer 不再发送数据：EOF 或连接错误即断开，之后到达的字节直接丢弃。
+    private func watchForDownstreamClose(
+        on connection: NWConnection,
+        id: ObjectIdentifier
+    ) {
+        connection.receive(
+            minimumIncompleteLength: 1,
+            maximumLength: Self.maximumHeaderBytes
+        ) { [weak self] _, _, isComplete, error in
+            guard let self else { return }
+            if isComplete || error != nil {
+                self.closeConnection(id)
+            } else {
+                self.watchForDownstreamClose(on: connection, id: id)
+            }
+        }
+    }
+
     private func beginResponse(
         for headerData: Data,
         on connection: NWConnection,
@@ -662,7 +682,9 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
             connectionTasks[id] = task
             return true
         }
-        if !accepted {
+        if accepted {
+            watchForDownstreamClose(on: connection, id: id)
+        } else {
             task.cancel()
             connection.cancel()
         }
@@ -793,7 +815,8 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
 
     /// 按候选顺序把上游 Range 逐 chunk 转发给 AVPlayer，每个 chunk 等待 send completion。
     ///
-    /// 只有尚未发送响应头的候选失败才会尝试下一个来源；已发送 206 后失败只能断开连接。
+    /// 只有尚未发送响应头的候选在上游失败时才会尝试下一个来源；已发送 206 后失败只能断开连接。
+    /// 下游发送失败按取消处理，不换备用线路。
     private func streamRange(
         _ range: HTTPByteRange,
         rangeHeader: String,
@@ -875,6 +898,7 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
         return Data(head.utf8)
     }
 
+    /// 下游写入失败说明 AVPlayer 已断开，报告为 `CancellationError`。
     private static func sendChunk(
         _ data: Data,
         on connection: NWConnection
@@ -885,8 +909,8 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
             connection.send(
                 content: data,
                 completion: .contentProcessed { error in
-                    if let error {
-                        continuation.resume(throwing: error)
+                    if error != nil {
+                        continuation.resume(throwing: CancellationError())
                     } else {
                         continuation.resume()
                     }

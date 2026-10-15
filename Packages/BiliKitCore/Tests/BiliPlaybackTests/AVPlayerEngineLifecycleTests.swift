@@ -373,7 +373,7 @@ struct AVPlayerEngineLifecycleTests {
         )
         let transport = FixtureRangeTransport(media: fixture.media)
         let bridge = DASHToHLSBridge(
-            rangeClient: HTTPRangeClient(transport: transport),
+            rangeClient: HTTPRangeClient(streamer: transport),
             subtitleCatalogGrace: .milliseconds(20),
             serverFactory: { LoopbackPlaybackServer(rangeStreamer: transport) }
         )

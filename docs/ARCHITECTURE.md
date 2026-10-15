@@ -68,11 +68,18 @@ BiliNetworking 不依赖任何 Bili 模块
 session path，提供内存中生成的 master／media playlist，并把 AVPlayer 的 Range 转发到 CDN。
 
 - SIDX 成功的候选成为该 representation 的唯一远端来源，后续 init、media 与 Range 不跨来源拼字节；
-  分段正文与 progressive 共用同一流式转发，逐 chunk 写入 loopback，不整段缓存；同一 bridge 的
-  各播放会话共用一个 Range 会话以复用 CDN 连接，server 停止只取消自己的在途请求。
-- 上游响应必须通过状态码、`Content-Range`、长度校验；取消不触发备用线路。
+  分段正文与 progressive 共用同一流式转发，逐 chunk 写入 loopback，不整段缓存；SIDX 与音频 init
+  也经同一流式 client 先验证响应头再收正文。同一 bridge 的 SIDX／init 读取与各播放会话共用一个
+  Range 会话以复用 CDN 连接，server 停止只取消自己的在途请求。
+- 上游响应必须通过状态码、`Content-Range`、长度校验；取消不触发备用线路，AVPlayer 断开连接或
+  下游写入失败都按取消处理并立即取消上游请求。
 - 只有全部 SIDX reference 从 type-1 SAP 开始且 `SAP_delta_time` 为 0 时才发布 I-frame rendition，
   它复用同一 route 的完整 fragment Range，不预读、不缓存。
+- 各档视频 SIDX 并行读取。某一档在读取阶段失败时只丢弃该档：全部候选失败（含响应头校验失败与 SIDX
+  解析失败）、`Content-Range` 缺少完整长度、索引区间超过 1 MiB 或非法。master 只发布成功的档，至少一档
+  可用就继续播放，全部失败才让播放失败（报告排在最前的那一档的错误）。取消原样传播，不当成某一档失败。
+  与 AI 配音一致，单个附加档位失败不拖垮播放。读取成功之后，生成 playlist 或计算码率出错（例如
+  `noMediaSegments`、`invalidCalculatedBitRate`）仍让整次播放失败。
 - 同一 AUDIO group 以原声 SIDX 起点为准；起点不一致的 AI 音轨在生成 master 前丢弃。
 - AI 配音只对账户读取请求，按语言逐个取 playurl；某个语言失败（风控、网络、业务拒绝、本地授权不可用，
   至多经过一次 WBI 重试）就停止后续语言的配音请求，只保留已拿到的音轨和原声，播放照常进行。凭据失效与
