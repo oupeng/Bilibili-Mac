@@ -524,7 +524,7 @@ public struct HLSMasterPlaylistBuilder: Sendable {
         let totalDuration = segments.reduce(0) { $0 + $1.duration }
         let average = try integerBitRate(totalBits / totalDuration)
         return (
-            peak: try integerBitRate(try HLSPeakBitRate.peak(of: index)),
+            peak: try HLSPeakBitRate.peak(of: index),
             average: average
         )
     }
