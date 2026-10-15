@@ -163,7 +163,10 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   悬停由 `NativeVideoHoverTracker` 统一管理（网格卡片与投稿行都实现 `NativeHoverableCollectionItem`）；
   “返回顶部”玻璃按钮与评论区共用 `NativeScrollToTopScrollView`。
 - 封面、头像与评论图片由 `AppWindowOwner` 持有的窗口级匿名、有界 `NativeVideoImagePipeline`
-  加载（Now Playing 封面另有进程级实例）；cell 离屏、复用和 teardown 取消等待者。
+  加载（Now Playing 封面另有进程级实例）；cell 离屏、复用和 teardown 取消等待者。缓存上界按管线用途
+  只在 `NativeVideoImageCacheLimits` 定义：窗口 160 张／64 MiB，Now Playing 4 张／8 MiB；单张成本超过
+  总上限的 1/4（如评论图片预览的大原图）不进缓存，预览打开期间由视图自己持有。系统内存压力时清空缓存，
+  在途请求照常完成；owner shutdown 时先取消压力监听。
 - 评论列表图片与头像请求图床按框缩小的 WebP（`@{宽}w_{高}h.webp`，图床按比例缩进框内、不放大），框按
   用途只在 `NativePlaybackCommentAssetSizing` 定义：列表为最大显示尺寸的 2 倍，头像为解码上限；表情与
   预览请求原图。预览先显示列表里已缓存的缩小图并标出原图加载中，原图到达后原位替换，原图失败时保留缩小图并提供重试。

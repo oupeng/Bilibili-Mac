@@ -443,10 +443,7 @@ struct PopularNativeGridTests {
             #expect(variant.maximumResponseBytes == 8 * megabyte)
         }
 
-        var countBoundCache = NativeVideoImageCache(
-            countLimit: 2,
-            costLimit: 1_024
-        )
+        var countBoundCache = NativeVideoImageCache(limits: .init(countLimit: 2, costLimit: 1_024))
         let image = try #require(makeImage(width: 4, height: 4))
         countBoundCache.insert(image, animation: nil, for: imageKey("1"))
         countBoundCache.insert(image, animation: nil, for: imageKey("2"))
@@ -454,10 +451,7 @@ struct PopularNativeGridTests {
         #expect(countBoundCache.count == 2)
         #expect(countBoundCache.totalCost <= 1_024)
 
-        var costBoundCache = NativeVideoImageCache(
-            countLimit: 10,
-            costLimit: 100
-        )
+        var costBoundCache = NativeVideoImageCache(limits: .init(countLimit: 10, costLimit: 100))
         costBoundCache.insert(image, animation: nil, for: imageKey("a"))
         costBoundCache.insert(image, animation: nil, for: imageKey("b"))
         #expect(costBoundCache.totalCost <= 100)
@@ -480,7 +474,7 @@ struct PopularNativeGridTests {
         #expect(commentPictureKey != commentPreviewKey)
         let cover = try #require(makeImage(width: 8, height: 4))
         let avatar = try #require(makeImage(width: 4, height: 4))
-        var cache = NativeVideoImageCache(countLimit: 2, costLimit: 1_024)
+        var cache = NativeVideoImageCache(limits: .init(countLimit: 2, costLimit: 1_024))
 
         cache.insert(cover, animation: nil, for: coverKey)
         cache.insert(avatar, animation: nil, for: avatarKey)

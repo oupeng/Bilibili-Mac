@@ -350,9 +350,6 @@ private final class NativeVideoImageSessionDelegate: NSObject, URLSessionDataDel
 }
 
 final class NativeVideoImagePipeline: Sendable {
-    static let cacheCountLimit = 160
-    static let cacheCostLimit = 64 * 1_024 * 1_024
-
     private struct InFlight {
         let id: UInt64
         var task: Task<Void, Never>?
@@ -360,10 +357,7 @@ final class NativeVideoImagePipeline: Sendable {
     }
 
     private struct State {
-        var cache = NativeVideoImageCache(
-            countLimit: NativeVideoImagePipeline.cacheCountLimit,
-            costLimit: NativeVideoImagePipeline.cacheCostLimit
-        )
+        var cache: NativeVideoImageCache
         var inFlight: [NativeVideoImageKey: InFlight] = [:]
         var nextRequestID: UInt64 = 0
         var nextWaiterID: UInt64 = 0
@@ -381,12 +375,13 @@ final class NativeVideoImagePipeline: Sendable {
         )
     }
 
-    private let state = Mutex(State())
+    private let state: Mutex<State>
     private let sessionGate = NativeVideoImageSessionGate()
     private let sessionDelegate = NativeVideoImageSessionDelegate()
     private let session: URLSession
 
-    init() {
+    init(cacheLimits: NativeVideoImageCacheLimits = .window) {
+        state = Mutex(State(cache: NativeVideoImageCache(limits: cacheLimits)))
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpShouldSetCookies = false
         configuration.httpCookieStorage = nil
@@ -496,6 +491,14 @@ final class NativeVideoImagePipeline: Sendable {
             using: session,
             gate: sessionGate
         ).data
+    }
+
+    /// 系统内存压力时清空已解码的缓存；在途请求照常完成并写回，之后的请求照常进行。
+    func discardCachedImages() {
+        state.withLock { state in
+            guard !state.isShutdown else { return }
+            state.cache.removeAll()
+        }
     }
 
     func shutdown() {
@@ -673,81 +676,32 @@ final class NativeVideoImagePipeline: Sendable {
     }
 }
 
+/// 管线的生命周期 owner：持有系统内存压力监听，shutdown 时先取消监听再关闭管线。
 final class NativeVideoImagePipelineOwner {
-    let pipeline = NativeVideoImagePipeline()
+    let pipeline: NativeVideoImagePipeline
+    private let memoryPressureSource: any DispatchSourceMemoryPressure
+
+    init(cacheLimits: NativeVideoImageCacheLimits = .window) {
+        let pipeline = NativeVideoImagePipeline(cacheLimits: cacheLimits)
+        self.pipeline = pipeline
+        let source = DispatchSource.makeMemoryPressureSource(
+            eventMask: [.warning, .critical],
+            queue: .global(qos: .utility)
+        )
+        source.setEventHandler { [weak pipeline] in
+            pipeline?.discardCachedImages()
+        }
+        source.resume()
+        memoryPressureSource = source
+    }
 
     func shutdown() {
+        memoryPressureSource.setEventHandler {}
+        memoryPressureSource.cancel()
         pipeline.shutdown()
     }
 
     deinit {
         shutdown()
-    }
-}
-
-struct NativeVideoImageCache {
-    private struct Entry {
-        let image: CGImage
-        let animation: NativeAnimatedImage?
-        let cost: Int
-        var recency: UInt64
-    }
-
-    let countLimit: Int
-    let costLimit: Int
-    private(set) var totalCost = 0
-    private(set) var count = 0
-    private var clock: UInt64 = 0
-    private var entries: [NativeVideoImageKey: Entry] = [:]
-
-    init(countLimit: Int, costLimit: Int) {
-        self.countLimit = countLimit
-        self.costLimit = costLimit
-    }
-
-    mutating func image(for key: NativeVideoImageKey) -> CGImage? {
-        guard var entry = entries[key] else { return nil }
-        clock &+= 1
-        entry.recency = clock
-        entries[key] = entry
-        return entry.image
-    }
-
-    func animation(for key: NativeVideoImageKey) -> NativeAnimatedImage? {
-        entries[key]?.animation
-    }
-
-    /// 成本是第一帧的解码字节数加动图编码数据的字节数。
-    mutating func insert(
-        _ image: CGImage,
-        animation: NativeAnimatedImage?,
-        for key: NativeVideoImageKey
-    ) {
-        let cost = image.bytesPerRow * image.height + (animation?.data.count ?? 0)
-        guard cost <= costLimit, countLimit > 0, costLimit > 0 else { return }
-        if let old = entries.removeValue(forKey: key) {
-            totalCost -= old.cost
-        }
-        clock &+= 1
-        entries[key] = Entry(image: image, animation: animation, cost: cost, recency: clock)
-        totalCost += cost
-        trimToLimits()
-        count = entries.count
-    }
-
-    mutating func removeAll() {
-        entries.removeAll(keepingCapacity: false)
-        totalCost = 0
-        count = 0
-    }
-
-    private mutating func trimToLimits() {
-        while entries.count > countLimit || totalCost > costLimit {
-            guard let oldest = entries.min(by: { $0.value.recency < $1.value.recency }) else {
-                break
-            }
-            totalCost -= oldest.value.cost
-            entries.removeValue(forKey: oldest.key)
-        }
     }
 }
