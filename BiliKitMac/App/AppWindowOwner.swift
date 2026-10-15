@@ -37,6 +37,7 @@ final class AppWindowOwner {
     private let watchProgressConnection: WatchProgressWindowConnection?
     private let openEnvironment: (@MainActor @Sendable () -> Void)?
     private let closeEnvironment: (@MainActor @Sendable () -> Void)?
+    private let synchronizeEnvironmentSignedOutConfirmation: (@MainActor @Sendable (Bool) -> Void)?
     private var isOpen = false
     private var isClosed = false
 
@@ -91,7 +92,9 @@ final class AppWindowOwner {
                 environment.makeSystemNowPlayingPlaybackConnection(),
             watchProgressConnection: watchProgressConnection,
             openEnvironment: environment.open,
-            closeEnvironment: environment.close
+            closeEnvironment: environment.close,
+            synchronizeEnvironmentSignedOutConfirmation:
+                environment.synchronizeSignedOutConfirmation
         )
     }
 
@@ -186,7 +189,9 @@ final class AppWindowOwner {
         systemNowPlayingConnection: SystemNowPlayingPlaybackConnection? = nil,
         watchProgressConnection: WatchProgressWindowConnection? = nil,
         openEnvironment: (@MainActor @Sendable () -> Void)? = nil,
-        closeEnvironment: (@MainActor @Sendable () -> Void)? = nil
+        closeEnvironment: (@MainActor @Sendable () -> Void)? = nil,
+        synchronizeEnvironmentSignedOutConfirmation:
+            (@MainActor @Sendable (Bool) -> Void)? = nil
     ) {
         self.navigationCoordinator = navigationCoordinator
         self.browseModel = browseModel
@@ -217,6 +222,8 @@ final class AppWindowOwner {
         self.watchProgressConnection = watchProgressConnection
         self.openEnvironment = openEnvironment
         self.closeEnvironment = closeEnvironment
+        self.synchronizeEnvironmentSignedOutConfirmation =
+            synchronizeEnvironmentSignedOutConfirmation
     }
 
     func open() {
@@ -242,6 +249,11 @@ final class AppWindowOwner {
 
     func markWindowActive() {
         systemNowPlayingCoordinator?.markWindowActive()
+    }
+
+    /// 主 API 的「已确认未登录」；由 `AccountSignedOutConfirmation.isConfirmed` 判定后传入。
+    func synchronizeSignedOutConfirmation(_ isConfirmed: Bool) {
+        synchronizeEnvironmentSignedOutConfirmation?(isConfirmed)
     }
 
     func synchronizeWatchProgressAccess(_ scope: AccountSessionScope) {

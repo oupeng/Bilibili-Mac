@@ -1,3 +1,4 @@
+import BiliAuthFeature
 import BiliNetworking
 import Foundation
 import Testing
@@ -7,6 +8,35 @@ import Testing
 
 @Suite(.timeLimit(.minutes(1)))
 struct AccountReadAuthorizationCompositionTests {
+    /// 窗口状态、复核阶段、进程状态与期望结果。
+    static let signedOutConfirmationCases:
+        [(AccountSessionScope, AuthenticationResolutionPhase, AccountSessionScope, Bool)] = [
+            (.signedOut, .other, .unresolved, true),
+            (.signedOut, .other, .signedOut, true),
+            (.signedOut, .restoring, .signedOut, false),
+            (.signedOut, .failed, .signedOut, false),
+            (.signedOut, .other, .signedIn(accountID: 42), false),
+            (.unresolved, .other, .unresolved, false),
+            (.signedIn(accountID: 42), .signedIn, .signedIn(accountID: 42), false)
+        ]
+
+    /// 只有窗口已确认未登录、没有进行中或失败的复核、进程内也没有窗口登录时，Keychain 不可用才按无凭据处理。
+    @Test(arguments: signedOutConfirmationCases)
+    func signedOutIsConfirmedOnlyWhenNothingSuggestsAnAccount(
+        windowScope: AccountSessionScope,
+        resolutionPhase: AuthenticationResolutionPhase,
+        processScope: AccountSessionScope,
+        expected: Bool
+    ) {
+        #expect(
+            AccountSignedOutConfirmation.isConfirmed(
+                windowScope: windowScope,
+                resolutionPhase: resolutionPhase,
+                processScope: processScope
+            ) == expected
+        )
+    }
+
     @Test
     @MainActor
     func productionCapabilitiesStayExactAndMinimal() {

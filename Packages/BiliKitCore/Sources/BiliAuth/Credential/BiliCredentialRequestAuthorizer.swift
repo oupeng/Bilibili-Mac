@@ -35,19 +35,27 @@ public struct BiliCredentialRequestAuthorizer: HTTPRequestAuthorizing, Sendable 
     private let httpClient: HTTPClient
     private let transportInvalidator: (@Sendable () -> Void)?
     private let allowedPaths: Set<String>
+    private let isConfirmedSignedOut: @Sendable () -> Bool
 
-    public init(allowedPaths: Set<String>) {
+    /// `isConfirmedSignedOut` 为 true 时 Keychain 不可用按无凭据处理（由调用方决定能否匿名）；
+    /// 认证服务自身的复核授权器不传，保持失败关闭。
+    public init(
+        allowedPaths: Set<String>,
+        isConfirmedSignedOut: @escaping @Sendable () -> Bool = { false }
+    ) {
         let transport = AuthenticationHTTP.makeProductionTransport()
         store = KeychainWebCredentialStore()
         httpClient = HTTPClient(transport: transport)
         transportInvalidator = { transport.invalidateAndCancel() }
         self.allowedPaths = allowedPaths
+        self.isConfirmedSignedOut = isConfirmedSignedOut
     }
 
     init(
         store: any WebCredentialStoring,
         allowedPaths: Set<String>,
-        transport: any HTTPTransport = AuthenticationHTTP.makeProductionTransport()
+        transport: any HTTPTransport = AuthenticationHTTP.makeProductionTransport(),
+        isConfirmedSignedOut: @escaping @Sendable () -> Bool = { false }
     ) {
         self.store = store
         httpClient = HTTPClient(transport: transport)
@@ -57,6 +65,7 @@ public struct BiliCredentialRequestAuthorizer: HTTPRequestAuthorizing, Sendable 
             transportInvalidator = nil
         }
         self.allowedPaths = allowedPaths
+        self.isConfirmedSignedOut = isConfirmedSignedOut
     }
 
     /// 返回附带短生命周期 Cookie header 的新请求；原请求不会被原地共享或缓存。
@@ -80,7 +89,10 @@ public struct BiliCredentialRequestAuthorizer: HTTPRequestAuthorizing, Sendable 
             try purgeStoredCredential()
             throw BiliRequestAuthorizationError.invalidCredential
         } catch {
-            throw BiliRequestAuthorizationError.credentialStoreUnavailable
+            guard isConfirmedSignedOut() else {
+                throw BiliRequestAuthorizationError.credentialStoreUnavailable
+            }
+            throw BiliRequestAuthorizationError.missingCredential
         }
 
         guard !credential.isExpired() else {
