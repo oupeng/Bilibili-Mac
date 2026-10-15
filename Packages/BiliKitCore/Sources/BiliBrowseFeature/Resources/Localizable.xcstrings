@@ -309,6 +309,34 @@
         }
       }
     },
+    "内容不存在或不可见" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Content unavailable"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コンテンツが存在しないか、表示できません"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "内容不存在或不可见"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "內容不存在或不可見"
+          }
+        }
+      }
+    },
     "刚刚" : {
       "localizations" : {
         "en" : {
@@ -701,6 +729,34 @@
         }
       }
     },
+    "当前无法完成这次请求。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This request can’t be completed."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このリクエストは完了できません。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前无法完成这次请求。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "目前無法完成這次要求。"
+          }
+        }
+      }
+    },
     "当前视频不在合集目录中" : {
       "localizations" : {
         "en" : {
@@ -977,6 +1033,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "無法安全地讀取本機登入憑證，請稍後再試。"
+          }
+        }
+      }
+    },
+    "无法完成请求" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn’t complete the request"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "リクエストを完了できません"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法完成请求"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法完成要求"
           }
         }
       }
@@ -2353,6 +2437,34 @@
         }
       }
     },
+    "该内容可能已被删除、仍在审核，或只对部分用户可见。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "It may have been deleted, still be under review, or be visible only to some users."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "削除されたか、審査中か、一部のユーザーにのみ公開されている可能性があります。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "该内容可能已被删除、仍在审核，或只对部分用户可见。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "該內容可能已被刪除、仍在審核，或只對部分使用者可見。"
+          }
+        }
+      }
+    },
     "该内容需要登录后查看。" : {
       "localizations" : {
         "en" : {
@@ -2433,34 +2545,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "請檢查網路連線後再試。"
-          }
-        }
-      }
-    },
-    "请求参数无效，请重新选择内容。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The request was invalid. Select the content again."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "リクエストが無効です。コンテンツを選び直してください。"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "请求参数无效，请重新选择内容。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "要求參數無效，請重新選擇內容。"
           }
         }
       }

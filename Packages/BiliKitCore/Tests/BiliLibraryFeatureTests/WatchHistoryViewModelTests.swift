@@ -129,56 +129,6 @@ struct WatchHistoryViewModelTests {
 
     @Test
     @MainActor
-    func authenticationFailureRequestsRevalidation() async {
-        let repository = HistoryRepositoryStub(
-            results: [.failure(WatchHistoryError.authenticationRequired)]
-        )
-        let model = WatchHistoryViewModel(
-            useCase: WatchHistoryUseCase(repository: repository)
-        )
-
-        model.loadIfNeeded()
-        await model.waitForCurrentTask()
-
-        #expect(model.state == .failed(.authenticationRequired))
-        #expect(model.requiresAuthentication)
-        #expect(model.successfulReloadGeneration == 0)
-    }
-
-    @Test
-    @MainActor
-    func requestDroppedBySessionChangeLeavesRetryableState() async {
-        let model = WatchHistoryViewModel(
-            useCase: WatchHistoryUseCase(
-                // API 在认证会话切换时丢弃在途请求：抛出取消，但调用方任务本身没有被取消。
-                repository: HistoryRepositoryStub(results: [.failure(CancellationError())])
-            )
-        )
-
-        model.loadIfNeeded()
-        await model.waitForCurrentTask()
-
-        #expect(model.state == .failed(.transportFailure))
-        #expect(!model.isBusy)
-    }
-
-    @Test
-    @MainActor
-    func authenticationRevalidationFailureLeavesRetryableHistoryState() {
-        let model = WatchHistoryViewModel(
-            useCase: WatchHistoryUseCase(
-                repository: HistoryRepositoryStub(results: [])
-            )
-        )
-
-        model.reportAuthenticationRevalidationFailure()
-
-        #expect(model.state == .failed(.transportFailure))
-        #expect(!model.isBusy)
-    }
-
-    @Test
-    @MainActor
     func loadMoreFailureKeepsExistingItemsAndTailAvailableForRetry() async {
         let continuation = token(100)
         let repository = HistoryRepositoryStub(
@@ -189,7 +139,7 @@ struct WatchHistoryViewModelTests {
                         continuation: continuation
                     )
                 ),
-                .failure(WatchHistoryError.transportFailure)
+                .failure(ContentApplicationError.transportFailure)
             ]
         )
         let model = WatchHistoryViewModel(
@@ -290,7 +240,7 @@ struct WatchHistoryViewModelTests {
                     )
                 )
             ] + emptyPagesEnding(at: manual) + [
-                .failure(WatchHistoryError.transportFailure),
+                .failure(ContentApplicationError.transportFailure),
                 .success(
                     WatchHistoryPage(
                         items: [item("BV1HistoryB2")],
@@ -454,14 +404,17 @@ struct WatchHistoryViewModelTests {
         #expect(await repository.observedContinuations() == [nil, nil])
     }
 
-    /// 原地刷新失败保留已显示条目并恢复自动分页；登录失效仍进入终态，触发登录提示。
+    /// 原地刷新失败保留已显示条目并恢复自动分页；凭据缺失或失效进入终态并请求复核，
+    /// 本地凭据读不到只给出刷新错误。
     @Test(arguments: [
-        (WatchHistoryError.transportFailure, true),
-        (.authenticationRequired, false)
+        (ContentApplicationError.transportFailure, true),
+        (.authenticationUnavailable, true),
+        (.authenticationRequired, false),
+        (.authenticationInvalid, false)
     ])
     @MainActor
     func refreshFailureKeepsItemsUnlessAuthenticationExpired(
-        failure: WatchHistoryError,
+        failure: ContentApplicationError,
         keepsItems: Bool
     ) async {
         let repository = HistoryRepositoryStub(
@@ -490,7 +443,7 @@ struct WatchHistoryViewModelTests {
             #expect(model.successfulReloadGeneration == 1)
         } else {
             #expect(model.state == .failed(failure))
-            #expect(model.requiresAuthentication)
+            #expect(model.authenticationRevalidationGeneration == 1)
         }
     }
 
@@ -502,7 +455,7 @@ struct WatchHistoryViewModelTests {
         let repository = HistoryRepositoryStub(
             results: [
                 .success(WatchHistoryPage(items: [item("BV1HistoryA1")], continuation: token(1)))
-            ] + emptyPagesEnding(at: manual) + [.failure(WatchHistoryError.transportFailure)]
+            ] + emptyPagesEnding(at: manual) + [.failure(ContentApplicationError.transportFailure)]
         )
         let model = WatchHistoryViewModel(useCase: WatchHistoryUseCase(repository: repository))
         model.reload()
@@ -715,112 +668,6 @@ struct WatchHistoryViewModelTests {
             )
             #expect(model.requiresManualLoadMore)
             #expect(model.paginationTailIdentity == nil)
-        }
-    }
-}
-
-private func token(_ value: Int) -> WatchHistoryContinuation {
-    WatchHistoryContinuation(rawValue: "fixture-\(value)")
-}
-
-/// UseCase 跳过 3 个空页后把第 4 个空页的 continuation 交给用户显式继续。
-private func emptyPagesEnding(
-    at manual: WatchHistoryContinuation
-) -> [Result<WatchHistoryPage, any Error>] {
-    [token(901), token(902), token(903), manual].map {
-        .success(WatchHistoryPage(items: [], continuation: $0))
-    }
-}
-
-private func item(_ bvid: String) -> WatchHistoryItem {
-    WatchHistoryItem(
-        bvid: bvid,
-        title: "手写历史条目",
-        coverURL: nil,
-        owner: VideoOwner(id: 1, name: "测试作者"),
-        progressSeconds: 10,
-        durationSeconds: 100,
-        viewedAt: Date(timeIntervalSince1970: 1_700_000_000)
-    )
-}
-
-private actor HistoryRepositoryStub: WatchHistoryRepository {
-    private var results: [Result<WatchHistoryPage, any Error>]
-    private let suspendedCalls: Set<Int>
-    private var callCount = 0
-    private var continuations: [WatchHistoryContinuation?] = []
-    private let callEvents = TestEventCounter()
-    private let cancellationEvents = TestEventCounter()
-    private var releaseWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
-    private var releasedCalls: Set<Int> = []
-
-    init(
-        results: [Result<WatchHistoryPage, any Error>],
-        suspendedCalls: Set<Int> = []
-    ) {
-        self.results = results
-        self.suspendedCalls = suspendedCalls
-    }
-
-    func watchHistory(
-        after continuation: WatchHistoryContinuation?,
-        pageSize: Int
-    ) async throws -> WatchHistoryPage {
-        callCount += 1
-        let currentCall = callCount
-        continuations.append(continuation)
-        await callEvents.signal()
-        guard !results.isEmpty else { throw WatchHistoryError.invalidResponse }
-        let result = results.removeFirst()
-        if suspendedCalls.contains(currentCall), !releasedCalls.contains(currentCall) {
-            // 挂起期间忽略取消以模拟迟到结果，但记录取消事件供测试确认旧请求已被取消。
-            await withTaskCancellationHandler {
-                await withCheckedContinuation {
-                    releaseWaiters[currentCall, default: []].append($0)
-                }
-            } onCancel: {
-                Task { await self.cancellationEvents.signal() }
-            }
-        }
-        return try result.get()
-    }
-
-    func observedContinuations() -> [WatchHistoryContinuation?] {
-        continuations
-    }
-
-    func waitUntilCallCount(_ expectedCount: Int) async throws {
-        do {
-            try await callEvents.wait(until: expectedCount)
-        } catch {
-            releaseAllCalls()
-            throw error
-        }
-    }
-
-    func waitUntilCancellationCount(_ expectedCount: Int) async throws {
-        do {
-            try await cancellationEvents.wait(until: expectedCount)
-        } catch {
-            releaseAllCalls()
-            throw error
-        }
-    }
-
-    func releaseCall(_ call: Int) {
-        releasedCalls.insert(call)
-        let pending = releaseWaiters.removeValue(forKey: call) ?? []
-        for waiter in pending {
-            waiter.resume()
-        }
-    }
-
-    private func releaseAllCalls() {
-        releasedCalls.formUnion(suspendedCalls)
-        let pending = releaseWaiters.values.flatMap { $0 }
-        releaseWaiters.removeAll(keepingCapacity: false)
-        for waiter in pending {
-            waiter.resume()
         }
     }
 }

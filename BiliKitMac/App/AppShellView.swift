@@ -384,10 +384,6 @@ struct AppShellView: View {
                 onSelect: navigationCoordinator.openPlayback,
                 onPresentAuthentication: {
                     isAuthenticationPresented = true
-                },
-                onAuthenticationRequired: {
-                    historyModel.reset()
-                    authenticationModel.revalidate()
                 }
             )
         }

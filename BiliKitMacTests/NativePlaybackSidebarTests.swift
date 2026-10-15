@@ -219,6 +219,27 @@ struct NativePlaybackSidebarTests {
         )
     }
 
+    /// 内容不存在或不可见时重试不会改变结果：侧栏只说明原因，不给重试按钮。
+    @Test
+    @MainActor
+    func unavailableContentFailureOffersNoRetry() {
+        let failure = VideoLoadFailure.content(.contentUnavailable)
+        let retryable = VideoLoadFailure.content(.transportFailure)
+
+        #expect(
+            NativePlaybackSidebarOverlay.resolve(
+                state: .failed(bvid: "BVGone", failure: failure),
+                hasPresentedContent: false
+            ) == .unavailable(title: failure.title, message: failure.message)
+        )
+        #expect(
+            NativePlaybackSidebarOverlay.resolve(
+                state: .failed(bvid: "BVGone", failure: retryable),
+                hasPresentedContent: false
+            ) == .failure(title: retryable.title, message: retryable.message)
+        )
+    }
+
     @Test
     @MainActor
     func presentationReloadsOnlyTheStableRowWhoseContentChanged() throws {

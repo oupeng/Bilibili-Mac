@@ -101,6 +101,8 @@ extension BiliAPIError {
         case unexpectedHTTPStatus
         /// HTTP 403/412、业务 -352/-403/-412、`v_voucher` 挑战，以及 HTML 风控页等非预期格式的正文。
         case restricted
+        /// 业务码表明请求的内容不存在、已删除或对当前身份不可见（-404、62002、62004）；重试不会改变结果。
+        case contentUnavailable(code: Int)
         case rejected(code: Int)
         case unsupportedMedia
         case noPlayableMedia
@@ -135,6 +137,8 @@ extension BiliAPIError {
             .restricted
         case .httpStatus:
             .unexpectedHTTPStatus
+        case .apiRejected(let code, _) where Self.contentUnavailableCodes.contains(code):
+            .contentUnavailable(code: code)
         case .apiRejected(let code, _):
             .rejected(code: code)
         case .noAVCVideo, .noAACAudio:
@@ -148,6 +152,9 @@ extension BiliAPIError {
             .invalidResponse
         }
     }
+
+    /// 内容不存在或不可见的业务码：-404 资源不存在，62002 稿件不可见，62004 稿件审核中。
+    private static let contentUnavailableCodes: Set<Int> = [-404, 62_002, 62_004]
 
     /// 远端风控或限流；供没有 Application 错误域的 App 流程（线路测速）区分提示。
     public var isRiskControlRestriction: Bool { failure == .restricted }

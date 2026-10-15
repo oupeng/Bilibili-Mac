@@ -22,6 +22,8 @@ typealias CommentAssetURLResolver = @Sendable (CommentAssetReference, CommentAss
 /// 原生字幕、弹幕、视频模型与 AppKit player host 必须共享它的播放 identity 和时间线。
 struct AppEnvironment {
     private let playerEngine: AVPlayerEngine
+    /// 字幕目录发现的凭据失效；只转给本环境最新创建的视频模型。
+    private let subtitleAuthenticationInvalidations: SubtitleAuthenticationInvalidationRelay
     let playbackPreferencesController: PlaybackPreferencesController
     private let feedRepository: any FeedRepository
     private let videoRepository: any VideoRepository
@@ -60,6 +62,7 @@ struct AppEnvironment {
         watchProgressRepository: (any WatchProgressRepository)?,
         danmakuRepository: any DanmakuSegmentRepository,
         playerEngine: AVPlayerEngine,
+        subtitleAuthenticationInvalidations: SubtitleAuthenticationInvalidationRelay,
         playbackPreferencesController: PlaybackPreferencesController,
         danmakuPreferencesStore: any DanmakuPreferencesStoring,
         authenticationService: any AuthenticationServicing,
@@ -85,6 +88,7 @@ struct AppEnvironment {
         self.historyRepository = historyRepository
         self.watchProgressRepository = watchProgressRepository
         self.playerEngine = playerEngine
+        self.subtitleAuthenticationInvalidations = subtitleAuthenticationInvalidations
         self.playbackPreferencesController = playbackPreferencesController
         self.danmakuPreferencesStore = danmakuPreferencesStore
         let renderer = CoreAnimationDanmakuRenderer()
@@ -139,7 +143,8 @@ struct AppEnvironment {
             ),
             uploaderProfileUseCase: UploaderProfileUseCase(
                 repository: uploaderProfileRepository
-            )
+            ),
+            playbackAuthenticationInvalidations: subtitleAuthenticationInvalidations.makeStream()
         )
     }
 
@@ -325,18 +330,20 @@ struct AppEnvironment {
             player: player
         )
         let subtitleRepository = BiliSubtitleRepository(client: api)
+        let subtitleAuthenticationInvalidations = SubtitleAuthenticationInvalidationRelay()
         let playerEngine = AVPlayerEngine(
             player: player,
-            subtitleUseCase: SubtitleUseCase(repository: subtitleRepository),
+            subtitleUseCase: SubtitleUseCase(
+                repository: subtitleRepository,
+                reportAuthenticationInvalidation: subtitleAuthenticationInvalidations.report
+            ),
             sourcePreferenceProvider: {
                 appSettingsModel?.playbackSourcePreference ?? .serverDefault
             },
             loudnessNormalizationEnabledProvider: {
-                if #available(macOS 26.0, *) {
-                    appSettingsModel?.loudnessNormalizationEnabled ?? false
-                } else {
-                    false
-                }
+                // 与设置界面、播放侧同一门槛（macOS 27 起）；更早系统上旧偏好不生效。
+                LoudnessNormalizationPolicy.isSupported
+                    && (appSettingsModel?.loudnessNormalizationEnabled ?? false)
             }
         )
         let contentRepository = BiliContentRepository(client: api)
@@ -362,6 +369,7 @@ struct AppEnvironment {
             watchProgressRepository: accountSessionCoordinator.watchProgressRepository,
             danmakuRepository: BiliDanmakuRepository(client: api),
             playerEngine: playerEngine,
+            subtitleAuthenticationInvalidations: subtitleAuthenticationInvalidations,
             playbackPreferencesController: playbackPreferencesController,
             danmakuPreferencesStore: UserDefaultsDanmakuPreferencesStore(),
             authenticationService: authenticationService,

@@ -100,40 +100,7 @@ public struct BiliContentRepository: FeedRepository, VideoRepository,
         do {
             return try await operation()
         } catch {
-            throw BiliAPIError.domainError(
-                for: error,
-                fallback: ContentApplicationError.unavailable,
-                Self.applicationError
-            )
-        }
-    }
-
-    private static func applicationError(
-        _ failure: BiliAPIError.Failure
-    ) -> ContentApplicationError {
-        switch failure {
-        case .invalidRequest:
-            .invalidRequest
-        case .authorizationRequired:
-            .authenticationRequired
-        case .authenticationInvalid:
-            .authenticationInvalid
-        case .authorizationUnavailable:
-            .authenticationUnavailable
-        case .transport:
-            .transportFailure
-        case .unexpectedHTTPStatus:
-            .unavailable
-        case .restricted:
-            .requestRestricted
-        case .rejected(let code):
-            .serviceRejected(code: code)
-        case .unsupportedMedia:
-            .unsupportedMedia
-        case .noPlayableMedia:
-            .playbackUnavailable
-        case .invalidResponse:
-            .invalidResponse
+            throw BiliAPIError.contentApplicationError(for: error)
         }
     }
 }

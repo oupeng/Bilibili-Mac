@@ -11,7 +11,8 @@ struct UploaderSpaceSidebarPresentation: Equatable {
         case loading
         case empty
         case signIn
-        case failure
+        /// 失败原因决定说明文字与是否给重试（风控、凭据、网络分开说明）。
+        case failure(ContentApplicationError)
     }
 
     let overlay: Overlay
@@ -29,8 +30,8 @@ struct UploaderSpaceSidebarPresentation: Equatable {
             overlay = page.videos.isEmpty ? .empty : .none
         case .failed(_, .authenticationRequired):
             overlay = .signIn
-        case .failed:
-            overlay = .failure
+        case .failed(_, let error):
+            overlay = .failure(error)
         }
         showsPager = pageCount > 1 && state != .closed
         headerTotalCount = totalCount > 0 ? totalCount : nil

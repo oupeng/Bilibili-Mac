@@ -136,10 +136,7 @@ extension BiliAPIClient {
                 cid: cid,
                 quality: quality,
                 parameters: parameters,
-                access: .accountRead(
-                    missingCredential: .fail,
-                    mapsAuthenticationInvalidation: true
-                )
+                access: .accountRead(missingCredential: .fail)
             )
         } catch BiliAPIError.authorizationRequired {
             // 本地明确无凭据：同一 endpoint 匿名请求，并且只有这里带游客参数。
@@ -171,10 +168,7 @@ extension BiliAPIClient {
                 cid: cid,
                 quality: quality,
                 parameters: [:],
-                access: .accountRead(
-                    missingCredential: .fail,
-                    mapsAuthenticationInvalidation: true
-                )
+                access: .accountRead(missingCredential: .fail)
             )
         try requireAuthenticatedSessionEpoch(playbackSessionEpoch)
         let video = try resolved.payload.dash.video
@@ -316,10 +310,7 @@ extension BiliAPIClient {
                         "cur_language": languageTag,
                         "voice_balance": "1"
                     ],
-                    access: .accountRead(
-                        missingCredential: .fail,
-                        mapsAuthenticationInvalidation: true
-                    )
+                    access: .accountRead(missingCredential: .fail)
                 ).payload
             } catch is CancellationError {
                 throw CancellationError()

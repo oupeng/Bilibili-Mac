@@ -111,6 +111,7 @@ public final class VideoViewModel {
     /// 最近一次成功取得的名片；离开播放（reset）时清空。
     @ObservationIgnored private var lastUploaderProfile: (ownerID: Int64, profile: UploaderProfile)?
     @ObservationIgnored private var playbackFailureTask: Task<Void, Never>?
+    @ObservationIgnored private var playbackAuthenticationTask: Task<Void, Never>?
     @ObservationIgnored private let resumeActionTask = LatestTask()
     @ObservationIgnored private var playbackIntent: PlaybackLoadIntent?
     @ObservationIgnored private let collectionEpisodes: CollectionEpisodePagesController
@@ -119,7 +120,8 @@ public final class VideoViewModel {
         useCase: VideoUseCase,
         playback: any PlaybackControlling,
         relatedVideoUseCase: RelatedVideoUseCase? = nil,
-        uploaderProfileUseCase: UploaderProfileUseCase? = nil
+        uploaderProfileUseCase: UploaderProfileUseCase? = nil,
+        playbackAuthenticationInvalidations: AsyncStream<Void>? = nil
     ) {
         self.useCase = useCase
         self.playback = playback
@@ -135,10 +137,20 @@ public final class VideoViewModel {
                 self?.handlePlaybackFailure(event)
             }
         }
+        // 播放附带的账户读取（字幕目录）发现凭据失效：不影响播放，只请求窗口复核。
+        if let playbackAuthenticationInvalidations {
+            playbackAuthenticationTask = Task { [weak self] in
+                for await _ in playbackAuthenticationInvalidations {
+                    guard !Task.isCancelled else { return }
+                    self?.recordAuthenticationInvalidationIfNeeded(.authenticationInvalid)
+                }
+            }
+        }
     }
 
     deinit {
         playbackFailureTask?.cancel()
+        playbackAuthenticationTask?.cancel()
     }
 
     /// 取代当前播放意图；已有非 idle 会话会先停止，避免两个 bridge/server 并存。
@@ -347,6 +359,9 @@ public final class VideoViewModel {
                 nextState = .failed(bvid: bvid, error: .unavailable)
             }
             guard let self, isCurrent() else { return }
+            if case .failed(_, let error) = nextState {
+                self.recordAuthenticationInvalidationIfNeeded(error)
+            }
             self.relatedVideoState = nextState
         }
     }
@@ -538,7 +553,7 @@ public final class VideoViewModel {
     private func recordAuthenticationInvalidationIfNeeded(
         _ error: ContentApplicationError
     ) {
-        guard error == .authenticationInvalid else { return }
+        guard error.requiresAccountRevalidation else { return }
         authenticationRevalidationGeneration += 1
     }
 
@@ -572,16 +587,21 @@ public final class VideoViewModel {
         }
         uploaderProfileState = .loading
         uploaderProfileTask.replace { [weak self] isCurrent in
-            // 名片只是增强：失败时不显示签名，名字按非大会员显示，也不留作下次沿用。
+            // 名片只是增强：失败时不显示签名，名字按非大会员显示，也不留作下次沿用；凭据失效仍要复核。
             let profile: UploaderProfile?
+            var failure: ContentApplicationError?
             do {
                 let resolved = try await uploaderProfileUseCase.profile(for: ownerID)
                 try Task.checkCancellation()
                 profile = resolved
             } catch {
                 profile = nil
+                failure = error as? ContentApplicationError
             }
             guard let self, isCurrent() else { return }
+            if let failure {
+                self.recordAuthenticationInvalidationIfNeeded(failure)
+            }
             if let profile {
                 self.lastUploaderProfile = (ownerID, profile)
             }

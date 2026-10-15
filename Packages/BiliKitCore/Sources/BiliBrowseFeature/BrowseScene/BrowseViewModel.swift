@@ -621,7 +621,7 @@ public final class BrowseViewModel {
     private func recordAuthenticationInvalidationIfNeeded(
         _ error: ContentApplicationError
     ) {
-        guard error == .authenticationInvalid else { return }
+        guard error.requiresAccountRevalidation else { return }
         authenticationRevalidationGeneration &+= 1
     }
 

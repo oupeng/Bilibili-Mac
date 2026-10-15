@@ -278,7 +278,8 @@ struct AVPlayerEngineLifecycleTests {
                 )
             ),
             subtitleUseCase: SubtitleUseCase(
-                repository: subtitleRepository
+                repository: subtitleRepository,
+                reportAuthenticationInvalidation: {}
             )
         )
         engine.player.isMuted = true
@@ -343,7 +344,10 @@ struct AVPlayerEngineLifecycleTests {
             audioTracks: [makeSelectedAudioTrack(representation: fixture.audio)],
             headers: [:],
             subtitleSource: NativeSubtitleSource(
-                useCase: SubtitleUseCase(repository: catalog.repository),
+                useCase: SubtitleUseCase(
+                    repository: catalog.repository,
+                    reportAuthenticationInvalidation: {}
+                ),
                 identity: PlaybackItemIdentity(bvid: "BV1MediaOnly", cid: 303)
             )
         )
@@ -378,7 +382,10 @@ struct AVPlayerEngineLifecycleTests {
             serverFactory: { LoopbackPlaybackServer(rangeStreamer: transport) }
         )
         let source = NativeSubtitleSource(
-            useCase: SubtitleUseCase(repository: repository),
+            useCase: SubtitleUseCase(
+                repository: repository,
+                reportAuthenticationInvalidation: {}
+            ),
             identity: PlaybackItemIdentity(
                 bvid: "BV1SubtitleTimeout",
                 cid: 305

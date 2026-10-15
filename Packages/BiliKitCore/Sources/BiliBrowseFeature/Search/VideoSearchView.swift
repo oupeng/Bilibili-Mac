@@ -104,8 +104,7 @@ public struct VideoSearchView<LoadedContent: View, StartContent: View>: View {
                 }
         case .failed(request: .search, let error):
             BrowseFailureView(
-                title: error.displayTitle,
-                message: error.displayMessage,
+                error: error,
                 retry: { model.retry(request) }
             )
         default:
@@ -156,8 +155,10 @@ public struct VideoSearchView<LoadedContent: View, StartContent: View>: View {
                 HStack(spacing: 8) {
                     Text(error.displayMessage)
                         .lineLimit(2)
-                    Button(BrowseFeatureStrings.localized("重试", locale: locale)) {
-                        model.retryLoadMore(.search)
+                    if error.isRetryable {
+                        Button(BrowseFeatureStrings.localized("重试", locale: locale)) {
+                            model.retryLoadMore(.search)
+                        }
                     }
                 }
                 .font(.caption)

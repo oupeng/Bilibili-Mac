@@ -1,7 +1,10 @@
 import BiliModels
 
+/// 认证与内容页同一四态：无凭据、凭据失效（唯一触发账户复核）、本地凭据读不到、风控。
 public enum CommentReadError: Error, Sendable, Equatable {
+    case authenticationRequired
     case authenticationInvalid
+    case authenticationUnavailable
     case requestRestricted
     case serviceRejected(code: Int)
     /// 评论区已关闭；不是可重试的失败。

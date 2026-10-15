@@ -1,13 +1,5 @@
 import BiliModels
 
-public enum WatchHistoryError: Error, Sendable, Equatable {
-    case authenticationRequired
-    case requestRestricted
-    case serviceRejected(code: Int)
-    case transportFailure
-    case invalidResponse
-}
-
 /// API adapter 生成并消费的不透明分页令牌。
 ///
 /// Presentation 与 Use Case 只能保存和回传，
@@ -35,7 +27,8 @@ public struct WatchHistoryPage: Sendable, Equatable {
 
 /// 观看历史的认证数据 port；Presentation 只能回传 adapter 生成的不透明 continuation。
 ///
-/// Endpoint、凭据与远端错误映射属于具体 adapter，不进入 Application。
+/// Endpoint、凭据与远端错误映射属于具体 adapter，不进入 Application；失败统一抛出
+/// `ContentApplicationError`。
 public protocol WatchHistoryRepository: Sendable {
     func watchHistory(
         after continuation: WatchHistoryContinuation?,

@@ -218,6 +218,8 @@ struct BiliSubtitleRepositoryTests {
         (.catalog, jsonResponse("", statusCode: 412), .requestRestricted),
         (.catalog, jsonResponse(#"{"code":-352,"message":"fixture"}"#), .requestRestricted),
         (.catalog, nil, .transportFailure),
+        // 目录以账户凭据请求：-101 是凭据失效，不再被并成“需要登录”。
+        (.catalog, jsonResponse(#"{"code":-101,"message":"fixture"}"#), .authenticationInvalid),
         (.body, jsonResponse("", statusCode: 412), .requestRestricted),
         (.body, jsonResponse("", statusCode: 500), .unavailable),
         (.body, nil, .transportFailure)

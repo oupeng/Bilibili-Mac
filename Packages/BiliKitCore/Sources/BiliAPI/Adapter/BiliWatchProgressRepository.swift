@@ -29,7 +29,7 @@ public struct BiliWatchProgressRepository: WatchProgressRepository {
             .requestRestricted
         case .authorizationUnavailable, .transport, .unexpectedHTTPStatus:
             .unavailable
-        case .rejected(let code):
+        case .rejected(let code), .contentUnavailable(let code):
             .serviceRejected(code: code)
         case .invalidRequest, .unsupportedMedia, .noPlayableMedia,
             .invalidResponse:

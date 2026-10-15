@@ -70,10 +70,7 @@ extension BiliAPIClient {
                 percentEncodedQuery: query
             ),
             referer: Self.videoReferer(identity.bvid),
-            access: .accountRead(
-                missingCredential: .fail,
-                mapsAuthenticationInvalidation: false
-            ),
+            access: .accountRead(missingCredential: .fail),
             maximumResponseSize: Self.maximumSubtitleCatalogSize
         )
         return try payload.resources()
@@ -100,12 +97,9 @@ extension BiliAPIClient {
         )
         let access: RequestAccess =
             hasAccountAuthorizer
-            ? .accountRead(
-                missingCredential: .useAnonymousRequest,
-                mapsAuthenticationInvalidation: false
-            )
+            ? .accountRead(missingCredential: .useAnonymousRequest)
             : .anonymous
-        let response = try await response(
+        let authorizedResponse = try await response(
             baseRequest: HTTPRequest(
                 url: url,
                 headers: [
@@ -116,7 +110,8 @@ extension BiliAPIClient {
             ),
             access: access,
             maximumResponseSize: Self.maximumDanmakuSegmentSize
-        ).response
+        )
+        let response = authorizedResponse.response
         guard !response.body.isEmpty else {
             throw BiliAPIError.invalidDanmakuData
         }
@@ -127,8 +122,10 @@ extension BiliAPIClient {
                     from: response.body
                 )
             {
-                if status.code == -101 {
-                    throw BiliAPIError.authenticationInvalid
+                if let error = authorizedResponse.authorizationProvenance.notLoggedInError(
+                    statusCode: status.code
+                ) {
+                    throw error
                 }
                 if status.code != 0 {
                     throw BiliAPIError.apiRejected(

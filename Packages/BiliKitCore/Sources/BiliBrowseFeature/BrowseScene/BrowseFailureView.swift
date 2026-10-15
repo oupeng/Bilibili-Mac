@@ -4,7 +4,20 @@ import SwiftUI
 struct BrowseFailureView: View {
     let title: String
     let message: String
-    let retry: () -> Void
+    /// nil 时不提供重试（需要登录、内容不存在或不可见）。
+    let retry: (() -> Void)?
+
+    init(error: ContentApplicationError, retry: @escaping () -> Void) {
+        title = error.displayTitle
+        message = error.displayMessage
+        self.retry = error.isRetryable ? retry : nil
+    }
+
+    init(failure: VideoLoadFailure, retry: @escaping () -> Void) {
+        title = failure.title
+        message = failure.message
+        self.retry = failure.isRetryable ? retry : nil
+    }
 
     var body: some View {
         ContentUnavailableView {
@@ -12,13 +25,24 @@ struct BrowseFailureView: View {
         } description: {
             Text(message)
         } actions: {
-            Button(BrowseFeatureStrings.localized("重试"), action: retry)
-                .buttonStyle(.borderedProminent)
+            if let retry {
+                Button(BrowseFeatureStrings.localized("重试"), action: retry)
+                    .buttonStyle(.borderedProminent)
+            }
         }
     }
 }
 
 extension VideoLoadFailure {
+    public var isRetryable: Bool {
+        switch self {
+        case .content(let error):
+            error.isRetryable
+        case .playback:
+            true
+        }
+    }
+
     public var title: String {
         switch self {
         case .content(let error):
@@ -47,8 +71,12 @@ extension ContentApplicationError {
             BrowseFeatureStrings.localized("登录状态已失效")
         case .authenticationUnavailable:
             BrowseFeatureStrings.localized("无法读取登录状态")
-        case .requestRestricted, .serviceRejected:
+        case .requestRestricted:
             BrowseFeatureStrings.localized("请求受到限制")
+        case .serviceRejected:
+            BrowseFeatureStrings.localized("无法完成请求")
+        case .contentUnavailable:
+            BrowseFeatureStrings.localized("内容不存在或不可见")
         case .unsupportedMedia:
             BrowseFeatureStrings.localized("没有可播放的游客轨道")
         case .fullViewingEntitlementRequired:
@@ -61,7 +89,7 @@ extension ContentApplicationError {
     var displayMessage: String {
         switch self {
         case .invalidRequest:
-            BrowseFeatureStrings.localized("请求参数无效，请重新选择内容。")
+            BrowseFeatureStrings.localized("当前无法完成这次请求。")
         case .authenticationRequired:
             BrowseFeatureStrings.localized("该内容需要登录后查看。")
         case .authenticationInvalid:
@@ -70,6 +98,8 @@ extension ContentApplicationError {
             BrowseFeatureStrings.localized("无法安全读取本地登录凭据，请稍后重试。")
         case .requestRestricted:
             BrowseFeatureStrings.localized("服务可能返回了风控页，请降低请求频率后重试。")
+        case .contentUnavailable:
+            BrowseFeatureStrings.localized("该内容可能已被删除、仍在审核，或只对部分用户可见。")
         case .serviceRejected(let code):
             BrowseFeatureStrings.localized("服务暂时无法完成请求（代码 \(code)）。")
         case .transportFailure:

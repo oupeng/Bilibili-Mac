@@ -10,7 +10,10 @@ enum PlaybackRouteBenchmarkState: Sendable, Equatable {
     case completed
     case cancelled
     case sampleUnavailable
-    case authenticationFailure
+    /// 认证三态与内容页一致；测速只提示，不触发账户复核。
+    case authenticationRequired
+    case authenticationInvalid
+    case authenticationUnavailable
     case restricted
     case networkOrProtocolFailure
 
@@ -28,17 +31,33 @@ enum PlaybackRouteBenchmarkAccess: Sendable, Equatable {
 }
 
 enum PlaybackRouteBenchmarkOperationError: Error {
-    case authenticationFailure
+    case authenticationRequired
+    case authenticationInvalid
+    case authenticationUnavailable
     case restricted
 
-    /// 样本发现阶段的 API 认证类失败收窄为测速登录失效、风控收窄为受限；其他错误（含取消）原样传播。
+    /// 样本发现阶段的 API 认证类失败按无凭据、凭据失效、本地凭据读不到三态区分，风控收窄为受限；
+    /// 其他错误（含取消）原样传播。
     static func mappingDiscoveryError(_ error: any Error) -> any Error {
         guard let apiError = error as? BiliAPIError else { return error }
         switch apiError {
-        case .authorizationRequired, .authenticationInvalid, .authorizationUnavailable:
-            return Self.authenticationFailure
+        case .authorizationRequired:
+            return Self.authenticationRequired
+        case .authenticationInvalid:
+            return Self.authenticationInvalid
+        case .authorizationUnavailable:
+            return Self.authenticationUnavailable
         default:
             return apiError.isRiskControlRestriction ? Self.restricted : apiError
+        }
+    }
+
+    var state: PlaybackRouteBenchmarkState {
+        switch self {
+        case .authenticationRequired: .authenticationRequired
+        case .authenticationInvalid: .authenticationInvalid
+        case .authenticationUnavailable: .authenticationUnavailable
+        case .restricted: .restricted
         }
     }
 }
@@ -213,13 +232,8 @@ final class AppSettingsModel {
                 self?.applyResult(result, generation: currentGeneration)
             } catch is CancellationError {
                 self?.applyCancellation(generation: currentGeneration)
-            } catch PlaybackRouteBenchmarkOperationError.authenticationFailure {
-                self?.applyFailure(
-                    .authenticationFailure,
-                    generation: currentGeneration
-                )
-            } catch PlaybackRouteBenchmarkOperationError.restricted {
-                self?.applyFailure(.restricted, generation: currentGeneration)
+            } catch let error as PlaybackRouteBenchmarkOperationError {
+                self?.applyFailure(error.state, generation: currentGeneration)
             } catch {
                 self?.applyFailure(
                     .networkOrProtocolFailure,

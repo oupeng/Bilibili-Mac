@@ -281,6 +281,34 @@
         }
       }
     },
+    "B 站暂时限制了请求，请稍后再试。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilibili is temporarily limiting requests. Try again later."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilibiliがリクエストを一時的に制限しています。しばらくしてからやり直してください。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "B 站暂时限制了请求，请稍后再试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "B 站暫時限制了要求，請稍後再試。"
+          }
+        }
+      }
+    },
     "B 站服务端默认" : {
       "localizations" : {
         "en" : {
@@ -1233,6 +1261,34 @@
         }
       }
     },
+    "投稿加载失败，请检查网络连接后重试。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn’t load videos. Check your network connection and try again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "投稿を読み込めませんでした。ネットワーク接続を確認して、やり直してください。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "投稿加载失败，请检查网络连接后重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "投稿載入失敗，請檢查網路連線後再試。"
+          }
+        }
+      }
+    },
     "排序" : {
       "localizations" : {
         "en" : {
@@ -1341,6 +1397,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "放大圖片"
+          }
+        }
+      }
+    },
+    "无法读取登录状态，请稍后重试。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "BiliKit couldn’t read your sign-in status. Try again later."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ログイン状態を読み取れません。しばらくしてからやり直してください。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法读取登录状态，请稍后重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法讀取登入狀態，請稍後再試。"
           }
         }
       }
@@ -4789,30 +4873,58 @@
         }
       }
     },
-    "登录状态已失效或暂时不可用，请重新登录后再试。" : {
+    "登录状态已失效，正在重新确认。" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The sign-in is expired or temporarily unavailable. Sign in again and retry."
+            "value" : "Your sign-in has expired. Reconfirming…"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ログインが無効または一時的に利用できません。再度ログインしてからやり直してください。"
+            "value" : "ログインの有効期限が切れました。再確認しています。"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "登录状态已失效或暂时不可用，请重新登录后再试。"
+            "value" : "登录状态已失效，正在重新确认。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "登入狀態已失效或目前無法使用，請重新登入後再試。"
+            "value" : "登入狀態已失效，正在重新確認。"
+          }
+        }
+      }
+    },
+    "登录状态已失效，请在主窗口重新登录后再试。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your sign-in has expired. Sign in again in the main window, then try again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ログインの有効期限が切れました。メインウインドウで再度ログインしてからやり直してください。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "登录状态已失效，请在主窗口重新登录后再试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "登入狀態已失效，請在主視窗重新登入後再試。"
           }
         }
       }

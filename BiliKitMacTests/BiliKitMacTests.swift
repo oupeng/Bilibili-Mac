@@ -41,6 +41,24 @@ struct BiliKitMacTests {
         #expect(owner.isClosed)
     }
 
+    /// 重复创建视频模型：只有最新的 stream 收到字幕凭据失效，旧 stream 结束，不会有两个消费者。
+    @Test
+    func subtitleInvalidationRelayFeedsOnlyTheLatestStream() async {
+        let relay = SubtitleAuthenticationInvalidationRelay()
+        let first = relay.makeStream()
+        let second = relay.makeStream()
+
+        relay.report()
+
+        var firstEvents = 0
+        for await _ in first { firstEvents += 1 }
+        var secondIterator = second.makeAsyncIterator()
+        let received: Void? = await secondIterator.next()
+
+        #expect(firstEvents == 0)
+        #expect(received != nil)
+    }
+
     @Test
     @MainActor
     func watchProgressTargetRequiresExactPresentedIdentity() throws {

@@ -41,7 +41,7 @@ struct WatchHistoryUseCaseTests {
             pages: [WatchHistoryPage(items: bvids.map(item), continuation: repeatedToken)]
         )
 
-        await #expect(throws: WatchHistoryError.invalidResponse) {
+        await #expect(throws: ContentApplicationError.invalidResponse) {
             try await WatchHistoryUseCase(repository: repository).load(after: repeatedToken)
         }
     }
@@ -77,7 +77,7 @@ private actor WatchHistoryRepositoryStub: WatchHistoryRepository {
     ) throws -> WatchHistoryPage {
         continuations.append(continuation)
         guard !pages.isEmpty else {
-            throw WatchHistoryError.invalidResponse
+            throw ContentApplicationError.invalidResponse
         }
         return pages.removeFirst()
     }

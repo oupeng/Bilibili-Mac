@@ -46,10 +46,7 @@ extension BiliAPIClient {
                 ]
             ),
             referer: "https://www.bilibili.com/",
-            access: .accountRead(
-                missingCredential: .useAnonymousRequest,
-                mapsAuthenticationInvalidation: true
-            ),
+            access: .accountRead(missingCredential: .useAnonymousRequest),
             maximumResponseSize: Self.maximumCommentPageSize
         )
         return try payload.page(subject: subject, rootID: rootID)
@@ -85,10 +82,7 @@ extension BiliAPIClient {
                 percentEncodedQuery: query
             ),
             referer: "https://www.bilibili.com/",
-            access: .accountRead(
-                missingCredential: .useAnonymousRequest,
-                mapsAuthenticationInvalidation: true
-            ),
+            access: .accountRead(missingCredential: .useAnonymousRequest),
             maximumResponseSize: Self.maximumCommentPageSize
         )
         return try payload.page(for: subject)

@@ -13,9 +13,14 @@ struct BiliWatchHistoryRepositoryTests {
                 scenario: .authorizationRequired,
                 expected: .authenticationRequired
             ),
+            // 带凭据的请求收到 -101 才是凭据失效；Keychain 等本地凭据读不到单独归类，不当作失效。
             MappingCase(
                 scenario: .apiRejected(code: -101),
-                expected: .authenticationRequired
+                expected: .authenticationInvalid
+            ),
+            MappingCase(
+                scenario: .credentialUnavailable,
+                expected: .authenticationUnavailable
             ),
             MappingCase(
                 scenario: .apiRejected(code: -412),
@@ -47,11 +52,11 @@ struct BiliWatchHistoryRepositoryTests {
             ),
             MappingCase(
                 scenario: .httpStatus(500),
-                expected: .transportFailure
+                expected: .unavailable
             ),
             MappingCase(
                 scenario: .invalidRequest,
-                expected: .invalidResponse
+                expected: .invalidRequest
             )
         ]
     )
@@ -79,7 +84,7 @@ struct BiliWatchHistoryRepositoryTests {
     func mapsUnknownTransportFailureToTransportFailure() async {
         let repository = HistoryScenario.unknownTransportFailure.repository()
 
-        await #expect(throws: WatchHistoryError.transportFailure) {
+        await #expect(throws: ContentApplicationError.transportFailure) {
             try await repository.watchHistory(after: nil, pageSize: 20)
         }
     }
@@ -87,7 +92,7 @@ struct BiliWatchHistoryRepositoryTests {
 
 struct MappingCase: Sendable, CustomTestStringConvertible {
     let scenario: HistoryScenario
-    let expected: WatchHistoryError
+    let expected: ContentApplicationError
 
     var testDescription: String {
         "\(scenario) -> \(expected)"
@@ -96,6 +101,7 @@ struct MappingCase: Sendable, CustomTestStringConvertible {
 
 enum HistoryScenario: Sendable, Equatable {
     case authorizationRequired
+    case credentialUnavailable
     case apiRejected(code: Int)
     case httpStatus(Int)
     case htmlRiskControlPage
@@ -124,13 +130,20 @@ enum HistoryScenario: Sendable, Equatable {
                 [.response(htmlRiskControlResponse())]
             case .cancellation:
                 [.cancellation]
-            case .authorizationRequired, .invalidRequest, .unknownTransportFailure:
+            case .authorizationRequired, .credentialUnavailable, .invalidRequest,
+                .unknownTransportFailure:
                 []
+            }
+        let authorizer: StubAuthorizer? =
+            switch self {
+            case .authorizationRequired: nil
+            case .credentialUnavailable: StubAuthorizer(.fail(.unavailable))
+            default: StubAuthorizer()
             }
         return BiliWatchHistoryRepository(
             client: BiliAPIClient(
                 transport: StubTransport(replies),
-                requestAuthorizer: self == .authorizationRequired ? nil : StubAuthorizer()
+                requestAuthorizer: authorizer
             )
         )
     }

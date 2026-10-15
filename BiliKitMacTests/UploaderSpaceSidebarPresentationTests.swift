@@ -13,10 +13,11 @@ struct UploaderSpaceSidebarPresentationTests {
             (.loading(page: 1), .loading),
             (.loaded(page(videos: 1)), .none),
             (.loaded(page(videos: 0)), .empty),
-            // 未登录给出登录入口；登录失效与其他失败都只给重试。
+            // 未登录给出登录入口；其他失败带上原因，由视图分开说明风控、凭据与网络。
             (.failed(page: 1, error: .authenticationRequired), .signIn),
-            (.failed(page: 2, error: .authenticationInvalid), .failure),
-            (.failed(page: 2, error: .requestRestricted), .failure)
+            (.failed(page: 2, error: .authenticationInvalid), .failure(.authenticationInvalid)),
+            (.failed(page: 2, error: .requestRestricted), .failure(.requestRestricted)),
+            (.failed(page: 2, error: .transportFailure), .failure(.transportFailure))
         ]
     )
     func overlayFollowsTheSpaceState(

@@ -152,8 +152,12 @@ struct PlaybackSourceSettingsView: View {
             return AppStrings.localized("测速已取消，线路选择未改变。")
         case .sampleUnavailable:
             return AppStrings.localized("暂时找不到合格样本，请稍后重试。")
-        case .authenticationFailure:
-            return AppStrings.localized("登录状态已失效或暂时不可用，请重新登录后再试。")
+        case .authenticationRequired:
+            return AppStrings.localized("请先在主窗口登录。")
+        case .authenticationInvalid:
+            return AppStrings.localized("登录状态已失效，请在主窗口重新登录后再试。")
+        case .authenticationUnavailable:
+            return AppStrings.localized("无法读取登录状态，请稍后重试。")
         case .restricted:
             return AppStrings.localized("B 站暂时限制了测速请求，请稍后再试。")
         case .networkOrProtocolFailure:

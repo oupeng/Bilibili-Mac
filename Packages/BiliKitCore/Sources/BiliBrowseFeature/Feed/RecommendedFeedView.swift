@@ -54,8 +54,7 @@ public struct RecommendedFeedView<LoadedContent: View>: View {
             loadedResults(page: page, presentation: presentation)
         case .failed(request: .recommendation, let error):
             BrowseFailureView(
-                title: error.displayTitle,
-                message: error.displayMessage,
+                error: error,
                 retry: { model.retry(request) }
             )
         default:
@@ -105,8 +104,10 @@ public struct RecommendedFeedView<LoadedContent: View>: View {
                 HStack(spacing: 8) {
                     Text(error.displayMessage)
                         .lineLimit(2)
-                    Button(BrowseFeatureStrings.localized("重试")) {
-                        model.retryLoadMore(.recommendation)
+                    if error.isRetryable {
+                        Button(BrowseFeatureStrings.localized("重试")) {
+                            model.retryLoadMore(.recommendation)
+                        }
                     }
                 }
                 .font(.caption)
