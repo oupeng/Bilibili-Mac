@@ -41,12 +41,14 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
         case anonymous
         case authenticated
 
-        /// 读取响应的业务码 -101（账号未登录）是否表示凭据失效：只有实际带凭据发出的请求才算。
+        /// 读取响应的业务码 -101（账号未登录）对应的错误；其他业务码为 nil。
         ///
-        /// 匿名请求（含本地无凭据时的匿名回退）收到 -101 只说明该接口要求登录，保留为
-        /// `apiRejected(-101)`，不触发账户复核。heartbeat 写请求另有自己的判定。
-        func isAuthenticationInvalidation(statusCode: Int) -> Bool {
-            self == .authenticated && statusCode == -101
+        /// 只有实际带凭据发出的请求收到 -101 才是凭据失效（触发账户复核）。匿名请求（含本地无凭据时的
+        /// 匿名回退）收到 -101 说明该接口要求登录，按“需要登录”处理，不触发复核。heartbeat 写请求另有
+        /// 自己的判定。
+        func notLoggedInError(statusCode: Int) -> BiliAPIError? {
+            guard statusCode == -101 else { return nil }
+            return self == .authenticated ? .authenticationInvalid : .authorizationRequired
         }
     }
 
@@ -163,10 +165,10 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
         } catch {
             throw BiliAPIError.decodingFailed
         }
-        if authorizedResponse.authorizationProvenance.isAuthenticationInvalidation(
+        if let error = authorizedResponse.authorizationProvenance.notLoggedInError(
             statusCode: status.code
         ) {
-            throw BiliAPIError.authenticationInvalid
+            throw error
         }
         guard status.code == 0 else {
             throw BiliAPIError.apiRejected(

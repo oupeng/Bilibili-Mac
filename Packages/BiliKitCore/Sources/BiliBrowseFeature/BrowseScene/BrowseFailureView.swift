@@ -89,7 +89,7 @@ extension ContentApplicationError {
     var displayMessage: String {
         switch self {
         case .invalidRequest:
-            BrowseFeatureStrings.localized("请求参数无效，请重新选择内容。")
+            BrowseFeatureStrings.localized("当前无法完成这次请求。")
         case .authenticationRequired:
             BrowseFeatureStrings.localized("该内容需要登录后查看。")
         case .authenticationInvalid:

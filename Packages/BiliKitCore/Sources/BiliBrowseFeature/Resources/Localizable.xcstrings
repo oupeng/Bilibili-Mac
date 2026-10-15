@@ -729,6 +729,34 @@
         }
       }
     },
+    "当前无法完成这次请求。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This request can’t be completed."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このリクエストは完了できません。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前无法完成这次请求。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "目前無法完成這次要求。"
+          }
+        }
+      }
+    },
     "当前视频不在合集目录中" : {
       "localizations" : {
         "en" : {
@@ -2517,34 +2545,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "請檢查網路連線後再試。"
-          }
-        }
-      }
-    },
-    "请求参数无效，请重新选择内容。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The request was invalid. Select the content again."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "リクエストが無効です。コンテンツを選び直してください。"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "请求参数无效，请重新选择内容。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "要求參數無效，請重新選擇內容。"
           }
         }
       }

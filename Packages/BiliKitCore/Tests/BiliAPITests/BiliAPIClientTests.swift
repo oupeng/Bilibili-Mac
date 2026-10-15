@@ -1361,11 +1361,11 @@ struct BiliAPIClientTests {
     }
 
     /// -101 只在请求实际带凭据发出时才是凭据失效；没有授权器或本地无凭据而匿名回退的请求收到 -101
-    /// 只说明接口要求登录，保留为业务拒绝，不触发账户复核。
+    /// 只说明接口要求登录，按“需要登录”处理，不触发账户复核。
     @Test(
         arguments: [
-            (nil, BiliAPIError.apiRejected(code: -101, message: "fixture")),
-            (.fail(.missingCredential), .apiRejected(code: -101, message: "fixture")),
+            (nil, BiliAPIError.authorizationRequired),
+            (.fail(.missingCredential), .authorizationRequired),
             (.authorize, .authenticationInvalid)
         ] as [(StubAuthorizer.Outcome?, BiliAPIError)]
     )

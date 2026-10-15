@@ -122,10 +122,10 @@ extension BiliAPIClient {
                     from: response.body
                 )
             {
-                if authorizedResponse.authorizationProvenance.isAuthenticationInvalidation(
+                if let error = authorizedResponse.authorizationProvenance.notLoggedInError(
                     statusCode: status.code
                 ) {
-                    throw BiliAPIError.authenticationInvalid
+                    throw error
                 }
                 if status.code != 0 {
                     throw BiliAPIError.apiRejected(

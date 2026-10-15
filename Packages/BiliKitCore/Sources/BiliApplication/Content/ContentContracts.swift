@@ -29,14 +29,17 @@ extension ContentApplicationError {
         self == .authenticationInvalid
     }
 
-    /// 用户重试可能得到不同结果；需要登录与内容不存在或不可见时不提供重试。
+    /// 用户重试可能得到不同结果才提供重试。
+    ///
+    /// 需要登录、内容不存在或不可见、客户端无法发出的请求、没有可用轨道与没有完整观看权益时，
+    /// 重试只会得到同样的结果。
     public var isRetryable: Bool {
         switch self {
-        case .authenticationRequired, .contentUnavailable:
+        case .authenticationRequired, .contentUnavailable, .invalidRequest, .unsupportedMedia,
+            .fullViewingEntitlementRequired:
             false
-        case .invalidRequest, .authenticationInvalid, .authenticationUnavailable,
-            .requestRestricted, .serviceRejected, .transportFailure, .unsupportedMedia,
-            .playbackUnavailable, .fullViewingEntitlementRequired, .invalidResponse,
+        case .authenticationInvalid, .authenticationUnavailable, .requestRestricted,
+            .serviceRejected, .transportFailure, .playbackUnavailable, .invalidResponse,
             .unavailable:
             true
         }

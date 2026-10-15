@@ -59,13 +59,15 @@
   且 path 在 `AppEnvironment` 声明的 allowlist 内（主客户端、测速客户端、会话校验各一组）。
 - 调用方已带 `Cookie`、`Authorization` 或 `X-CSRF-Token` 时拒绝；每次授权生成新请求，不缓存 header。
 - 授权器拒绝（`denied`：path 不在 allowlist、形状不合规）是客户端编程错误，`BiliAPIClient` 映射为
-  `invalidRequest` 失败关闭，界面显示“请求无效”而不是 Keychain 类提示，也不触发复核；新增账户读取
+  `invalidRequest` 失败关闭：界面显示“无法加载内容／当前无法完成这次请求。”且不给重试，不是 Keychain
+  类提示，也不触发复核；新增账户读取
   endpoint 必须同时加入对应 allowlist，漏配就表现为该功能稳定失败。
 - `BiliAPIClient` 的 endpoint 扩展逐请求决定匿名或账户读取，并独占 path/query schema；请求 builder
   只在 `BiliAPI` 内部可见，adapter 不构造 `RequestAccess`；授权器不复制业务规则。
 - 账户读取响应的业务码 -101 只在请求实际带凭据发出时映射为凭据失效（`authenticationInvalid`），由
   请求管线统一判定（弹幕分段的 JSON 状态分支复用同一判定）；没有授权器或本地无凭据而匿名回退的请求
-  收到 -101 保留为业务拒绝。heartbeat 写请求自行把 -101／-111 视为凭据失效，见下文。
+  收到 -101 映射为“需要登录”（`authorizationRequired` → `authenticationRequired`：显示需要登录、不给
+  重试、不触发复核）。heartbeat 写请求自行把 -101／-111 视为凭据失效，见下文。
 - 本地明确无凭据时的行为由各 endpoint 决定：多数登录增强读取匿名请求同一 endpoint；主播放
   playurl 改用带游客参数的匿名请求；观看历史、UP 主空间投稿（匿名会被间歇风控）、字幕目录、测速样本
   等只按账户读取，直接失败。内容域区分四态：“无凭据”为“需要登录”（不给重试）、“凭据失效”触发账户

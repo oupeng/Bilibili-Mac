@@ -24,6 +24,9 @@ struct ContentApplicationErrorTests {
         arguments: [
             (ContentApplicationError.contentUnavailable, false),
             (.authenticationRequired, false),
+            (.invalidRequest, false),
+            (.unsupportedMedia, false),
+            (.fullViewingEntitlementRequired, false),
             (.authenticationUnavailable, true),
             (.authenticationInvalid, true),
             (.requestRestricted, true),
@@ -31,7 +34,7 @@ struct ContentApplicationErrorTests {
             (.transportFailure, true)
         ]
     )
-    func missingOrInvisibleContentAndMissingCredentialsAreNotRetryable(
+    func outcomesThatRetryCannotChangeAreNotRetryable(
         error: ContentApplicationError,
         retryable: Bool
     ) {
