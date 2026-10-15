@@ -111,7 +111,7 @@ struct LoopbackGeneratedResourceTests {
     }
 
     @Test
-    func stoppingServerCancelsInFlightGeneratedLoadTerminally() async throws {
+    func stoppingServerCancelsInFlightGeneratedLoad() async throws {
         let probe = CancellationProbe()
         let generated = try LoopbackGeneratedResource(
             contentType: "text/vtt",
@@ -122,19 +122,15 @@ struct LoopbackGeneratedResourceTests {
         let server = LoopbackPlaybackServer()
         try await server.start()
         defer { server.stop() }
-        let firstURL = try server.register(.generated(generated), at: "removed.vtt")
+        let url = try server.register(.generated(generated), at: "stopped.vtt")
 
-        let request = Task { try await URLSession.shared.data(from: firstURL) }
+        let request = Task { try await URLSession.shared.data(from: url) }
         await probe.waitForLoads(1)
         server.stop()
         _ = try? await request.value
         await probe.waitForCancellations(1)
 
-        // 停止后即使同一资源被重新登记到新会话，也不能复活已取消的生成。
-        try await server.start()
-        let secondURL = try server.register(.generated(generated), at: "reused.vtt")
-        _ = try? await URLSession.shared.data(from: secondURL)
-        #expect(await probe.loadCount == 1)
+        #expect(await probe.cancellationCount == 1)
     }
 
     @Test

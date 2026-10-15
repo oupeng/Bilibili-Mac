@@ -500,9 +500,9 @@ actor FixtureRangeTransport: HTTPTransport, HTTPRangeStreaming {
         return HTTPRangeStreamResult(byteCount: UInt64(body.count))
     }
 
-    func waitForBlockedRequest() async {
+    func waitForBlockedRequest(count: Int = 1) async {
         await withCheckedContinuation {
-            blockedRequestWaiters.add($0, until: 1, current: startedBlockedRequestCount)
+            blockedRequestWaiters.add($0, until: count, current: startedBlockedRequestCount)
         }
     }
 
