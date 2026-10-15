@@ -297,6 +297,10 @@ private enum LoopbackRangeRequest {
 /// `stop` 会原子移除 listener、route、connection 与上游 Task，可安全重复调用。
 public final class LoopbackPlaybackServer: @unchecked Sendable {
     private static let maximumHeaderBytes = 16 * 1_024
+    /// 同时保持的连接上限；AVPlayer 的并发请求远低于此，超出的新连接不登记、直接关闭。
+    static let maximumConcurrentConnections = 32
+    /// 从接受连接到收齐请求头的时限；超时关闭，空闲或慢速连接不能长期占住连接名额。
+    private static let requestHeaderTimeout: DispatchTimeInterval = .seconds(10)
 
     private let queue: DispatchQueue
     private let lock = NSLock()
@@ -307,7 +311,7 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
     private var routes: [String: LoopbackPlaybackResource] = [:]
     private var connections: [ObjectIdentifier: NWConnection] = [:]
     private var connectionTasks: [ObjectIdentifier: Task<Void, Never>] = [:]
-    private var connectionTargets: [ObjectIdentifier: String] = [:]
+    private var headerDeadlines: [ObjectIdentifier: DispatchWorkItem] = [:]
 
     public init(
         rangeStreamer: any HTTPRangeStreaming = HTTPRangeStreamingClient()
@@ -328,7 +332,6 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
         }
 
         let parameters = NWParameters.tcp
-        parameters.allowLocalEndpointReuse = true
         parameters.requiredLocalEndpoint = .hostPort(
             host: NWEndpoint.Host("127.0.0.1"),
             port: .any
@@ -436,39 +439,6 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
         return prepared.map(\.0)
     }
 
-    public func unregister(relativePaths: [String]) throws {
-        let routesToRemove = try relativePaths.map { try url(for: $0).path }
-        let state = lock.withLock {
-            () -> (
-                [LoopbackPlaybackResource],
-                [NWConnection],
-                [Task<Void, Never>]
-            ) in
-            let removed = routesToRemove.compactMap { routes.removeValue(forKey: $0) }
-            let routeSet = Set(routesToRemove)
-            let connectionIDs = connectionTargets.compactMap { id, target in
-                routeSet.contains(target) ? id : nil
-            }
-            let connectionsToCancel = connectionIDs.compactMap {
-                connections.removeValue(forKey: $0)
-            }
-            let tasksToCancel = connectionIDs.compactMap {
-                connectionTasks.removeValue(forKey: $0)
-            }
-            for id in connectionIDs {
-                connectionTargets.removeValue(forKey: id)
-            }
-            return (removed, connectionsToCancel, tasksToCancel)
-        }
-        cancelGeneratedResources(in: state.0)
-        for connection in state.1 {
-            connection.cancel()
-        }
-        for task in state.2 {
-            task.cancel()
-        }
-    }
-
     public func url(for relativePath: String) throws -> URL {
         guard isValidRoute(relativePath) else {
             throw LoopbackPlaybackServerError.invalidRoute(relativePath)
@@ -490,24 +460,29 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
                 NWListener?,
                 [NWConnection],
                 [Task<Void, Never>],
-                [LoopbackPlaybackResource]
+                [LoopbackPlaybackResource],
+                [DispatchWorkItem]
             ) in
             let state = (
                 listener,
                 Array(connections.values),
                 Array(connectionTasks.values),
-                Array(routes.values)
+                Array(routes.values),
+                Array(headerDeadlines.values)
             )
             listener = nil
             port = nil
             routes.removeAll()
             connections.removeAll()
             connectionTasks.removeAll()
-            connectionTargets.removeAll()
+            headerDeadlines.removeAll()
             return state
         }
 
         state.0?.cancel()
+        for deadline in state.4 {
+            deadline.cancel()
+        }
         for connection in state.1 {
             connection.cancel()
         }
@@ -519,18 +494,36 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
 
     private func accept(_ connection: NWConnection) {
         let id = ObjectIdentifier(connection)
-        lock.withLock {
+        let headerDeadline = DispatchWorkItem { [weak self] in
+            self?.closeConnection(id)
+        }
+        let accepted = lock.withLock { () -> Bool in
+            guard listener != nil,
+                connections.count < Self.maximumConcurrentConnections
+            else {
+                return false
+            }
             connections[id] = connection
+            headerDeadlines[id] = headerDeadline
+            return true
+        }
+        guard accepted else {
+            connection.cancel()
+            return
         }
         connection.stateUpdateHandler = { [weak self] state in
             switch state {
             case .cancelled, .failed:
-                self?.removeConnection(id)
+                self?.detachConnection(id)
             default:
                 break
             }
         }
         connection.start(queue: queue)
+        queue.asyncAfter(
+            deadline: .now() + Self.requestHeaderTimeout,
+            execute: headerDeadline
+        )
         receiveRequestHeader(on: connection, id: id, accumulated: Data())
     }
 
@@ -570,6 +563,9 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
             let delimiter = Data("\r\n\r\n".utf8)
             if let headerEnd = buffer.range(of: delimiter)?.upperBound {
                 let header = buffer.subdata(in: 0..<headerEnd)
+                self.lock.withLock {
+                    self.headerDeadlines.removeValue(forKey: id)
+                }?.cancel()
                 self.beginResponse(for: header, on: connection, id: id)
             } else if isComplete {
                 self.sendStatus(400, reason: "Bad Request", on: connection)
@@ -616,11 +612,7 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
             return
         }
         guard
-            let resource = lock.withLock({ () -> LoopbackPlaybackResource? in
-                guard let resource = routes[request.target] else { return nil }
-                connectionTargets[id] = request.target
-                return resource
-            })
+            let resource = lock.withLock({ routes[request.target] })
         else {
             sendStatus(404, reason: "Not Found", on: connection)
             return
@@ -644,7 +636,6 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
         }
         let accepted = lock.withLock { () -> Bool in
             guard connections[id] != nil,
-                connectionTargets[id] == request.target,
                 routes[request.target] == resource
             else {
                 return false
@@ -1021,13 +1012,24 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
         )
     }
 
-    private func removeConnection(_ id: ObjectIdentifier) {
-        let task = lock.withLock { () -> Task<Void, Never>? in
-            connections.removeValue(forKey: id)
-            connectionTargets.removeValue(forKey: id)
-            return connectionTasks.removeValue(forKey: id)
+    /// 先在锁内释放连接名额再关闭，客户端看到断开时 server 已可接受新连接。
+    private func closeConnection(_ id: ObjectIdentifier) {
+        detachConnection(id)?.cancel()
+    }
+
+    @discardableResult
+    private func detachConnection(_ id: ObjectIdentifier) -> NWConnection? {
+        let state = lock.withLock {
+            () -> (NWConnection?, Task<Void, Never>?, DispatchWorkItem?) in
+            (
+                connections.removeValue(forKey: id),
+                connectionTasks.removeValue(forKey: id),
+                headerDeadlines.removeValue(forKey: id)
+            )
         }
-        task?.cancel()
+        state.1?.cancel()
+        state.2?.cancel()
+        return state.0
     }
 
     private func isValidRoute(_ route: String) -> Bool {
@@ -1059,7 +1061,7 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
     }
 }
 
-private struct LoopbackHTTPRequest: Sendable {
+struct LoopbackHTTPRequest: Sendable {
     let method: String
     let target: String
     let headers: [String: String]
@@ -1076,8 +1078,12 @@ private struct LoopbackHTTPRequest: Sendable {
             throw LoopbackPlaybackServerError.invalidHTTPRequest
         }
 
-        let rawTarget = String(requestLine[1])
-        let target = rawTarget.split(separator: "?", maxSplits: 1)[0]
+        // 只接受 origin-form；query 不参与路由。
+        let rawTarget = requestLine[1]
+        guard rawTarget.hasPrefix("/") else {
+            throw LoopbackPlaybackServerError.invalidHTTPRequest
+        }
+        let target = rawTarget[..<(rawTarget.firstIndex(of: "?") ?? rawTarget.endIndex)]
         var headers: [String: String] = [:]
         for line in lines.dropFirst() where !line.isEmpty {
             guard let separator = line.firstIndex(of: ":") else {

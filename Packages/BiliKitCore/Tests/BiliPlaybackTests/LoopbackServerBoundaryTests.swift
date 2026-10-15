@@ -65,6 +65,12 @@ struct LoopbackServerBoundaryTests {
             target: url.path,
             host: "127.0.0.1:not-a-port"
         )
+        // 畸形目标在 Host／token 校验之前解析，必须作为普通 400 拒绝而不是让进程崩溃。
+        let queryOnlyTargetStatus = try independentHTTPStatus(
+            port: port,
+            target: "?",
+            host: "127.0.0.1:\(port)"
+        )
 
         #expect(acceptedStatus == 200)
         #expect(rejectedTokenStatus == 404)
@@ -73,6 +79,7 @@ struct LoopbackServerBoundaryTests {
         #expect(missingHostStatus == 400)
         #expect(duplicateHostStatus == 400)
         #expect(malformedHostStatus == 400)
+        #expect(queryOnlyTargetStatus == 400)
 
         try exerciseIndependentDisconnects(
             port: port,
@@ -88,6 +95,96 @@ struct LoopbackServerBoundaryTests {
         )
         server.stop()
         try await waitForIndependentProcessToRejectConnections(port: port)
+    }
+
+    @Test(
+        arguments: [
+            "GET ? HTTP/1.1",
+            "GET ??? HTTP/1.1",
+            "GET  HTTP/1.1",
+            "GET path?x HTTP/1.1",
+            "GET http://127.0.0.1/path HTTP/1.1"
+        ]
+    )
+    func requestParserRejectsTargetsOutsideOriginForm(_ requestLine: String) {
+        #expect(throws: LoopbackPlaybackServerError.invalidHTTPRequest) {
+            try LoopbackHTTPRequest.parse(
+                Data("\(requestLine)\r\nHost: 127.0.0.1\r\n\r\n".utf8)
+            )
+        }
+    }
+
+    @Test(
+        arguments: [
+            ("/token/path?x", "/token/path"),
+            ("/token/path??x", "/token/path"),
+            ("/?", "/"),
+            ("/token/path", "/token/path")
+        ]
+    )
+    func requestParserRoutesOnPathWithoutQuery(
+        _ rawTarget: String,
+        _ expectedTarget: String
+    ) throws {
+        let request = try LoopbackHTTPRequest.parse(
+            Data("GET \(rawTarget) HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".utf8)
+        )
+
+        #expect(request.method == "GET")
+        #expect(request.target == expectedTarget)
+        #expect(request.headers == ["host": "127.0.0.1"])
+    }
+
+    /// 名额占满时新连接不进入请求处理；只连不发完请求头的连接到时被关闭并让出名额。
+    @Test
+    func connectionLimitRejectsExtraConnectionsUntilHeaderTimeoutFreesSlots()
+        async throws
+    {
+        let server = LoopbackPlaybackServer()
+        try await server.start()
+        defer { server.stop() }
+        let url = try server.register(
+            .inMemory(data: Data([0x4F, 0x4B]), contentType: "text/plain"),
+            at: "limited.txt"
+        )
+        let port = try #require(url.port)
+        let request = Data(
+            "GET \(url.path) HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\n\r\n".utf8
+        )
+
+        var idleClients: [RawLoopbackClient] = []
+        defer {
+            for client in idleClients {
+                client.cancel()
+            }
+        }
+        for index in 0..<LoopbackPlaybackServer.maximumConcurrentConnections {
+            let client = try RawLoopbackClient(port: port)
+            try await client.connect()
+            if index == 0 {
+                // 请求头只发一半的慢速客户端与完全空闲的连接受同一时限约束。
+                try await client.send(Data("GET \(url.path) HTTP/1.1\r\n".utf8))
+            }
+            idleClients.append(client)
+        }
+
+        let rejected = try RawLoopbackClient(port: port)
+        defer { rejected.cancel() }
+        try? await rejected.connect()
+        try? await rejected.send(request)
+        #expect(await rejected.receiveUntilClosed().isEmpty)
+
+        for client in idleClients {
+            #expect(await client.receiveUntilClosed().isEmpty)
+        }
+
+        let accepted = try RawLoopbackClient(port: port)
+        defer { accepted.cancel() }
+        try await accepted.connect()
+        try await accepted.send(request)
+        let response = String(decoding: await accepted.receiveUntilClosed(), as: UTF8.self)
+        #expect(response.hasPrefix("HTTP/1.1 200 OK\r\n"))
+        #expect(response.hasSuffix("\r\n\r\nOK"))
     }
 
     @Test

@@ -3,6 +3,7 @@ import BiliApplication
 import BiliModels
 import BiliNetworking
 import Foundation
+@preconcurrency import Network
 import Testing
 
 @testable import BiliPlayback
@@ -263,6 +264,82 @@ func waitUntilTimeControlStatus(
         continuation.finish()
     }
     _ = try await awaitFirst(in: statuses) { $0 == expected }
+}
+
+// MARK: - 原始 TCP 客户端
+
+/// 直连 loopback 端口的进程内 TCP 客户端，用来观察 server 主动关闭连接的时机。
+final class RawLoopbackClient: Sendable {
+    private let connection: NWConnection
+    private let queue = DispatchQueue(label: "BiliPlaybackTests.raw-loopback-client")
+
+    init(port: Int) throws {
+        guard let port = NWEndpoint.Port(rawValue: UInt16(port)) else {
+            throw PlaybackFixtureError.missingPort
+        }
+        connection = NWConnection(host: "127.0.0.1", port: port, using: .tcp)
+    }
+
+    /// 等到本端 TCP 握手完成；server 尚未处理该连接也会返回。
+    func connect() async throws {
+        let ready = OneShotResult<Void>()
+        connection.stateUpdateHandler = { state in
+            switch state {
+            case .ready:
+                ready.resolve(.success(()))
+            case .failed(let error), .waiting(let error):
+                ready.resolve(.failure(error))
+            case .cancelled:
+                ready.resolve(.failure(CancellationError()))
+            default:
+                break
+            }
+        }
+        connection.start(queue: queue)
+        try await ready.value()
+    }
+
+    func send(_ data: Data) async throws {
+        try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<Void, any Error>) in
+            connection.send(
+                content: data,
+                completion: .contentProcessed { error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else {
+                        continuation.resume()
+                    }
+                }
+            )
+        }
+    }
+
+    /// 读到 server 关闭（EOF 或连接错误）为止，返回期间收到的全部字节。
+    func receiveUntilClosed() async -> Data {
+        var received = Data()
+        while true {
+            let chunk = await withCheckedContinuation {
+                (continuation: CheckedContinuation<(Data?, Bool), Never>) in
+                connection.receive(
+                    minimumIncompleteLength: 1,
+                    maximumLength: 64 * 1_024
+                ) { data, _, isComplete, error in
+                    continuation.resume(returning: (data, isComplete || error != nil))
+                }
+            }
+            if let data = chunk.0 {
+                received.append(data)
+            }
+            if chunk.1 {
+                return received
+            }
+        }
+    }
+
+    func cancel() {
+        connection.cancel()
+    }
 }
 
 // MARK: - 替身

@@ -111,7 +111,7 @@ struct LoopbackGeneratedResourceTests {
     }
 
     @Test
-    func stoppingServerCancelsInFlightGeneratedLoad() async throws {
+    func stoppingServerCancelsInFlightGeneratedLoadTerminally() async throws {
         let probe = CancellationProbe()
         let generated = try LoopbackGeneratedResource(
             contentType: "text/vtt",
@@ -122,44 +122,17 @@ struct LoopbackGeneratedResourceTests {
         let server = LoopbackPlaybackServer()
         try await server.start()
         defer { server.stop() }
-        let url = try server.register(.generated(generated), at: "stopped.vtt")
+        let firstURL = try server.register(.generated(generated), at: "removed.vtt")
 
-        let request = Task { try await URLSession.shared.data(from: url) }
+        let request = Task { try await URLSession.shared.data(from: firstURL) }
         await probe.waitForLoads(1)
         server.stop()
         _ = try? await request.value
         await probe.waitForCancellations(1)
 
-        #expect(await probe.cancellationCount == 1)
-    }
-
-    @Test
-    func unregisterIsTerminalForCapturedGeneratedResource() async throws {
-        let probe = CancellationProbe()
-        let generated = try LoopbackGeneratedResource(
-            contentType: "text/vtt",
-            maximumContentLength: 1_024
-        ) {
-            try await probe.load()
-        }
-        let server = LoopbackPlaybackServer()
+        // 停止后即使同一资源被重新登记到新会话，也不能复活已取消的生成。
         try await server.start()
-        defer { server.stop() }
-        let firstURL = try server.register(
-            .generated(generated),
-            at: "removed.vtt"
-        )
-
-        let request = Task { try await URLSession.shared.data(from: firstURL) }
-        await probe.waitForLoads(1)
-        try server.unregister(relativePaths: ["removed.vtt"])
-        _ = try? await request.value
-        await probe.waitForCancellations(1)
-
-        let secondURL = try server.register(
-            .generated(generated),
-            at: "reused.vtt"
-        )
+        let secondURL = try server.register(.generated(generated), at: "reused.vtt")
         _ = try? await URLSession.shared.data(from: secondURL)
         #expect(await probe.loadCount == 1)
     }
