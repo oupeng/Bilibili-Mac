@@ -138,6 +138,8 @@ struct AppRootView: View {
         .task {
             authenticationModel.restoreIfNeeded()
             await authenticationModel.waitForCurrentTask()
+            // 恢复期间窗口已关闭时 onDisappear 已注销 owner，不能再登记回去。
+            guard !Task.isCancelled else { return }
             synchronizeBenchmarkAuthentication()
         }
         .onChange(of: authenticationModel.sessionPhase) { _, _ in

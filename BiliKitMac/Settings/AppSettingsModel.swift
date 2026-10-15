@@ -69,6 +69,8 @@ final class AppSettingsModel {
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private var authenticationAccessByOwner:
         [UUID: PlaybackRouteBenchmarkAccess] = [:]
+    /// 已注销的窗口 owner；窗口关闭后不会再打开，迟到的同步不得把它登记回来。
+    @ObservationIgnored private var removedAuthenticationOwners: Set<UUID> = []
 
     init(
         store: any PlaybackSourcePreferenceStoring,
@@ -98,11 +100,13 @@ final class AppSettingsModel {
         _ access: PlaybackRouteBenchmarkAccess,
         ownerID: UUID
     ) {
+        guard !removedAuthenticationOwners.contains(ownerID) else { return }
         authenticationAccessByOwner[ownerID] = access
         applyAuthenticationAccess()
     }
 
     func removeAuthenticationOwner(_ ownerID: UUID) {
+        removedAuthenticationOwners.insert(ownerID)
         authenticationAccessByOwner[ownerID] = nil
         applyAuthenticationAccess()
     }
