@@ -149,7 +149,7 @@ public actor BiliSubtitleRepository: SubtitleRepository {
                 .requestRestricted
             case .transport:
                 .transportFailure
-            case .unexpectedHTTPStatus, .rejected:
+            case .unexpectedHTTPStatus, .rejected, .contentUnavailable:
                 .unavailable
             case .unsupportedMedia, .noPlayableMedia, .invalidResponse:
                 .invalidResponse

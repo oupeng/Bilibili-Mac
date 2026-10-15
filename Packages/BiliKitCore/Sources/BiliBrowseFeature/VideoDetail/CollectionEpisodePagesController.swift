@@ -215,7 +215,7 @@ final class CollectionEpisodePagesController {
                 }
             }
         case .failure(let error):
-            if error == .authenticationInvalid {
+            if error.requiresAccountRevalidation {
                 onAuthenticationInvalid?()
             }
             for identity in waiters {

@@ -163,8 +163,7 @@ public struct VideoPlaybackView<PlayerContent: View, RelatedContent: View>: View
             EmptyView()
         case .failed(_, let failure), .failedPage(_, _, let failure):
             BrowseFailureView(
-                title: failure.title,
-                message: failure.message,
+                failure: failure,
                 retry: retryAction
             )
         case .preparingPlayback, .ready:
@@ -178,8 +177,7 @@ public struct VideoPlaybackView<PlayerContent: View, RelatedContent: View>: View
             switch model.state {
             case .failed(_, let failure), .failedPage(_, _, let failure):
                 BrowseFailureView(
-                    title: failure.title,
-                    message: failure.message,
+                    failure: failure,
                     retry: retryAction
                 )
                 .frame(maxWidth: 420)

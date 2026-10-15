@@ -34,7 +34,7 @@ public struct BiliWatchHistoryRepository: WatchHistoryRepository {
             .authenticationRequired
         case .restricted:
             .requestRestricted
-        case .rejected(let code):
+        case .rejected(let code), .contentUnavailable(let code):
             .serviceRejected(code: code)
         case .transport, .unexpectedHTTPStatus:
             .transportFailure

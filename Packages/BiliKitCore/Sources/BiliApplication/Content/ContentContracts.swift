@@ -1,5 +1,10 @@
 import BiliModels
 
+/// 内容类读取（Feed、视频、空间、观看历史，以及今后的稍后再看与收藏夹）共用的应用级错误。
+///
+/// 认证相关分四态：本地无凭据（`authenticationRequired`）、凭据失效（`authenticationInvalid`，唯一触发
+/// 账户复核的一种）、本地凭据读不到（`authenticationUnavailable`，如 Keychain 不可用），以及风控
+/// （`requestRestricted`）。
 public enum ContentApplicationError: Error, Sendable, Equatable {
     case invalidRequest
     /// 本地没有登录凭据，而该内容只按账户读取。与凭据失效不同，不应触发账户复核。
@@ -7,6 +12,8 @@ public enum ContentApplicationError: Error, Sendable, Equatable {
     case authenticationInvalid
     case authenticationUnavailable
     case requestRestricted
+    /// 内容不存在、已删除或对当前身份不可见；重试不会改变结果。
+    case contentUnavailable
     case serviceRejected(code: Int)
     case transportFailure
     case unsupportedMedia
@@ -14,6 +21,26 @@ public enum ContentApplicationError: Error, Sendable, Equatable {
     case fullViewingEntitlementRequired
     case invalidResponse
     case unavailable
+}
+
+extension ContentApplicationError {
+    /// 只有凭据失效需要窗口复核账户会话；无凭据、本地凭据读不到与风控都不复核。
+    public var requiresAccountRevalidation: Bool {
+        self == .authenticationInvalid
+    }
+
+    /// 用户重试可能得到不同结果；需要登录与内容不存在或不可见时不提供重试。
+    public var isRetryable: Bool {
+        switch self {
+        case .authenticationRequired, .contentUnavailable:
+            false
+        case .invalidRequest, .authenticationInvalid, .authenticationUnavailable,
+            .requestRestricted, .serviceRejected, .transportFailure, .unsupportedMedia,
+            .playbackUnavailable, .fullViewingEntitlementRequired, .invalidResponse,
+            .unavailable:
+            true
+        }
+    }
 }
 
 /// 游客 Feed 用例所需的远端列表 port，不暴露 endpoint DTO 或具体网络 client。

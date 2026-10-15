@@ -309,6 +309,34 @@
         }
       }
     },
+    "内容不存在或不可见" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Content unavailable"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コンテンツが存在しないか、表示できません"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "内容不存在或不可见"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "內容不存在或不可見"
+          }
+        }
+      }
+    },
     "刚刚" : {
       "localizations" : {
         "en" : {
@@ -977,6 +1005,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "無法安全地讀取本機登入憑證，請稍後再試。"
+          }
+        }
+      }
+    },
+    "无法完成请求" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn’t complete the request"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "リクエストを完了できません"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法完成请求"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法完成要求"
           }
         }
       }
@@ -2349,6 +2405,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "請至少保留一種顯示類型"
+          }
+        }
+      }
+    },
+    "该内容可能已被删除、仍在审核，或只对部分用户可见。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "It may have been deleted, still be under review, or be visible only to some users."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "削除されたか、審査中か、一部のユーザーにのみ公開されている可能性があります。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "该内容可能已被删除、仍在审核，或只对部分用户可见。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "該內容可能已被刪除、仍在審核，或只對部分使用者可見。"
           }
         }
       }

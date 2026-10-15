@@ -26,6 +26,10 @@ struct BiliContentRepositoryTests {
         (htmlRiskControlResponse(), .requestRestricted),
         (jsonResponse(#"{"code":0,"data":{"v_voucher":"voucher_fixture"}}"#), .requestRestricted),
         (jsonResponse(#"{"code":-500,"message":"fixture"}"#), .serviceRejected(code: -500)),
+        // 不存在或不可见不是风控，也不是可重试的业务拒绝。
+        (jsonResponse(#"{"code":-404,"message":"fixture"}"#), .contentUnavailable),
+        (jsonResponse(#"{"code":62002,"message":"fixture"}"#), .contentUnavailable),
+        (jsonResponse(#"{"code":62004,"message":"fixture"}"#), .contentUnavailable),
         (HTTPResponse(statusCode: 500, body: Data()), .unavailable),
         (jsonResponse("{"), .invalidResponse)
     ])

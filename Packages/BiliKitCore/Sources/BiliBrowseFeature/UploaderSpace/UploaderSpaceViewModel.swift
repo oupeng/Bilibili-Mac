@@ -177,7 +177,7 @@ public final class UploaderSpaceViewModel {
             }
             state = .loaded(loaded)
         case .failure(let error):
-            if error == .authenticationInvalid {
+            if error.requiresAccountRevalidation {
                 authenticationRevalidationGeneration += 1
             }
             state = .failed(page: page, error: error)

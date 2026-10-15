@@ -36,7 +36,7 @@ extension NativePlaybackSidebarOverlay {
             case .loading:
                 return .loading(label: AppStrings.localized("正在加载所选视频上下文"))
             case .failed(_, let failure):
-                return .failure(title: failure.title, message: failure.message)
+                return failureOverlay(for: failure)
             case .idle, .loadingPage, .preparingPlayback, .ready, .failedPage:
                 return .none
             }
@@ -46,7 +46,7 @@ extension NativePlaybackSidebarOverlay {
         case .loading, .loadingPage, .preparingPlayback:
             return .loading(label: AppStrings.localized("正在加载视频上下文"))
         case .failed(_, let failure), .failedPage(_, _, let failure):
-            return .failure(title: failure.title, message: failure.message)
+            return failureOverlay(for: failure)
         case .idle:
             return .unavailable(
                 title: AppStrings.localized("没有播放上下文"),
@@ -55,6 +55,13 @@ extension NativePlaybackSidebarOverlay {
         case .ready:
             return .none
         }
+    }
+
+    /// 不可重试的失败（需要登录、内容不存在或不可见）不给重试按钮。
+    private static func failureOverlay(for failure: VideoLoadFailure) -> Self {
+        failure.isRetryable
+            ? .failure(title: failure.title, message: failure.message)
+            : .unavailable(title: failure.title, message: failure.message)
     }
 }
 

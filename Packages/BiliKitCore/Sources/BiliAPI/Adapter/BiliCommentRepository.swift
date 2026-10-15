@@ -116,7 +116,7 @@ public actor BiliCommentRepository: CommentRepository {
             .requestRestricted
         case .rejected(let code) where code == closedCommentsCode:
             .closed
-        case .rejected(let code):
+        case .rejected(let code), .contentUnavailable(let code):
             .serviceRejected(code: code)
         case .transport:
             .transportFailure

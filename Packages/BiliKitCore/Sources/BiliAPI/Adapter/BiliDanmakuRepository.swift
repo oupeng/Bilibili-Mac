@@ -43,7 +43,7 @@ public struct BiliDanmakuRepository: DanmakuSegmentRepository, Sendable {
         case .transport:
             .transportFailure
         case .authorizationRequired, .authorizationUnavailable,
-            .unexpectedHTTPStatus, .rejected:
+            .unexpectedHTTPStatus, .rejected, .contentUnavailable:
             .unavailable
         case .unsupportedMedia, .noPlayableMedia, .invalidResponse:
             .invalidResponse
