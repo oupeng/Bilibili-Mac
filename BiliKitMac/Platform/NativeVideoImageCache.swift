@@ -3,8 +3,10 @@ import Foundation
 
 /// 图片管线内存缓存的上界，按管线的用途给出；两处生产调用方各用一组。
 struct NativeVideoImageCacheLimits: Sendable, Equatable {
-    /// 单项成本不超过总成本上限的这一份额：评论图片预览的原图解码后可达数十 MiB，
-    /// 不能一张就挤掉整个窗口的封面与头像；超出的不缓存，预览视图打开期间自己持有图片。
+    /// 单项成本不超过总成本上限的这一份额。
+    ///
+    /// 评论图片预览的原图解码后可达数十 MiB，不能一张就挤掉整个窗口的封面与头像。超出的不进共享缓存，由预览会话
+    /// （`NativeCommentImagePreviewOriginals`）持有当前与前后各一张；关闭预览后再打开会重新下载。
     static let maximumEntryCostDivisor = 4
 
     /// 窗口内所有封面、头像与评论图片共用。

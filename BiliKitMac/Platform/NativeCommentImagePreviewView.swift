@@ -179,6 +179,8 @@ private struct NativeCommentImagePreviewContent: View {
     @State private var selection: NativeCommentImagePreviewSelection
     @State private var phase = Phase.loading
     @State private var loadAttempt = 0
+    /// 本次预览持有的原图；视图随 `request.id` 重建时一起释放。
+    @State private var originals = NativeCommentImagePreviewOriginals()
 
     init(
         request: NativeCommentImagePreviewRequest,
@@ -418,7 +420,8 @@ private struct NativeCommentImagePreviewContent: View {
     /// 由 `.task(id:)` 驱动：切换图片、重试或关闭都会取消上一次加载。
     ///
     /// 列表里已缓存的缩小图先显示并标出原图加载中，原图到达后原位替换（显示尺寸相同）；原图失败时
-    /// 保留缩小图并提供重试，只有连占位都没有时才整页显示失败。
+    /// 保留缩小图并提供重试，只有连占位都没有时才整页显示失败。共享缓存放不下的大原图由本次预览的
+    /// `originals` 持有当前与前后各一张。
     private func loadCurrentImage() async {
         guard request.references.indices.contains(selection.index) else {
             phase = .failed
@@ -431,7 +434,9 @@ private struct NativeCommentImagePreviewContent: View {
         }
         let placeholder = placeholderLoader.cachedImage(for: reference)
         phase = placeholder.map { .placeholder($0, originalFailed: false) } ?? .loading
-        let result = await loader.image(for: reference)
+        let result = await originals.image(at: selection.index) { [loader] in
+            await loader.image(for: reference)
+        }
         guard !Task.isCancelled else { return }
         guard let result else {
             phase = placeholder.map { .placeholder($0, originalFailed: true) } ?? .failed

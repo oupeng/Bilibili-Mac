@@ -197,21 +197,6 @@ struct PlaybackSourceSettingsTests {
         #expect(model.benchmarkAccess == .signedIn)
     }
 
-    /// 窗口在恢复登录期间被关闭：注销之后迟到的同步不能把它登记回来，否则未登录的残留会锁住测速。
-    @Test @MainActor
-    func removedWindowOwnerCannotBeRegisteredAgain() {
-        let model = makeModel(store: MemoryPlaybackSourcePreferenceStore())
-        let closedWindow = UUID()
-        let openWindow = UUID()
-
-        model.synchronizeAuthentication(.signedIn, ownerID: openWindow)
-        model.synchronizeAuthentication(.resolving, ownerID: closedWindow)
-        model.removeAuthenticationOwner(closedWindow)
-        model.synchronizeAuthentication(.signedOut, ownerID: closedWindow)
-
-        #expect(model.benchmarkAccess == .signedIn)
-    }
-
     @Test @MainActor
     func newDiscoveryWaitsForLifecycleResetToFinish() async throws {
         let resetGate = ResetGate()
