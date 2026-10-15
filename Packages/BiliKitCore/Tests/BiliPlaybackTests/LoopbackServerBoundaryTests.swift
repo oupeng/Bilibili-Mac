@@ -65,6 +65,12 @@ struct LoopbackServerBoundaryTests {
             target: url.path,
             host: "127.0.0.1:not-a-port"
         )
+        // 畸形目标在 Host／token 校验之前解析，必须作为普通 400 拒绝而不是让进程崩溃。
+        let queryOnlyTargetStatus = try independentHTTPStatus(
+            port: port,
+            target: "?",
+            host: "127.0.0.1:\(port)"
+        )
 
         #expect(acceptedStatus == 200)
         #expect(rejectedTokenStatus == 404)
@@ -73,6 +79,7 @@ struct LoopbackServerBoundaryTests {
         #expect(missingHostStatus == 400)
         #expect(duplicateHostStatus == 400)
         #expect(malformedHostStatus == 400)
+        #expect(queryOnlyTargetStatus == 400)
 
         try exerciseIndependentDisconnects(
             port: port,
@@ -88,6 +95,145 @@ struct LoopbackServerBoundaryTests {
         )
         server.stop()
         try await waitForIndependentProcessToRejectConnections(port: port)
+    }
+
+    @Test(
+        arguments: [
+            "GET ? HTTP/1.1",
+            "GET ??? HTTP/1.1",
+            "GET  HTTP/1.1",
+            "GET path?x HTTP/1.1",
+            "GET http://127.0.0.1/path HTTP/1.1"
+        ]
+    )
+    func requestParserRejectsTargetsOutsideOriginForm(_ requestLine: String) {
+        #expect(throws: LoopbackPlaybackServerError.invalidHTTPRequest) {
+            try LoopbackHTTPRequest.parse(
+                Data("\(requestLine)\r\nHost: 127.0.0.1\r\n\r\n".utf8)
+            )
+        }
+    }
+
+    @Test(
+        arguments: [
+            ("/token/path?x", "/token/path"),
+            ("/token/path??x", "/token/path"),
+            ("/?", "/"),
+            ("/token/path", "/token/path")
+        ]
+    )
+    func requestParserRoutesOnPathWithoutQuery(
+        _ rawTarget: String,
+        _ expectedTarget: String
+    ) throws {
+        let request = try LoopbackHTTPRequest.parse(
+            Data("GET \(rawTarget) HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".utf8)
+        )
+
+        #expect(request.method == "GET")
+        #expect(request.target == expectedTarget)
+        #expect(request.headers == ["host": "127.0.0.1"])
+    }
+
+    /// 空闲连接占满待请求头名额时，新连接让最早的空闲连接让位并得到服务；留下的只连不发完请求头的
+    /// 连接到时被关闭。
+    @Test
+    func idleConnectionsCannotLockOutRequestsAndTimeOut() async throws {
+        let server = LoopbackPlaybackServer()
+        try await server.start()
+        defer { server.stop() }
+        let url = try server.register(
+            .inMemory(data: Data([0x4F, 0x4B]), contentType: "text/plain"),
+            at: "limited.txt"
+        )
+        let port = try #require(url.port)
+
+        var idleClients: [RawLoopbackClient] = []
+        defer {
+            for client in idleClients {
+                client.cancel()
+            }
+        }
+        // 空闲连接数达到总上限：没有待请求头子上限时，后来的请求会被挡在门外。
+        let idleCount = LoopbackPlaybackServer.maximumConcurrentConnections
+        for index in 0..<idleCount {
+            let client = try RawLoopbackClient(port: port)
+            try await client.connect()
+            if index == idleCount - 1 {
+                // 请求头只发一半的慢速客户端与完全空闲的连接受同一时限约束。
+                try await client.send(Data("GET \(url.path) HTTP/1.1\r\n".utf8))
+            }
+            idleClients.append(client)
+        }
+
+        let accepted = try RawLoopbackClient(port: port)
+        defer { accepted.cancel() }
+        try await accepted.connect()
+        try await accepted.send(
+            Data("GET \(url.path) HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\n\r\n".utf8)
+        )
+        let response = String(decoding: await accepted.receiveUntilClosed(), as: UTF8.self)
+        #expect(response.hasPrefix("HTTP/1.1 200 OK\r\n"))
+        #expect(response.hasSuffix("\r\n\r\nOK"))
+
+        for client in idleClients {
+            #expect(await client.receiveUntilClosed().isEmpty)
+        }
+    }
+
+    /// 全部连接都在响应阶段且达到总上限时，新连接不进入请求处理。
+    @Test
+    func responsePhaseConnectionsAreCappedAtTotalLimit() async throws {
+        let remoteURL = try #require(
+            URL(string: "https://media.fixture.bilivideo.com/held.mp4")
+        )
+        let transport = FixtureRangeTransport(
+            media: [remoteURL: Data(repeating: 0, count: 16)],
+            blockingURLIndexRanges: [
+                remoteURL: try MediaByteRange(start: 0, endInclusive: 0)
+            ]
+        )
+        let server = LoopbackPlaybackServer(rangeStreamer: transport)
+        try await server.start()
+        defer { server.stop() }
+        let url = try server.register(
+            .remote(
+                try LoopbackRemoteResource(
+                    sourceURL: remoteURL,
+                    contentLength: 16,
+                    contentType: "video/mp4"
+                )
+            ),
+            at: "held.mp4"
+        )
+        let port = try #require(url.port)
+        let request = Data(
+            ("GET \(url.path) HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\n"
+                + "Range: bytes=4-11\r\n\r\n").utf8
+        )
+
+        var heldClients: [RawLoopbackClient] = []
+        defer {
+            for client in heldClients {
+                client.cancel()
+            }
+        }
+        let limit = LoopbackPlaybackServer.maximumConcurrentConnections
+        for _ in 0..<limit {
+            let client = try RawLoopbackClient(port: port)
+            try await client.connect()
+            try await client.send(request)
+            heldClients.append(client)
+        }
+        await transport.waitForBlockedRequest(count: limit)
+
+        let rejected = try RawLoopbackClient(port: port)
+        defer { rejected.cancel() }
+        try? await rejected.connect()
+        try? await rejected.send(request)
+
+        #expect(await rejected.receiveUntilClosed().isEmpty)
+        #expect(await transport.startedBlockedRequestCount == limit)
     }
 
     @Test

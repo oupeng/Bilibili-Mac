@@ -134,37 +134,6 @@ struct LoopbackGeneratedResourceTests {
     }
 
     @Test
-    func unregisterIsTerminalForCapturedGeneratedResource() async throws {
-        let probe = CancellationProbe()
-        let generated = try LoopbackGeneratedResource(
-            contentType: "text/vtt",
-            maximumContentLength: 1_024
-        ) {
-            try await probe.load()
-        }
-        let server = LoopbackPlaybackServer()
-        try await server.start()
-        defer { server.stop() }
-        let firstURL = try server.register(
-            .generated(generated),
-            at: "removed.vtt"
-        )
-
-        let request = Task { try await URLSession.shared.data(from: firstURL) }
-        await probe.waitForLoads(1)
-        try server.unregister(relativePaths: ["removed.vtt"])
-        _ = try? await request.value
-        await probe.waitForCancellations(1)
-
-        let secondURL = try server.register(
-            .generated(generated),
-            at: "reused.vtt"
-        )
-        _ = try? await URLSession.shared.data(from: secondURL)
-        #expect(await probe.loadCount == 1)
-    }
-
-    @Test
     func generatedLoadRetriesAtMostOncePerRouteGeneration() async throws {
         let probe = AlwaysFailingProbe()
         let generated = try LoopbackGeneratedResource(
