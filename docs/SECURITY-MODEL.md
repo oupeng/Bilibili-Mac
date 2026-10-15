@@ -126,8 +126,8 @@ storage、无 URL cache，并拒绝 redirect。`PublicHTTPSURLPolicy` 是基线�
   响应头验证的候选固定给后续 Range。上游请求去除 `Cookie`／`Authorization`。
 - DASH 分段不要求上游 `Content-Length`（部分 CDN／HTTP/2 省略），正文按逐字节计数核对；progressive
   要求上游 `Content-Length`。206 响应头发出后的任何失败只能断开连接，不换来源续传。
-- 收齐请求头后继续监听下游：EOF（包括客户端在响应前半关闭）或连接错误即关闭连接并取消上游请求；
-  向下游写入失败同样按取消处理，不换备用线路。
+- 收齐请求头后继续监听下游：EOF（包括客户端在响应前半关闭；AVPlayer 不半关闭）或连接错误即视为断开，
+  关闭连接并取消上游请求；向下游写入失败同样按取消处理，不换备用线路。
 - playlist 只在内存；媒体正文逐 chunk 转发并等待下游 send completion 形成背压，下游写入期间上游已到达
   的字节最多暂存 4 MiB，超出即失败；不整段缓存、不落盘。
 - 播放项目替换、停止、关窗或登出时关闭 server，取消连接与上游 Task。
