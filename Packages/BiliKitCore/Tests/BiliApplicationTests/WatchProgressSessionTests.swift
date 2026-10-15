@@ -12,13 +12,13 @@ struct WatchProgressSessionTests {
         fixture.session.start()
         fixture.session.setReportingAccess(signedIn: true)
 
-        fixture.timeline.send(fixture.snapshot(state: .playing))
+        fixture.send(state: .playing)
         let started = await fixture.repository.nextReport()
         #expect(started.event == .started)
 
         fixture.time.value = 15
-        fixture.timeline.send(fixture.snapshot(position: 15, state: .playing))
-        await fixture.resolutions.wait(for: 2)
+        fixture.send(position: 15, state: .playing)
+        await fixture.resolutions.wait(for: 3)
         fixture.ticks.tick()
         let periodic = await fixture.repository.nextReport()
         #expect(periodic.event == .periodic)
@@ -26,19 +26,19 @@ struct WatchProgressSessionTests {
         #expect(periodic.playedSeconds == 15)
 
         fixture.time.value = 18
-        fixture.timeline.send(fixture.snapshot(position: 18, state: .paused))
+        fixture.send(position: 18, state: .paused)
         let paused = await fixture.repository.nextReport()
         #expect(paused.event == .paused)
         #expect(paused.positionSeconds == 18)
         #expect(paused.playedSeconds == 18)
 
-        fixture.timeline.send(fixture.snapshot(position: 18, state: .playing))
+        fixture.send(position: 18, state: .playing)
         let resumed = await fixture.repository.nextReport()
         #expect(resumed.event == .resumed)
         #expect(fixture.ticks.intervals == [15, 15])
 
         fixture.time.value = 20
-        fixture.timeline.send(fixture.snapshot(position: 20, state: .ended))
+        fixture.send(position: 20, state: .ended)
         let ended = await fixture.repository.nextReport()
         #expect(ended.event == .ended)
         #expect(ended.completed)
@@ -50,18 +50,18 @@ struct WatchProgressSessionTests {
         let fixture = try makeFixture()
         fixture.session.start()
         fixture.session.setReportingAccess(signedIn: true)
-        fixture.timeline.send(fixture.snapshot(state: .playing))
+        fixture.send(state: .playing)
         _ = await fixture.repository.nextReport()
 
         fixture.time.value = 15
-        fixture.timeline.send(fixture.snapshot(position: 15, state: .playing))
-        await fixture.resolutions.wait(for: 2)
+        fixture.send(position: 15, state: .playing)
+        await fixture.resolutions.wait(for: 3)
         fixture.ticks.tick()
         _ = await fixture.repository.nextReport()
 
         fixture.time.value = 18
-        fixture.timeline.send(fixture.snapshot(position: 18, state: .playing))
-        await fixture.resolutions.wait(for: 3)
+        fixture.send(position: 18, state: .playing)
+        await fixture.resolutions.wait(for: 4)
         fixture.session.stop()
 
         let ended = await fixture.repository.nextReport()
@@ -75,15 +75,15 @@ struct WatchProgressSessionTests {
         let fixture = try makeFixture()
         fixture.session.start()
         fixture.session.setReportingAccess(signedIn: true)
-        fixture.timeline.send(fixture.snapshot(state: .playing))
+        fixture.send(state: .playing)
         _ = await fixture.repository.nextReport()
 
         fixture.time.value = 20
-        fixture.timeline.send(fixture.snapshot(position: 20, state: .playing))
-        fixture.timeline.send(fixture.snapshot(position: 5, state: .playing, discontinuity: 2))
+        fixture.send(position: 20, state: .playing)
+        fixture.seek(to: 5)
         fixture.time.value = 21
-        fixture.timeline.send(fixture.snapshot(position: 5, state: .buffering, discontinuity: 2))
-        await fixture.resolutions.wait(for: 4)
+        fixture.send(position: 5, state: .buffering)
+        await fixture.resolutions.wait(for: 5)
         fixture.time.value = 31
         fixture.ticks.tick()
 
@@ -97,13 +97,13 @@ struct WatchProgressSessionTests {
     func unresolvedAndGuestScopesNeverCreateWriteIntent() async throws {
         let fixture = try makeFixture()
         fixture.session.start()
-        fixture.timeline.send(fixture.snapshot(state: .playing))
+        fixture.send(state: .playing)
         fixture.ticks.tick()
         fixture.session.stop()
         #expect(await fixture.repository.reportCount == 0)
 
         fixture.session.setReportingAccess(signedIn: false)
-        fixture.timeline.send(fixture.snapshot(state: .playing))
+        fixture.send(state: .playing)
         fixture.ticks.tick()
         #expect(await fixture.repository.reportCount == 0)
     }
@@ -119,13 +119,13 @@ struct WatchProgressSessionTests {
         let fixture = try makeFixture(repository: ProgressRepositoryStub(firstFailure: error))
         fixture.session.start()
         fixture.session.setReportingAccess(signedIn: true)
-        fixture.timeline.send(fixture.snapshot(state: .playing))
+        fixture.send(state: .playing)
         _ = await fixture.repository.nextReport()
         await fixture.ticks.waitForTermination(1)
 
         fixture.time.value = 15
         fixture.ticks.tick()
-        fixture.timeline.send(fixture.snapshot(position: 15, state: .playing))
+        fixture.send(position: 15, state: .playing)
 
         #expect(await fixture.repository.reportCount == 1)
         #expect(fixture.ticks.intervals == [15])
@@ -138,19 +138,17 @@ struct WatchProgressSessionTests {
         let fixture = try makeFixture(repository: repository)
         fixture.session.start()
         fixture.session.setReportingAccess(signedIn: true)
-        fixture.timeline.send(fixture.snapshot(state: .playing))
+        fixture.send(state: .playing)
         #expect(await repository.nextReport().event == .started)
 
-        var resolutionTarget = 1
+        var resolutionTarget = 2
         for index in 1...24 {
             fixture.time.value = Double(index)
             let state: PlaybackTimelineState = index.isMultiple(of: 2) ? .playing : .paused
-            fixture.timeline.send(
-                fixture.snapshot(position: Double(index), state: state)
-            )
+            fixture.send(position: Double(index), state: state)
             resolutionTarget += 1
         }
-        fixture.timeline.send(fixture.snapshot(position: 24, state: .ended))
+        fixture.send(position: 24, state: .ended)
         resolutionTarget += 1
         await fixture.resolutions.wait(for: resolutionTarget)
 
@@ -172,13 +170,13 @@ struct WatchProgressSessionTests {
         let fixture = try makeFixture(repository: repository)
         fixture.session.start()
         fixture.session.setReportingAccess(signedIn: true)
-        fixture.timeline.send(fixture.snapshot(state: .playing))
+        fixture.send(state: .playing)
         #expect(await repository.nextReport().event == .started)
 
         // started 仍在途时，三次 tick 只保留同会话最新的 periodic。
         for (index, position) in [5.0, 10.0, 15.0].enumerated() {
             fixture.time.value = position
-            fixture.timeline.send(fixture.snapshot(position: position, state: .playing))
+            fixture.send(position: position, state: .playing)
             fixture.ticks.tick()
             await fixture.ticks.waitForDemand(index + 2)
         }
@@ -190,9 +188,9 @@ struct WatchProgressSessionTests {
         // periodic 在途时再排队的 periodic 被后续边界挤掉；ended 最后且完成。
         fixture.ticks.tick()
         await fixture.ticks.waitForDemand(5)
-        fixture.timeline.send(fixture.snapshot(position: 16, state: .paused))
-        fixture.timeline.send(fixture.snapshot(position: 16, state: .playing))
-        fixture.timeline.send(fixture.snapshot(position: 18, state: .ended))
+        fixture.send(position: 16, state: .paused)
+        fixture.send(position: 16, state: .playing)
+        fixture.send(position: 18, state: .ended)
 
         var boundaries: [WatchProgressReport] = []
         for _ in 0..<3 {
@@ -211,7 +209,7 @@ struct WatchProgressSessionTests {
         let fixture = try makeFixture()
         fixture.session.start()
         fixture.session.setReportingAccess(signedIn: true)
-        fixture.timeline.send(fixture.snapshot(state: .playing))
+        fixture.send(state: .playing)
         _ = await fixture.repository.nextReport()
 
         fixture.time.value = 5
@@ -246,10 +244,7 @@ struct WatchProgressSessionTests {
                 return candidateIdentity == identity && candidateIntent == loadIntent
                     ? target : nil
             },
-            timestampProvider: { 1_777_777_700 },
-            monotonicTimeProvider: { 0 },
-            sessionIDProvider: { "0123456789abcdef0123456789abcdef" },
-            periodicTicks: { _ in AsyncStream { _ in } }
+            environment: .fixture()
         )
         session.start()
         session.setReportingAccess(signedIn: true)
@@ -285,7 +280,7 @@ struct WatchProgressSessionTests {
     func lateFailureCannotDisableOrReplayAcrossAThroughB(
         firstError: WatchProgressError
     ) async throws {
-        let timeline = ProgressTimeline()
+        let timeline = StoreProgressTimeline()
         let repository = ProgressRepositoryStub(firstFailure: firstError, blocking: .first)
         let resolutions = ResolutionProbe()
         let identityA = PlaybackItemIdentity(bvid: "BV1FIXTUREA", cid: 22)
@@ -310,19 +305,17 @@ struct WatchProgressSessionTests {
                     WatchProgressTarget(aid: $0, identity: identity, loadIntent: intent)
                 }
             },
-            timestampProvider: { 1_777_777_700 },
-            monotonicTimeProvider: { 0 },
-            sessionIDProvider: { "0123456789abcdef0123456789abcdef" },
-            periodicTicks: { _ in AsyncStream { _ in } }
+            environment: .fixture()
         )
         session.start()
         session.setReportingAccess(signedIn: true)
-        timeline.send(snapshot(identity: identityA, intent: intentA1, state: .playing))
+        beginPlaying(identity: identityA, intent: intentA1, on: timeline)
         #expect(await repository.nextReport().target.loadIntent == intentA1)
 
-        timeline.send(snapshot(identity: identityB, intent: intentB, state: .playing))
-        timeline.send(snapshot(identity: identityA, intent: intentA2, state: .playing))
-        await resolutions.wait(for: 3)
+        beginPlaying(identity: identityB, intent: intentB, on: timeline)
+        beginPlaying(identity: identityA, intent: intentA2, on: timeline)
+        // 每个 item 先发布 loading 再进入播放，各解析两次。
+        await resolutions.wait(for: 6)
         await repository.releaseNext()
 
         var replacementStarted = false
@@ -336,26 +329,21 @@ struct WatchProgressSessionTests {
         #expect(timeline.currentTimelineSnapshot.state == .playing)
     }
 
-    private func snapshot(
+    /// 在真实时间线上换到新的播放 item 并开始播放。
+    private func beginPlaying(
         identity: PlaybackItemIdentity,
         intent: PlaybackLoadIntent,
-        state: PlaybackTimelineState
-    ) -> PlaybackTimelineSnapshot {
-        PlaybackTimelineSnapshot(
-            identity: identity,
-            positionSeconds: 0,
-            durationSeconds: 120,
-            rate: state == .playing ? 1 : 0,
-            state: state,
-            discontinuityGeneration: 1,
-            loadIntent: intent
-        )
+        on timeline: StoreProgressTimeline
+    ) {
+        let token = timeline.store.beginItem(identity: identity, loadIntent: intent)
+        timeline.store.update(token: token, rate: 1, state: .playing)
     }
 
+    /// 时间线已就绪于唯一 item，session 尚未订阅；打开报告权限时 session 会先解析一次这个就绪快照。
     private func makeFixture(
         repository: ProgressRepositoryStub = ProgressRepositoryStub()
     ) throws -> ProgressFixture {
-        let timeline = ProgressTimeline()
+        let timeline = StoreProgressTimeline()
         let ticks = ManualProgressTicks()
         let time = TestMonotonicTime()
         let identity = PlaybackItemIdentity(bvid: "BV1FIXTURE", cid: 22)
@@ -376,18 +364,19 @@ struct WatchProgressSessionTests {
                 return candidateIdentity == identity && candidateIntent == loadIntent
                     ? target : nil
             },
-            timestampProvider: { 1_777_777_700 },
-            monotonicTimeProvider: { time.value },
-            sessionIDProvider: { "0123456789abcdef0123456789abcdef" },
-            periodicTicks: { ticks.stream(every: $0) }
+            environment: .fixture(
+                monotonicTime: { time.value },
+                periodicTicks: { ticks.stream(every: $0) }
+            )
         )
+        let token = timeline.store.beginItem(identity: identity, loadIntent: loadIntent)
+        timeline.store.markReady(token: token, durationSeconds: 120)
         return ProgressFixture(
             timeline: timeline,
+            token: token,
             repository: repository,
             ticks: ticks,
             time: time,
-            identity: identity,
-            loadIntent: loadIntent,
             resolutions: resolutions,
             session: session
         )
@@ -396,50 +385,27 @@ struct WatchProgressSessionTests {
 
 @MainActor
 private struct ProgressFixture {
-    let timeline: ProgressTimeline
+    let timeline: StoreProgressTimeline
+    let token: PlaybackTimelineItemToken
     let repository: ProgressRepositoryStub
     let ticks: ManualProgressTicks
     let time: TestMonotonicTime
-    let identity: PlaybackItemIdentity
-    let loadIntent: PlaybackLoadIntent
     let resolutions: ResolutionProbe
     let session: WatchProgressSession
 
-    func snapshot(
-        position: Double = 0,
-        state: PlaybackTimelineState,
-        discontinuity: UInt64 = 1
-    ) -> PlaybackTimelineSnapshot {
-        PlaybackTimelineSnapshot(
-            identity: identity,
+    func send(position: Double = 0, state: PlaybackTimelineState) {
+        timeline.store.update(
+            token: token,
             positionSeconds: position,
-            durationSeconds: 120,
             rate: state == .playing ? 1 : 0,
-            state: state,
-            discontinuityGeneration: discontinuity,
-            loadIntent: loadIntent
+            state: state
         )
+    }
+
+    func seek(to position: Double) {
+        timeline.store.markDiscontinuity(token: token, positionSeconds: position)
     }
 }
 
 @MainActor
 private final class TestMonotonicTime { var value = 0.0 }
-
-@MainActor
-private final class StoreProgressTimeline: PlaybackTimelineProviding {
-    let store = PlaybackTimelineStore()
-
-    var currentTimelineSnapshot: PlaybackTimelineSnapshot {
-        store.currentSnapshot
-    }
-
-    func timelineUpdates() -> AsyncStream<PlaybackTimelineSnapshot> {
-        store.updates()
-    }
-
-    func observeTimeline(
-        _ observer: @escaping @MainActor (PlaybackTimelineSnapshot) -> Void
-    ) -> @MainActor @Sendable () -> Void {
-        store.observe(observer)
-    }
-}

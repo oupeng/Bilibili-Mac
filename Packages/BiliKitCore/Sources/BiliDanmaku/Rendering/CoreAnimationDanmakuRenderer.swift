@@ -22,12 +22,13 @@ public final class CoreAnimationDanmakuRenderer:
     }
 
     static let maximumActiveTextureByteCost = 64 * 1_024 * 1_024
+    /// 每个弹幕 layer 上唯一的位移／停留动画的 key。
+    static let animationKey = "danmaku"
 
     public weak var delegate: (any DanmakuRenderingBackendDelegate)?
     public let rootLayer: CALayer
 
-    private(set) var renderEpoch: UInt64 = 0
-    var activeLayerCount: Int { entries.count }
+    private var renderEpoch: UInt64 = 0
 
     private var backingScale: Double
     private var entries: [String: Entry] = [:]
@@ -137,7 +138,7 @@ public final class CoreAnimationDanmakuRenderer:
             animation.beginTime =
                 layer.convertTime(CACurrentMediaTime(), from: nil) - elapsedSeconds
         }
-        layer.add(animation, forKey: "danmaku")
+        layer.add(animation, forKey: Self.animationKey)
         CATransaction.commit()
         return true
     }
@@ -222,14 +223,6 @@ public final class CoreAnimationDanmakuRenderer:
         preparationOwner.cancelAllPreparations()
         removeAllEntries()
         setPlaybackRate(0)
-    }
-
-    func objectIdentity(forEventID eventID: String) -> UInt64? {
-        entries[eventID]?.objectIdentity
-    }
-
-    var outstandingPreparationCount: Int {
-        preparationOwner.outstandingRequestCount
     }
 
     func completeAnimation(

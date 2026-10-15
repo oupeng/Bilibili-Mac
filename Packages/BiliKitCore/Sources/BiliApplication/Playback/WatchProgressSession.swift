@@ -8,9 +8,46 @@ public final class WatchProgressSession {
             PlaybackItemIdentity,
             PlaybackLoadIntent
         ) -> WatchProgressTarget?
-    typealias PeriodicTicks = @MainActor (Double) -> AsyncStream<Void>
+
+    /// 会话读取的墙钟时间戳、单调时间、会话 ID 与周期 tick 来源；App 传 `.live`，测试注入可控实现。
+    public struct Environment: Sendable {
+        let timestamp: @Sendable () -> Int64
+        let monotonicTime: @MainActor @Sendable () -> Double
+        let sessionID: @Sendable () -> String
+        let periodicTicks: @MainActor @Sendable (Double) -> AsyncStream<Void>
+
+        public static var live: Environment {
+            Environment(
+                timestamp: { Int64(Date().timeIntervalSince1970) },
+                monotonicTime: { ProcessInfo.processInfo.systemUptime },
+                sessionID: {
+                    UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+                },
+                periodicTicks: { Self.systemPeriodicTicks(every: $0) }
+            )
+        }
+
+        private static func systemPeriodicTicks(every interval: Double) -> AsyncStream<Void> {
+            AsyncStream { continuation in
+                let task = Task {
+                    do {
+                        while !Task.isCancelled {
+                            try await Task.sleep(for: .seconds(interval))
+                            try Task.checkCancellation()
+                            continuation.yield(())
+                        }
+                    } catch {
+                        continuation.finish()
+                    }
+                }
+                continuation.onTermination = { _ in task.cancel() }
+            }
+        }
+    }
 
     private static let pendingLimit = 8
+    /// 播放中 periodic heartbeat 的间隔。
+    private static let periodicIntervalSeconds = 15.0
 
     private struct ActiveSession {
         let target: WatchProgressTarget
@@ -39,11 +76,7 @@ public final class WatchProgressSession {
     private let useCase: WatchProgressUseCase
     private let timeline: any PlaybackTimelineProviding
     private let resolveTarget: TargetResolver
-    private let periodicInterval: Double
-    private let timestampProvider: @Sendable () -> Int64
-    private let monotonicTimeProvider: @MainActor () -> Double
-    private let sessionIDProvider: @Sendable () -> String
-    private let periodicTicks: PeriodicTicks
+    private let environment: Environment
 
     private var cancelTimelineObservation: (@MainActor @Sendable () -> Void)?
     private var periodicTask: Task<Void, Never>?
@@ -60,44 +93,12 @@ public final class WatchProgressSession {
         useCase: WatchProgressUseCase,
         timeline: any PlaybackTimelineProviding,
         resolveTarget: @escaping TargetResolver,
-        periodicInterval: Double = 15,
-        timestampProvider: @escaping @Sendable () -> Int64 = {
-            Int64(Date().timeIntervalSince1970)
-        },
-        sessionIDProvider: @escaping @Sendable () -> String = {
-            UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
-        }
+        environment: Environment
     ) {
         self.useCase = useCase
         self.timeline = timeline
         self.resolveTarget = resolveTarget
-        self.periodicInterval = periodicInterval
-        self.timestampProvider = timestampProvider
-        monotonicTimeProvider = { ProcessInfo.processInfo.systemUptime }
-        self.sessionIDProvider = sessionIDProvider
-        periodicTicks = Self.systemPeriodicTicks(every:)
-        precondition(periodicInterval > 0)
-    }
-
-    init(
-        useCase: WatchProgressUseCase,
-        timeline: any PlaybackTimelineProviding,
-        resolveTarget: @escaping TargetResolver,
-        periodicInterval: Double = 15,
-        timestampProvider: @escaping @Sendable () -> Int64,
-        monotonicTimeProvider: @escaping @MainActor () -> Double,
-        sessionIDProvider: @escaping @Sendable () -> String,
-        periodicTicks: @escaping PeriodicTicks
-    ) {
-        self.useCase = useCase
-        self.timeline = timeline
-        self.resolveTarget = resolveTarget
-        self.periodicInterval = periodicInterval
-        self.timestampProvider = timestampProvider
-        self.monotonicTimeProvider = monotonicTimeProvider
-        self.sessionIDProvider = sessionIDProvider
-        self.periodicTicks = periodicTicks
-        precondition(periodicInterval > 0)
+        self.environment = environment
     }
 
     deinit {
@@ -145,7 +146,7 @@ public final class WatchProgressSession {
         guard !isSuspended else { return }
         isSuspended = true
         if var active {
-            accountPlaybackTime(&active, until: monotonicTimeProvider())
+            accountPlaybackTime(&active, until: environment.monotonicTime())
             self.active = active
         }
         stopPeriodicTimer()
@@ -155,7 +156,7 @@ public final class WatchProgressSession {
         guard isSuspended else { return }
         isSuspended = false
         if var active {
-            active.lastAccountingTime = monotonicTimeProvider()
+            active.lastAccountingTime = environment.monotonicTime()
             self.active = active
         }
         startPeriodicTimer()
@@ -186,11 +187,11 @@ public final class WatchProgressSession {
         guard var active else {
             guard snapshot.state == .playing else { return }
             generation &+= 1
-            let now = monotonicTimeProvider()
+            let now = environment.monotonicTime()
             let started = ActiveSession(
                 target: target,
-                sessionStartTimestamp: timestampProvider(),
-                sessionID: sessionIDProvider(),
+                sessionStartTimestamp: environment.timestamp(),
+                sessionID: environment.sessionID(),
                 generation: generation,
                 monotonicStart: now,
                 lastAccountingTime: now,
@@ -204,7 +205,7 @@ public final class WatchProgressSession {
         }
 
         let previous = active.lastSnapshot
-        accountPlaybackTime(&active, until: monotonicTimeProvider())
+        accountPlaybackTime(&active, until: environment.monotonicTime())
         active.maximumPositionSeconds = max(
             active.maximumPositionSeconds,
             snapshot.positionSeconds
@@ -258,7 +259,7 @@ public final class WatchProgressSession {
             let active, !active.reportingDisabled,
             Self.isHeartbeatActive(active.lastSnapshot.state)
         else { return }
-        let ticks = periodicTicks(periodicInterval)
+        let ticks = environment.periodicTicks(Self.periodicIntervalSeconds)
         periodicTask = Task { [weak self] in
             for await _ in ticks {
                 guard !Task.isCancelled else { return }
@@ -305,7 +306,7 @@ public final class WatchProgressSession {
         guard reportingAccessEnabled, var session = suppliedSession ?? active,
             !session.reportingDisabled
         else { return }
-        accountPlaybackTime(&session, until: monotonicTimeProvider())
+        accountPlaybackTime(&session, until: environment.monotonicTime())
         if suppliedSession == nil {
             active = session
         }
@@ -324,7 +325,7 @@ public final class WatchProgressSession {
                     snapshot.positionSeconds
                 ),
                 durationSeconds: snapshot.durationSeconds,
-                elapsedSeconds: max(0, monotonicTimeProvider() - session.monotonicStart),
+                elapsedSeconds: max(0, environment.monotonicTime() - session.monotonicStart),
                 playedSeconds: session.playedSeconds,
                 completed: completed
             )
@@ -427,22 +428,5 @@ public final class WatchProgressSession {
 
     private static func isHeartbeatActive(_ state: PlaybackTimelineState) -> Bool {
         state == .playing || state == .buffering
-    }
-
-    private static func systemPeriodicTicks(every interval: Double) -> AsyncStream<Void> {
-        AsyncStream { continuation in
-            let task = Task {
-                do {
-                    while !Task.isCancelled {
-                        try await Task.sleep(for: .seconds(interval))
-                        try Task.checkCancellation()
-                        continuation.yield(())
-                    }
-                } catch {
-                    continuation.finish()
-                }
-            }
-            continuation.onTermination = { _ in task.cancel() }
-        }
     }
 }

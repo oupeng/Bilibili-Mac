@@ -104,7 +104,6 @@ struct DanmakuSchedulerTests {
         )
         let first = try #require(firstValue)
         #expect(first.events.map(\.id) == ["repeat"])
-        #expect(scheduler.retainedDeliveredIDCount == 1)
 
         let forwardSeekValue = scheduler.consume(
             snapshot(position: 100, rate: 1, generation: 2)
@@ -112,7 +111,6 @@ struct DanmakuSchedulerTests {
         let forwardSeek = try #require(forwardSeekValue)
         #expect(forwardSeek.clearsExisting)
         #expect(forwardSeek.events.isEmpty)
-        #expect(scheduler.retainedDeliveredIDCount == 0)
 
         let backwardSeekValue = scheduler.consume(
             snapshot(position: 0, rate: 1, generation: 3)
@@ -124,7 +122,6 @@ struct DanmakuSchedulerTests {
         )
         let replay = try #require(replayValue)
         #expect(replay.events.map(\.id) == ["repeat"])
-        #expect(scheduler.retainedDeliveredIDCount == 1)
     }
 
     @Test
@@ -158,11 +155,24 @@ struct DanmakuSchedulerTests {
         #expect(batch.events.map(\.id) == ["allowed", "zero-weight"])
 
         scheduler.setEnabled(false)
-        #expect(scheduler.retainedDeliveredIDCount == 0)
         let disabled = scheduler.consume(
             snapshot(position: 6, rate: 1, generation: 1)
         )
         #expect(disabled == nil)
+
+        // 关闭时屏幕已清空，投递记录随之作废：重新打开后补位会再次给出仍在窗口内的弹幕。
+        scheduler.setCatchUpWindow(10)
+        scheduler.setEnabled(true)
+        let anchor = scheduler.consume(
+            snapshot(position: 6.1, rate: 1, generation: 1)
+        )
+        #expect(anchor == nil)
+        let reenabledValue = scheduler.consume(
+            snapshot(position: 6.2, rate: 1, generation: 1)
+        )
+        let reenabled = try #require(reenabledValue)
+        #expect(reenabled.catchesUp)
+        #expect(reenabled.events.map(\.id) == ["allowed", "zero-weight"])
     }
 
     @Test
@@ -181,7 +191,9 @@ struct DanmakuSchedulerTests {
             )
         }
 
-        #expect(scheduler.cachedSegmentCount == DanmakuScheduler.maximumCachedSegments)
+        // 只保留离当前位置（尚无快照时为第 1 段）最近的 `maximumCachedSegments` 段。
+        let cached = (1...8).filter { scheduler.containsSegment(index: $0) }
+        #expect(cached == Array(1...DanmakuScheduler.maximumCachedSegments))
         let oldIdentity = scheduler.consume(
             PlaybackTimelineSnapshot(
                 identity: other,
@@ -349,7 +361,7 @@ struct DanmakuSchedulerTests {
     }
 
     @Test
-    func forwardPlaybackBoundsDeliveredIDsAndDeduplicatesAdjacentSegments() throws {
+    func forwardPlaybackDeduplicatesAdjacentSegments() throws {
         var scheduler = DanmakuScheduler()
         scheduler.begin(for: identity)
         _ = scheduler.consume(snapshot(position: 0, rate: 1, generation: 1))
@@ -401,27 +413,46 @@ struct DanmakuSchedulerTests {
                             "boundary-\(index)"
                         ])
             )
-            #expect(
-                scheduler.retainedDeliveredSegmentCount
-                    <= DanmakuScheduler.maximumCachedSegments
+        }
+    }
+
+    /// 去重记录只覆盖最近 `maximumCachedSegments` 段：更早分段投递过的 ID 已被遗忘，再次出现时
+    /// 重新投递；窗口内分段投递过的 ID 仍去重。
+    @Test
+    func deliveredIDMemoryCoversOnlyTheCachedSegmentWindow() throws {
+        var scheduler = DanmakuScheduler()
+        scheduler.begin(for: identity)
+        _ = scheduler.consume(snapshot(position: 0, rate: 1, generation: 1))
+        let segmentCount = DanmakuScheduler.maximumCachedSegments + 1
+        let duration = DanmakuScheduler.segmentDurationSeconds
+        var emitted: [[String]] = []
+
+        for index in 1...segmentCount {
+            let start = Double(index - 1) * duration
+            let events: [DanmakuEvent] =
+                switch index {
+                case 1: [event(id: "outside-window", time: start + 1)]
+                case 2: [event(id: "inside-window", time: start + 1)]
+                case segmentCount:
+                    [
+                        event(id: "outside-window", time: start + 1),
+                        event(id: "inside-window", time: start + 2)
+                    ]
+                default: []
+                }
+            scheduler.store(DanmakuSegment(index: index, events: events), for: identity)
+            let batch = scheduler.consume(
+                snapshot(position: start + duration - 0.05, rate: 1, generation: 1)
             )
-            #expect(
-                scheduler.retainedDeliveredIDCount
-                    <= DanmakuScheduler.maximumCachedSegments * 4
-            )
+            emitted.append(batch?.events.map(\.id) ?? [])
         }
 
         #expect(
-            scheduler.retainedDeliveredSegmentCount
-                == DanmakuScheduler.maximumCachedSegments
+            emitted
+                == [["outside-window"], ["inside-window"]]
+                + Array(repeating: [], count: segmentCount - 3)
+                + [["outside-window"]]
         )
-        #expect(
-            scheduler.retainedDeliveredIDCount
-                == DanmakuScheduler.maximumCachedSegments * 4
-        )
-        scheduler.reset()
-        #expect(scheduler.retainedDeliveredSegmentCount == 0)
-        #expect(scheduler.retainedDeliveredIDCount == 0)
     }
 
     /// seek 后第一个播放中的快照补发回看窗口内本应仍在屏上的弹幕；窗口外的不补，之后恢复增量投递。

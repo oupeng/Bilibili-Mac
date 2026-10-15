@@ -2,42 +2,43 @@ import Foundation
 
 @testable import BiliApplication
 
-/// WatchProgress 测试共用的时间线、解析探针、手动 tick 与写入 repository 替身。
+/// WatchProgress 测试共用的时间线、会话环境、解析探针、手动 tick 与写入 repository 替身。
 
+/// 本 target 唯一的 `PlaybackTimelineProviding` 替身：包装生产 `PlaybackTimelineStore`，
+/// 快照只能经 store 的 item token 操作发布，广播、去重与 generation 语义与 App 一致。
 @MainActor
-final class ProgressTimeline: PlaybackTimelineProviding {
-    private(set) var currentTimelineSnapshot = PlaybackTimelineSnapshot.idle
-    private var continuations: [UUID: AsyncStream<PlaybackTimelineSnapshot>.Continuation] = [:]
-    private var observers: [UUID: @MainActor (PlaybackTimelineSnapshot) -> Void] = [:]
+final class StoreProgressTimeline: PlaybackTimelineProviding {
+    let store = PlaybackTimelineStore()
+
+    var currentTimelineSnapshot: PlaybackTimelineSnapshot {
+        store.currentSnapshot
+    }
 
     func timelineUpdates() -> AsyncStream<PlaybackTimelineSnapshot> {
-        let id = UUID()
-        let stream = AsyncStream<PlaybackTimelineSnapshot>.makeStream()
-        continuations[id] = stream.continuation
-        stream.continuation.yield(currentTimelineSnapshot)
-        stream.continuation.onTermination = { [weak self] _ in
-            Task { @MainActor in self?.continuations[id] = nil }
-        }
-        return stream.stream
+        store.updates()
     }
 
     func observeTimeline(
         _ observer: @escaping @MainActor (PlaybackTimelineSnapshot) -> Void
     ) -> @MainActor @Sendable () -> Void {
-        let id = UUID()
-        observers[id] = observer
-        observer(currentTimelineSnapshot)
-        return { [weak self] in self?.observers[id] = nil }
+        store.observe(observer)
     }
+}
 
-    func send(_ snapshot: PlaybackTimelineSnapshot) {
-        currentTimelineSnapshot = snapshot
-        for observer in Array(observers.values) {
-            observer(snapshot)
+extension WatchProgressSession.Environment {
+    /// 固定的会话起始时间戳与会话 ID；单调时间与周期 tick 由测试控制，默认时间冻结且从不 tick。
+    static func fixture(
+        monotonicTime: @escaping @MainActor @Sendable () -> Double = { 0 },
+        periodicTicks: @escaping @MainActor @Sendable (Double) -> AsyncStream<Void> = { _ in
+            AsyncStream { _ in }
         }
-        for continuation in continuations.values {
-            continuation.yield(snapshot)
-        }
+    ) -> Self {
+        Self(
+            timestamp: { 1_777_777_700 },
+            monotonicTime: monotonicTime,
+            sessionID: { "0123456789abcdef0123456789abcdef" },
+            periodicTicks: periodicTicks
+        )
     }
 }
 

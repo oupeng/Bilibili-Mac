@@ -78,10 +78,9 @@ struct WatchProgressUseCaseTests {
 
 @MainActor
 private final class WindowProgressHarness {
-    private let timeline = ProgressTimeline()
+    private let timeline = StoreProgressTimeline()
     private let probe = ResolutionProbe()
-    private let identity: PlaybackItemIdentity
-    private let intent = PlaybackLoadIntent()
+    private let token: PlaybackTimelineItemToken
     private let session: WatchProgressSession
 
     init(
@@ -89,9 +88,8 @@ private final class WindowProgressHarness {
         cid: Int64,
         writer: any WatchProgressRepository
     ) throws {
-        identity = PlaybackItemIdentity(bvid: "BV1FIXTURE", cid: cid)
-        let identity = identity
-        let intent = intent
+        let identity = PlaybackItemIdentity(bvid: "BV1FIXTURE", cid: cid)
+        let intent = PlaybackLoadIntent()
         let target = try #require(
             WatchProgressTarget(
                 aid: aid,
@@ -108,31 +106,19 @@ private final class WindowProgressHarness {
                 return candidate == identity && candidateIntent == intent
                     ? target : nil
             },
-            timestampProvider: { 1_777_777_700 },
-            monotonicTimeProvider: { 0 },
-            sessionIDProvider: { "0123456789abcdef0123456789abcdef" },
-            periodicTicks: { _ in AsyncStream { _ in } }
+            environment: .fixture()
         )
+        token = timeline.store.beginItem(identity: identity, loadIntent: intent)
+        timeline.store.markReady(token: token, durationSeconds: 120)
     }
 
     func start() {
         session.start()
         session.setReportingAccess(signedIn: true)
-        timeline.send(snapshot(state: .playing))
+        timeline.store.update(token: token, positionSeconds: 18, rate: 1, state: .playing)
     }
 
-    func end() { timeline.send(snapshot(state: .ended)) }
-    func waitUntilEndedConsumed() async { await probe.wait(for: 2) }
-
-    private func snapshot(state: PlaybackTimelineState) -> PlaybackTimelineSnapshot {
-        PlaybackTimelineSnapshot(
-            identity: identity,
-            positionSeconds: 18,
-            durationSeconds: 120,
-            rate: state == .playing ? 1 : 0,
-            state: state,
-            discontinuityGeneration: 1,
-            loadIntent: intent
-        )
-    }
+    func end() { timeline.store.update(token: token, rate: 0, state: .ended) }
+    /// 依次解析就绪、播放、结束三个快照。
+    func waitUntilEndedConsumed() async { await probe.wait(for: 3) }
 }

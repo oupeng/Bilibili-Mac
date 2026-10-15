@@ -30,7 +30,8 @@ extension WatchProgressWindowConnection {
                     identity: identity,
                     loadIntent: loadIntent
                 )
-            }
+            },
+            environment: .live
         )
         let sleepObservation = WatchProgressSleepObservation(
             suspend: { session.suspend() },
