@@ -1,4 +1,5 @@
 import BiliAPI
+import BiliModels
 import BiliPlayback
 import Foundation
 import Observation
@@ -137,6 +138,21 @@ final class AppSettingsModel {
             )
             record = updated
             store.save(updated)
+        }
+    }
+
+    var sponsorBlockSettings: SponsorBlockSettings {
+        get {
+            if let data = UserDefaults.standard.data(forKey: "BiliKitSponsorBlockSettings"),
+               let decoded = try? JSONDecoder().decode(SponsorBlockSettings.self, from: data) {
+                return decoded
+            }
+            return .default
+        }
+        set {
+            if let encoded = try? JSONEncoder().encode(newValue) {
+                UserDefaults.standard.set(encoded, forKey: "BiliKitSponsorBlockSettings")
+            }
         }
     }
 
