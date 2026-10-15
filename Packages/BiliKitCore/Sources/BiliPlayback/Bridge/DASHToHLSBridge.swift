@@ -191,12 +191,12 @@ public struct DASHToHLSBridge: Sendable {
             audioTracks,
             headers: headers
         )
-        async let loadedVideoIndices = loadVideoIndices(
+        async let loadedVideoVariants = loadVideoVariants(
             videos,
             headers: headers
         )
         let loadedAudioRenditions = try await audioRenditionsTask
-        let videoIndices = try await loadedVideoIndices
+        let videoVariants = try await loadedVideoVariants
         let subtitleCatalog = try await freezeCatalog(catalogTask)
         guard
             let canonicalAudio = loadedAudioRenditions.first(where: {
@@ -270,15 +270,12 @@ public struct DASHToHLSBridge: Sendable {
                 )
             }
             var variants: [HLSVideoVariant] = []
-            variants.reserveCapacity(videos.count)
+            variants.reserveCapacity(videoVariants.count)
             var iFrameVariants: [HLSIFrameVariant] = []
-            iFrameVariants.reserveCapacity(videos.count)
-            for (video, videoIndex) in zip(videos, videoIndices) {
-                guard let videoLength = videoIndex.completeMediaLength else {
-                    throw DASHToHLSBridgeError.missingCompleteMediaLength(
-                        representationID: video.id
-                    )
-                }
+            iFrameVariants.reserveCapacity(videoVariants.count)
+            for loadedVideo in videoVariants {
+                let video = loadedVideo.representation
+                let videoIndex = loadedVideo.index
                 let videoPlaylistURL = try server.url(
                     for: "video/\(video.id).m3u8"
                 )
@@ -290,7 +287,7 @@ public struct DASHToHLSBridge: Sendable {
                         resource: .remote(
                             try LoopbackRemoteResource(
                                 sourceURL: videoIndex.sourceURL,
-                                contentLength: videoLength,
+                                contentLength: loadedVideo.completeMediaLength,
                                 contentType: video.mimeType,
                                 headers: headers
                             )
@@ -348,7 +345,7 @@ public struct DASHToHLSBridge: Sendable {
                 let subtitleRenditions = try makeSubtitleRoutes(
                     catalog: subtitleCatalog,
                     source: subtitleSource,
-                    videoIndices: videoIndices.map(\.index),
+                    videoIndices: videoVariants.map(\.index.index),
                     registrations: &registrations,
                     server: server
                 )
@@ -714,33 +711,61 @@ public struct DASHToHLSBridge: Sendable {
         return abs(candidateStart - canonicalStart) <= 1.0 / 90_000.0
     }
 
-    private func loadVideoIndices(
+    /// 并行读取各档视频 SIDX；某一档失败（全部候选失败或缺少完整长度）时丢弃该档，只要还有一档
+    /// 可用就继续播放。
+    ///
+    /// 与 AI 配音一致，附加内容失败不拖垮播放。取消原样传播，不当成某一档失败；全部失败时抛出排在
+    /// 最前的那一档的错误。
+    private func loadVideoVariants(
         _ videos: [MediaRepresentation],
         headers: [String: String]
-    ) async throws -> [LoadedSegmentIndex] {
+    ) async throws -> [LoadedVideoVariant] {
         try await withThrowingTaskGroup(
-            of: (Int, LoadedSegmentIndex).self
+            of: (Int, Result<LoadedVideoVariant, any Error>).self
         ) { group in
             for (offset, video) in videos.enumerated() {
                 group.addTask {
-                    (
-                        offset,
-                        try await indexLoader.load(
+                    do {
+                        let index = try await indexLoader.load(
                             for: video,
                             headers: headers
                         )
-                    )
+                        guard let completeMediaLength = index.completeMediaLength else {
+                            throw DASHToHLSBridgeError.missingCompleteMediaLength(
+                                representationID: video.id
+                            )
+                        }
+                        return (
+                            offset,
+                            .success(
+                                LoadedVideoVariant(
+                                    representation: video,
+                                    index: index,
+                                    completeMediaLength: completeMediaLength
+                                )
+                            )
+                        )
+                    } catch {
+                        if Task.isCancelled || error is CancellationError {
+                            throw CancellationError()
+                        }
+                        return (offset, .failure(error))
+                    }
                 }
             }
 
-            var ordered = [LoadedSegmentIndex?](
+            var ordered = [Result<LoadedVideoVariant, any Error>?](
                 repeating: nil,
                 count: videos.count
             )
-            for try await (offset, index) in group {
-                ordered[offset] = index
+            for try await (offset, result) in group {
+                ordered[offset] = result
             }
-            return ordered.compactMap { $0 }
+            let loaded = ordered.compactMap { try? $0?.get() }
+            if loaded.isEmpty, case .failure(let error)? = ordered.first {
+                throw error
+            }
+            return loaded
         }
     }
 
@@ -750,6 +775,12 @@ public struct DASHToHLSBridge: Sendable {
             contentType: "application/vnd.apple.mpegurl"
         )
     }
+}
+
+private struct LoadedVideoVariant: Sendable {
+    let representation: MediaRepresentation
+    let index: LoadedSegmentIndex
+    let completeMediaLength: Int64
 }
 
 private struct LoadedAudioRendition: Sendable {

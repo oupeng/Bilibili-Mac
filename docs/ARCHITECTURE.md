@@ -75,6 +75,9 @@ session path，提供内存中生成的 master／media playlist，并把 AVPlaye
   下游写入失败都按取消处理并立即取消上游请求。
 - 只有全部 SIDX reference 从 type-1 SAP 开始且 `SAP_delta_time` 为 0 时才发布 I-frame rendition，
   它复用同一 route 的完整 fragment Range，不预读、不缓存。
+- 各档视频 SIDX 并行读取；某一档全部候选失败或缺少完整长度时只丢弃该档，master 只发布成功的档，
+  至少一档可用就继续播放，全部失败才让播放失败（报告排在最前的那一档的错误）。取消原样传播，不当成
+  某一档失败。与 AI 配音一致，单个附加档位失败不拖垮播放。
 - 同一 AUDIO group 以原声 SIDX 起点为准；起点不一致的 AI 音轨在生成 master 前丢弃。
 - AI 配音只对账户读取请求，按语言逐个取 playurl；某个语言失败（风控、网络、业务拒绝、本地授权不可用，
   至多经过一次 WBI 重试）就停止后续语言的配音请求，只保留已拿到的音轨和原声，播放照常进行。凭据失效与

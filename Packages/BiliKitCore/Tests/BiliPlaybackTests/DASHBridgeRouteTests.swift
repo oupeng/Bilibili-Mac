@@ -534,6 +534,164 @@ struct DASHBridgeRouteTests {
         #expect(requests.filter { $0.url == primaryAudio }.count == 1)
     }
 
+    /// 某一档视频 SIDX 全部候选失败时丢弃该档，其余档照常发布。
+    @Test
+    func bridgeDropsVideoTierWhoseIndexFailsAndKeepsOthers() async throws {
+        let tiers = try makeTwoVideoTiers()
+        let transport = FixtureRangeTransport(
+            media: tiers.media,
+            failingURLs: [tiers.highURL]
+        )
+
+        let prepared = try await makeFixtureBridge(transport).prepare(
+            videos: [tiers.high, tiers.low],
+            audioTracks: [makeSelectedAudioTrack(representation: tiers.audio)],
+            headers: [:],
+            subtitleSource: nil
+        )
+        defer { prepared.stop() }
+        let master = try await fetchText(prepared.url)
+
+        #expect(master.contains("video/\(tiers.low.id).m3u8"))
+        #expect(!master.contains("video/\(tiers.high.id)"))
+        let lowPlaylist = prepared.url.deletingLastPathComponent()
+            .appending(path: "video/\(tiers.low.id).m3u8")
+        #expect(try await fetchText(lowPlaylist).contains("#EXTINF"))
+    }
+
+    @Test
+    func bridgeFailsWithFirstTierErrorWhenEveryVideoIndexFails() async throws {
+        let tiers = try makeTwoVideoTiers()
+        let transport = FixtureRangeTransport(
+            media: tiers.media,
+            failingURLs: [tiers.highURL, tiers.lowURL]
+        )
+        let registry = LoopbackServerRegistry()
+        let bridge = DASHToHLSBridge(
+            rangeClient: HTTPRangeClient(streamer: transport),
+            serverFactory: { registry.create() }
+        )
+
+        await #expect(
+            throws: HTTPRangeClientError.allCandidatesFailed([
+                HTTPRangeAttempt(url: tiers.highURL, failure: .statusCode(403))
+            ])
+        ) {
+            try await bridge.prepare(
+                videos: [tiers.high, tiers.low],
+                audioTracks: [makeSelectedAudioTrack(representation: tiers.audio)],
+                headers: [:],
+                subtitleSource: nil
+            )
+        }
+        #expect(registry.servers.isEmpty)
+    }
+
+    /// 取消某一档的 SIDX 读取不是该档失败：不能丢弃它后用其余档继续起播。
+    @Test
+    func bridgeCancellationDuringVideoIndexIsNotTreatedAsTierFailure() async throws {
+        let tiers = try makeTwoVideoTiers()
+        let transport = FixtureRangeTransport(
+            media: tiers.media,
+            // 配置的区间不是实际 SIDX 区间，因此 high 档的 SIDX 读取挂起到取消。
+            blockingURLIndexRanges: [tiers.highURL: try MediaByteRange(start: 0, endInclusive: 0)]
+        )
+        let registry = LoopbackServerRegistry()
+        let bridge = DASHToHLSBridge(
+            rangeClient: HTTPRangeClient(streamer: transport),
+            serverFactory: { registry.create() }
+        )
+
+        let preparation = Task {
+            try await bridge.prepare(
+                videos: [tiers.high, tiers.low],
+                audioTracks: [makeSelectedAudioTrack(representation: tiers.audio)],
+                headers: [:],
+                subtitleSource: nil
+            )
+        }
+        await transport.waitForBlockedRequest()
+        preparation.cancel()
+
+        await #expect(throws: CancellationError.self) {
+            try await preparation.value
+        }
+        #expect(await transport.cancelledBlockedRequestCount == 1)
+        #expect(registry.servers.isEmpty)
+    }
+
+    /// 调用方之外的上游取消（例如 Range 会话失效）同样原样传播，而不是丢弃该档后继续起播。
+    @Test
+    func bridgePropagatesUpstreamCancellationOfOneVideoTier() async throws {
+        let tiers = try makeTwoVideoTiers()
+        let transport = FixtureRangeTransport(
+            media: tiers.media,
+            cancelledURLs: [tiers.highURL]
+        )
+        let registry = LoopbackServerRegistry()
+        let bridge = DASHToHLSBridge(
+            rangeClient: HTTPRangeClient(streamer: transport),
+            serverFactory: { registry.create() }
+        )
+
+        await #expect(throws: CancellationError.self) {
+            try await bridge.prepare(
+                videos: [tiers.high, tiers.low],
+                audioTracks: [makeSelectedAudioTrack(representation: tiers.audio)],
+                headers: [:],
+                subtitleSource: nil
+            )
+        }
+        #expect(registry.servers.isEmpty)
+    }
+
+    private func makeTwoVideoTiers() throws -> (
+        high: MediaRepresentation,
+        low: MediaRepresentation,
+        audio: MediaRepresentation,
+        highURL: URL,
+        lowURL: URL,
+        media: [URL: Data]
+    ) {
+        let videoData = try fixtureData(named: "video-avc")
+        let audioData = try fixtureData(named: "audio-aac")
+        let highURL = try #require(URL(string: "https://high.fixture.bilivideo.com/video"))
+        let lowURL = try #require(URL(string: "https://low.fixture.bilivideo.com/video"))
+        let audioURL = try #require(URL(string: "https://audio.fixture.bilivideo.com/audio"))
+        let high = try makeFixtureTrack(
+            id: 80,
+            kind: .video,
+            codecs: "avc1.4d400b",
+            bandwidth: 80_000,
+            data: videoData,
+            primaryURL: highURL
+        ).representation
+        let low = try makeFixtureTrack(
+            id: 64,
+            kind: .video,
+            codecs: "avc1.4d400b",
+            bandwidth: 50_000,
+            data: videoData,
+            primaryURL: lowURL
+        ).representation
+        let audio = try makeFixtureTrack(
+            id: 30_280,
+            kind: .audio,
+            codecs: "mp4a.40.2",
+            bandwidth: 96_000,
+            data: audioData,
+            primaryURL: audioURL
+        ).representation
+        return (
+            high,
+            low,
+            audio,
+            highURL,
+            lowURL,
+            [highURL: videoData, lowURL: videoData, audioURL: audioData]
+        )
+    }
+
     private func markingTypeOneSAP(in data: Data) throws -> Data {
         var result = data
         let sidx = try #require(firstTopLevelBox(named: "sidx", in: result))
