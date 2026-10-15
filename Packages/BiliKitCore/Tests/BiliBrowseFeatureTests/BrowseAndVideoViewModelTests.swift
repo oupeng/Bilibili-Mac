@@ -164,10 +164,77 @@ struct BrowseAndVideoViewModelTests {
         }
         #expect(
             page.videos.count
-                == BrowseViewModel.maximumRetainedRecommendationVideos
+                == VideoListRetention.maximumItemCount
         )
         #expect(page.nextContinuation == nil)
         #expect(!model.pagination(for: .recommendation(continuation: nil)).canLoadMore)
+    }
+
+    /// 热门与搜索与推荐共用上限：达到后不再给出分页尾标，也不再请求下一页。
+    @Test
+    @MainActor
+    func popularAndSearchStopPaginatingAtTheSharedCapacity() async {
+        let videosPerPage = 300
+        let pageVideos: @Sendable (String, Int) -> [ContentFixtures] = { prefix, page in
+            ((page - 1) * videosPerPage..<page * videosPerPage).map { index in
+                ContentFixtures(bvid: "BV-\(prefix)-\(index)", title: "\(prefix) \(index)")
+            }
+        }
+        let repository = FeedRepositoryStub(
+            popular: { request, _ in
+                PopularPage(
+                    videos: pageVideos("popular", request.page).map(\.popularVideo),
+                    pageNumber: request.page,
+                    pageSize: request.pageSize,
+                    hasMore: true
+                )
+            },
+            search: { request, _ in
+                SearchPage(
+                    videos: pageVideos("search", request.page).map(\.searchVideo),
+                    pageNumber: request.page,
+                    pageSize: request.criteria.pageSize,
+                    totalResults: 100 * videosPerPage,
+                    totalPages: 100
+                )
+            }
+        )
+        let model = BrowseViewModel(useCase: FeedUseCase(repository: repository))
+        let popularRequest = FeedRequest.popular(page: 1, pageSize: 50)
+        let searchCriteria = VideoSearchCriteria(query: "上限")
+        let searchRequest = FeedRequest.search(
+            VideoSearchRequest(criteria: searchCriteria, page: 1)
+        )
+
+        model.activatePopular(pageSize: 50)
+        await model.waitForCurrentTask()
+        for _ in 0..<5 {
+            model.loadMore(.popular)
+            await model.waitForCurrentTask()
+        }
+        guard case .loaded(.popular(let popularPage)) = model.state else {
+            Issue.record("热门达到上限后应保持 loaded")
+            return
+        }
+        #expect(popularPage.videos.count == VideoListRetention.maximumItemCount)
+        #expect(model.pagination(for: popularRequest).tailIdentity == nil)
+        #expect(!model.pagination(for: popularRequest).canLoadMore)
+        #expect(await repository.popularPages == [1, 2, 3, 4])
+
+        model.activateSearch(searchCriteria)
+        await model.waitForCurrentTask()
+        for _ in 0..<5 {
+            model.loadMore(.search)
+            await model.waitForCurrentTask()
+        }
+        guard case .loaded(.search(_, let searchPage)) = model.state else {
+            Issue.record("搜索达到上限后应保持 loaded")
+            return
+        }
+        #expect(searchPage.videos.count == VideoListRetention.maximumItemCount)
+        #expect(model.pagination(for: searchRequest).tailIdentity == nil)
+        #expect(!model.pagination(for: searchRequest).canLoadMore)
+        #expect(await repository.searchRequests.map(\.page) == [1, 2, 3, 4])
     }
 
     @Test

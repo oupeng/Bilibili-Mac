@@ -55,6 +55,44 @@ struct WatchHistoryViewModelTests {
         #expect(await repository.observedContinuations() == [nil, continuation])
     }
 
+    /// 历史与首页推荐、热门、搜索共用上限：达到后收起分页尾标，也不再请求下一页。
+    @Test
+    @MainActor
+    func stopsPaginatingAtTheSharedCapacity() async {
+        let pageSize = 600
+        let page: @Sendable (Int, WatchHistoryContinuation) -> WatchHistoryPage = { index, next in
+            WatchHistoryPage(
+                items: (index * pageSize..<(index + 1) * pageSize).map { item("BV-history-\($0)") },
+                continuation: next
+            )
+        }
+        let repository = HistoryRepositoryStub(
+            results: [.success(page(0, token(1))), .success(page(1, token(2)))]
+        )
+        let model = WatchHistoryViewModel(
+            useCase: WatchHistoryUseCase(repository: repository)
+        )
+
+        model.loadIfNeeded()
+        await model.waitForCurrentTask()
+        #expect(model.paginationTailIdentity != nil)
+        model.loadMore()
+        await model.waitForCurrentTask()
+        model.loadMore()
+        await model.waitForCurrentTask()
+
+        guard case .loaded(let items, let continuation, let error) = model.state else {
+            Issue.record("历史达到上限后应保持 loaded")
+            return
+        }
+        #expect(items.count == VideoListRetention.maximumItemCount)
+        #expect(continuation == nil)
+        #expect(error == nil)
+        #expect(model.paginationTailIdentity == nil)
+        #expect(!model.requiresManualLoadMore)
+        #expect(await repository.observedContinuations() == [nil, token(1)])
+    }
+
     @Test
     @MainActor
     func authenticationFailureRequestsRevalidation() async {

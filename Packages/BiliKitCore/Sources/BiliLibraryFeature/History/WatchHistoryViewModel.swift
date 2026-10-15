@@ -117,12 +117,14 @@ public final class WatchHistoryViewModel {
                 guard isCurrent() else { return }
                 isRefreshing = false
                 refreshRestorePoint = nil
+                let first = [].appendingVideoPage(page.items, \.bvid)
+                let continuation = first.isAtCapacity ? nil : page.continuation
                 applyLoaded(
-                    items: page.items,
-                    continuation: page.continuation,
+                    items: first.items,
+                    continuation: continuation,
                     loadMoreError: nil,
-                    rearmAutomaticTail: !page.items.isEmpty,
-                    requiresManualLoadMore: page.items.isEmpty && page.continuation != nil
+                    rearmAutomaticTail: !first.items.isEmpty,
+                    requiresManualLoadMore: first.items.isEmpty && continuation != nil
                 )
                 successfulReloadGeneration &+= 1
             } catch {
@@ -153,19 +155,25 @@ public final class WatchHistoryViewModel {
             do {
                 let page = try await useCase.load(after: continuation)
                 guard isCurrent() else { return }
-                let appended = page.items.uniquedByBVID(after: items, \.bvid)
+                let append = items.appendingVideoPage(page.items, \.bvid)
+                // 每页至少并入一条才自动继续，因此自动翻页的页数随条目上限有界；没有新条目的页
+                // 要用户显式继续，同样以条目上限为页数上限，`consumedContinuations` 的线性查找随之有界。
                 consumedContinuations.append(continuation)
                 let continuationLoops =
                     page.continuation.map {
                         consumedContinuations.contains($0)
                     } ?? false
+                let reachedLimit =
+                    append.isAtCapacity
+                    || consumedContinuations.count >= VideoListRetention.maximumItemCount
+                let nextContinuation =
+                    continuationLoops || reachedLimit ? nil : page.continuation
                 applyLoaded(
-                    items: items + appended,
-                    continuation: continuationLoops ? nil : page.continuation,
-                    loadMoreError: continuationLoops ? .invalidResponse : nil,
-                    rearmAutomaticTail: !continuationLoops && !appended.isEmpty,
-                    requiresManualLoadMore: !continuationLoops && appended.isEmpty
-                        && page.continuation != nil
+                    items: append.items,
+                    continuation: nextContinuation,
+                    loadMoreError: continuationLoops && !reachedLimit ? .invalidResponse : nil,
+                    rearmAutomaticTail: nextContinuation != nil && append.appendedCount > 0,
+                    requiresManualLoadMore: nextContinuation != nil && append.appendedCount == 0
                 )
             } catch {
                 guard isCurrent() else { return }
