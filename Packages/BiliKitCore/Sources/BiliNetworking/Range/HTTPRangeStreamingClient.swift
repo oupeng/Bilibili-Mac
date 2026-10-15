@@ -25,13 +25,14 @@ public struct HTTPRangeStreamResult: Sendable, Equatable {
 }
 
 public protocol HTTPRangeStreaming: Sendable {
-    /// `allowedContentTypes` 为 nil 时不限制上游 `Content-Type`；`requiresContentLength` 为 false
-    /// 时允许上游省略 `Content-Length`（正文长度仍按实际字节精确核对）。其余响应头逐项验证。
+    /// `expectedCompleteLength` 为 nil 时不核对 `Content-Range` 的完整长度；`allowedContentTypes`
+    /// 为 nil 时不限制上游 `Content-Type`；`requiresContentLength` 为 false 时允许上游省略
+    /// `Content-Length`（正文长度仍按实际字节精确核对）。其余响应头逐项验证。
     func stream(
         from url: URL,
         rangeHeader: String,
         expectedRange: HTTPByteRange,
-        expectedCompleteLength: Int64,
+        expectedCompleteLength: Int64?,
         headers: [String: String],
         allowedContentTypes: Set<String>?,
         requiresContentLength: Bool,
@@ -75,7 +76,7 @@ public final class HTTPRangeStreamingClient: HTTPRangeStreaming, @unchecked Send
         from url: URL,
         rangeHeader: String,
         expectedRange: HTTPByteRange,
-        expectedCompleteLength: Int64,
+        expectedCompleteLength: Int64?,
         headers: [String: String] = [:],
         allowedContentTypes: Set<String>?,
         requiresContentLength: Bool = true,
@@ -85,7 +86,7 @@ public final class HTTPRangeStreamingClient: HTTPRangeStreaming, @unchecked Send
         guard urlPolicy.allows(url) else {
             throw HTTPRangeResponseError.disallowedURL
         }
-        guard expectedCompleteLength > 0,
+        guard (expectedCompleteLength ?? 1) > 0,
             rangeHeader.lowercased().hasPrefix("bytes="),
             !rangeHeader.contains(",")
         else {

@@ -82,13 +82,45 @@ struct SIDXParserTests {
         )
 
         let loaded = try await RepresentationIndexLoader(
-            rangeClient: HTTPRangeClient(transport: transport)
+            rangeClient: HTTPRangeClient(streamer: transport)
         ).load(for: representation)
 
         #expect(loaded.sourceURL == backupURL)
         #expect(loaded.index.references[0].byteRange.start == 156)
         #expect(await transport.requests.map(\.url) == [primaryURL, backupURL])
         #expect(await transport.requests[1].headers["Range"] == "bytes=100-155")
+    }
+
+    @Test
+    func rejectsOversizedIndexRangeBeforeAnyRequest() async throws {
+        let url = try #require(URL(string: "https://primary.fixture.bilivideo.com/media"))
+        let transport = FixtureRangeTransport(
+            media: [url: Data(count: SIDXParser.maximumBoxByteCount + 200)]
+        )
+        let indexLength = SIDXParser.maximumBoxByteCount + 1
+        let representation = MediaRepresentation(
+            id: 80,
+            kind: .video,
+            codecs: "avc1.640032",
+            mimeType: "video/mp4",
+            primaryURL: url,
+            segmentBase: SegmentBase(
+                initialization: try MediaByteRange(start: 0, endInclusive: 99),
+                index: try MediaByteRange(
+                    start: 100,
+                    endInclusive: Int64(100 + indexLength - 1)
+                )
+            )
+        )
+
+        await #expect(
+            throws: SIDXParserError.indexTooLarge(byteCount: UInt64(indexLength))
+        ) {
+            try await RepresentationIndexLoader(
+                rangeClient: HTTPRangeClient(streamer: transport)
+            ).load(for: representation)
+        }
+        #expect(await transport.requests.isEmpty)
     }
 
     @Test
@@ -118,7 +150,7 @@ struct SIDXParserTests {
         )
 
         let loaded = try await RepresentationIndexLoader(
-            rangeClient: HTTPRangeClient(transport: transport)
+            rangeClient: HTTPRangeClient(streamer: transport)
         ).load(for: representation)
 
         #expect(loaded.sourceURL == backupURL)

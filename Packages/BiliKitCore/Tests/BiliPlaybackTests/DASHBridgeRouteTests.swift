@@ -198,7 +198,7 @@ struct DASHBridgeRouteTests {
         let transport = FixtureRangeTransport(media: [:])
         let registry = LoopbackServerRegistry()
         let bridge = DASHToHLSBridge(
-            rangeClient: HTTPRangeClient(transport: transport),
+            rangeClient: HTTPRangeClient(streamer: transport),
             serverFactory: { registry.create() }
         )
 

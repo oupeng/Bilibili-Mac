@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 public struct HTTPByteRange: Sendable, Equatable {
     public let start: Int64
@@ -129,29 +130,20 @@ public enum HTTPRangeClientError: Error, Sendable, Equatable {
     case allCandidatesFailed([HTTPRangeAttempt])
 }
 
-/// 逐候选执行严格 HTTP Range 读取的无状态 client。
+/// 逐候选执行严格 HTTP Range 读取并收集正文的无状态 client。
 ///
-/// 成功必须同时满足公共 HTTPS、`206`、精确 `Content-Range` 与正文长度；取消立即传播，
-/// 不会伪装成候选失败后继续请求其他 CDN。
+/// 每个候选都经 `HTTPRangeStreaming` 先验证公共 HTTPS、精确 `206` 与 `Content-Range`，再接收正文；
+/// 正文逐字节计数，超过请求长度立即取消，因此忽略 Range 的整段响应不会被读入内存，正文上限就是
+/// 调用方请求的区间长度。取消立即传播，不会伪装成候选失败后继续请求其他 CDN。
 public struct HTTPRangeClient: Sendable {
-    private let transport: any HTTPTransport
-    private let urlPolicy: PublicHTTPSURLPolicy
+    private let streamer: any HTTPRangeStreaming
 
     public init() {
-        self.init(
-            transport: URLSessionTransport(
-                configuration: .credentialFreeEphemeral(),
-                redirectPolicy: .reject
-            )
-        )
+        self.init(streamer: HTTPRangeStreamingClient())
     }
 
-    public init(
-        transport: any HTTPTransport,
-        urlPolicy: PublicHTTPSURLPolicy = PublicHTTPSURLPolicy()
-    ) {
-        self.transport = transport
-        self.urlPolicy = urlPolicy
+    public init(streamer: any HTTPRangeStreaming) {
+        self.streamer = streamer
     }
 
     /// 按顺序尝试来源并返回首个完全验证的响应。
@@ -171,40 +163,30 @@ public struct HTTPRangeClient: Sendable {
         var attempts: [HTTPRangeAttempt] = []
         for url in candidateURLs {
             try Task.checkCancellation()
-
-            guard urlPolicy.allows(url) else {
-                attempts.append(
-                    HTTPRangeAttempt(url: url, failure: .disallowedURL)
-                )
-                continue
-            }
-
-            var headers = additionalHeaders.removingCredentialAndRangeHeaders()
-            headers["Range"] = range.headerValue
-            let request = HTTPRequest(url: url, headers: headers)
-
             do {
-                let response = try await transport.send(request)
-                let result = try validatedResult(
-                    response,
-                    sourceURL: url,
-                    expectedRange: range
+                let result = try await fetch(
+                    from: url,
+                    range: range,
+                    headers: additionalHeaders
                 )
                 if let validateBody, !validateBody(result.body) {
                     throw HTTPRangeResponseError.rejectedBody
                 }
                 return result
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch let failure as HTTPRangeResponseError {
-                attempts.append(HTTPRangeAttempt(url: url, failure: failure))
             } catch {
+                // URLSession 在任务取消时可能报告 `URLError(.cancelled)`；它和 Task 取消一样
+                // 不是候选失败，不能在最后一个候选上被归为 allCandidatesFailed。
+                if Task.isCancelled
+                    || error is CancellationError
+                    || (error as? URLError)?.code == .cancelled
+                {
+                    throw CancellationError()
+                }
                 attempts.append(
                     HTTPRangeAttempt(
                         url: url,
-                        failure: .transport(
-                            errorType: String(reflecting: type(of: error))
-                        )
+                        failure: error as? HTTPRangeResponseError
+                            ?? .transport(errorType: String(reflecting: type(of: error)))
                     )
                 )
             }
@@ -213,31 +195,54 @@ public struct HTTPRangeClient: Sendable {
         throw HTTPRangeClientError.allCandidatesFailed(attempts)
     }
 
-    private func validatedResult(
-        _ response: HTTPResponse,
-        sourceURL: URL,
-        expectedRange: HTTPByteRange
-    ) throws -> HTTPRangeFetchResult {
-        let head = try HTTPRangeResponseValidator(expectedRange: expectedRange)
-            .validate(statusCode: response.statusCode) { response.headerValue(named: $0) }
-        guard UInt64(response.body.count) == expectedRange.length else {
+    private func fetch(
+        from url: URL,
+        range: HTTPByteRange,
+        headers: [String: String]
+    ) async throws -> HTTPRangeFetchResult {
+        let collected = CollectedRangeBody()
+        _ = try await streamer.stream(
+            from: url,
+            rangeHeader: range.headerValue,
+            expectedRange: range,
+            expectedCompleteLength: nil,
+            headers: headers,
+            allowedContentTypes: nil,
+            requiresContentLength: false,
+            onResponse: { collected.accept($0.contentRange) },
+            onChunk: { collected.append($0) }
+        )
+        let (contentRange, body) = collected.snapshot
+        guard let contentRange else {
+            throw HTTPRangeResponseError.missingContentRange
+        }
+        guard UInt64(body.count) == range.length else {
             throw HTTPRangeResponseError.bodyLengthMismatch(
-                expected: expectedRange.length,
-                actual: UInt64(response.body.count)
+                expected: range.length,
+                actual: UInt64(body.count)
             )
         }
         return HTTPRangeFetchResult(
-            sourceURL: sourceURL,
-            contentRange: head.contentRange,
-            body: response.body
+            sourceURL: url,
+            contentRange: contentRange,
+            body: body
         )
     }
 }
 
-extension HTTPResponse {
-    fileprivate func headerValue(named expectedName: String) -> String? {
-        headers.first { name, _ in
-            name.caseInsensitiveCompare(expectedName) == .orderedSame
-        }?.value
+/// 单个候选已验证的响应头与正文；streamer 保证正文不超过请求区间。
+private final class CollectedRangeBody: Sendable {
+    private let state = Mutex((contentRange: HTTPContentRange?.none, body: Data()))
+
+    var snapshot: (HTTPContentRange?, Data) {
+        state.withLock { ($0.contentRange, $0.body) }
+    }
+
+    func accept(_ contentRange: HTTPContentRange) {
+        state.withLock { $0.contentRange = contentRange }
+    }
+
+    func append(_ chunk: Data) {
+        state.withLock { $0.body.append(chunk) }
     }
 }
