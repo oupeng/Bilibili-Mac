@@ -78,6 +78,11 @@ func mutatedFixture(
 }
 
 /// 按顺序回放 reply 并记录请求；可挂起一次请求，也记录 invalidate。
+///
+/// `answersWBINavOnce` 开启时，第一个 WBI key 的 nav 请求直接得到 nav fixture，不消费顺序队列，
+/// 但照常记录（`waitForRequests` 的计数也包含它）。之后再取 nav 记为测试失败并按无响应抛错：
+/// 同一 client 的多个签名请求必须复用 key，多取 nav 就是风控要避免的请求放大。
+/// 只把 nav 当作签名前置的测试用它；验证 WBI key 取用、刷新、顺序或匿名性的测试仍显式排 nav。
 final class StubTransport: HTTPTransport, HTTPTransportInvalidating, @unchecked Sendable {
     enum Reply: Sendable {
         case response(HTTPResponse)
@@ -94,34 +99,55 @@ final class StubTransport: HTTPTransport, HTTPTransportInvalidating, @unchecked 
         case waiting(CheckedContinuation<Void, any Error>)
     }
 
+    static let wbiNavPath = "/x/web-interface/nav"
+
     private let lock = NSLock()
+    private let answersWBINavOnce: Bool
+    private var answeredWBINav = false
     private var replies: [Reply]
     private var requests: [HTTPRequest] = []
     private var requestWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
     private var gate = Gate.closed
     private var invalidated = false
 
-    init(_ replies: [Reply]) {
+    init(_ replies: [Reply], answersWBINavOnce: Bool = false) {
         self.replies = replies
+        self.answersWBINavOnce = answersWBINavOnce
     }
 
-    convenience init(responses: [HTTPResponse]) {
-        self.init(responses.map(Reply.response))
+    convenience init(responses: [HTTPResponse], answersWBINavOnce: Bool = false) {
+        self.init(responses.map(Reply.response), answersWBINavOnce: answersWBINavOnce)
     }
 
     var wasInvalidated: Bool { lock.withLock { invalidated } }
 
     func capturedRequests() -> [HTTPRequest] { lock.withLock { requests } }
 
+    /// 去掉 WBI key 的 nav 请求，只留下业务请求。
+    func businessRequests() -> [HTTPRequest] {
+        capturedRequests().filter { $0.url.path != Self.wbiNavPath }
+    }
+
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
-        let (reply, ready) = lock.withLock {
+        let isAutoAnsweredNav = answersWBINavOnce && request.url.path == Self.wbiNavPath
+        let (reply, isRepeatedNav, ready) = lock.withLock {
             requests.append(request)
             let count = requests.count
             let ready = requestWaiters.filter { $0.count <= count }.map(\.continuation)
             requestWaiters.removeAll { $0.count <= count }
-            return (replies.isEmpty ? nil : replies.removeFirst(), ready)
+            let isRepeatedNav = isAutoAnsweredNav && answeredWBINav
+            answeredWBINav = answeredWBINav || isAutoAnsweredNav
+            let reply = isAutoAnsweredNav || replies.isEmpty ? nil : replies.removeFirst()
+            return (reply, isRepeatedNav, ready)
         }
         for waiter in ready { waiter.resume() }
+        if isRepeatedNav {
+            Issue.record("同一 transport 上再次请求了 WBI nav")
+            throw StubTransportError.noReply
+        }
+        if isAutoAnsweredNav {
+            return try fixtureResponse("nav")
+        }
         switch reply {
         case nil:
             throw StubTransportError.noReply

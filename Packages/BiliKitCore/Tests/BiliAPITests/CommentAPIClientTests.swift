@@ -59,7 +59,7 @@ struct CommentAPIClientTests {
         let requests = transport.capturedRequests()
         #expect(
             requests.map(\.url.path) == [
-                "/x/web-interface/nav", "/x/v2/reply/wbi/main"
+                StubTransport.wbiNavPath, "/x/v2/reply/wbi/main"
             ]
         )
         let query = URLComponents(
@@ -79,10 +79,10 @@ struct CommentAPIClientTests {
     func continuationStaysOpaqueAndSuppliesNextOffset() async throws {
         let transport = StubTransport(
             responses: [
-                try fixtureResponse("nav"),
                 try fixtureResponse("comment-main"),
                 try fixtureResponse("comment-main")
-            ]
+            ],
+            answersWBINavOnce: true
         )
         let repository = BiliCommentRepository(
             client: BiliAPIClient(
@@ -129,11 +129,11 @@ struct CommentAPIClientTests {
             client: BiliAPIClient(
                 transport: StubTransport(
                     responses: [
-                        try fixtureResponse("nav"),
                         jsonResponse(
                             #"{"code":0,"message":"OK","data":{"cursor":{"is_begin":true,"prev":0,"next":2,"is_end":true,"pagination_reply":{},"mode":3,"name":"热门评论"},"replies":[],"top":{"admin":null,"upper":null,"vote":null},"top_replies":[],"upper":{"mid":113524}}}"#
                         )
-                    ]
+                    ],
+                    answersWBINavOnce: true
                 ),
                 timestampProvider: { 1_700_000_000 }
             )
@@ -192,7 +192,8 @@ struct CommentAPIClientTests {
     @Test
     func authenticationInvalidationIsPreservedForRootAndReplies() async throws {
         let rootTransport = StubTransport(
-            responses: [try fixtureResponse("nav")]
+            responses: [],
+            answersWBINavOnce: true
         )
         let rootRepository = BiliCommentRepository(
             client: BiliAPIClient(
@@ -209,7 +210,7 @@ struct CommentAPIClientTests {
                 after: nil
             )
         }
-        #expect(rootTransport.capturedRequests().map(\.url.path) == ["/x/web-interface/nav"])
+        #expect(rootTransport.businessRequests().isEmpty)
 
         let rejected = HTTPResponse(
             statusCode: 200,
@@ -303,7 +304,8 @@ struct CommentAPIClientTests {
         let repository = BiliCommentRepository(
             client: BiliAPIClient(
                 transport: StubTransport(
-                    responses: [try fixtureResponse("nav"), response]
+                    responses: [response],
+                    answersWBINavOnce: true
                 ),
                 timestampProvider: { 1_700_000_000 }
             )
@@ -349,7 +351,8 @@ struct CommentAPIClientTests {
         let repository = BiliCommentRepository(
             client: BiliAPIClient(
                 transport: StubTransport(
-                    responses: [try fixtureResponse("nav"), response]
+                    responses: [response],
+                    answersWBINavOnce: true
                 ),
                 timestampProvider: { 1_700_000_000 }
             )
@@ -541,7 +544,8 @@ struct CommentAPIClientTests {
         let repository = BiliCommentRepository(
             client: BiliAPIClient(
                 transport: StubTransport(
-                    responses: [try fixtureResponse("nav"), response]
+                    responses: [response],
+                    answersWBINavOnce: true
                 ),
                 timestampProvider: { 1_700_000_000 }
             )
@@ -571,7 +575,8 @@ struct CommentAPIClientTests {
         let repository = BiliCommentRepository(
             client: BiliAPIClient(
                 transport: StubTransport(
-                    responses: [try fixtureResponse("nav"), response]
+                    responses: [response],
+                    answersWBINavOnce: true
                 ),
                 timestampProvider: { 1_700_000_000 }
             )
@@ -599,7 +604,8 @@ struct CommentAPIClientTests {
         let repository = BiliCommentRepository(
             client: BiliAPIClient(
                 transport: StubTransport(
-                    responses: [try fixtureResponse("nav"), response]
+                    responses: [response],
+                    answersWBINavOnce: true
                 ),
                 timestampProvider: { 1_700_000_000 }
             )
@@ -647,7 +653,8 @@ struct CommentAPIClientTests {
         let repository = BiliCommentRepository(
             client: BiliAPIClient(
                 transport: StubTransport(
-                    responses: [try fixtureResponse("nav"), response]
+                    responses: [response],
+                    answersWBINavOnce: true
                 ),
                 timestampProvider: { 1_700_000_000 }
             )
@@ -680,7 +687,8 @@ struct CommentAPIClientTests {
         let rootRepository = BiliCommentRepository(
             client: BiliAPIClient(
                 transport: StubTransport(
-                    responses: [try fixtureResponse("nav"), rootResponse]
+                    responses: [rootResponse],
+                    answersWBINavOnce: true
                 ),
                 timestampProvider: { 1_700_000_000 }
             )

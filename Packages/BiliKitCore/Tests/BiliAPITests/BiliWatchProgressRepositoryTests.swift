@@ -66,7 +66,7 @@ struct BiliWatchProgressRepositoryTests {
         #expect(fields["play_type"] == "2")
         #expect(fields["max_play_progress_time"] == "33")
         #expect(fields["refer_url"] == request.headers["Referer"])
-        #expect(transport.capturedRequests().count == 2)
+        #expect(transport.businessRequests().count == 1)
     }
 
     @Test
@@ -133,10 +133,12 @@ struct BiliWatchProgressRepositoryTests {
         status: Int = 200,
         code: Int = 0
     ) throws -> StubTransport {
-        StubTransport(responses: [
-            try fixtureResponse("nav"),
-            jsonResponse("{\"code\":\(code),\"message\":\"fixture\"}", statusCode: status)
-        ])
+        StubTransport(
+            responses: [
+                jsonResponse("{\"code\":\(code),\"message\":\"fixture\"}", statusCode: status)
+            ],
+            answersWBINavOnce: true
+        )
     }
 
     private func report(

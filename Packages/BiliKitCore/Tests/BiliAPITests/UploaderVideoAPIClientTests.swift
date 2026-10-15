@@ -11,7 +11,8 @@ struct UploaderVideoAPIClientTests {
     func pageMapsFieldsAndDropsInvalidEntries() async throws {
         let client = BiliAPIClient(
             transport: StubTransport(
-                responses: [try fixtureResponse("nav"), try fixtureResponse("uploader-videos")]
+                responses: [try fixtureResponse("uploader-videos")],
+                answersWBINavOnce: true
             ),
             requestAuthorizer: StubAuthorizer(),
             timestampProvider: { 1_700_000_000 }
@@ -53,7 +54,8 @@ struct UploaderVideoAPIClientTests {
         apiValue: String
     ) async throws {
         let transport = StubTransport(
-            responses: [try fixtureResponse("nav"), try fixtureResponse("uploader-videos")]
+            responses: [try fixtureResponse("uploader-videos")],
+            answersWBINavOnce: true
         )
         let client = BiliAPIClient(
             transport: transport,
@@ -63,9 +65,9 @@ struct UploaderVideoAPIClientTests {
 
         _ = try await client.uploaderVideos(ownerID: 10_001, order: order, page: 2)
 
-        let requests = transport.capturedRequests()
-        #expect(requests.map(\.url.path) == ["/x/web-interface/nav", "/x/space/wbi/arc/search"])
-        let request = try #require(requests.last)
+        let requests = transport.businessRequests()
+        #expect(requests.map(\.url.path) == ["/x/space/wbi/arc/search"])
+        let request = try #require(requests.first)
         #expect(request.headers["Referer"] == "https://space.bilibili.com/10001/")
         #expect(request.headers["Cookie"] == StubAuthorizer.cookie)
         let query = Dictionary(
@@ -86,7 +88,7 @@ struct UploaderVideoAPIClientTests {
             {"code":0,"data":{"list":{"vlist":[{"bvid":"BV1FixtureC3","title":"最后一条","pic":"","length":"00:30","play":1,"video_review":0,"created":1700000000}]},"page":{"count":61}}}
             """#
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [try fixtureResponse("nav"), jsonResponse(body)]),
+            transport: StubTransport(responses: [jsonResponse(body)], answersWBINavOnce: true),
             requestAuthorizer: StubAuthorizer(),
             timestampProvider: { 1_700_000_000 }
         )
@@ -100,7 +102,8 @@ struct UploaderVideoAPIClientTests {
     @Test
     func missingCredentialFailsWithoutAnonymousRequest() async throws {
         let transport = StubTransport(
-            responses: [try fixtureResponse("nav"), try fixtureResponse("uploader-videos")]
+            responses: [try fixtureResponse("uploader-videos")],
+            answersWBINavOnce: true
         )
         let repository = BiliContentRepository(
             client: BiliAPIClient(
@@ -140,7 +143,7 @@ struct UploaderVideoAPIClientTests {
             ]},"page":{"count":2}}}
             """#
         let client = BiliAPIClient(
-            transport: StubTransport(responses: [try fixtureResponse("nav"), jsonResponse(body)]),
+            transport: StubTransport(responses: [jsonResponse(body)], answersWBINavOnce: true),
             requestAuthorizer: StubAuthorizer(),
             timestampProvider: { 1_700_000_000 }
         )
@@ -169,7 +172,7 @@ struct UploaderVideoAPIClientTests {
         }
         #expect(
             transport.capturedRequests().map(\.url.path)
-                == ["/x/web-interface/nav", "/x/space/wbi/arc/search"]
+                == [StubTransport.wbiNavPath, "/x/space/wbi/arc/search"]
         )
     }
 }
