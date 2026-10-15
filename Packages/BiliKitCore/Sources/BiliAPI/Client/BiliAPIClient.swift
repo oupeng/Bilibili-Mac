@@ -21,10 +21,7 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
 
     enum RequestAccess: Sendable {
         case anonymous
-        case accountRead(
-            missingCredential: MissingCredentialBehavior,
-            mapsAuthenticationInvalidation: Bool
-        )
+        case accountRead(missingCredential: MissingCredentialBehavior)
         case historyWrite
 
         var requiresAuthentication: Bool {
@@ -35,21 +32,22 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
         }
 
         var permitsMissingCredentialFallback: Bool {
-            guard case .accountRead(let behavior, _) = self else { return false }
+            guard case .accountRead(let behavior) = self else { return false }
             return behavior == .useAnonymousRequest
-        }
-
-        var mapsAuthenticationInvalidation: Bool {
-            switch self {
-            case .accountRead(_, let mapsInvalidation): mapsInvalidation
-            case .anonymous, .historyWrite: false
-            }
         }
     }
 
     enum AuthorizationProvenance: Sendable {
         case anonymous
         case authenticated
+
+        /// 读取响应的业务码 -101（账号未登录）是否表示凭据失效：只有实际带凭据发出的请求才算。
+        ///
+        /// 匿名请求（含本地无凭据时的匿名回退）收到 -101 只说明该接口要求登录，保留为
+        /// `apiRejected(-101)`，不触发账户复核。heartbeat 写请求另有自己的判定。
+        func isAuthenticationInvalidation(statusCode: Int) -> Bool {
+            self == .authenticated && statusCode == -101
+        }
     }
 
     struct AuthorizedResponse<Payload: Sendable>: Sendable {
@@ -165,7 +163,9 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
         } catch {
             throw BiliAPIError.decodingFailed
         }
-        if access.mapsAuthenticationInvalidation, status.code == -101 {
+        if authorizedResponse.authorizationProvenance.isAuthenticationInvalidation(
+            statusCode: status.code
+        ) {
             throw BiliAPIError.authenticationInvalid
         }
         guard status.code == 0 else {
@@ -260,8 +260,12 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
                     throw BiliAPIError.authenticationInvalid
                 case .missingCredential:
                     throw BiliAPIError.authorizationRequired
-                case .unavailable, .denied:
+                case .unavailable:
                     throw BiliAPIError.authorizationUnavailable
+                case .denied:
+                    // 请求形状或 path 不在授权器 allowlist：客户端构造了不该发出的账户请求，属于编程错误，
+                    // 不是本地凭据问题，因此不显示为 Keychain 类失败。
+                    throw BiliAPIError.invalidRequest
                 }
             } catch {
                 guard requestSessionEpoch == authenticatedSessionEpoch else {

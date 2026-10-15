@@ -11,10 +11,7 @@ extension BiliAPIClient {
         }
         let payload: VideoDetailPayload = try await signedVideoDetail(
             bvid: bvid,
-            access: .accountRead(
-                missingCredential: .useAnonymousRequest,
-                mapsAuthenticationInvalidation: true
-            )
+            access: .accountRead(missingCredential: .useAnonymousRequest)
         )
         let detail = try payload.model()
         guard detail.bvid == bvid else {
@@ -64,10 +61,7 @@ extension BiliAPIClient {
                 queryItems: [URLQueryItem(name: "bvid", value: bvid)]
             ),
             referer: Self.videoReferer(bvid),
-            access: .accountRead(
-                missingCredential: .useAnonymousRequest,
-                mapsAuthenticationInvalidation: true
-            )
+            access: .accountRead(missingCredential: .useAnonymousRequest)
         )
         return try payload.map { try $0.model() }
     }
@@ -94,10 +88,7 @@ extension BiliAPIClient {
         let payload: UploaderCardDataPayload = try await get(
             url: url,
             referer: "https://space.bilibili.com/",
-            access: .accountRead(
-                missingCredential: .useAnonymousRequest,
-                mapsAuthenticationInvalidation: true
-            )
+            access: .accountRead(missingCredential: .useAnonymousRequest)
         )
         guard payload.card.mid == ownerID else {
             throw BiliAPIError.decodingFailed

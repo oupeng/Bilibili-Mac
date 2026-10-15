@@ -585,7 +585,7 @@ struct BiliAPIClientTests {
     @Test(arguments: [
         (HTTPRequestAuthorizationFailureKind.invalidCredential, BiliAPIError.authenticationInvalid),
         (.unavailable, .authorizationUnavailable),
-        (.denied, .authorizationUnavailable)
+        (.denied, .invalidRequest)
     ])
     func searchFailsClosedForCredentialFailure(
         kind: HTTPRequestAuthorizationFailureKind,
@@ -1360,11 +1360,37 @@ struct BiliAPIClientTests {
         )
     }
 
+    /// -101 只在请求实际带凭据发出时才是凭据失效；没有授权器或本地无凭据而匿名回退的请求收到 -101
+    /// 只说明接口要求登录，保留为业务拒绝，不触发账户复核。
+    @Test(
+        arguments: [
+            (nil, BiliAPIError.apiRejected(code: -101, message: "fixture")),
+            (.fail(.missingCredential), .apiRejected(code: -101, message: "fixture")),
+            (.authorize, .authenticationInvalid)
+        ] as [(StubAuthorizer.Outcome?, BiliAPIError)]
+    )
+    func notLoggedInMeansInvalidCredentialOnlyForAuthenticatedRequests(
+        outcome: StubAuthorizer.Outcome?,
+        expected: BiliAPIError
+    ) async {
+        let client = BiliAPIClient(
+            transport: StubTransport(
+                responses: [jsonResponse(#"{"code":-101,"message":"fixture"}"#)],
+                answersWBINavOnce: true
+            ),
+            requestAuthorizer: outcome.map { StubAuthorizer($0) }
+        )
+
+        await #expect(throws: expected) {
+            try await client.videoDetail(for: "BV1FixtureA1")
+        }
+    }
+
     /// 只有本地明确无凭据才匿名重试；凭据失效、不可用或被拒绝时失败关闭，不发出任何 playurl。
     @Test(arguments: [
         (HTTPRequestAuthorizationFailureKind.invalidCredential, BiliAPIError.authenticationInvalid),
         (.unavailable, .authorizationUnavailable),
-        (.denied, .authorizationUnavailable)
+        (.denied, .invalidRequest)
     ])
     func localCredentialFailureDoesNotFallBackToAnonymousPlayback(
         kind: HTTPRequestAuthorizationFailureKind,

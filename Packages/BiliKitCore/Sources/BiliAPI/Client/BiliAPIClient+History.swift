@@ -29,10 +29,7 @@ extension BiliAPIClient {
                 ]
             ),
             referer: "https://www.bilibili.com/account/history",
-            access: .accountRead(
-                missingCredential: .fail,
-                mapsAuthenticationInvalidation: false
-            )
+            access: .accountRead(missingCredential: .fail)
         )
         return try payload.model(pageSize: pageSize)
     }

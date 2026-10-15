@@ -71,10 +71,17 @@ struct BiliDanmakuRepositoryTests {
         #expect(request.headers["Cookie"] == nil)
     }
 
-    @Test
-    func remoteAuthenticationInvalidationIsRecognizedBeforeProtobufDecoding()
-        async throws
-    {
+    /// JSON 状态在 protobuf 解码前识别；-101 与其他读取一样，只有带凭据的请求才算凭据失效。
+    @Test(
+        arguments: [
+            (StubAuthorizer?.some(StubAuthorizer()), DanmakuApplicationError.authenticationInvalid),
+            (nil, .unavailable)
+        ]
+    )
+    func remoteAuthenticationInvalidationIsRecognizedBeforeProtobufDecoding(
+        authorizer: StubAuthorizer?,
+        expected: DanmakuApplicationError
+    ) async throws {
         let repository = BiliDanmakuRepository(
             client: BiliAPIClient(
                 transport: StubTransport(
@@ -87,11 +94,12 @@ struct BiliDanmakuRepositoryTests {
                     ],
                     answersWBINavOnce: true
                 ),
+                requestAuthorizer: authorizer,
                 timestampProvider: { 1_700_000_000 }
             )
         )
 
-        await #expect(throws: DanmakuApplicationError.authenticationInvalid) {
+        await #expect(throws: expected) {
             try await repository.segment(index: 1, for: identity)
         }
     }
