@@ -71,7 +71,8 @@ session path，提供内存中生成的 master／media playlist，并把 AVPlaye
   分段正文与 progressive 共用同一流式转发，逐 chunk 写入 loopback，不整段缓存；SIDX 与音频 init
   也经同一流式 client 先验证响应头再收正文。同一 bridge 的 SIDX／init 读取与各播放会话共用一个
   Range 会话以复用 CDN 连接，server 停止只取消自己的在途请求。
-- 上游响应必须通过状态码、`Content-Range`、长度校验；取消不触发备用线路。
+- 上游响应必须通过状态码、`Content-Range`、长度校验；取消不触发备用线路，AVPlayer 断开连接或
+  下游写入失败都按取消处理并立即取消上游请求。
 - 只有全部 SIDX reference 从 type-1 SAP 开始且 `SAP_delta_time` 为 0 时才发布 I-frame rendition，
   它复用同一 route 的完整 fragment Range，不预读、不缓存。
 - 同一 AUDIO group 以原声 SIDX 起点为准；起点不一致的 AI 音轨在生成 master 前丢弃。

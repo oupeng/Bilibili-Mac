@@ -75,6 +75,47 @@ struct LoopbackProgressiveStreamingTests {
         #expect(await streamer.requests.map(\.url) == [primary, backup, backup])
     }
 
+    /// AVPlayer 在响应头之前断开时立即取消上游请求，且不把断开当成来源失败去请求备用线路。
+    @Test
+    func downstreamCloseCancelsUpstreamWithoutTryingBackup() async throws {
+        let primary = URL(string: "https://primary.fixture.bilivideo.com/video.mp4")!
+        let backup = URL(string: "https://backup.fixture.bilivideo.com/video.mp4")!
+        let streamer = FixtureRangeTransport(
+            media: [primary: Data([0, 1, 2, 3]), backup: Data([0, 1, 2, 3])],
+            // 除 0-0 以外的 Range 在 primary 上挂起到取消。
+            blockingURLIndexRanges: [primary: try MediaByteRange(start: 0, endInclusive: 0)]
+        )
+        let server = LoopbackPlaybackServer(rangeStreamer: streamer)
+        try await server.start()
+        defer { server.stop() }
+        let localURL = try server.register(
+            .progressive(
+                try LoopbackProgressiveResource(
+                    candidateURLs: [primary, backup],
+                    contentLength: 4,
+                    contentType: "video/mp4",
+                    allowsOctetStreamWithContainerEvidence: false
+                )
+            ),
+            at: "progressive/media.mp4"
+        )
+        let port = try #require(localURL.port)
+        let client = try RawLoopbackClient(port: port)
+        try await client.connect()
+        try await client.send(
+            Data(
+                ("GET \(localURL.path) HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\n"
+                    + "Range: bytes=1-3\r\n\r\n").utf8
+            )
+        )
+
+        await streamer.waitForBlockedRequest()
+        client.cancel()
+        await streamer.waitForCancelledBlockedRequests(1)
+
+        #expect(await streamer.requests.map(\.url) == [primary])
+    }
+
     @Test
     func rejectsUntrustedSourceBeforeStartingServerRoute() throws {
         #expect(throws: LoopbackPlaybackServerError.invalidProgressiveSource) {
