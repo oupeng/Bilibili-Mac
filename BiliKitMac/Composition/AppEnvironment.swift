@@ -22,8 +22,8 @@ typealias CommentAssetURLResolver = @Sendable (CommentAssetReference, CommentAss
 /// 原生字幕、弹幕、视频模型与 AppKit player host 必须共享它的播放 identity 和时间线。
 struct AppEnvironment {
     private let playerEngine: AVPlayerEngine
-    /// 字幕目录发现的凭据失效；只由本环境的视频模型消费。
-    private let subtitleAuthenticationInvalidations: AsyncStream<Void>
+    /// 字幕目录发现的凭据失效；只转给本环境最新创建的视频模型。
+    private let subtitleAuthenticationInvalidations: SubtitleAuthenticationInvalidationRelay
     let playbackPreferencesController: PlaybackPreferencesController
     private let feedRepository: any FeedRepository
     private let videoRepository: any VideoRepository
@@ -62,7 +62,7 @@ struct AppEnvironment {
         watchProgressRepository: (any WatchProgressRepository)?,
         danmakuRepository: any DanmakuSegmentRepository,
         playerEngine: AVPlayerEngine,
-        subtitleAuthenticationInvalidations: AsyncStream<Void>,
+        subtitleAuthenticationInvalidations: SubtitleAuthenticationInvalidationRelay,
         playbackPreferencesController: PlaybackPreferencesController,
         danmakuPreferencesStore: any DanmakuPreferencesStoring,
         authenticationService: any AuthenticationServicing,
@@ -144,7 +144,7 @@ struct AppEnvironment {
             uploaderProfileUseCase: UploaderProfileUseCase(
                 repository: uploaderProfileRepository
             ),
-            playbackAuthenticationInvalidations: subtitleAuthenticationInvalidations
+            playbackAuthenticationInvalidations: subtitleAuthenticationInvalidations.makeStream()
         )
     }
 
@@ -330,15 +330,12 @@ struct AppEnvironment {
             player: player
         )
         let subtitleRepository = BiliSubtitleRepository(client: api)
-        let (subtitleAuthenticationInvalidations, subtitleAuthenticationContinuation) =
-            AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let subtitleAuthenticationInvalidations = SubtitleAuthenticationInvalidationRelay()
         let playerEngine = AVPlayerEngine(
             player: player,
             subtitleUseCase: SubtitleUseCase(
                 repository: subtitleRepository,
-                reportAuthenticationInvalidation: {
-                    subtitleAuthenticationContinuation.yield()
-                }
+                reportAuthenticationInvalidation: subtitleAuthenticationInvalidations.report
             ),
             sourcePreferenceProvider: {
                 appSettingsModel?.playbackSourcePreference ?? .serverDefault

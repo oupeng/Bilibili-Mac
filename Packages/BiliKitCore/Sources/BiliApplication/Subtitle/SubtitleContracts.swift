@@ -37,7 +37,7 @@ public struct SubtitleUseCase: Sendable {
     /// 同一契约：字幕失败不影响播放，播放侧只把目录当作空，复核信号必须在这里发出。
     public init(
         repository: any SubtitleRepository,
-        reportAuthenticationInvalidation: @escaping @Sendable () -> Void = {}
+        reportAuthenticationInvalidation: @escaping @Sendable () -> Void
     ) {
         self.repository = repository
         self.reportAuthenticationInvalidation = reportAuthenticationInvalidation

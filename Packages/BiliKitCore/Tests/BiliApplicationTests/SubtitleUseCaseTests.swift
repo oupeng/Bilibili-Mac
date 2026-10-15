@@ -52,7 +52,10 @@ struct SubtitleUseCaseTests {
         identity: PlaybackItemIdentity
     ) async {
         let repository = ApplicationSubtitleRepository()
-        let useCase = SubtitleUseCase(repository: repository)
+        let useCase = SubtitleUseCase(
+            repository: repository,
+            reportAuthenticationInvalidation: {}
+        )
 
         await #expect(throws: SubtitleApplicationError.invalidRequest) {
             try await useCase.tracks(for: identity)
@@ -73,7 +76,10 @@ struct SubtitleUseCaseTests {
         identity: PlaybackItemIdentity
     ) async {
         let repository = ApplicationSubtitleRepository()
-        let useCase = SubtitleUseCase(repository: repository)
+        let useCase = SubtitleUseCase(
+            repository: repository,
+            reportAuthenticationInvalidation: {}
+        )
 
         await #expect(throws: SubtitleApplicationError.invalidRequest) {
             try await useCase.cues(for: trackID, identity: identity)
