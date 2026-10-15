@@ -125,7 +125,7 @@ struct NativePlaybackSidebarTests {
                 owner: VideoOwner(id: 1, name: name),
                 profileState: profileState
             ),
-            imagePipeline: NativeVideoImagePipeline(),
+            imagePipeline: NativeVideoImagePipeline(cacheLimits: .window),
             onOpenSpace: nil
         )
 
@@ -2116,7 +2116,7 @@ struct NativePlaybackSidebarTests {
 
         #expect(
             layout.refineNextBatch(
-                maximumCount: 32,
+                maximumCount: NativePlaybackSidebarLayout.refinementBatchSize,
                 prioritizing: entries[40].itemID
             )
         )
@@ -2711,7 +2711,7 @@ struct NativePlaybackSidebarTests {
         resolveURL: @escaping CommentAssetURLResolver = { _, _ in nil }
     ) -> NativePlaybackCommentTextRenderer {
         NativePlaybackCommentTextRenderer(
-            imagePipeline: NativeVideoImagePipeline(),
+            imagePipeline: NativeVideoImagePipeline(cacheLimits: .window),
             resolveURL: resolveURL
         )
     }
@@ -2721,7 +2721,7 @@ struct NativePlaybackSidebarTests {
         resolveURL: @escaping CommentAssetURLResolver = { _, _ in nil }
     ) -> NativePlaybackCommentAvatarLoader {
         NativePlaybackCommentAvatarLoader(
-            imagePipeline: NativeVideoImagePipeline(),
+            imagePipeline: NativeVideoImagePipeline(cacheLimits: .window),
             resolveURL: resolveURL
         )
     }
@@ -2731,7 +2731,7 @@ struct NativePlaybackSidebarTests {
         resolveURL: @escaping CommentAssetURLResolver = { _, _ in nil }
     ) -> NativePlaybackCommentPictureLoader {
         NativePlaybackCommentPictureLoader(
-            imagePipeline: NativeVideoImagePipeline(),
+            imagePipeline: NativeVideoImagePipeline(cacheLimits: .window),
             resolveURL: resolveURL
         )
     }

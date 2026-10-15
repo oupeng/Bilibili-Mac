@@ -380,7 +380,7 @@ final class NativeVideoImagePipeline: Sendable {
     private let sessionDelegate = NativeVideoImageSessionDelegate()
     private let session: URLSession
 
-    init(cacheLimits: NativeVideoImageCacheLimits = .window) {
+    init(cacheLimits: NativeVideoImageCacheLimits) {
         state = Mutex(State(cache: NativeVideoImageCache(limits: cacheLimits)))
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpShouldSetCookies = false
@@ -681,7 +681,7 @@ final class NativeVideoImagePipelineOwner {
     let pipeline: NativeVideoImagePipeline
     private let memoryPressureSource: any DispatchSourceMemoryPressure
 
-    init(cacheLimits: NativeVideoImageCacheLimits = .window) {
+    init(cacheLimits: NativeVideoImageCacheLimits) {
         let pipeline = NativeVideoImagePipeline(cacheLimits: cacheLimits)
         self.pipeline = pipeline
         let source = DispatchSource.makeMemoryPressureSource(

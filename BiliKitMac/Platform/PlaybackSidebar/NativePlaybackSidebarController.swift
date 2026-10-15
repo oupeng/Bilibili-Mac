@@ -87,7 +87,7 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
             imageOwner = nil
             self.imagePipeline = imagePipeline
         } else {
-            let owner = NativeVideoImagePipelineOwner()
+            let owner = NativeVideoImagePipelineOwner(cacheLimits: .window)
             imageOwner = owner
             self.imagePipeline = owner.pipeline
         }

@@ -10,7 +10,9 @@ struct UploaderSpaceListLayoutTests {
     /// 没有投稿行时没有别的更新会顺带重算布局，头部停在旧宽度会让排序挤出屏幕、名字宽度为零。
     @Test @MainActor
     func headerFollowsTheListWidthAfterAnInterimNarrowLayout() throws {
-        let controller = UploaderSpaceListController(imagePipeline: NativeVideoImagePipeline())
+        let controller = UploaderSpaceListController(
+            imagePipeline: NativeVideoImagePipeline(cacheLimits: .window)
+        )
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 600),
             styleMask: [.borderless],

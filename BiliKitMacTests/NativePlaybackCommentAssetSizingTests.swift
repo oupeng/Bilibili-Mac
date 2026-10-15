@@ -28,7 +28,7 @@ struct NativePlaybackCommentAssetSizingTests {
             MainActor.assumeIsolated { requested.boxes.append(box) }
             return nil
         }
-        let pipeline = NativeVideoImagePipeline()
+        let pipeline = NativeVideoImagePipeline(cacheLimits: .window)
         defer { pipeline.shutdown() }
         let reference = CommentAssetReference()
 
@@ -56,7 +56,7 @@ struct NativePlaybackCommentAssetSizingTests {
     @Test
     func savingSuggestsTheOriginalFileName() throws {
         let original = try #require(URL(string: "https://i0.hdslb.com/bfs/new_dyn/abc123.gif"))
-        let pipeline = NativeVideoImagePipeline()
+        let pipeline = NativeVideoImagePipeline(cacheLimits: .window)
         defer { pipeline.shutdown() }
         let reference = CommentAssetReference()
         let requested = RequestedBoxes()
@@ -86,7 +86,7 @@ struct NativePlaybackCommentAssetSizingTests {
     @Test
     func savingNeverSuggestsAHiddenFileName() throws {
         let original = try #require(URL(string: "https://i0.hdslb.com/bfs/new_dyn/..abc.png"))
-        let pipeline = NativeVideoImagePipeline()
+        let pipeline = NativeVideoImagePipeline(cacheLimits: .window)
         defer { pipeline.shutdown() }
 
         let loader = NativePlaybackCommentPictureLoader(
@@ -121,7 +121,7 @@ struct NativePlaybackCommentAssetSizingTests {
     /// 取原图数据只走 HTTPS、不带用户信息；管线关闭后不再发请求。
     @Test
     func originalDataRejectsUnsafeAddressesAndClosedPipelines() async throws {
-        let pipeline = NativeVideoImagePipeline()
+        let pipeline = NativeVideoImagePipeline(cacheLimits: .window)
         let insecure = try #require(URL(string: "http://i0.hdslb.com/bfs/a.png"))
         let withUser = try #require(URL(string: "https://user@i0.hdslb.com/bfs/a.png"))
 
