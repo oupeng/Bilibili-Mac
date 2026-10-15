@@ -1517,6 +1517,23 @@ struct BrowseAndVideoViewModelTests {
         #expect(model.uploaderProfileState == .loaded(UploaderProfile()))
     }
 
+    /// 字幕目录等播放附带读取发现凭据失效：播放照常，只请求窗口复核。
+    @Test
+    @MainActor
+    func playbackAuthenticationInvalidationRequestsRevalidation() async {
+        let (invalidations, continuation) = AsyncStream<Void>.makeStream()
+        let model = VideoViewModel(
+            useCase: VideoUseCase(repository: VideoRepositoryStub(ContentFixtures())),
+            playback: PlayerStub(),
+            playbackAuthenticationInvalidations: invalidations
+        )
+
+        continuation.yield()
+        await waitForObservedState { model.authenticationRevalidationGeneration == 1 }
+
+        #expect(model.state == .idle)
+    }
+
     /// 相关推荐与 UP 主名片只是增强，但凭据失效仍要交给窗口复核。
     @Test
     @MainActor

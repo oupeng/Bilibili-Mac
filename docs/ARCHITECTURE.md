@@ -301,8 +301,9 @@ Repository adapter 只调用 endpoint 方法，不自行构造 `RequestAccess`�
 [`SECURITY-MODEL.md`](SECURITY-MODEL.md)。
 
 窗口复核契约：凭据失效只由 ViewModel 记录——各自递增 `authenticationRevalidationGeneration`（推荐／热门／
-搜索、视频、弹幕、评论、UP 主空间、观看历史），`AppRootView` 汇总这些计数，任一增加就
-调用一次 `revalidate()`；Feature 不直接调用认证服务，也不经单独回调。heartbeat 写请求例外，不触发复核。
+搜索、视频、弹幕、评论、UP 主空间、观看历史；字幕目录由 `SubtitleUseCase` 报告给视频模型，播放侧仍把
+失败的目录当作没有字幕），`AppRootView` 汇总这些计数，任一增加就调用一次 `revalidate()`；Feature 不直接
+调用认证服务，也不经单独回调。heartbeat 写请求例外，不触发复核。
 
 多窗口共享一个 App 级账户 session coordinator：窗口出现后注册其 API transport，登出／换号／凭据
 失效时先全局推进 authentication epoch，其他窗口再复核 Keychain 并按新 generation 重启依赖账户的

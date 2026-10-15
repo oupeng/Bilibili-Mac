@@ -1,5 +1,6 @@
 import BiliApplication
 import BiliModels
+import Synchronization
 import Testing
 
 @Suite(.timeLimit(.minutes(1)))
@@ -81,7 +82,42 @@ struct SubtitleUseCaseTests {
     }
 }
 
+/// 字幕目录的凭据失效要在用例里报告：播放侧把目录失败当作没有字幕，不会再往上传。
+@Test(arguments: [
+    (SubtitleApplicationError.authenticationInvalid, 1),
+    (.authenticationRequired, 0),
+    (.authenticationUnavailable, 0),
+    (.requestRestricted, 0)
+])
+func onlyInvalidCredentialsAreReportedFromTheCatalog(
+    failure: SubtitleApplicationError,
+    expectedReports: Int
+) async {
+    let reports = ReportCounter()
+    let useCase = SubtitleUseCase(
+        repository: ApplicationSubtitleRepository(tracksFailure: failure),
+        reportAuthenticationInvalidation: { reports.increment() }
+    )
+
+    await #expect(throws: failure) {
+        try await useCase.tracks(for: PlaybackItemIdentity(bvid: "BV1SubtitleFixture", cid: 1))
+    }
+    #expect(reports.count == expectedReports)
+}
+
+private final class ReportCounter: Sendable {
+    private let value = Mutex(0)
+    var count: Int { value.withLock { $0 } }
+    func increment() { value.withLock { $0 += 1 } }
+}
+
 private actor ApplicationSubtitleRepository: SubtitleRepository {
+    private let tracksFailure: SubtitleApplicationError?
+
+    init(tracksFailure: SubtitleApplicationError? = nil) {
+        self.tracksFailure = tracksFailure
+    }
+
     enum Request: Sendable, Equatable {
         case tracks(PlaybackItemIdentity)
         case cues(trackID: String, identity: PlaybackItemIdentity)
@@ -92,8 +128,9 @@ private actor ApplicationSubtitleRepository: SubtitleRepository {
 
     func tracks(
         for identity: PlaybackItemIdentity
-    ) -> [SubtitleTrack] {
+    ) throws -> [SubtitleTrack] {
         observedRequests.append(.tracks(identity))
+        if let tracksFailure { throw tracksFailure }
         return []
     }
 
