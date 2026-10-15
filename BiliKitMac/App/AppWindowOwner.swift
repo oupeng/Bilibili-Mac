@@ -35,6 +35,7 @@ final class AppWindowOwner {
     private let playbackPreferencesController: PlaybackPreferencesController?
     private let systemNowPlayingCoordinator: SystemNowPlayingWindowCoordinator?
     private let watchProgressConnection: WatchProgressWindowConnection?
+    private let sponsorBlockConnection: SponsorBlockWindowConnection?
     private let openEnvironment: (@MainActor @Sendable () -> Void)?
     private let closeEnvironment: (@MainActor @Sendable () -> Void)?
     private var isOpen = false
@@ -52,6 +53,7 @@ final class AppWindowOwner {
         let watchProgressConnection = environment.makeWatchProgressConnection(
             videoModel: videoModel
         )
+        let sponsorBlockConnection = environment.makeSponsorBlockConnection()
         let navigationCoordinator = AppNavigationCoordinator(
             startPlayback: { intent in
                 AppWindowOwner.handlePlaybackSelection(
@@ -90,6 +92,7 @@ final class AppWindowOwner {
             systemNowPlayingConnection:
                 environment.makeSystemNowPlayingPlaybackConnection(),
             watchProgressConnection: watchProgressConnection,
+            sponsorBlockConnection: sponsorBlockConnection,
             openEnvironment: environment.open,
             closeEnvironment: environment.close
         )
@@ -185,6 +188,7 @@ final class AppWindowOwner {
         systemNowPlayingController: SystemNowPlayingController? = nil,
         systemNowPlayingConnection: SystemNowPlayingPlaybackConnection? = nil,
         watchProgressConnection: WatchProgressWindowConnection? = nil,
+        sponsorBlockConnection: SponsorBlockWindowConnection? = nil,
         openEnvironment: (@MainActor @Sendable () -> Void)? = nil,
         closeEnvironment: (@MainActor @Sendable () -> Void)? = nil
     ) {
@@ -215,6 +219,7 @@ final class AppWindowOwner {
             systemNowPlayingCoordinator = nil
         }
         self.watchProgressConnection = watchProgressConnection
+        self.sponsorBlockConnection = sponsorBlockConnection
         self.openEnvironment = openEnvironment
         self.closeEnvironment = closeEnvironment
     }
@@ -224,6 +229,7 @@ final class AppWindowOwner {
         isOpen = true
         openEnvironment?()
         watchProgressConnection?.start()
+        sponsorBlockConnection?.start()
         systemNowPlayingCoordinator?.start()
     }
 
@@ -233,6 +239,7 @@ final class AppWindowOwner {
         commentShortLinks.cancel()
         commentImageSaver.cancel()
         watchProgressConnection?.stop()
+        sponsorBlockConnection?.stop()
         systemNowPlayingCoordinator?.close()
         imagePipelineOwner.shutdown()
         if isOpen {
