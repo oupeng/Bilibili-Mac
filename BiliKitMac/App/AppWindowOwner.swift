@@ -39,7 +39,8 @@ final class AppWindowOwner {
     private let closeEnvironment: (@MainActor @Sendable () -> Void)?
     private let synchronizeEnvironmentSignedOutConfirmation: (@MainActor @Sendable (Bool) -> Void)?
     private var isOpen = false
-    private var isClosed = false
+    /// 关闭不可逆：之后不再打开，也不再向进程级对象登记本窗口。
+    private(set) var isClosed = false
 
     convenience init(
         environment: AppEnvironment,
@@ -183,7 +184,7 @@ final class AppWindowOwner {
         commentLinkRouter: @escaping CommentLinkRouter = { _ in nil },
         seekPlayback: @escaping @MainActor (String, Int) -> Void = { _, _ in },
         imagePipelineOwner: NativeVideoImagePipelineOwner =
-            NativeVideoImagePipelineOwner(),
+            NativeVideoImagePipelineOwner(cacheLimits: .window),
         playbackPreferencesController: PlaybackPreferencesController? = nil,
         systemNowPlayingController: SystemNowPlayingController? = nil,
         systemNowPlayingConnection: SystemNowPlayingPlaybackConnection? = nil,

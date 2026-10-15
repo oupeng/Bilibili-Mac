@@ -26,6 +26,21 @@ struct BiliKitMacTests {
         #expect(weakController == nil)
     }
 
+    /// 窗口关闭不可逆：之后再 open 也保持关闭，AppRootView 据此不再向进程级测速登记本窗口。
+    @Test
+    @MainActor
+    func windowOwnerClosureIsIrreversible() {
+        let owner = AppWindowOwner(
+            environment: AppEnvironment.live(accountSessionCoordinator: AccountSessionCoordinator())
+        )
+        #expect(!owner.isClosed)
+
+        owner.close()
+        owner.open()
+
+        #expect(owner.isClosed)
+    }
+
     @Test
     @MainActor
     func watchProgressTargetRequiresExactPresentedIdentity() throws {

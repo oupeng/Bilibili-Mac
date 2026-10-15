@@ -138,8 +138,6 @@ struct AppRootView: View {
         .task {
             authenticationModel.restoreIfNeeded()
             await authenticationModel.waitForCurrentTask()
-            // 恢复期间窗口已关闭时 onDisappear 已注销 owner，不能再登记回去。
-            guard !Task.isCancelled else { return }
             synchronizeBenchmarkAuthentication()
         }
         .onChange(of: authenticationModel.sessionPhase) { _, _ in
@@ -263,7 +261,9 @@ struct AppRootView: View {
         windowOwner.playerContent
     }
 
+    /// 窗口关闭后 onDisappear 已注销测速 owner；迟到的同步（如恢复登录完成）不得把它登记回去。
     private func synchronizeBenchmarkAuthentication() {
+        guard !windowOwner.isClosed else { return }
         appSettingsModel?.synchronizeAuthentication(
             Self.benchmarkAccess(
                 sessionPhase: authenticationModel.sessionPhase,
