@@ -15,7 +15,7 @@ extension BiliAPIClient {
         guard subject.type == 1, subject.oid > 0 else {
             throw BiliAPIError.invalidRequest
         }
-        return try await withWBIKeyRefresh(retryingHTTPForbidden: false) { forceKeyRefresh in
+        return try await withWBIKeyRefresh { forceKeyRefresh in
             try await signedCommentRootPage(
                 for: subject,
                 sort: sort,

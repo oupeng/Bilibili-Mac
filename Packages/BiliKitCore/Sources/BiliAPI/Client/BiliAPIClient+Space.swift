@@ -22,8 +22,7 @@ extension BiliAPIClient {
             "ps": String(Self.uploaderVideoPageSize),
             "order": order.apiValue
         ]
-        // 403 在这里通常是风控而不是 key 过期；只在 -403／v_voucher 时刷新 key 重试。
-        return try await withWBIKeyRefresh(retryingHTTPForbidden: false) { forceKeyRefresh in
+        return try await withWBIKeyRefresh { forceKeyRefresh in
             let keys = try await wbiKey(forceRefresh: forceKeyRefresh)
             try requireAuthenticatedSessionEpoch(sessionEpoch)
             let query = try wbiSigner.sign(

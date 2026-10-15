@@ -136,7 +136,7 @@ struct BiliDanmakuRepositoryTests {
     }
 
     static let failureCases: [(StubAuthorizer.Outcome, HTTPResponse, DanmakuApplicationError)] = [
-        (.authorize, jsonResponse("", statusCode: 412), .requestRestricted),
+        (.authorize, jsonResponse("", statusCode: 403), .requestRestricted),
         (.authorize, jsonResponse(#"{"code":-352,"message":"fixture"}"#), .requestRestricted),
         (.authorize, htmlRiskControlResponse(), .requestRestricted),
         (.authorize, jsonResponse("", statusCode: 500), .unavailable),
@@ -162,6 +162,91 @@ struct BiliDanmakuRepositoryTests {
 
         await #expect(throws: expected) {
             try await repository.segment(index: 1, for: identity)
+        }
+    }
+
+    /// 被 412 间歇风控的分段等一会儿用同一个 key 再请求一次，恢复后正常返回。
+    @Test
+    func intermittent412IsRetriedOnceAfterDelayWithoutRefreshingKey() async throws {
+        let transport = StubTransport(
+            responses: [
+                try fixtureResponse("nav"),
+                jsonResponse("", statusCode: 412),
+                try hexFixtureResponse("danmaku-segment-minimal")
+            ]
+        )
+        let repository = BiliDanmakuRepository(
+            client: BiliAPIClient(transport: transport, timestampProvider: { 1_700_000_000 })
+        )
+
+        let segment = try await repository.segment(index: 1, for: identity)
+
+        #expect(segment.events.count == 1)
+        #expect(
+            transport.capturedRequests().map(\.url.path) == [
+                "/x/web-interface/nav",
+                "/x/v2/dm/wbi/web/seg.so",
+                "/x/v2/dm/wbi/web/seg.so"
+            ]
+        )
+    }
+
+    /// 重试后仍被拒按受限失败关闭；换 key 重试与 412 延迟重试共用一次重试机会，任何组合最多请求两次。
+    @Test(arguments: RestrictedRejection.allCases)
+    func restrictedSegmentIsRequestedAtMostTwice(rejection: RestrictedRejection) async throws {
+        let transport = StubTransport(
+            responses: [try fixtureResponse("nav")] + (try rejection.responses())
+        )
+        let repository = BiliDanmakuRepository(
+            client: BiliAPIClient(transport: transport, timestampProvider: { 1_700_000_000 })
+        )
+
+        await #expect(throws: DanmakuApplicationError.requestRestricted) {
+            try await repository.segment(index: 1, for: identity)
+        }
+        #expect(
+            transport.capturedRequests().map(\.url.path)
+                == ["/x/web-interface/nav"] + rejection.expectedPaths
+        )
+    }
+
+    enum RestrictedRejection: CaseIterable, Sendable {
+        case repeated412
+        case repeatedSignatureRejection
+        case signatureRejectionThen412
+        case intermittent412ThenSignatureRejection
+
+        func responses() throws -> [HTTPResponse] {
+            switch self {
+            case .repeated412:
+                [jsonResponse("", statusCode: 412), jsonResponse("", statusCode: 412)]
+            case .repeatedSignatureRejection:
+                [
+                    jsonResponse(#"{"code":-403,"message":"fixture"}"#),
+                    try fixtureResponse("nav-refreshed"),
+                    jsonResponse(#"{"code":-403,"message":"fixture"}"#)
+                ]
+            case .signatureRejectionThen412:
+                [
+                    jsonResponse(#"{"code":-403,"message":"fixture"}"#),
+                    try fixtureResponse("nav-refreshed"),
+                    jsonResponse("", statusCode: 412)
+                ]
+            case .intermittent412ThenSignatureRejection:
+                [
+                    jsonResponse("", statusCode: 412),
+                    jsonResponse(#"{"code":-403,"message":"fixture"}"#)
+                ]
+            }
+        }
+
+        var expectedPaths: [String] {
+            switch self {
+            case .repeated412, .intermittent412ThenSignatureRejection:
+                ["/x/v2/dm/wbi/web/seg.so", "/x/v2/dm/wbi/web/seg.so"]
+            case .repeatedSignatureRejection, .signatureRejectionThen412:
+                ["/x/v2/dm/wbi/web/seg.so", "/x/web-interface/nav", "/x/v2/dm/wbi/web/seg.so"]
+            }
         }
     }
 

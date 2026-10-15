@@ -204,7 +204,7 @@ extension BiliAPIClient {
         signedParameters["cid"] = String(cid)
         signedParameters["qn"] = String(quality)
         signedParameters.merge(parameters) { $1 }
-        return try await withWBIKeyRefresh(retryingHTTPForbidden: false) { forceKeyRefresh in
+        return try await withWBIKeyRefresh { forceKeyRefresh in
             let keys = try await wbiKey(forceRefresh: forceKeyRefresh)
             let query = try wbiSigner.sign(
                 parameters: signedParameters.merging(Self.playURLRiskControlParameters()) { $1 },
