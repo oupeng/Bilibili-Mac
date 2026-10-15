@@ -176,7 +176,7 @@ struct AppRootView: View {
             else { return }
             switch phase {
             case .signedIn:
-                historyModel.loadIfNeeded()
+                historyModel.resumeAfterAuthenticationRevalidation()
             case .failed:
                 historyModel.reportAuthenticationRevalidationFailure()
             default:
@@ -300,7 +300,8 @@ struct AppRootView: View {
             browseModel.authenticationRevalidationGeneration,
             danmakuModel.authenticationRevalidationGeneration,
             commentsModel?.authenticationRevalidationGeneration ?? 0,
-            windowOwner.uploaderSpaceModel?.authenticationRevalidationGeneration ?? 0
+            windowOwner.uploaderSpaceModel?.authenticationRevalidationGeneration ?? 0,
+            historyModel.authenticationRevalidationGeneration
         ]
     }
 

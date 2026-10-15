@@ -155,7 +155,8 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   （BiliUI；结果为空时也显示），成功后整体替换并由刷新代次把该来源的网格滚回顶部；失败保留已显示内容并在
   胶囊里给出原因。刷新期间各来源都收起分页尾标，结束后重新给出：网格对同一尾标只触发一次，刷新中被忽略的
   近尾事件要靠尾标重新出现才能再布防。账户变化替换所有来源的内容，所有网格都回到顶部。
-  历史只有登录失效时转入失败页，交给登录提示。首次加载仍是骨架屏。程序回到顶部后、用户再次滚动前，内容整体
+  历史只在凭据缺失或失效时放弃已显示内容、转入失败页并请求账户复核（复核确认仍登录后自动重载一次）；
+  本地凭据读不到与复核失败显示“无法读取登录状态”并可重试。首次加载仍是骨架屏。程序回到顶部后、用户再次滚动前，内容整体
   替换保持在顶部（`NativeVideoGridTopPin`），不按旧内容第一张可见卡片做锚点恢复；锚点卡片已不在新内容里时
   也直接回到顶部，不停在被新内容高度截断的旧偏移上。网格的 snapshot 不做差异动画：动画结束前新卡片不会
   创建，而整体替换紧接着回顶，视野会空白一段。重排 document 或等待恢复偏移期间不判断翻页。网格同步出去的
@@ -298,6 +299,10 @@ Web QR 协议没有官方稳定文档，按“fixture 固定的外部观察”�
 Repository adapter 只调用 endpoint 方法，不自行构造 `RequestAccess`。授权器由 Composition 注入。
 唯一写能力是观看进度 heartbeat。具体边界见
 [`SECURITY-MODEL.md`](SECURITY-MODEL.md)。
+
+窗口复核契约：凭据失效只由 ViewModel 记录——各自递增 `authenticationRevalidationGeneration`（推荐／热门／
+搜索、视频、弹幕、评论、UP 主空间、观看历史），`AppRootView` 汇总这些计数，任一增加就
+调用一次 `revalidate()`；Feature 不直接调用认证服务，也不经单独回调。heartbeat 写请求例外，不触发复核。
 
 多窗口共享一个 App 级账户 session coordinator：窗口出现后注册其 API transport，登出／换号／凭据
 失效时先全局推进 authentication epoch，其他窗口再复核 Keychain 并按新 generation 重启依赖账户的

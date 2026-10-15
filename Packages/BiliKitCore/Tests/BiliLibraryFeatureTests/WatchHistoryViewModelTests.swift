@@ -127,11 +127,32 @@ struct WatchHistoryViewModelTests {
         #expect(error == .invalidResponse)
     }
 
+    /// 历史页只在已登录时显示：凭据失效与本地无凭据都说明窗口登录状态过期，请求复核。
+    @Test(arguments: [
+        ContentApplicationError.authenticationInvalid,
+        .authenticationRequired
+    ])
+    @MainActor
+    func credentialFailureRequestsRevalidation(failure: ContentApplicationError) async {
+        let repository = HistoryRepositoryStub(results: [.failure(failure)])
+        let model = WatchHistoryViewModel(
+            useCase: WatchHistoryUseCase(repository: repository)
+        )
+
+        model.loadIfNeeded()
+        await model.waitForCurrentTask()
+
+        #expect(model.state == .failed(failure))
+        #expect(model.authenticationRevalidationGeneration == 1)
+        #expect(model.successfulReloadGeneration == 0)
+    }
+
+    /// Keychain 等本地凭据读不到：显示可重试的“无法读取登录状态”，不复核账户。
     @Test
     @MainActor
-    func authenticationFailureRequestsRevalidation() async {
+    func unavailableCredentialIsRetryableWithoutRevalidation() async {
         let repository = HistoryRepositoryStub(
-            results: [.failure(WatchHistoryError.authenticationRequired)]
+            results: [.failure(ContentApplicationError.authenticationUnavailable)]
         )
         let model = WatchHistoryViewModel(
             useCase: WatchHistoryUseCase(repository: repository)
@@ -140,17 +161,78 @@ struct WatchHistoryViewModelTests {
         model.loadIfNeeded()
         await model.waitForCurrentTask()
 
-        #expect(model.state == .failed(.authenticationRequired))
-        #expect(model.requiresAuthentication)
-        #expect(model.successfulReloadGeneration == 0)
+        #expect(model.state == .failed(.authenticationUnavailable))
+        #expect(ContentApplicationError.authenticationUnavailable.isRetryable)
+        #expect(model.authenticationRevalidationGeneration == 0)
     }
 
+    /// 复核确认仍已登录后自动重载一次；重载又得到凭据失效时只再请求一次复核，不再自动重载。
     @Test
     @MainActor
-    func requestDroppedBySessionChangeLeavesRetryableState() async {
+    func revalidationReloadsAtMostOncePerSession() async {
+        let repository = HistoryRepositoryStub(
+            results: [
+                .failure(ContentApplicationError.authenticationInvalid),
+                .failure(ContentApplicationError.authenticationInvalid)
+            ]
+        )
+        let model = WatchHistoryViewModel(
+            useCase: WatchHistoryUseCase(repository: repository)
+        )
+
+        model.loadIfNeeded()
+        await model.waitForCurrentTask()
+        model.resumeAfterAuthenticationRevalidation()
+        await model.waitForCurrentTask()
+        #expect(model.authenticationRevalidationGeneration == 2)
+
+        model.resumeAfterAuthenticationRevalidation()
+        await model.waitForCurrentTask()
+
+        #expect(model.state == .failed(.authenticationInvalid))
+        #expect(await repository.observedContinuations() == [nil, nil])
+        #expect(model.authenticationRevalidationGeneration == 2)
+    }
+
+    /// 会话变化（reset）后重新允许一次复核后的自动重载。
+    @Test
+    @MainActor
+    func resetStartsANewRevalidationSession() async {
+        let page = WatchHistoryPage(items: [item("BV1HistoryA1")], continuation: nil)
+        let repository = HistoryRepositoryStub(
+            results: [
+                .failure(ContentApplicationError.authenticationInvalid),
+                .failure(ContentApplicationError.authenticationInvalid),
+                .failure(ContentApplicationError.authenticationInvalid),
+                .success(page)
+            ]
+        )
+        let model = WatchHistoryViewModel(
+            useCase: WatchHistoryUseCase(repository: repository)
+        )
+        model.loadIfNeeded()
+        await model.waitForCurrentTask()
+        model.resumeAfterAuthenticationRevalidation()
+        await model.waitForCurrentTask()
+
+        model.reset()
+        model.loadIfNeeded()
+        await model.waitForCurrentTask()
+        model.resumeAfterAuthenticationRevalidation()
+        await model.waitForCurrentTask()
+
+        #expect(model.state == .loaded(items: page.items, continuation: nil, loadMoreError: nil))
+        #expect(await repository.observedContinuations().count == 4)
+    }
+
+    /// 会话切换时 API 丢弃在途请求。
+    ///
+    /// 抛出取消但本任务没被取消：不是网络失败，回到 idle 等会话确认后重新加载。
+    @Test
+    @MainActor
+    func requestDroppedBySessionChangeReturnsToIdle() async {
         let model = WatchHistoryViewModel(
             useCase: WatchHistoryUseCase(
-                // API 在认证会话切换时丢弃在途请求：抛出取消，但调用方任务本身没有被取消。
                 repository: HistoryRepositoryStub(results: [.failure(CancellationError())])
             )
         )
@@ -158,22 +240,27 @@ struct WatchHistoryViewModelTests {
         model.loadIfNeeded()
         await model.waitForCurrentTask()
 
-        #expect(model.state == .failed(.transportFailure))
+        #expect(model.state == .idle)
         #expect(!model.isBusy)
     }
 
+    /// 复核没能确认登录状态：可重试的“无法读取登录状态”，不是网络失败。
     @Test
     @MainActor
-    func authenticationRevalidationFailureLeavesRetryableHistoryState() {
+    func authenticationRevalidationFailureLeavesRetryableHistoryState() async {
         let model = WatchHistoryViewModel(
             useCase: WatchHistoryUseCase(
-                repository: HistoryRepositoryStub(results: [])
+                repository: HistoryRepositoryStub(
+                    results: [.failure(ContentApplicationError.authenticationInvalid)]
+                )
             )
         )
+        model.loadIfNeeded()
+        await model.waitForCurrentTask()
 
         model.reportAuthenticationRevalidationFailure()
 
-        #expect(model.state == .failed(.transportFailure))
+        #expect(model.state == .failed(.authenticationUnavailable))
         #expect(!model.isBusy)
     }
 
@@ -189,7 +276,7 @@ struct WatchHistoryViewModelTests {
                         continuation: continuation
                     )
                 ),
-                .failure(WatchHistoryError.transportFailure)
+                .failure(ContentApplicationError.transportFailure)
             ]
         )
         let model = WatchHistoryViewModel(
@@ -290,7 +377,7 @@ struct WatchHistoryViewModelTests {
                     )
                 )
             ] + emptyPagesEnding(at: manual) + [
-                .failure(WatchHistoryError.transportFailure),
+                .failure(ContentApplicationError.transportFailure),
                 .success(
                     WatchHistoryPage(
                         items: [item("BV1HistoryB2")],
@@ -454,14 +541,17 @@ struct WatchHistoryViewModelTests {
         #expect(await repository.observedContinuations() == [nil, nil])
     }
 
-    /// 原地刷新失败保留已显示条目并恢复自动分页；登录失效仍进入终态，触发登录提示。
+    /// 原地刷新失败保留已显示条目并恢复自动分页；凭据缺失或失效进入终态并请求复核，
+    /// 本地凭据读不到只给出刷新错误。
     @Test(arguments: [
-        (WatchHistoryError.transportFailure, true),
-        (.authenticationRequired, false)
+        (ContentApplicationError.transportFailure, true),
+        (.authenticationUnavailable, true),
+        (.authenticationRequired, false),
+        (.authenticationInvalid, false)
     ])
     @MainActor
     func refreshFailureKeepsItemsUnlessAuthenticationExpired(
-        failure: WatchHistoryError,
+        failure: ContentApplicationError,
         keepsItems: Bool
     ) async {
         let repository = HistoryRepositoryStub(
@@ -490,7 +580,7 @@ struct WatchHistoryViewModelTests {
             #expect(model.successfulReloadGeneration == 1)
         } else {
             #expect(model.state == .failed(failure))
-            #expect(model.requiresAuthentication)
+            #expect(model.authenticationRevalidationGeneration == 1)
         }
     }
 
@@ -502,7 +592,7 @@ struct WatchHistoryViewModelTests {
         let repository = HistoryRepositoryStub(
             results: [
                 .success(WatchHistoryPage(items: [item("BV1HistoryA1")], continuation: token(1)))
-            ] + emptyPagesEnding(at: manual) + [.failure(WatchHistoryError.transportFailure)]
+            ] + emptyPagesEnding(at: manual) + [.failure(ContentApplicationError.transportFailure)]
         )
         let model = WatchHistoryViewModel(useCase: WatchHistoryUseCase(repository: repository))
         model.reload()
@@ -770,7 +860,7 @@ private actor HistoryRepositoryStub: WatchHistoryRepository {
         let currentCall = callCount
         continuations.append(continuation)
         await callEvents.signal()
-        guard !results.isEmpty else { throw WatchHistoryError.invalidResponse }
+        guard !results.isEmpty else { throw ContentApplicationError.invalidResponse }
         let result = results.removeFirst()
         if suspendedCalls.contains(currentCall), !releasedCalls.contains(currentCall) {
             // 挂起期间忽略取消以模拟迟到结果，但记录取消事件供测试确认旧请求已被取消。

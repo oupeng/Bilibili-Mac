@@ -9,13 +9,13 @@ public enum WatchHistoryState: Sendable, Equatable {
     case loaded(
         items: [WatchHistoryItem],
         continuation: WatchHistoryContinuation?,
-        loadMoreError: WatchHistoryError?
+        loadMoreError: ContentApplicationError?
     )
     case loadingMore(
         items: [WatchHistoryItem],
         continuation: WatchHistoryContinuation
     )
-    case failed(WatchHistoryError)
+    case failed(ContentApplicationError)
 }
 
 @MainActor
@@ -30,21 +30,15 @@ public final class WatchHistoryViewModel {
     /// 已有条目时的原地刷新正在进行；首次加载仍是 `.loading`。
     public private(set) var isRefreshing = false
     /// 最近一次原地刷新失败的原因，条目仍是刷新前的内容；下一次刷新开始时清除。
-    public private(set) var refreshError: WatchHistoryError?
+    public private(set) var refreshError: ContentApplicationError?
     /// 仅供 renderer 对 near-end 事件去重；不包含或编码远端 continuation。
     public private(set) var paginationTailIdentity: String?
     /// 空页或全重复页保留 continuation 时，必须由用户显式继续，避免 near-end 连续扫描。
     public private(set) var requiresManualLoadMore = false
-
-    public var requiresAuthentication: Bool {
-        switch state {
-        case .failed(.authenticationRequired),
-            .loaded(_, _, .authenticationRequired):
-            true
-        default:
-            false
-        }
-    }
+    /// 历史读取发现凭据失效时递增，由 App 层汇总后复核账户（与其他内容页同一契约）。
+    ///
+    /// 历史页只在已登录时渲染，所以读取时本地没有凭据也说明窗口的登录状态已过期，同样递增。
+    public private(set) var authenticationRevalidationGeneration = 0
 
     public var isBusy: Bool {
         if isRefreshing { return true }
@@ -70,6 +64,13 @@ public final class WatchHistoryViewModel {
     @ObservationIgnored private var consumedContinuations: [WatchHistoryContinuation] = []
     /// 原地刷新开始前的分页状态；刷新失败或离开页面时原样恢复，条目没被替换就不改变分页行为。
     @ObservationIgnored private var refreshRestorePoint: PaginationRestorePoint?
+    /// 本页请求过账户复核，复核结束时由 `resumeAfterAuthenticationRevalidation` 或
+    /// `reportAuthenticationRevalidationFailure` 收尾。
+    @ObservationIgnored private var awaitsRevalidation = false
+    /// 同一会话内复核后已自动重载过一次，`reset` 时清除。
+    ///
+    /// 复核确认仍登录而重载又得到凭据失效时不再自动重载，避免“复核 → 重载 → 失效 → 复核”循环。
+    @ObservationIgnored private var hasReloadedAfterRevalidation = false
 
     private struct PaginationRestorePoint {
         let tailIdentity: String?
@@ -134,12 +135,24 @@ public final class WatchHistoryViewModel {
                     requiresManualLoadMore: first.items.isEmpty && continuation != nil
                 )
                 successfulReloadGeneration &+= 1
+            } catch is CancellationError {
+                // 本任务未被取消却收到取消：认证会话在请求途中切换。不是网络失败；已有条目原样保留，
+                // 否则回到 idle，由会话切换后的复核与 `resumeAfterAuthenticationRevalidation` 重新加载。
+                guard isCurrent() else { return }
+                isRefreshing = false
+                if keepsItems {
+                    restorePaginationAfterRefresh()
+                } else {
+                    refreshRestorePoint = nil
+                    state = .idle
+                }
             } catch {
                 guard isCurrent() else { return }
                 isRefreshing = false
-                let failure = error as? WatchHistoryError ?? .transportFailure
-                // 原地刷新失败保留已显示条目；登录失效与会话切换带来的取消仍进入终态，交给登录提示或重试。
-                if keepsItems, failure != .authenticationRequired, !(error is CancellationError) {
+                let failure = error as? ContentApplicationError ?? .unavailable
+                recordAuthenticationFailureIfNeeded(failure)
+                // 原地刷新失败保留已显示条目；凭据缺失或失效进入终态，条目不再显示。
+                if keepsItems, !Self.isCredentialFailure(failure) {
                     refreshError = failure
                     restorePaginationAfterRefresh()
                 } else {
@@ -185,11 +198,13 @@ public final class WatchHistoryViewModel {
                 guard isCurrent() else { return }
                 // 认证切换带来的取消只保留已显示条目，并要求用户显式继续。
                 let wasCancelled = error is CancellationError
+                let failure: ContentApplicationError? =
+                    wasCancelled ? nil : error as? ContentApplicationError ?? .unavailable
+                if let failure { recordAuthenticationFailureIfNeeded(failure) }
                 applyLoaded(
                     items: items,
                     continuation: continuation,
-                    loadMoreError: wasCancelled
-                        ? nil : error as? WatchHistoryError ?? .transportFailure,
+                    loadMoreError: failure,
                     rearmAutomaticTail: false,
                     requiresManualLoadMore: wasCancelled || loadingMoreWasManual
                 )
@@ -207,6 +222,8 @@ public final class WatchHistoryViewModel {
         isRefreshing = false
         refreshError = nil
         refreshRestorePoint = nil
+        awaitsRevalidation = false
+        hasReloadedAfterRevalidation = false
         state = .idle
     }
 
@@ -238,10 +255,52 @@ public final class WatchHistoryViewModel {
         await loadTask.wait()
     }
 
-    /// 认证重新确认失败时保持已清理的隐私边界，并给 History 提供可重试的终态。
+    /// 账户复核确认仍已登录（或会话切换后重新确认）时调用。
+    ///
+    /// 本页因凭据失效请求的复核，确认后自动重载一次；同一会话内只做一次，之后再失效只显示失败、
+    /// 由用户重试。其余情况只在 idle 时加载。
+    public func resumeAfterAuthenticationRevalidation() {
+        let requestedRevalidation = awaitsRevalidation
+        awaitsRevalidation = false
+        guard requestedRevalidation, !hasReloadedAfterRevalidation else {
+            loadIfNeeded()
+            return
+        }
+        hasReloadedAfterRevalidation = true
+        reload()
+    }
+
+    /// 账户复核没能确认登录状态（网络或 Keychain 不可用）。
+    ///
+    /// 给出可重试的“无法读取登录状态”，不是网络失败；已显示的条目保留。隐私清理仍由账户范围变化负责。
     public func reportAuthenticationRevalidationFailure() {
-        guard state == .idle else { return }
-        state = .failed(.transportFailure)
+        let requestedRevalidation = awaitsRevalidation
+        awaitsRevalidation = false
+        switch state {
+        case .idle:
+            state = .failed(.authenticationUnavailable)
+        case .failed where requestedRevalidation:
+            state = .failed(.authenticationUnavailable)
+        case .loaded(let items, let continuation, _) where requestedRevalidation:
+            state = .loaded(
+                items: items,
+                continuation: continuation,
+                loadMoreError: .authenticationUnavailable
+            )
+        case .loading, .loadingMore, .loaded, .failed:
+            break
+        }
+    }
+
+    /// 凭据缺失或失效：原地刷新不保留条目，并请求窗口复核账户。
+    private static func isCredentialFailure(_ error: ContentApplicationError) -> Bool {
+        error == .authenticationRequired || error.requiresAccountRevalidation
+    }
+
+    private func recordAuthenticationFailureIfNeeded(_ error: ContentApplicationError) {
+        guard Self.isCredentialFailure(error) else { return }
+        awaitsRevalidation = true
+        authenticationRevalidationGeneration &+= 1
     }
 
     private func begin(
@@ -255,7 +314,7 @@ public final class WatchHistoryViewModel {
     private func applyLoaded(
         items: [WatchHistoryItem],
         continuation: WatchHistoryContinuation?,
-        loadMoreError: WatchHistoryError?,
+        loadMoreError: ContentApplicationError?,
         rearmAutomaticTail: Bool,
         requiresManualLoadMore: Bool
     ) {

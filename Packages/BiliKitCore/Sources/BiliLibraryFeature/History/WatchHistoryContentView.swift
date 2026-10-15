@@ -8,7 +8,7 @@ struct WatchHistoryLoadedSurface: Equatable {
     let canLoadMore: Bool
     let isLoadingMore: Bool
     let requiresManualLoadMore: Bool
-    let loadMoreError: WatchHistoryError?
+    let loadMoreError: ContentApplicationError?
 
     init?(state: WatchHistoryState, requiresManualLoadMore: Bool) {
         switch state {
@@ -99,7 +99,7 @@ struct WatchHistoryContentView<LoadedContent: View>: View {
 
     private func emptyHistory(
         canLoadMore: Bool,
-        loadMoreError: WatchHistoryError?
+        loadMoreError: ContentApplicationError?
     ) -> some View {
         ContentUnavailableView {
             Label(
@@ -129,7 +129,7 @@ struct WatchHistoryContentView<LoadedContent: View>: View {
         canLoadMore: Bool,
         isLoadingMore: Bool,
         requiresManualLoadMore: Bool,
-        loadMoreError: WatchHistoryError?
+        loadMoreError: ContentApplicationError?
     ) -> some View {
         ZStack(alignment: .bottom) {
             makeLoadedContent(
@@ -162,7 +162,7 @@ struct WatchHistoryContentView<LoadedContent: View>: View {
                     Text(message(for: loadMoreError))
                         .font(.callout)
                         .foregroundStyle(.secondary)
-                    if canLoadMore {
+                    if canLoadMore, loadMoreError.isRetryable {
                         Button(
                             LibraryFeatureStrings.localized("重试", locale: locale),
                             action: model.loadMore
@@ -188,13 +188,13 @@ struct WatchHistoryContentView<LoadedContent: View>: View {
         }
     }
 
-    private func failure(_ error: WatchHistoryError) -> some View {
+    private func failure(_ error: ContentApplicationError) -> some View {
         ContentUnavailableView {
             Label(title(for: error), systemImage: "exclamationmark.triangle")
         } description: {
             Text(message(for: error))
         } actions: {
-            if error != .authenticationRequired {
+            if error.isRetryable {
                 Button(LibraryFeatureStrings.localized("重试", locale: locale)) {
                     model.reload()
                 }
@@ -203,10 +203,12 @@ struct WatchHistoryContentView<LoadedContent: View>: View {
         }
     }
 
-    private func title(for error: WatchHistoryError) -> String {
+    private func title(for error: ContentApplicationError) -> String {
         switch error {
-        case .authenticationRequired:
+        case .authenticationRequired, .authenticationInvalid:
             LibraryFeatureStrings.localized("登录状态已失效", locale: locale)
+        case .authenticationUnavailable:
+            LibraryFeatureStrings.localized("无法读取登录状态", locale: locale)
         case .requestRestricted:
             LibraryFeatureStrings.localized("请求受到限制", locale: locale)
         default:
@@ -214,10 +216,13 @@ struct WatchHistoryContentView<LoadedContent: View>: View {
         }
     }
 
-    private func message(for error: WatchHistoryError) -> String {
+    /// 历史只会遇到认证四态、风控、业务拒绝、网络与响应异常；其余内容错误归入通用说明。
+    private func message(for error: ContentApplicationError) -> String {
         switch error {
-        case .authenticationRequired:
-            LibraryFeatureStrings.localized("请重新扫码登录后再试。", locale: locale)
+        case .authenticationRequired, .authenticationInvalid:
+            LibraryFeatureStrings.localized("正在重新确认账户会话。", locale: locale)
+        case .authenticationUnavailable:
+            LibraryFeatureStrings.localized("无法安全读取或确认本地登录状态，请稍后重试。", locale: locale)
         case .requestRestricted:
             LibraryFeatureStrings.localized("服务暂时拒绝了请求，请降低频率后重试。", locale: locale)
         case .serviceRejected(let code):
@@ -226,6 +231,9 @@ struct WatchHistoryContentView<LoadedContent: View>: View {
             LibraryFeatureStrings.localized("请检查网络连接后重试。", locale: locale)
         case .invalidResponse:
             LibraryFeatureStrings.localized("接口数据与当前客户端预期不一致。", locale: locale)
+        case .invalidRequest, .contentUnavailable, .unsupportedMedia, .playbackUnavailable,
+            .fullViewingEntitlementRequired, .unavailable:
+            LibraryFeatureStrings.localized("暂时无法完成请求，请稍后重试。", locale: locale)
         }
     }
 }
