@@ -93,6 +93,40 @@ struct WatchHistoryViewModelTests {
         #expect(await repository.observedContinuations() == [nil, token(1)])
     }
 
+    /// continuation 回环是接口异常：恰好同时达到条目上限也要报告，不被上限吞掉。
+    @Test
+    @MainActor
+    func continuationLoopAtCapacityStillReportsInvalidResponse() async {
+        func page(_ range: Range<Int>, _ next: WatchHistoryContinuation) -> WatchHistoryPage {
+            WatchHistoryPage(items: range.map { item("BV-loop-\($0)") }, continuation: next)
+        }
+        let repository = HistoryRepositoryStub(
+            results: [
+                .success(page(0..<300, token(1))),
+                .success(page(300..<600, token(2))),
+                .success(page(600..<1_000, token(1)))
+            ]
+        )
+        let model = WatchHistoryViewModel(
+            useCase: WatchHistoryUseCase(repository: repository)
+        )
+
+        model.loadIfNeeded()
+        await model.waitForCurrentTask()
+        model.loadMore()
+        await model.waitForCurrentTask()
+        model.loadMore()
+        await model.waitForCurrentTask()
+
+        guard case .loaded(let items, let continuation, let error) = model.state else {
+            Issue.record("回环后历史状态不是 loaded")
+            return
+        }
+        #expect(items.count == VideoListRetention.maximumItemCount)
+        #expect(continuation == nil)
+        #expect(error == .invalidResponse)
+    }
+
     @Test
     @MainActor
     func authenticationFailureRequestsRevalidation() async {

@@ -56,6 +56,13 @@ public final class WatchHistoryViewModel {
         }
     }
 
+    /// 一次加载会话最多翻的页数。
+    ///
+    /// 自动翻页每页至少并入一条，页数已随 `VideoListRetention` 的条目上限有界；没有新条目的页要用户
+    /// 显式继续，不受条目上限约束，另以此封顶，`consumedContinuations` 的线性查找随之有界。按每页 20 条，
+    /// 1000 条约 50 页，这里留出同样多的空页或全重复页余量。
+    private static let maximumLoadedPages = 100
+
     @ObservationIgnored private let useCase: WatchHistoryUseCase
     @ObservationIgnored private let loadTask = LatestTask()
     @ObservationIgnored private var tailIdentityGeneration: UInt64 = 0
@@ -156,8 +163,6 @@ public final class WatchHistoryViewModel {
                 let page = try await useCase.load(after: continuation)
                 guard isCurrent() else { return }
                 let append = items.appendingVideoPage(page.items, \.bvid)
-                // 每页至少并入一条才自动继续，因此自动翻页的页数随条目上限有界；没有新条目的页
-                // 要用户显式继续，同样以条目上限为页数上限，`consumedContinuations` 的线性查找随之有界。
                 consumedContinuations.append(continuation)
                 let continuationLoops =
                     page.continuation.map {
@@ -165,13 +170,14 @@ public final class WatchHistoryViewModel {
                     } ?? false
                 let reachedLimit =
                     append.isAtCapacity
-                    || consumedContinuations.count >= VideoListRetention.maximumItemCount
+                    || consumedContinuations.count >= Self.maximumLoadedPages
                 let nextContinuation =
                     continuationLoops || reachedLimit ? nil : page.continuation
                 applyLoaded(
                     items: append.items,
                     continuation: nextContinuation,
-                    loadMoreError: continuationLoops && !reachedLimit ? .invalidResponse : nil,
+                    // 回环是接口异常，即使恰好同时达到上限也要报告。
+                    loadMoreError: continuationLoops ? .invalidResponse : nil,
                     rearmAutomaticTail: nextContinuation != nil && append.appendedCount > 0,
                     requiresManualLoadMore: nextContinuation != nil && append.appendedCount == 0
                 )
