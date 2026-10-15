@@ -1,3 +1,4 @@
+import BiliApplication
 import BiliNetworking
 import Foundation
 import Synchronization
@@ -182,6 +183,46 @@ actor RecordingAuthTransport: HTTPTransport, HTTPTransportInvalidating {
             return .failure(StubAuthError.missingResponse)
         }
         return .success(queuedResponses.removeFirst())
+    }
+}
+
+/// 本 target 唯一的 `AuthenticatedSessionInvalidating` 替身。
+///
+/// 每次失效向 `events`（若有）写入 `api-invalidated`；`suspends` 为 true 时失效开始后挂起到
+/// `resumeInvalidation()`，`waitUntilInvalidationStarts()` 用 continuation 等它开始，不轮询。
+actor RecordingSessionInvalidator: AuthenticatedSessionInvalidating {
+    private let events: AuthEventRecorder?
+    private let suspends: Bool
+    private var started = false
+    private var isResumed = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var suspended: [CheckedContinuation<Void, Never>] = []
+
+    init(events: AuthEventRecorder? = nil, suspends: Bool = false) {
+        self.events = events
+        self.suspends = suspends
+    }
+
+    func invalidateAuthenticatedSession() async {
+        events?.append("api-invalidated")
+        started = true
+        startWaiters.resumeAll()
+        guard suspends, !isResumed else { return }
+        await withCheckedContinuation { continuation in
+            suspended.append(continuation)
+        }
+    }
+
+    func waitUntilInvalidationStarts() async {
+        guard !started else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func resumeInvalidation() {
+        isResumed = true
+        suspended.resumeAll()
     }
 }
 

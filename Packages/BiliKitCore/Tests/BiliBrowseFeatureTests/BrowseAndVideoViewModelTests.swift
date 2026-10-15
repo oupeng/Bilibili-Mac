@@ -1610,7 +1610,7 @@ struct BrowseAndVideoViewModelTests {
     @MainActor
     func crossBVIDExplicitCIDLoadsOnlyTheAtomicTarget() async {
         let fixtures = CollectionFixtures()
-        let repository = CollectionEpisodeRepositoryStub(fixtures: fixtures)
+        let repository = VideoRepositoryStub(collection: fixtures)
         let model = VideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: PlayerStub()
@@ -1627,16 +1627,16 @@ struct BrowseAndVideoViewModelTests {
 
         #expect(model.presentedPlaybackIdentity?.bvid == fixtures.episodeBVID)
         #expect(model.presentedPlaybackIdentity?.cid == fixtures.episodePages[1].cid)
-        #expect(await repository.playbackBVIDs() == [fixtures.episodeBVID])
-        #expect(await repository.playbackCIDs() == [fixtures.episodePages[1].cid])
+        #expect(await repository.playbackRequests.map(\.bvid) == [fixtures.episodeBVID])
+        #expect(await repository.playbackRequests.map(\.cid) == [fixtures.episodePages[1].cid])
     }
 
     @Test
     @MainActor
     func crossBVIDFailureRetryRetainsExplicitCID() async {
         let fixtures = CollectionFixtures()
-        let repository = CollectionEpisodeRepositoryStub(
-            fixtures: fixtures,
+        let repository = VideoRepositoryStub(
+            collection: fixtures,
             failsFirstEpisodeDetail: true
         )
         let model = VideoViewModel(
@@ -1656,18 +1656,16 @@ struct BrowseAndVideoViewModelTests {
         await waitUntilSettled(model)
 
         #expect(model.presentedPlaybackIdentity?.cid == fixtures.episodePages[1].cid)
-        #expect(await repository.playbackBVIDs() == [fixtures.episodeBVID])
-        #expect(await repository.playbackCIDs() == [fixtures.episodePages[1].cid])
+        #expect(await repository.playbackRequests.map(\.bvid) == [fixtures.episodeBVID])
+        #expect(await repository.playbackRequests.map(\.cid) == [fixtures.episodePages[1].cid])
     }
 
     @Test
     @MainActor
-    func unknownEpisodePagesStayPendingThenResolveOneValidatedIntent() async {
+    func unknownEpisodePagesStayPendingThenResolveOneValidatedIntent() async throws {
         let fixtures = CollectionFixtures()
-        let repository = CollectionEpisodeRepositoryStub(
-            fixtures: fixtures,
-            blocksEpisodeDetail: true
-        )
+        let gate = TestGate()
+        let repository = VideoRepositoryStub(collection: fixtures, gate: gate)
         let model = VideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: PlayerStub()
@@ -1679,13 +1677,13 @@ struct BrowseAndVideoViewModelTests {
         model.selectCollectionEpisode(fixtures.lazyEpisode) {
             resolved.append(($0, $1))
         }
-        await repository.waitForEpisodeDetailRequest()
+        try await gate.waitForEntries()
 
         #expect(model.selectedCollectionEpisode == fixtures.lazyEpisode.id)
         #expect(model.collectionEpisodePageStates[fixtures.lazyEpisode.id] == .loading)
         #expect(resolved.isEmpty)
 
-        await repository.releaseEpisodeDetail()
+        await gate.open()
         await waitForObservedState {
             model.collectionEpisodePageStates[fixtures.lazyEpisode.id]
                 == .loaded(bvid: fixtures.episodeBVID)
@@ -1700,7 +1698,7 @@ struct BrowseAndVideoViewModelTests {
     @MainActor
     func explicitDuplicateBVIDOccurrenceSurvivesContextReconciliation() async {
         let fixtures = CollectionFixtures()
-        let repository = CollectionEpisodeRepositoryStub(fixtures: fixtures)
+        let repository = VideoRepositoryStub(collection: fixtures)
         let model = VideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: PlayerStub()
@@ -1724,10 +1722,8 @@ struct BrowseAndVideoViewModelTests {
     @MainActor
     func duplicateBVIDEpisodeSelectionsShareOneDetailRequest() async throws {
         let fixtures = CollectionFixtures()
-        let repository = CollectionEpisodeRepositoryStub(
-            fixtures: fixtures,
-            blocksEpisodeDetail: true
-        )
+        let gate = TestGate()
+        let repository = VideoRepositoryStub(collection: fixtures, gate: gate)
         let model = VideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: PlayerStub()
@@ -1737,14 +1733,14 @@ struct BrowseAndVideoViewModelTests {
         await waitUntilSettled(model)
         model.selectCollectionEpisode(fixtures.lazyEpisode) { _, _ in }
         model.selectCollectionEpisode(fixtures.duplicateLazyEpisode) { _, _ in }
-        await repository.waitForEpisodeDetailRequest()
-        await repository.releaseEpisodeDetail()
+        try await gate.waitForEntries()
+        await gate.open()
         await waitForObservedState {
             model.collectionEpisodePageStates[fixtures.duplicateLazyEpisode.id]
                 == .loaded(bvid: fixtures.episodeBVID)
         }
 
-        #expect(await repository.episodeDetailRequestCount() == 1)
+        #expect(await repository.episodeDetailRequestCount(in: fixtures) == 1)
         #expect(
             model.collectionEpisodePageStates[fixtures.lazyEpisode.id] == .idle
         )
@@ -1758,10 +1754,13 @@ struct BrowseAndVideoViewModelTests {
     @MainActor
     func cancelledEpisodeFailureDoesNotRevalidateAuthentication() async throws {
         let fixtures = CollectionFixtures()
-        let repository = CollectionEpisodeRepositoryStub(
-            fixtures: fixtures,
-            blocksEpisodeDetail: true,
-            episodeFailureAfterRelease: .authenticationInvalid
+        let gate = TestGate()
+        let passedGate = TestEventCounter()
+        let repository = VideoRepositoryStub(
+            collection: fixtures,
+            gate: gate,
+            passedGate: passedGate,
+            episodeFailureAfterGate: .authenticationInvalid
         )
         let model = VideoViewModel(
             useCase: VideoUseCase(repository: repository),
@@ -1771,9 +1770,12 @@ struct BrowseAndVideoViewModelTests {
         model.loadVideo(fixtures.rootBVID)
         await waitUntilSettled(model)
         model.selectCollectionEpisode(fixtures.lazyEpisode) { _, _ in }
-        await repository.waitForEpisodeDetailRequest()
+        try await gate.waitForEntries()
         model.selectCollectionEpisode(fixtures.embeddedEpisode) { _, _ in }
-        await repository.releaseEpisodeDetail()
+        // 改选分集必须先取消挂起的旧请求；放行后旧请求带着认证失效离开替身，才断言没有触发重新校验。
+        try await gate.waitForCancellations()
+        await gate.open()
+        try await passedGate.wait(until: 1)
 
         #expect(model.authenticationRevalidationGeneration == 0)
         #expect(model.collectionEpisodePageStates[fixtures.lazyEpisode.id] == .idle)
@@ -1783,8 +1785,8 @@ struct BrowseAndVideoViewModelTests {
     @MainActor
     func episodeFailureIsLocalAndRetryCanRecover() async throws {
         let fixtures = CollectionFixtures()
-        let repository = CollectionEpisodeRepositoryStub(
-            fixtures: fixtures,
+        let repository = VideoRepositoryStub(
+            collection: fixtures,
             failsFirstEpisodeDetail: true
         )
         let model = VideoViewModel(
@@ -1806,17 +1808,15 @@ struct BrowseAndVideoViewModelTests {
             model.collectionEpisodePageStates[fixtures.lazyEpisode.id]
                 == .loaded(bvid: fixtures.episodeBVID)
         }
-        #expect(await repository.episodeDetailRequestCount() == 2)
+        #expect(await repository.episodeDetailRequestCount(in: fixtures) == 2)
     }
 
     @Test
     @MainActor
     func resetRejectsLateCollectionEpisodePages() async throws {
         let fixtures = CollectionFixtures()
-        let repository = CollectionEpisodeRepositoryStub(
-            fixtures: fixtures,
-            blocksEpisodeDetail: true
-        )
+        let gate = TestGate()
+        let repository = VideoRepositoryStub(collection: fixtures, gate: gate)
         let model = VideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: PlayerStub()
@@ -1825,10 +1825,10 @@ struct BrowseAndVideoViewModelTests {
         model.loadVideo(fixtures.rootBVID)
         await waitUntilSettled(model)
         model.selectCollectionEpisode(fixtures.lazyEpisode) { _, _ in }
-        await repository.waitForEpisodeDetailRequest()
+        try await gate.waitForEntries()
 
         model.reset()
-        await repository.releaseEpisodeDetail()
+        await gate.open()
 
         #expect(model.selectedCollectionEpisode == nil)
         #expect(model.collectionEpisodePageStates.isEmpty)
@@ -1839,10 +1839,8 @@ struct BrowseAndVideoViewModelTests {
     @MainActor
     func differentBVIDSelectionCancelsOldRequestAndRejectsItsLateResult() async throws {
         let fixtures = CollectionFixtures()
-        let repository = CollectionEpisodeRepositoryStub(
-            fixtures: fixtures,
-            blocksEpisodeDetail: true
-        )
+        let gate = TestGate()
+        let repository = VideoRepositoryStub(collection: fixtures, gate: gate)
         let model = VideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: PlayerStub()
@@ -1851,21 +1849,21 @@ struct BrowseAndVideoViewModelTests {
         model.loadVideo(fixtures.rootBVID)
         await waitUntilSettled(model)
         model.selectCollectionEpisode(fixtures.lazyEpisode) { _, _ in }
-        await repository.waitForEpisodeDetailRequest(count: 1)
+        try await gate.waitForEntries(1)
         model.selectCollectionEpisode(fixtures.thirdLazyEpisode) { _, _ in }
 
-        await repository.waitForEpisodeDetailRequest(count: 2)
-        #expect(await repository.episodeDetailRequestCount() == 2)
+        try await gate.waitForEntries(2)
+        #expect(await repository.episodeDetailRequestCount(in: fixtures) == 2)
         #expect(model.collectionEpisodePageStates[fixtures.lazyEpisode.id] == .idle)
         #expect(model.collectionEpisodePageStates[fixtures.thirdLazyEpisode.id] == .loading)
 
-        await repository.releaseEpisodeDetail()
+        await gate.open()
         await waitForObservedState {
             model.collectionEpisodePageStates[fixtures.thirdLazyEpisode.id]
                 == .loaded(bvid: fixtures.thirdBVID)
         }
 
-        #expect(await repository.episodeDetailRequestCount() == 2)
+        #expect(await repository.episodeDetailRequestCount(in: fixtures) == 2)
         #expect(
             model.collectionEpisodePageStates[fixtures.lazyEpisode.id] == .idle
         )
@@ -1875,7 +1873,7 @@ struct BrowseAndVideoViewModelTests {
     @MainActor
     func knownEpisodePagesResolveSelectionsWithoutRemoteDetail() async {
         let fixtures = CollectionFixtures()
-        let repository = CollectionEpisodeRepositoryStub(fixtures: fixtures)
+        let repository = VideoRepositoryStub(collection: fixtures)
         let model = VideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: PlayerStub()
@@ -1896,7 +1894,7 @@ struct BrowseAndVideoViewModelTests {
         model.selectCollectionEpisode(fixtures.embeddedRemoteEpisode) { _, _ in }
         model.selectCollectionEpisode(fixtures.lazyEpisode) { _, _ in }
 
-        #expect(await repository.episodeDetailRequestCount() == 0)
+        #expect(await repository.episodeDetailRequestCount(in: fixtures) == 0)
         #expect(
             model.collectionEpisodePages(for: fixtures.lazyEpisode.id)
                 == fixtures.episodePages
@@ -2104,6 +2102,14 @@ private struct CollectionFixtures: Sendable {
         detail(bvid: thirdBVID, pages: thirdPages, collection: nil)
     }
 
+    func detail(for bvid: String) -> VideoDetail {
+        switch bvid {
+        case rootBVID: rootDetail
+        case episodeBVID: episodeDetail
+        default: thirdDetail
+        }
+    }
+
     var playback: VideoPlayback {
         VideoPlayback(
             manifest: PlaybackManifest(
@@ -2158,77 +2164,6 @@ private struct CollectionFixtures: Sendable {
             pages: pages,
             collection: collection
         )
-    }
-}
-
-private actor CollectionEpisodeRepositoryStub: VideoRepository {
-    let fixtures: CollectionFixtures
-    let blocksEpisodeDetail: Bool
-    let episodeFailureAfterRelease: ContentApplicationError?
-    var failsFirstEpisodeDetail: Bool
-    private var episodeRequests = 0
-    private var observedPlaybackRequests: [(String, Int64)] = []
-    private let episodeRequestEvents = TestEventCounter()
-    private var episodeReleaseWaiters: [CheckedContinuation<Void, Never>] = []
-
-    init(
-        fixtures: CollectionFixtures,
-        blocksEpisodeDetail: Bool = false,
-        failsFirstEpisodeDetail: Bool = false,
-        episodeFailureAfterRelease: ContentApplicationError? = nil
-    ) {
-        self.fixtures = fixtures
-        self.blocksEpisodeDetail = blocksEpisodeDetail
-        self.failsFirstEpisodeDetail = failsFirstEpisodeDetail
-        self.episodeFailureAfterRelease = episodeFailureAfterRelease
-    }
-
-    func videoDetail(for bvid: String) async throws -> VideoDetail {
-        guard bvid != fixtures.rootBVID else {
-            return fixtures.rootDetail
-        }
-        episodeRequests += 1
-        await episodeRequestEvents.signal()
-        if failsFirstEpisodeDetail {
-            failsFirstEpisodeDetail = false
-            throw ContentApplicationError.transportFailure
-        }
-        if blocksEpisodeDetail {
-            await withCheckedContinuation { continuation in
-                episodeReleaseWaiters.append(continuation)
-            }
-        }
-        if let episodeFailureAfterRelease {
-            throw episodeFailureAfterRelease
-        }
-        return bvid == fixtures.episodeBVID
-            ? fixtures.episodeDetail
-            : fixtures.thirdDetail
-    }
-
-    func playback(for bvid: String, cid: Int64) async throws -> VideoPlayback {
-        observedPlaybackRequests.append((bvid, cid))
-        return fixtures.playback
-    }
-
-    func playbackBVIDs() -> [String] {
-        observedPlaybackRequests.map(\.0)
-    }
-
-    func playbackCIDs() -> [Int64] {
-        observedPlaybackRequests.map(\.1)
-    }
-
-    func episodeDetailRequestCount() -> Int {
-        episodeRequests
-    }
-
-    func waitForEpisodeDetailRequest(count: Int = 1) async {
-        try? await episodeRequestEvents.wait(until: count)
-    }
-
-    func releaseEpisodeDetail() {
-        episodeReleaseWaiters.resumeAll()
     }
 }
 
@@ -2439,8 +2374,7 @@ private struct ContentFixtures: Sendable {
 ///
 /// 闭包的 `attempt` 是同一请求第几次到达（从 1 开始），用于表达“首次失败、重试成功”。
 private actor FeedRepositoryStub: FeedRepository {
-    typealias Response<Request, Value> =
-        @Sendable (Request, _ attempt: Int) async throws -> Value
+    typealias Response<Request, Value> = ScriptedResponse<Request, Value>
     typealias PopularRequest = (page: Int, pageSize: Int)
 
     private let recommendationResponse: Response<RecommendationContinuation?, RecommendationPage>
@@ -2540,31 +2474,12 @@ extension FeedRepositoryStub {
     }
 }
 
-/// 游客视频 port 的共享替身；`attempt` 语义与 `FeedRepositoryStub` 相同。
-private actor VideoRepositoryStub: VideoRepository {
-    typealias Response<Request, Value> = FeedRepositoryStub.Response<Request, Value>
-
-    private let detailResponse: Response<String, VideoDetail>
-    private let pagesResponse: Response<String, [VideoPage]>
-    private let playbackResponse: Response<PlaybackItemIdentity, VideoPlayback>
-    private var detailRequests: [String] = []
-    private(set) var playbackRequests: [PlaybackItemIdentity] = []
-
-    init(
-        detail: @escaping Response<String, VideoDetail>,
-        pages: @escaping Response<String, [VideoPage]>,
-        playback: @escaping Response<PlaybackItemIdentity, VideoPlayback>
-    ) {
-        detailResponse = detail
-        pagesResponse = pages
-        playbackResponse = playback
-    }
-
+extension VideoRepositoryStub {
     /// 所有请求都由同一个 fixture 回答；默认只有一个分 P。
-    init(
+    fileprivate init(
         _ fixture: ContentFixtures,
         pages: [VideoPage]? = nil,
-        playback: Response<PlaybackItemIdentity, VideoPlayback>? = nil
+        playback: ScriptedResponse<PlaybackItemIdentity, VideoPlayback>? = nil
     ) {
         self.init(
             detail: { _, _ in fixture.detail },
@@ -2574,7 +2489,7 @@ private actor VideoRepositoryStub: VideoRepository {
     }
 
     /// 按 BVID 选择 fixture；未知 BVID 视为无效响应，`cancelledBVID` 的详情请求被取消。
-    init(fixtures: [ContentFixtures], cancelledBVID: String? = nil) {
+    fileprivate init(fixtures: [ContentFixtures], cancelledBVID: String? = nil) {
         let fixturesByBVID = Dictionary(
             uniqueKeysWithValues: fixtures.map { ($0.bvid, $0) }
         )
@@ -2594,33 +2509,36 @@ private actor VideoRepositoryStub: VideoRepository {
         )
     }
 
-    /// `/view` 响应自带分 P：详情脚本给出其余字段，分 P 脚本给出 `pages`。
-    func videoDetail(for bvid: String) async throws -> VideoDetail {
-        detailRequests.append(bvid)
-        let attempt = detailRequests.filter { $0 == bvid }.count
-        let detail = try await detailResponse(bvid, attempt)
-        return VideoDetail(
-            bvid: detail.bvid,
-            title: detail.title,
-            summary: detail.summary,
-            coverURL: detail.coverURL,
-            owner: detail.owner,
-            statistics: detail.statistics,
-            durationSeconds: detail.durationSeconds,
-            publishedAt: detail.publishedAt,
-            dimension: detail.dimension,
-            aid: detail.aid,
-            pages: try await pagesResponse(bvid, attempt),
-            collection: detail.collection,
-            access: detail.access
+    /// 合集 fixture：根视频详情立即返回，其余 BVID 的详情先经过 `gate`（若有）。
+    ///
+    /// `failsFirstEpisodeDetail` 让每个 BVID 的首次详情请求失败，`episodeFailureAfterGate` 让放行后的请求失败；
+    /// `passedGate` 在请求通过闸门、即将返回或抛错时记一次，测试据此确认放行的请求已离开替身。
+    fileprivate init(
+        collection fixtures: CollectionFixtures,
+        gate: TestGate? = nil,
+        passedGate: TestEventCounter? = nil,
+        failsFirstEpisodeDetail: Bool = false,
+        episodeFailureAfterGate: ContentApplicationError? = nil
+    ) {
+        self.init(
+            detail: { bvid, attempt in
+                guard bvid != fixtures.rootBVID else { return fixtures.rootDetail }
+                if failsFirstEpisodeDetail, attempt == 1 {
+                    throw ContentApplicationError.transportFailure
+                }
+                await gate?.pass()
+                await passedGate?.signal()
+                if let episodeFailureAfterGate { throw episodeFailureAfterGate }
+                return fixtures.detail(for: bvid)
+            },
+            pages: { bvid, _ in fixtures.detail(for: bvid).pages },
+            playback: { _, _ in fixtures.playback }
         )
     }
 
-    func playback(for bvid: String, cid: Int64) async throws -> VideoPlayback {
-        let identity = PlaybackItemIdentity(bvid: bvid, cid: cid)
-        playbackRequests.append(identity)
-        let attempt = playbackRequests.filter { $0 == identity }.count
-        return try await playbackResponse(identity, attempt)
+    /// 合集根视频以外的详情请求，即按需加载分集分 P 的远端请求。
+    fileprivate func episodeDetailRequestCount(in fixtures: CollectionFixtures) -> Int {
+        detailRequests.filter { $0 != fixtures.rootBVID }.count
     }
 }
 

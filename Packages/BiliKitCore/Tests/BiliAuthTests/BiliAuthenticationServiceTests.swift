@@ -90,7 +90,7 @@ struct BiliAuthenticationServiceTests {
                     navigationResponse(isLogin: $0)
                 }
             ),
-            invalidators: [RecordingAuthenticatedSessionInvalidator(events: events)]
+            invalidators: [RecordingSessionInvalidator(events: events)]
         )
 
         var states: [AuthenticationState] = []
@@ -138,7 +138,7 @@ struct BiliAuthenticationServiceTests {
         let store = MemoryWebCredentialStore(
             credential: try makeFixtureCredential()
         )
-        let invalidator = SuspendingAuthenticatedSessionInvalidator()
+        let invalidator = RecordingSessionInvalidator(suspends: true)
         let service = makeService(
             store: store,
             validationTransport: RecordingAuthTransport(
@@ -176,7 +176,7 @@ struct BiliAuthenticationServiceTests {
                 responses: [navigationResponse(isLogin: true)],
                 invalidationEvent: (events, "validation-invalidated")
             ),
-            invalidators: [RecordingAuthenticatedSessionInvalidator(events: events)]
+            invalidators: [RecordingSessionInvalidator(events: events)]
         )
         let expectedState: AuthenticationState =
             deleteFails ? .failed(.credentialUnavailable) : .signedOut
@@ -274,45 +274,3 @@ private let fixtureAccountIdentity = AccountIdentity(
     displayName: "Fixture Account",
     avatarURL: URL(string: "https://i0.hdslb.com/fixture/avatar.png")
 )
-
-private actor RecordingAuthenticatedSessionInvalidator:
-    AuthenticatedSessionInvalidating
-{
-    private let events: AuthEventRecorder
-
-    init(events: AuthEventRecorder) {
-        self.events = events
-    }
-
-    func invalidateAuthenticatedSession() {
-        events.append("api-invalidated")
-    }
-}
-
-private actor SuspendingAuthenticatedSessionInvalidator:
-    AuthenticatedSessionInvalidating
-{
-    private var started = false
-    private var startWaiters: [CheckedContinuation<Void, Never>] = []
-    private var invalidationContinuation: CheckedContinuation<Void, Never>?
-
-    func invalidateAuthenticatedSession() async {
-        started = true
-        startWaiters.resumeAll()
-        await withCheckedContinuation { continuation in
-            invalidationContinuation = continuation
-        }
-    }
-
-    func waitUntilInvalidationStarts() async {
-        guard !started else { return }
-        await withCheckedContinuation { continuation in
-            startWaiters.append(continuation)
-        }
-    }
-
-    func resumeInvalidation() {
-        invalidationContinuation?.resume()
-        invalidationContinuation = nil
-    }
-}

@@ -1,3 +1,5 @@
+import BiliApplication
+import BiliModels
 import Foundation
 import Observation
 
@@ -35,6 +37,9 @@ func waitUntilSettled(_ model: VideoViewModel) async {
 /// 让替身中的请求挂起到测试放行；放行后后续请求直接通过。
 ///
 /// 挂起期间忽略取消以模拟迟到结果，但记录取消事件，测试据此确认旧意图已被新意图取消。
+///
+/// 使用约定：请求进入后到 `open()` 之前，只用不会 throw 的断言或本闸门自己的等待（它们失败时先放行）；
+/// 其他会 throw 的步骤放到 `open()` 之后，否则测试提前结束会让挂起的请求永不恢复。
 actor TestGate {
     private let entries = TestEventCounter()
     private let cancellations = TestEventCounter()
@@ -161,5 +166,61 @@ extension Array where Element == CheckedContinuation<Void, Never> {
         for continuation in pending {
             continuation.resume()
         }
+    }
+}
+
+// MARK: - 仓库替身
+
+/// 由闭包回答的仓库请求；`attempt` 是同一请求第几次到达（从 1 开始），用于表达“首次失败、重试成功”。
+typealias ScriptedResponse<Request, Value> =
+    @Sendable (Request, _ attempt: Int) async throws -> Value
+
+/// 本 target 唯一的 `VideoRepository` 替身：详情、分 P 与播放各由闭包回答，并按到达顺序记录请求。
+///
+/// 需要挂起时在闭包里经过 `TestGate`；需要失败时按 `attempt` 或放行后抛错。
+actor VideoRepositoryStub: VideoRepository {
+    private let detailResponse: ScriptedResponse<String, VideoDetail>
+    private let pagesResponse: ScriptedResponse<String, [VideoPage]>
+    private let playbackResponse: ScriptedResponse<PlaybackItemIdentity, VideoPlayback>
+    private(set) var detailRequests: [String] = []
+    private(set) var playbackRequests: [PlaybackItemIdentity] = []
+
+    init(
+        detail: @escaping ScriptedResponse<String, VideoDetail>,
+        pages: @escaping ScriptedResponse<String, [VideoPage]>,
+        playback: @escaping ScriptedResponse<PlaybackItemIdentity, VideoPlayback>
+    ) {
+        detailResponse = detail
+        pagesResponse = pages
+        playbackResponse = playback
+    }
+
+    /// `/view` 响应自带分 P：详情脚本给出其余字段，分 P 脚本给出 `pages`。
+    func videoDetail(for bvid: String) async throws -> VideoDetail {
+        detailRequests.append(bvid)
+        let attempt = detailRequests.filter { $0 == bvid }.count
+        let detail = try await detailResponse(bvid, attempt)
+        return VideoDetail(
+            bvid: detail.bvid,
+            title: detail.title,
+            summary: detail.summary,
+            coverURL: detail.coverURL,
+            owner: detail.owner,
+            statistics: detail.statistics,
+            durationSeconds: detail.durationSeconds,
+            publishedAt: detail.publishedAt,
+            dimension: detail.dimension,
+            aid: detail.aid,
+            pages: try await pagesResponse(bvid, attempt),
+            collection: detail.collection,
+            access: detail.access
+        )
+    }
+
+    func playback(for bvid: String, cid: Int64) async throws -> VideoPlayback {
+        let identity = PlaybackItemIdentity(bvid: bvid, cid: cid)
+        playbackRequests.append(identity)
+        let attempt = playbackRequests.filter { $0 == identity }.count
+        return try await playbackResponse(identity, attempt)
     }
 }

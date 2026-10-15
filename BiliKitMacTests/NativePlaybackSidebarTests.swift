@@ -779,11 +779,19 @@ struct NativePlaybackSidebarTests {
         )
         #expect(focused != nil)
         #expect(window.firstResponder === focused)
-        let spaceButton = try #require(
-            descendants(of: controller.rootView).compactMap { $0 as? NSButton }.first {
-                $0.accessibilityLabel() == AppStrings.localized("查看空间")
-            }
+        let collectionView = try #require(
+            controller.rootView.scrollView.documentView as? NSCollectionView
         )
+        let uploaderItem = try #require(
+            collectionView.visibleItems().lazy
+                .compactMap { $0 as? NativePlaybackSidebarUploaderItem }.first
+        )
+        // 定位前提：UP 主行里的按钮只有名字右侧进入空间的箭头。
+        let spaceButtons = descendants(of: uploaderItem.view).compactMap { $0 as? NSButton }
+        try #require(spaceButtons.count == 1)
+        let spaceButton = spaceButtons[0]
+        #expect(!spaceButton.isHidden)
+        #expect(spaceButton.accessibilityLabel() == AppStrings.localized("查看空间"))
 
         spaceButton.performClick(nil)
 
@@ -1248,9 +1256,19 @@ struct NativePlaybackSidebarTests {
     @MainActor
     func commentLoadingAccessibilityDoesNotReuseStaleCountOrFooterState() throws {
         let subject = CommentSubjectIdentity.video(aid: 700_001)
-        let loaded = commentsPresentation(
+        // 总数取不易与界面其他数字相撞的值，按可见计数文字定位时不会找错控件。
+        let loaded = NativePlaybackCommentsPresentation(
             subject: subject,
-            threads: [commentThread(id: 1, message: "正文")]
+            sort: .hot,
+            rootState: .loaded,
+            totalCount: 12_345,
+            threads: [
+                NativePlaybackCommentThreadPresentation(
+                    subject: subject,
+                    thread: commentThread(id: 1, message: "正文"),
+                    replyState: nil
+                )
+            ]
         )
         let loading = NativePlaybackCommentsPresentation(
             subject: subject,
@@ -1264,12 +1282,14 @@ struct NativePlaybackSidebarTests {
         let loadedCount = CommentPresentationFormatting.compactCount(
             loaded.totalCount
         )
-        let countLabel = try #require(
-            descendants(of: header.view).compactMap { $0 as? NSTextField }
-                .first {
-                    $0.accessibilityLabel()
-                        == AppStrings.localized("共 \(loadedCount) 条评论")
-                }
+        let countLabels = descendants(of: header.view).compactMap { $0 as? NSTextField }
+            .filter { $0.stringValue == loadedCount }
+        try #require(countLabels.count == 1)
+        let countLabel = countLabels[0]
+        #expect(countLabel.isAccessibilityElement())
+        #expect(
+            countLabel.accessibilityLabel()
+                == AppStrings.localized("共 \(loadedCount) 条评论")
         )
         header.configure(presentation: loading, onSelectSort: { _ in })
         #expect(countLabel.stringValue.isEmpty)
