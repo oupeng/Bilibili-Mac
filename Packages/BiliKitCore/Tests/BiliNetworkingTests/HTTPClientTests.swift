@@ -48,4 +48,53 @@ struct HTTPClientTests {
         }
         session.invalidateAndCancel()
     }
+
+    @Test
+    func ownedSessionIsInvalidatedWhenTransportIsReleased() async {
+        let observer = SessionInvalidationObserver()
+        let session = URLSession(
+            configuration: .ephemeral,
+            delegate: observer,
+            delegateQueue: nil
+        )
+
+        _ = URLSessionTransport(session: session, ownsSession: true)
+
+        await observer.waitUntilInvalidated()
+    }
+
+    @Test
+    func injectedSessionStaysUsableAfterTransportIsReleased() async throws {
+        TransportURLProtocol.state.configure(statusCode: 204, headers: [:], chunks: [])
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TransportURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let url = try #require(URL(string: "https://api.example.com/x"))
+
+        _ = URLSessionTransport(session: session)
+        // 失效的 session 不能再创建任务；注入方仍持有的 session 必须继续可用。
+        let response = try await URLSessionTransport(session: session).send(
+            HTTPRequest(url: url)
+        )
+
+        #expect(response.statusCode == 204)
+    }
+}
+
+private final class SessionInvalidationObserver: NSObject, URLSessionDelegate, Sendable {
+    private let invalidated = OneShotResult<Void>()
+
+    func urlSession(_ session: URLSession, didBecomeInvalidWithError error: (any Error)?) {
+        invalidated.resolve(.success(()))
+    }
+
+    func waitUntilInvalidated() async {
+        try? await invalidated.value()
+    }
+}
+
+private final class TransportURLProtocol: ScriptedRangeURLProtocol, @unchecked Sendable {
+    private static let sharedState = ScriptedRangeURLProtocolState()
+    override class var state: ScriptedRangeURLProtocolState { sharedState }
 }
