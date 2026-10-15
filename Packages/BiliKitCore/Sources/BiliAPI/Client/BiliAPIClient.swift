@@ -21,10 +21,7 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
 
     enum RequestAccess: Sendable {
         case anonymous
-        case accountRead(
-            missingCredential: MissingCredentialBehavior,
-            mapsAuthenticationInvalidation: Bool
-        )
+        case accountRead(missingCredential: MissingCredentialBehavior)
         case historyWrite
 
         var requiresAuthentication: Bool {
@@ -35,21 +32,24 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
         }
 
         var permitsMissingCredentialFallback: Bool {
-            guard case .accountRead(let behavior, _) = self else { return false }
+            guard case .accountRead(let behavior) = self else { return false }
             return behavior == .useAnonymousRequest
-        }
-
-        var mapsAuthenticationInvalidation: Bool {
-            switch self {
-            case .accountRead(_, let mapsInvalidation): mapsInvalidation
-            case .anonymous, .historyWrite: false
-            }
         }
     }
 
     enum AuthorizationProvenance: Sendable {
         case anonymous
         case authenticated
+
+        /// 读取响应的业务码 -101（账号未登录）对应的错误；其他业务码为 nil。
+        ///
+        /// 只有实际带凭据发出的请求收到 -101 才是凭据失效（触发账户复核）。匿名请求（含本地无凭据时的
+        /// 匿名回退）收到 -101 说明该接口要求登录，按“需要登录”处理，不触发复核。heartbeat 写请求另有
+        /// 自己的判定。
+        func notLoggedInError(statusCode: Int) -> BiliAPIError? {
+            guard statusCode == -101 else { return nil }
+            return self == .authenticated ? .authenticationInvalid : .authorizationRequired
+        }
     }
 
     struct AuthorizedResponse<Payload: Sendable>: Sendable {
@@ -165,8 +165,10 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
         } catch {
             throw BiliAPIError.decodingFailed
         }
-        if access.mapsAuthenticationInvalidation, status.code == -101 {
-            throw BiliAPIError.authenticationInvalid
+        if let error = authorizedResponse.authorizationProvenance.notLoggedInError(
+            statusCode: status.code
+        ) {
+            throw error
         }
         guard status.code == 0 else {
             throw BiliAPIError.apiRejected(
@@ -260,8 +262,12 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
                     throw BiliAPIError.authenticationInvalid
                 case .missingCredential:
                     throw BiliAPIError.authorizationRequired
-                case .unavailable, .denied:
+                case .unavailable:
                     throw BiliAPIError.authorizationUnavailable
+                case .denied:
+                    // 请求形状或 path 不在授权器 allowlist：客户端构造了不该发出的账户请求，属于编程错误，
+                    // 不是本地凭据问题，因此不显示为 Keychain 类失败。
+                    throw BiliAPIError.invalidRequest
                 }
             } catch {
                 guard requestSessionEpoch == authenticatedSessionEpoch else {

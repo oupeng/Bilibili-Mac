@@ -28,7 +28,7 @@ public struct WatchHistoryUseCase: Sendable {
             if let nextContinuation = page.continuation,
                 nextContinuation == requestContinuation
             {
-                throw WatchHistoryError.invalidResponse
+                throw ContentApplicationError.invalidResponse
             }
             guard page.items.isEmpty,
                 let nextContinuation = page.continuation

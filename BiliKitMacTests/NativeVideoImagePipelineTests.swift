@@ -90,12 +90,51 @@ struct NativeVideoImagePipelineTests {
         let url = try #require(URL(string: "https://i0.hdslb.com/bfs/new_dyn/a.gif"))
         let key = NativeVideoImageKey(url: url, variant: .commentPicture)
         let animation = NativeAnimatedImage(data: Data(count: 100))
-        var cache = NativeVideoImageCache(countLimit: 4, costLimit: 1_024)
+        var cache = NativeVideoImageCache(limits: .init(countLimit: 4, costLimit: 1_024))
 
         cache.insert(image, animation: animation, for: key)
 
         #expect(cache.totalCost == image.bytesPerRow * image.height + 100)
         #expect(cache.animation(for: key) === animation)
+    }
+
+    /// 单项超过总成本上限的份额时不缓存，也不挤掉已缓存的图片。
+    @Test
+    func oversizedEntryNeitherCachesNorEvictsOthers() throws {
+        let small = try #require(Self.makeImage())
+        let smallCost = small.bytesPerRow * small.height
+        let limits = NativeVideoImageCacheLimits(countLimit: 4, costLimit: smallCost * 8)
+        var cache = NativeVideoImageCache(limits: limits)
+        let smallKey = try Self.key("small.png")
+        let largeKey = try Self.key("large.png")
+        cache.insert(small, animation: nil, for: smallKey)
+
+        let oversizedAnimation = NativeAnimatedImage(
+            data: Data(count: limits.maximumEntryCost)
+        )
+        cache.insert(small, animation: oversizedAnimation, for: largeKey)
+
+        #expect(cache.image(for: largeKey) == nil)
+        #expect(cache.image(for: smallKey) != nil)
+        #expect(cache.totalCost == smallCost)
+    }
+
+    /// Now Playing 只要一张封面：上界远小于窗口，但仍放得下解码上限内最大的封面。
+    @Test
+    func nowPlayingArtworkCacheIsSmallButHoldsTheLargestCover() {
+        let artwork = NativeVideoImageCacheLimits.nowPlayingArtwork
+        let window = NativeVideoImageCacheLimits.window
+        let edge = NativeVideoImageVariant.cover.maximumDecodedPixelSize
+        let largestCoverCost = edge * edge * 4
+
+        #expect(artwork.countLimit < window.countLimit)
+        #expect(artwork.costLimit < window.costLimit)
+        #expect(largestCoverCost <= artwork.maximumEntryCost)
+    }
+
+    private static func key(_ name: String) throws -> NativeVideoImageKey {
+        let url = try #require(URL(string: "https://i0.hdslb.com/bfs/new_dyn/\(name)"))
+        return NativeVideoImageKey(url: url, variant: .commentPicturePreview)
     }
 
     private static func makeGIF(frameCount: Int, width: Int, height: Int) -> Data? {

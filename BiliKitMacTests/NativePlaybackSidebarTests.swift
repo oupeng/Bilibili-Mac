@@ -125,7 +125,7 @@ struct NativePlaybackSidebarTests {
                 owner: VideoOwner(id: 1, name: name),
                 profileState: profileState
             ),
-            imagePipeline: NativeVideoImagePipeline(),
+            imagePipeline: NativeVideoImagePipeline(cacheLimits: .window),
             onOpenSpace: nil
         )
 
@@ -216,6 +216,27 @@ struct NativePlaybackSidebarTests {
                 ),
                 hasPresentedContent: true
             ) == .none
+        )
+    }
+
+    /// 内容不存在或不可见时重试不会改变结果：侧栏只说明原因，不给重试按钮。
+    @Test
+    @MainActor
+    func unavailableContentFailureOffersNoRetry() {
+        let failure = VideoLoadFailure.content(.contentUnavailable)
+        let retryable = VideoLoadFailure.content(.transportFailure)
+
+        #expect(
+            NativePlaybackSidebarOverlay.resolve(
+                state: .failed(bvid: "BVGone", failure: failure),
+                hasPresentedContent: false
+            ) == .unavailable(title: failure.title, message: failure.message)
+        )
+        #expect(
+            NativePlaybackSidebarOverlay.resolve(
+                state: .failed(bvid: "BVGone", failure: retryable),
+                hasPresentedContent: false
+            ) == .failure(title: retryable.title, message: retryable.message)
         )
     }
 
@@ -2116,7 +2137,7 @@ struct NativePlaybackSidebarTests {
 
         #expect(
             layout.refineNextBatch(
-                maximumCount: 32,
+                maximumCount: NativePlaybackSidebarLayout.refinementBatchSize,
                 prioritizing: entries[40].itemID
             )
         )
@@ -2711,7 +2732,7 @@ struct NativePlaybackSidebarTests {
         resolveURL: @escaping CommentAssetURLResolver = { _, _ in nil }
     ) -> NativePlaybackCommentTextRenderer {
         NativePlaybackCommentTextRenderer(
-            imagePipeline: NativeVideoImagePipeline(),
+            imagePipeline: NativeVideoImagePipeline(cacheLimits: .window),
             resolveURL: resolveURL
         )
     }
@@ -2721,7 +2742,7 @@ struct NativePlaybackSidebarTests {
         resolveURL: @escaping CommentAssetURLResolver = { _, _ in nil }
     ) -> NativePlaybackCommentAvatarLoader {
         NativePlaybackCommentAvatarLoader(
-            imagePipeline: NativeVideoImagePipeline(),
+            imagePipeline: NativeVideoImagePipeline(cacheLimits: .window),
             resolveURL: resolveURL
         )
     }
@@ -2731,7 +2752,7 @@ struct NativePlaybackSidebarTests {
         resolveURL: @escaping CommentAssetURLResolver = { _, _ in nil }
     ) -> NativePlaybackCommentPictureLoader {
         NativePlaybackCommentPictureLoader(
-            imagePipeline: NativeVideoImagePipeline(),
+            imagePipeline: NativeVideoImagePipeline(cacheLimits: .window),
             resolveURL: resolveURL
         )
     }

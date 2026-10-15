@@ -36,10 +36,7 @@ extension BiliAPIClient {
                     percentEncodedQuery: query
                 ),
                 referer: "https://space.bilibili.com/\(ownerID)/",
-                access: .accountRead(
-                    missingCredential: .fail,
-                    mapsAuthenticationInvalidation: true
-                )
+                access: .accountRead(missingCredential: .fail)
             )
             try requireAuthenticatedSessionEpoch(sessionEpoch)
             return payload.model(pageNumber: page, pageSize: Self.uploaderVideoPageSize)

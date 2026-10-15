@@ -55,8 +55,6 @@ struct FeedPaginationPresentation: Sendable, Equatable {
 /// `LatestTask` 与 `activeRequestIdentity` 共同阻止已取消或已切路由的结果写回；进入播放页时
 /// 普通 deactivate 会保留当前三份工作集，`reset` 则清空它们；不同请求会替换对应工作集。
 public final class BrowseViewModel {
-    static let maximumRetainedRecommendationVideos = 1_000
-
     public private(set) var state: FeedState = .idle
     public private(set) var authenticationRevalidationGeneration = 0
     private var successfulRefreshGenerations: [FeedSource: UInt64] = [:]
@@ -471,21 +469,12 @@ public final class BrowseViewModel {
             guard responsePage.continuation == requestedContinuation,
                 loadedPage.nextContinuation == requestedContinuation
             else { return nil }
-            let appended = responsePage.videos.uniquedByBVID(after: loadedPage.videos, \.bvid)
-            let remainingCapacity = max(
-                0,
-                maximumRetainedRecommendationVideos - loadedPage.videos.count
-            )
-            let retainedAppend = Array(appended.prefix(remainingCapacity))
-            let madeProgress = !retainedAppend.isEmpty
-            let hasCapacity =
-                loadedPage.videos.count + retainedAppend.count
-                < maximumRetainedRecommendationVideos
+            let append = loadedPage.videos.appendingVideoPage(responsePage.videos, \.bvid)
             return .recommendation(
                 RecommendationPage(
-                    videos: loadedPage.videos + retainedAppend,
+                    videos: append.items,
                     continuation: responsePage.continuation,
-                    nextContinuation: madeProgress && hasCapacity
+                    nextContinuation: append.continuesPagination
                         ? responsePage.nextContinuation
                         : nil
                 )
@@ -500,13 +489,13 @@ public final class BrowseViewModel {
                 loadedPage.pageSize == requestedPageSize,
                 loadedPage.pageNumber + 1 == responsePage.pageNumber
             else { return nil }
-            let appended = responsePage.videos.uniquedByBVID(after: loadedPage.videos, \.bvid)
+            let append = loadedPage.videos.appendingVideoPage(responsePage.videos, \.bvid)
             return .popular(
                 PopularPage(
-                    videos: loadedPage.videos + appended,
+                    videos: append.items,
                     pageNumber: responsePage.pageNumber,
                     pageSize: responsePage.pageSize,
-                    hasMore: responsePage.hasMore && !appended.isEmpty
+                    hasMore: responsePage.hasMore && append.continuesPagination
                 )
             )
         case (
@@ -521,17 +510,17 @@ public final class BrowseViewModel {
                 loadedQuery == requestedRequest.criteria.query,
                 loadedPage.pageNumber + 1 == responsePage.pageNumber
             else { return nil }
-            let appended = responsePage.videos.uniquedByBVID(after: loadedPage.videos, \.bvid)
+            let append = loadedPage.videos.appendingVideoPage(responsePage.videos, \.bvid)
             return .search(
                 query: requestedRequest.criteria.query,
                 page: SearchPage(
-                    videos: loadedPage.videos + appended,
+                    videos: append.items,
                     pageNumber: responsePage.pageNumber,
                     pageSize: responsePage.pageSize,
                     totalResults: responsePage.totalResults,
-                    totalPages: appended.isEmpty
-                        ? responsePage.pageNumber
-                        : responsePage.totalPages
+                    totalPages: append.continuesPagination
+                        ? responsePage.totalPages
+                        : responsePage.pageNumber
                 )
             )
         default:
@@ -585,41 +574,34 @@ public final class BrowseViewModel {
     ) -> FeedContent {
         switch content {
         case .recommendation(let page):
-            let videos = Array(
-                page.videos.uniquedByBVID(\.bvid)
-                    .prefix(Self.maximumRetainedRecommendationVideos)
-            )
+            let first = [].appendingVideoPage(page.videos, \.bvid)
             return .recommendation(
                 RecommendationPage(
-                    videos: videos,
+                    videos: first.items,
                     continuation: page.continuation,
-                    nextContinuation:
-                        videos.isEmpty
-                        || videos.count == Self.maximumRetainedRecommendationVideos
-                        ? nil
-                        : page.nextContinuation
+                    nextContinuation: first.continuesPagination ? page.nextContinuation : nil
                 )
             )
         case .popular(let page):
-            let videos = page.videos.uniquedByBVID(\.bvid)
+            let first = [].appendingVideoPage(page.videos, \.bvid)
             return .popular(
                 PopularPage(
-                    videos: videos,
+                    videos: first.items,
                     pageNumber: page.pageNumber,
                     pageSize: page.pageSize,
-                    hasMore: page.hasMore && !videos.isEmpty
+                    hasMore: page.hasMore && first.continuesPagination
                 )
             )
         case .search(let query, let page):
-            let videos = page.videos.uniquedByBVID(\.bvid)
+            let first = [].appendingVideoPage(page.videos, \.bvid)
             return .search(
                 query: query,
                 page: SearchPage(
-                    videos: videos,
+                    videos: first.items,
                     pageNumber: page.pageNumber,
                     pageSize: page.pageSize,
                     totalResults: page.totalResults,
-                    totalPages: page.totalPages
+                    totalPages: first.isAtCapacity ? page.pageNumber : page.totalPages
                 )
             )
         }
@@ -639,7 +621,7 @@ public final class BrowseViewModel {
     private func recordAuthenticationInvalidationIfNeeded(
         _ error: ContentApplicationError
     ) {
-        guard error == .authenticationInvalid else { return }
+        guard error.requiresAccountRevalidation else { return }
         authenticationRevalidationGeneration &+= 1
     }
 

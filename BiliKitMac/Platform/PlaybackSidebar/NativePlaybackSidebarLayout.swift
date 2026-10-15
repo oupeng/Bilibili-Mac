@@ -4,6 +4,8 @@ import AppKit
 final class NativePlaybackSidebarLayout: NSCollectionViewLayout {
     static let contentInset: CGFloat = 16
     static let itemSpacing: CGFloat = 16
+    /// resize 后每批精测的行数；批间让出主线程并恢复语义 anchor。
+    static let refinementBatchSize = 32
 
     struct Entry: Equatable {
         let indexPath: IndexPath
@@ -356,12 +358,15 @@ final class NativePlaybackSidebarHeightCache {
         }
     }
 
+    /// 行高缓存条目上限（identity × 宽度桶 × 内容 revision）。
+    static let defaultCapacity = 2_048
+
     let capacity: Int
     private var nodes: [NativePlaybackSidebarHeightCacheKey: Node] = [:]
     private var leastRecent: Node?
     private var mostRecent: Node?
 
-    init(capacity: Int = 2_048) {
+    init(capacity: Int = defaultCapacity) {
         precondition(capacity > 0)
         self.capacity = capacity
     }

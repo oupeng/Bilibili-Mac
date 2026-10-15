@@ -128,12 +128,28 @@ struct UploaderSpaceSidebarView: View {
                 actionTitle: AppStrings.localized("登录"),
                 action: onLogin
             )
-        case .failure:
+        case .failure(let error):
             message(
-                AppStrings.localized("投稿加载失败"),
-                actionTitle: AppStrings.localized("重试"),
+                Self.failureText(error),
+                actionTitle: error.isRetryable ? AppStrings.localized("重试") : nil,
                 action: model.reload
             )
+        }
+    }
+
+    /// 至少分开风控、凭据与网络；其余失败沿用通用说明。
+    private static func failureText(_ error: ContentApplicationError) -> String {
+        switch error {
+        case .requestRestricted:
+            AppStrings.localized("B 站暂时限制了请求，请稍后再试。")
+        case .authenticationInvalid:
+            AppStrings.localized("登录状态已失效，正在重新确认。")
+        case .authenticationUnavailable:
+            AppStrings.localized("无法读取登录状态，请稍后重试。")
+        case .transportFailure:
+            AppStrings.localized("投稿加载失败，请检查网络连接后重试。")
+        default:
+            AppStrings.localized("投稿加载失败")
         }
     }
 

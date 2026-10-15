@@ -139,7 +139,6 @@ struct HistoryTabRoot: View {
     let imagePipeline: NativeVideoImagePipeline
     let onSelect: (String) -> Void
     let onPresentAuthentication: () -> Void
-    let onAuthenticationRequired: () -> Void
 
     var body: some View {
         content
@@ -168,8 +167,7 @@ struct HistoryTabRoot: View {
                     )
                     .ignoresSafeArea(.container, edges: .top)
                 },
-                onSelect: onSelect,
-                onAuthenticationRequired: onAuthenticationRequired
+                onSelect: onSelect
             )
         case .signedOut:
             ContentUnavailableView {

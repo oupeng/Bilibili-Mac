@@ -81,7 +81,7 @@ public actor BiliCommentRepository: CommentRepository {
     private func token(for cursor: Cursor) -> CommentContinuation {
         if let token = tokenByCursor[cursor] { return token }
         let token = CommentContinuation(rawValue: UUID().uuidString)
-        if cursorOrder.count == 128, let oldest = cursorOrder.first {
+        if cursorOrder.count == Self.maximumRetainedCursors, let oldest = cursorOrder.first {
             cursorOrder.removeFirst()
             if let removed = cursorByToken.removeValue(forKey: oldest) {
                 tokenByCursor.removeValue(forKey: removed)
@@ -103,25 +103,30 @@ public actor BiliCommentRepository: CommentRepository {
 
     /// 评论区已关闭时 reply endpoint 返回的业务码。
     private static let closedCommentsCode = 12002
+    /// 评论分页游标与不透明 continuation 的映射上限；超出时丢弃最早发出的。
+    private static let maximumRetainedCursors = 128
 
     private static func readError(
         _ failure: BiliAPIError.Failure
     ) -> CommentReadError {
         switch failure {
-        case .authorizationRequired, .authenticationInvalid:
+        case .authorizationRequired:
+            .authenticationRequired
+        case .authenticationInvalid:
             .authenticationInvalid
+        case .authorizationUnavailable:
+            .authenticationUnavailable
         case .restricted:
             .requestRestricted
         case .rejected(let code) where code == closedCommentsCode:
             .closed
-        case .rejected(let code):
+        case .rejected(let code), .contentUnavailable(let code):
             .serviceRejected(code: code)
         case .transport:
             .transportFailure
         case .invalidRequest, .invalidResponse:
             .invalidResponse
-        case .authorizationUnavailable, .unexpectedHTTPStatus,
-            .unsupportedMedia, .noPlayableMedia:
+        case .unexpectedHTTPStatus, .unsupportedMedia, .noPlayableMedia:
             .unavailable
         }
     }

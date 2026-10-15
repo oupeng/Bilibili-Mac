@@ -262,7 +262,7 @@ final class SystemNowPlayingController {
             self.artworkLoader = artworkLoader
             artworkPipelineOwner = nil
         } else {
-            let owner = NativeVideoImagePipelineOwner()
+            let owner = NativeVideoImagePipelineOwner(cacheLimits: .nowPlayingArtwork)
             self.artworkLoader = { [pipeline = owner.pipeline] url in
                 await pipeline.image(for: url, variant: .cover)?.image
             }

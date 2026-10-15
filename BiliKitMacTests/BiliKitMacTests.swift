@@ -26,6 +26,39 @@ struct BiliKitMacTests {
         #expect(weakController == nil)
     }
 
+    /// 窗口关闭不可逆：之后再 open 也保持关闭，AppRootView 据此不再向进程级测速登记本窗口。
+    @Test
+    @MainActor
+    func windowOwnerClosureIsIrreversible() {
+        let owner = AppWindowOwner(
+            environment: AppEnvironment.live(accountSessionCoordinator: AccountSessionCoordinator())
+        )
+        #expect(!owner.isClosed)
+
+        owner.close()
+        owner.open()
+
+        #expect(owner.isClosed)
+    }
+
+    /// 重复创建视频模型：只有最新的 stream 收到字幕凭据失效，旧 stream 结束，不会有两个消费者。
+    @Test
+    func subtitleInvalidationRelayFeedsOnlyTheLatestStream() async {
+        let relay = SubtitleAuthenticationInvalidationRelay()
+        let first = relay.makeStream()
+        let second = relay.makeStream()
+
+        relay.report()
+
+        var firstEvents = 0
+        for await _ in first { firstEvents += 1 }
+        var secondIterator = second.makeAsyncIterator()
+        let received: Void? = await secondIterator.next()
+
+        #expect(firstEvents == 0)
+        #expect(received != nil)
+    }
+
     @Test
     @MainActor
     func watchProgressTargetRequiresExactPresentedIdentity() throws {

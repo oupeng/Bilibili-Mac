@@ -176,7 +176,7 @@ struct AppRootView: View {
             else { return }
             switch phase {
             case .signedIn:
-                historyModel.loadIfNeeded()
+                historyModel.resumeAfterAuthenticationRevalidation()
             case .failed:
                 historyModel.reportAuthenticationRevalidationFailure()
             default:
@@ -261,7 +261,9 @@ struct AppRootView: View {
         windowOwner.playerContent
     }
 
+    /// 窗口关闭后 onDisappear 已注销测速 owner；迟到的同步（如恢复登录完成）不得把它登记回去。
     private func synchronizeBenchmarkAuthentication() {
+        guard !windowOwner.isClosed else { return }
         appSettingsModel?.synchronizeAuthentication(
             Self.benchmarkAccess(
                 sessionPhase: authenticationModel.sessionPhase,
@@ -298,7 +300,8 @@ struct AppRootView: View {
             browseModel.authenticationRevalidationGeneration,
             danmakuModel.authenticationRevalidationGeneration,
             commentsModel?.authenticationRevalidationGeneration ?? 0,
-            windowOwner.uploaderSpaceModel?.authenticationRevalidationGeneration ?? 0
+            windowOwner.uploaderSpaceModel?.authenticationRevalidationGeneration ?? 0,
+            historyModel.authenticationRevalidationGeneration
         ]
     }
 

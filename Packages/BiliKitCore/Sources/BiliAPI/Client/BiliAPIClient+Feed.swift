@@ -21,10 +21,7 @@ extension BiliAPIClient {
                 ]
             ),
             referer: "https://www.bilibili.com/",
-            access: .accountRead(
-                missingCredential: .useAnonymousRequest,
-                mapsAuthenticationInvalidation: true
-            )
+            access: .accountRead(missingCredential: .useAnonymousRequest)
         )
         let videos = try payload.list.map { try $0.model() }
         return PopularPage(
@@ -76,10 +73,7 @@ extension BiliAPIClient {
         guard Self.isValidBVID(bvid) else { throw BiliAPIError.invalidRequest }
         return try await signedVideoDetail(
             bvid: bvid,
-            access: .accountRead(
-                missingCredential: .fail,
-                mapsAuthenticationInvalidation: true
-            )
+            access: .accountRead(missingCredential: .fail)
         )
     }
 
@@ -148,10 +142,7 @@ extension BiliAPIClient {
                 percentEncodedQuery: query
             ),
             referer: "https://www.bilibili.com/",
-            access: .accountRead(
-                missingCredential: .useAnonymousRequest,
-                mapsAuthenticationInvalidation: true
-            ),
+            access: .accountRead(missingCredential: .useAnonymousRequest),
             additionalCookie: Self.searchBuvid3Cookie
         ).payload
         try requireAuthenticatedSessionEpoch(sessionEpoch)
@@ -179,10 +170,7 @@ extension BiliAPIClient {
                 percentEncodedQuery: query
             ),
             referer: "https://www.bilibili.com/",
-            access: .accountRead(
-                missingCredential: .useAnonymousRequest,
-                mapsAuthenticationInvalidation: true
-            )
+            access: .accountRead(missingCredential: .useAnonymousRequest)
         )
         try requireAuthenticatedSessionEpoch(sessionEpoch)
         let videos = payload.item.compactMap { $0.model() }
