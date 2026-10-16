@@ -4,6 +4,8 @@ import Foundation
 import Observation
 import Testing
 
+@testable import BiliKit
+
 /// App 测试 target 共用的等待与记录替身；各测试文件不再各自复制。
 
 /// 在一次性的 UserDefaults suite 中执行；前后都清空，测试之间、测试与真实偏好互不影响。
@@ -121,4 +123,13 @@ actor RecordingSessionInvalidator: AuthenticatedSessionInvalidating {
     func invalidateAuthenticatedSession() {
         invalidationCount += 1
     }
+}
+
+/// 侧栏控制器的测试组装：不解析评论资源，图片管线不经窗口 owner、随测试释放。
+@MainActor
+func makeSidebarController() -> NativePlaybackSidebarController {
+    NativePlaybackSidebarController(
+        commentAssetURLResolver: { _, _ in nil },
+        imagePipeline: NativeVideoImagePipeline(cacheLimits: .window)
+    )
 }

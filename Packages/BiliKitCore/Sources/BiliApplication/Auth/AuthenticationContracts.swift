@@ -33,18 +33,13 @@ public enum AuthenticationFailure: Error, Sendable, Equatable {
 /// 每次调用返回 adapter 的当前安全投影；调用方仍负责 UI Task 的取消与迟到结果隔离。
 public protocol AuthenticationServicing: Sendable {
     func restore() async -> AuthenticationState
+    /// 另一窗口已推进全局会话变化后复核凭据；实现不得再次传播会话失效，避免同一变化重复广播。
     func restoreAfterExternalSessionChange() async -> AuthenticationState
     func requestQRCode() async -> AuthenticationState
     func pollOnce() async -> AuthenticationState
     func finalizeLogin() async -> AuthenticationState
     func cancelLogin() async -> AuthenticationState
     func logout() async -> AuthenticationState
-}
-
-extension AuthenticationServicing {
-    public func restoreAfterExternalSessionChange() async -> AuthenticationState {
-        await restore()
-    }
 }
 
 /// 登出时由认证 owner 通知仍可能持有已授权在途请求的会话。

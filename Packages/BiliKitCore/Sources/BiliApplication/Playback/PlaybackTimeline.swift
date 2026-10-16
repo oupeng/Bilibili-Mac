@@ -114,8 +114,8 @@ public struct PlaybackTimelineSnapshot: Sendable, Equatable {
     }
 }
 
+/// 播放器之外各消费方（弹幕、观看进度、播放器浮层与 Now Playing）共用的播放时钟；新订阅者应先得到当前快照。
 @MainActor
-/// 字幕和弹幕消费的唯一播放时钟；新订阅者应先得到当前快照。
 public protocol PlaybackTimelineProviding: AnyObject {
     var currentTimelineSnapshot: PlaybackTimelineSnapshot { get }
     func timelineUpdates() -> AsyncStream<PlaybackTimelineSnapshot>
@@ -125,10 +125,11 @@ public protocol PlaybackTimelineProviding: AnyObject {
     ) -> @MainActor @Sendable () -> Void
 }
 
-@MainActor
 /// Feature 可驱动的最小播放命令边界；具体 AVPlayer 和 bridge 生命周期留在 adapter。
+@MainActor
 public protocol PlaybackControlling: AnyObject {
-    /// 只发布 adapter 已按当前 item token／generation 验证过的终态失败。
+    /// 只发布 adapter 已按当前 item token／generation 验证过的终态失败。每次调用得到独立订阅，
+    /// 只收到此后的事件；一个订阅者结束不影响其他订阅者。
     func playbackFailureEvents() -> AsyncStream<PlaybackFailureEvent>
     /// 准备并安装播放项目；`startPositionSeconds` 为续播位置，就绪时 item 即位于该处
     /// （不支持起播位置的媒体忽略它、从头播放）。
@@ -157,37 +158,20 @@ package struct PlaybackTimelineItemToken: Sendable, Equatable {
     fileprivate let value: UUID
 }
 
-@MainActor
 /// 以不可复用 item token 拒绝旧 AVPlayer observer 写回的时间线状态容器。
+@MainActor
 package final class PlaybackTimelineStore {
     package private(set) var currentSnapshot = PlaybackTimelineSnapshot.idle
 
     private var currentToken: PlaybackTimelineItemToken?
-    private var continuations: [UUID: AsyncStream<PlaybackTimelineSnapshot>.Continuation] = [:]
+    private let broadcast = AsyncBroadcast<PlaybackTimelineSnapshot>()
     private var observers: [UUID: @MainActor (PlaybackTimelineSnapshot) -> Void] = [:]
 
     package init() {}
 
-    deinit {
-        for continuation in continuations.values {
-            continuation.finish()
-        }
-    }
-
-    /// 创建只保留最新值的订阅，并在消费方结束时移除 continuation。
+    /// 创建只保留最新值的订阅，先补发当前快照；消费方结束时只移除它自己的订阅。
     package func updates() -> AsyncStream<PlaybackTimelineSnapshot> {
-        let subscriptionID = UUID()
-        let stream = AsyncStream<PlaybackTimelineSnapshot>.makeStream(
-            bufferingPolicy: .bufferingNewest(1)
-        )
-        continuations[subscriptionID] = stream.continuation
-        stream.continuation.yield(currentSnapshot)
-        stream.continuation.onTermination = { [weak self] _ in
-            Task { @MainActor in
-                self?.continuations.removeValue(forKey: subscriptionID)
-            }
-        }
-        return stream.stream
+        broadcast.subscribe(startingWith: currentSnapshot)
     }
 
     /// heartbeat 等边界敏感消费者不经过只保留最新值的 AsyncStream 缓冲。
@@ -325,9 +309,7 @@ package final class PlaybackTimelineStore {
         for observer in currentObservers {
             observer(snapshot)
         }
-        for continuation in continuations.values {
-            continuation.yield(snapshot)
-        }
+        broadcast.yield(snapshot)
     }
 }
 

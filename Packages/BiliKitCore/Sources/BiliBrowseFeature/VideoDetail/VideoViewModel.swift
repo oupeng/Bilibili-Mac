@@ -131,8 +131,10 @@ public final class VideoViewModel {
         collectionEpisodes.onAuthenticationInvalid = { [weak self] in
             self?.recordAuthenticationInvalidationIfNeeded(.authenticationInvalid)
         }
-        playbackFailureTask = Task { [weak self, playback] in
-            for await event in playback.playbackFailureEvents() {
+        // 在 init 内同步订阅：失败事件不回放，订阅晚于首个 load 会漏掉它。
+        let playbackFailures = playback.playbackFailureEvents()
+        playbackFailureTask = Task { [weak self] in
+            for await event in playbackFailures {
                 guard !Task.isCancelled else { return }
                 self?.handlePlaybackFailure(event)
             }

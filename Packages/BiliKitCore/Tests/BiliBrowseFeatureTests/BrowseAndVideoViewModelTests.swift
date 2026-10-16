@@ -1286,7 +1286,6 @@ struct BrowseAndVideoViewModelTests {
 
         player.releaseHeldLoad()
         await waitUntilSettled(model)
-        await player.finishFailures()
 
         #expect(model.presentedPlaybackIdentity == firstIdentity)
         #expect(player.loadedIdentities.map(\.cid) == [900_001, 900_002, 900_001])
@@ -2658,8 +2657,9 @@ extension VideoRepositoryStub {
 /// 唯一的 PlaybackControlling 替身，记录 load、开播、重播与停止。
 ///
 /// 可让指定 BVID 的 load 失败、让第 `heldLoad` 次 load 挂起到测试放行，
-/// 或让首个 load 先发布失败再等到 stop 才返回。失败事件经 `FailureEventSource` 发布，
-/// 测试可等 ViewModel 回来请求下一个事件。
+/// 或让首个 load 先发布失败再等到 stop 才返回。失败事件与生产 engine 一样经 `AsyncBroadcast`
+/// 发布：不回放、每个订阅独立，所以 ViewModel 必须在发起 load 前订阅；测试可等 ViewModel
+/// 回来请求下一个事件。
 @MainActor
 private final class PlayerStub: PlaybackControlling {
     private let startOutcome: PlaybackStartOutcome
@@ -2668,7 +2668,9 @@ private final class PlayerStub: PlaybackControlling {
     private let failingBVID: String?
     private let heldLoad: Int?
     private let failsFirstLoadUntilStopped: Bool
-    private let failureSource = FailureEventSource()
+    private let failures = AsyncBroadcast<PlaybackFailureEvent>()
+    private var failureRequestCount = 0
+    private var failureRequestWaiters = CountWaiters()
     private var heldLoadContinuation: CheckedContinuation<Void, Never>?
     private var loadWaiters = CountWaiters()
     private var stopWaiters = CountWaiters()
@@ -2699,12 +2701,18 @@ private final class PlayerStub: PlaybackControlling {
         self.failsFirstLoadUntilStopped = failsFirstLoadUntilStopped
     }
 
-    deinit {
-        Task { [failureSource] in await failureSource.finish() }
+    func playbackFailureEvents() -> AsyncStream<PlaybackFailureEvent> {
+        let subscription = CountingFailureSubscription(
+            failures.subscribe(startingWith: nil)
+        ) { [weak self] in
+            self?.recordFailureRequest()
+        }
+        return AsyncStream(unfolding: { await subscription.next() })
     }
 
-    func playbackFailureEvents() -> AsyncStream<PlaybackFailureEvent> {
-        AsyncStream(unfolding: { [failureSource] in await failureSource.next() })
+    private func recordFailureRequest() {
+        failureRequestCount += 1
+        failureRequestWaiters.resume(reaching: failureRequestCount)
     }
 
     func load(
@@ -2722,7 +2730,7 @@ private final class PlayerStub: PlaybackControlling {
             throw PlayerStubFailure()
         }
         if failsFirstLoadUntilStopped, loadedIdentities.count == 1 {
-            await failureSource.send(PlaybackFailureEvent(identity: identity, intent: intent))
+            failures.yield(PlaybackFailureEvent(identity: identity, intent: intent))
             await withCheckedContinuation { heldLoadContinuation = $0 }
         } else if loadedIdentities.count == heldLoad {
             await withCheckedContinuation { heldLoadContinuation = $0 }
@@ -2769,15 +2777,13 @@ private final class PlayerStub: PlaybackControlling {
     }
 
     func publishFailure(_ event: PlaybackFailureEvent) async {
-        await failureSource.send(event)
+        failures.yield(event)
     }
 
     func waitForFailureRequestCount(_ expectedCount: Int) async {
-        await failureSource.waitForRequestCount(expectedCount)
-    }
-
-    func finishFailures() async {
-        await failureSource.finish()
+        await withCheckedContinuation {
+            failureRequestWaiters.add($0, until: expectedCount, current: failureRequestCount)
+        }
     }
 
     func waitForLoadCount(_ expectedCount: Int) async {
@@ -2808,46 +2814,26 @@ private final class PlayerStub: PlaybackControlling {
     }
 }
 
-private actor FailureEventSource {
-    private var queuedEvents: [PlaybackFailureEvent] = []
-    private var pendingNext: CheckedContinuation<PlaybackFailureEvent?, Never>?
-    private var requestCount = 0
-    private var requestWaiters = CountWaiters()
-    private var isFinished = false
+/// 一个失败事件订阅；每次取下一个事件前通知替身，测试据此确认 ViewModel 已处理完上一个事件。
+@MainActor
+private final class CountingFailureSubscription {
+    private var iterator: AsyncStream<PlaybackFailureEvent>.Iterator
+    private let onRequest: @MainActor () -> Void
+
+    init(
+        _ stream: AsyncStream<PlaybackFailureEvent>,
+        onRequest: @escaping @MainActor () -> Void
+    ) {
+        iterator = stream.makeAsyncIterator()
+        self.onRequest = onRequest
+    }
 
     func next() async -> PlaybackFailureEvent? {
-        requestCount += 1
-        requestWaiters.resume(reaching: requestCount)
-        if !queuedEvents.isEmpty {
-            return queuedEvents.removeFirst()
-        }
-        guard !isFinished else { return nil }
-        return await withCheckedContinuation { continuation in
-            pendingNext = continuation
-        }
-    }
-
-    func send(_ event: PlaybackFailureEvent) {
-        guard !isFinished else { return }
-        if let pendingNext {
-            self.pendingNext = nil
-            pendingNext.resume(returning: event)
-        } else {
-            queuedEvents.append(event)
-        }
-    }
-
-    func waitForRequestCount(_ expectedCount: Int) async {
-        await withCheckedContinuation {
-            requestWaiters.add($0, until: expectedCount, current: requestCount)
-        }
-    }
-
-    func finish() {
-        isFinished = true
-        queuedEvents.removeAll()
-        pendingNext?.resume(returning: nil)
-        pendingNext = nil
+        onRequest()
+        var iterator = self.iterator
+        let event = await iterator.next(isolation: #isolation)
+        self.iterator = iterator
+        return event
     }
 }
 

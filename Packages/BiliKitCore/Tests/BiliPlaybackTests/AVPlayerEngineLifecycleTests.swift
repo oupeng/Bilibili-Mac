@@ -52,7 +52,7 @@ struct AVPlayerEngineLifecycleTests {
         let transport = FixtureRangeTransport(
             media: [videoURL: videoData, audioURL: audioData]
         )
-        let engine = AVPlayerEngine(bridge: makeFixtureBridge(transport))
+        let engine = makeFixtureEngine(bridge: makeFixtureBridge(transport))
         engine.player.isMuted = true
         defer { engine.stop() }
         let identity = PlaybackItemIdentity(bvid: "BV1StartOffset", cid: 900_010)
@@ -129,7 +129,7 @@ struct AVPlayerEngineLifecycleTests {
             data: audioData,
             primaryURL: audioURL
         ).representation
-        let engine = AVPlayerEngine(
+        let engine = makeFixtureEngine(
             bridge: makeFixtureBridge(
                 FixtureRangeTransport(
                     media: [videoURL: videoData, audioURL: audioData]
@@ -271,16 +271,9 @@ struct AVPlayerEngineLifecycleTests {
             ]),
             holdsReset: true
         )
-        let engine = AVPlayerEngine(
-            bridge: makeFixtureBridge(
-                FixtureRangeTransport(
-                    media: fixture.media
-                )
-            ),
-            subtitleUseCase: SubtitleUseCase(
-                repository: subtitleRepository,
-                reportAuthenticationInvalidation: {}
-            )
+        let engine = makeFixtureEngine(
+            bridge: makeFixtureBridge(FixtureRangeTransport(media: fixture.media)),
+            subtitleRepository: subtitleRepository
         )
         engine.player.isMuted = true
         let request = PlaybackRequest(
@@ -378,7 +371,6 @@ struct AVPlayerEngineLifecycleTests {
         let transport = FixtureRangeTransport(media: fixture.media)
         let bridge = DASHToHLSBridge(
             rangeClient: HTTPRangeClient(streamer: transport),
-            subtitleCatalogGrace: .milliseconds(20),
             serverFactory: { LoopbackPlaybackServer(rangeStreamer: transport) }
         )
         let source = NativeSubtitleSource(
@@ -434,7 +426,7 @@ struct AVPlayerEngineLifecycleTests {
         let transport = FixtureRangeTransport(
             media: [videoURL: videoData, audioURL: audioData]
         )
-        let engine = AVPlayerEngine(
+        let engine = makeFixtureEngine(
             bridge: makeFixtureBridge(transport)
         )
         engine.player.isMuted = true
@@ -607,12 +599,13 @@ struct AVPlayerEngineLifecycleTests {
                 audioURL: audioData
             ]
         )
-        let engine = AVPlayerEngine(
+        let engine = makeFixtureEngine(
             bridge: makeFixtureBridge(transport)
         )
         let failureRecorder = PlaybackFailureRecorder()
+        let failureEvents = engine.playbackFailureEvents()
         let failureTask = Task {
-            for await event in engine.playbackFailureEvents() {
+            for await event in failureEvents {
                 await failureRecorder.append(event)
             }
         }
@@ -709,7 +702,7 @@ struct AVPlayerEngineLifecycleTests {
                 oldAudioURL: oldAudio.segmentBase.index
             ]
         )
-        let engine = AVPlayerEngine(
+        let engine = makeFixtureEngine(
             bridge: makeFixtureBridge(transport)
         )
         engine.player.isMuted = true
@@ -760,7 +753,7 @@ struct AVPlayerEngineLifecycleTests {
     @MainActor
     func replacementAndReleaseStopEveryPreviousLoopbackSession() async throws {
         let fixture = try makeSimpleMedia(host: "media.fixture.bilivideo.com")
-        var engine: AVPlayerEngine? = AVPlayerEngine(
+        var engine: AVPlayerEngine? = makeFixtureEngine(
             bridge: makeFixtureBridge(
                 FixtureRangeTransport(
                     media: fixture.media

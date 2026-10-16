@@ -1067,12 +1067,8 @@ private final class RecordingPresentation: DanmakuPresentationControlling {
     func setOpacity(_ opacity: DanmakuOpacity) {}
     func setDisplayArea(_ displayArea: DanmakuDisplayArea) {}
     func setDensity(_ density: DanmakuDensity) {}
-
-    func setModeVisibility(
-        scrolling: Bool,
-        top: Bool,
-        bottom: Bool
-    ) {}
+    func setModeVisibility(scrolling: Bool, top: Bool, bottom: Bool) {}
+    func setAuthenticationInvalidationHandler(_ handler: @escaping @MainActor () -> Void) {}
 
     func stop() {
         stopCount += 1
@@ -1153,6 +1149,7 @@ private actor LifecycleAuthenticationService: AuthenticationServicing {
         restoreReleaseWaiters.resumeAll()
     }
 
+    func restoreAfterExternalSessionChange() async -> AuthenticationState { await restore() }
     func requestQRCode() async -> AuthenticationState { .signedOut }
     func pollOnce() async -> AuthenticationState { .signedOut }
     func finalizeLogin() async -> AuthenticationState { .signedOut }

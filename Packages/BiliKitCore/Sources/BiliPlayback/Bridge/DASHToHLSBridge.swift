@@ -50,7 +50,6 @@ public struct DASHToHLSBridge: Sendable {
     private let subtitlePlaylistBuilder: HLSSubtitlePlaylistBuilder
     private let masterPlaylistBuilder: HLSMasterPlaylistBuilder
     private let webVTTEncoder: WebVTTEncoder
-    private let subtitleCatalogGrace: Duration
     private let serverFactory: @Sendable () -> LoopbackPlaybackServer
 
     public init() {
@@ -63,16 +62,16 @@ public struct DASHToHLSBridge: Sendable {
         )
     }
 
-    /// 测试可注入 server（例如替换媒体 Range streamer）并缩短字幕目录等待。
+    /// 媒体索引就绪后最多再等字幕目录这么久，超时按无字幕起播：加长会推迟首帧，缩短会在慢网下
+    /// 丢掉本可显示的字幕。
+    static let subtitleCatalogGrace: Duration = .seconds(2)
+
+    /// `rangeClient` 负责 SIDX／init 读取，`serverFactory` 为每次 prepare 建一个 loopback server，
+    /// 二者应共用同一媒体 Range 会话（见 `init()`）。
     init(
         rangeClient: HTTPRangeClient,
-        subtitleCatalogGrace: Duration = .seconds(2),
         serverFactory: @escaping @Sendable () -> LoopbackPlaybackServer
     ) {
-        precondition(
-            subtitleCatalogGrace > .zero,
-            "Subtitle catalog grace must be positive"
-        )
         indexLoader = RepresentationIndexLoader(rangeClient: rangeClient)
         audioFormatLoader = AudioFormatMetadataLoader(rangeClient: rangeClient)
         mediaPlaylistBuilder = HLSMediaPlaylistBuilder()
@@ -80,7 +79,6 @@ public struct DASHToHLSBridge: Sendable {
         subtitlePlaylistBuilder = HLSSubtitlePlaylistBuilder()
         masterPlaylistBuilder = HLSMasterPlaylistBuilder()
         webVTTEncoder = WebVTTEncoder()
-        self.subtitleCatalogGrace = subtitleCatalogGrace
         self.serverFactory = serverFactory
     }
 
@@ -584,7 +582,7 @@ public struct DASHToHLSBridge: Sendable {
         }
         let timeout = Task {
             do {
-                try await Task.sleep(for: subtitleCatalogGrace)
+                try await Task.sleep(for: Self.subtitleCatalogGrace)
                 catalogTask.cancel()
                 relay.resolve(
                     .failure(DASHToHLSBridgeError.subtitleCatalogTimedOut)

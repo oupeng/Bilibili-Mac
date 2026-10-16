@@ -946,7 +946,7 @@ struct NativePlaybackSidebarTests {
     @Test
     @MainActor
     func commentPaginationPreservesRowAnchorAtAndAboveTheOldBottom() async throws {
-        let controller = NativePlaybackSidebarController()
+        let controller = makeSidebarController()
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 440, height: 600),
             styleMask: .borderless,
@@ -1139,7 +1139,7 @@ struct NativePlaybackSidebarTests {
     @Test
     @MainActor
     func aboveAnchorMutationAndContinuousResizeKeepTheSameCommentPosition() async throws {
-        let controller = NativePlaybackSidebarController()
+        let controller = makeSidebarController()
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 440, height: 600),
             styleMask: .borderless,
@@ -2297,7 +2297,7 @@ struct NativePlaybackSidebarTests {
     @Test
     @MainActor
     func initialCommentsSnapshotRestoresTopBeforeConsideringFooterPagination() async throws {
-        let controller = NativePlaybackSidebarController()
+        let controller = makeSidebarController()
         controller.rootView.frame = NSRect(x: 0, y: 0, width: 440, height: 600)
         controller.rootView.layoutSubtreeIfNeeded()
         let subject = CommentSubjectIdentity.video(aid: 700_001)
@@ -2422,7 +2422,7 @@ struct NativePlaybackSidebarTests {
         window: NSWindow,
         outsideKeyView: NSView
     ) {
-        let controller = NativePlaybackSidebarController()
+        let controller = makeSidebarController()
         controller.rootView.frame = NSRect(x: 0, y: 0, width: 440, height: 600)
         let window = RecordingFieldEditorWindow(
             contentRect: controller.rootView.bounds,

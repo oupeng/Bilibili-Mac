@@ -8,13 +8,16 @@ struct NativePlaybackCommentsPaginationIdentity: Equatable {
     let lastRootID: CommentID?
 }
 
+/// 播放页侧栏的 `NSCollectionView` 协调器：拥有 diffable 数据源、行高缓存、评论分页与滚动状态。
+///
+/// 窗口级图片管线与评论资源 resolver 由宿主注入，管线的关闭不归这里；`tearDown` 取消细化与分页
+/// Task、移除 observer 并释放可见项资源与数据源。用 AppKit 的理由见 ARCHITECTURE「原生 AppKit 集合视图」。
 @MainActor
 final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate {
     let rootView = NativePlaybackSidebarRootView()
     private let collectionView = NSCollectionView()
     private let layout = NativePlaybackSidebarLayout()
     private let heightCache = NativePlaybackSidebarHeightCache()
-    private let imageOwner: NativeVideoImagePipelineOwner?
     private let imagePipeline: NativeVideoImagePipeline
     private let commentAssetURLResolver: CommentAssetURLResolver
     private lazy var commentTextRenderer = NativePlaybackCommentTextRenderer(
@@ -79,18 +82,11 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
     private var isTornDown = false
 
     init(
-        commentAssetURLResolver: @escaping CommentAssetURLResolver = { _, _ in nil },
-        imagePipeline: NativeVideoImagePipeline? = nil
+        commentAssetURLResolver: @escaping CommentAssetURLResolver,
+        imagePipeline: NativeVideoImagePipeline
     ) {
         self.commentAssetURLResolver = commentAssetURLResolver
-        if let imagePipeline {
-            imageOwner = nil
-            self.imagePipeline = imagePipeline
-        } else {
-            let owner = NativeVideoImagePipelineOwner(cacheLimits: .window)
-            imageOwner = owner
-            self.imagePipeline = owner.pipeline
-        }
+        self.imagePipeline = imagePipeline
         super.init()
         configureCollectionView()
         rootView.scrollView.topButton.target = self
@@ -214,7 +210,6 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
         heightCache.removeAll()
         collectionView.delegate = nil
         rootView.scrollView.documentView = nil
-        imageOwner?.shutdown()
     }
 
     private func configureCollectionView() {
