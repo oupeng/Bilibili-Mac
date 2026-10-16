@@ -32,7 +32,7 @@ struct NativeVideoImageLoadResult: Sendable {
     let animation: NativeAnimatedImage?
 }
 
-/// 评论动图的播放门槛；数值待实际体验调整。
+/// 评论动图的播放门槛：超过任一上限只显示第一帧，避免逐帧解码持续占用 CPU 与内存。
 enum NativeAnimatedImagePolicy {
     /// 帧数上限，超过时只显示第一帧。
     static let maximumFrameCount = 1_000

@@ -170,11 +170,11 @@ final class PlaybackInteractionTracker: Sendable {
     }
 }
 
-@MainActor
 /// 把 AVPlayer/KVO/notification 事件投影为平台无关、identity-safe 的播放时间线。
 ///
 /// 所有 callback 都同时核对当前 `AVPlayerItem` 与 item token；observer bag 在替换、失败和
-/// clear 时统一释放，避免旧 item 继续推进字幕或弹幕。
+/// clear 时统一释放，避免旧 item 继续推进弹幕、观看进度等时间线消费方。
+@MainActor
 final class AVPlayerTimelineAdapter {
     private struct PendingSeek {
         let operationID: UUID
@@ -407,7 +407,7 @@ final class AVPlayerTimelineAdapter {
             token: token,
             durationSeconds: Self.seconds(from: duration)
         )
-        // 从 playlist 起播位置开始的 item 一就绪就位于该处；标记不连续，弹幕与字幕从这里排起，
+        // 从 playlist 起播位置开始的 item 一就绪就位于该处；标记不连续，弹幕等消费方从这里排起，
         // 而不是把 0 到起播位置之间当作连续前进。
         guard startPositionSeconds > 0 else { return }
         store.markDiscontinuity(

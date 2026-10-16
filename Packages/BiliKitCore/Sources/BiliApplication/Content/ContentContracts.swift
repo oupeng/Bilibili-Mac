@@ -1,6 +1,6 @@
 import BiliModels
 
-/// 内容类读取（Feed、视频、空间、观看历史，以及今后的稍后再看与收藏夹）共用的应用级错误。
+/// 内容类读取（Feed、视频、UP 主空间、观看历史）共用的应用级错误。
 ///
 /// 认证相关分四态：本地无凭据（`authenticationRequired`）、凭据失效（`authenticationInvalid`，唯一触发
 /// 账户复核的一种）、本地凭据读不到（`authenticationUnavailable`，如 Keychain 不可用），以及风控
@@ -46,7 +46,8 @@ extension ContentApplicationError {
     }
 }
 
-/// 游客 Feed 用例所需的远端列表 port，不暴露 endpoint DTO 或具体网络 client。
+/// 推荐、热门与搜索列表的 port：有凭据时按账户读取，本地无凭据时匿名请求同一 endpoint；
+/// 不暴露 endpoint DTO 或具体网络 client。
 public protocol FeedRepository: Sendable {
     func recommendations(
         after continuation: RecommendationContinuation?
@@ -55,13 +56,14 @@ public protocol FeedRepository: Sendable {
     func searchVideos(request: VideoSearchRequest) async throws -> SearchPage
 }
 
-/// 游客视频用例所需的详情、分 P 与播放地址 port。
+/// 视频详情、分 P 与播放地址的 port：有凭据时按账户读取；本地无凭据时详情匿名请求同一 endpoint，
+/// 播放地址改用带游客参数的匿名请求，见 SECURITY-MODEL §3。
 public protocol VideoRepository: Sendable {
     func videoDetail(for bvid: String) async throws -> VideoDetail
     func playback(for bvid: String, cid: Int64) async throws -> VideoPlayback
 }
 
-/// 当前视频相关推荐所需的独立匿名只读 port。
+/// 当前视频相关推荐的只读 port：有凭据时按账户读取，本地无凭据时匿名请求同一 endpoint。
 public protocol RelatedVideoRepository: Sendable {
     func relatedVideos(to bvid: String) async throws -> [RelatedVideo]
 }

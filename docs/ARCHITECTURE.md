@@ -58,7 +58,7 @@ BiliNetworking 不依赖任何 Bili 模块
   意图统一用 `LatestTask` 隔离，不各自手写。View 的 `.task(id:)` 只把生命周期意图交给 ViewModel。
 - adapter 必须传播 `CancellationError`，不把取消折叠成网络失败。
 - adapter 只经 `BiliAPIError.Failure`（`domainError`）分类远端错误，各域只把分类对应到自己的 Application
-  错误。内容类读取（Feed、视频、UP 主空间、观看历史，以及今后的稍后再看与收藏夹）共用
+  错误。内容类读取（Feed、视频、UP 主空间、观看历史）共用
   `BiliAPIError.contentApplicationError(for:)` 映射到 `ContentApplicationError`：认证分无凭据、凭据失效、
   本地凭据读不到、风控四态，业务码 -404／62002／62004 归为“内容不存在或不可见”。是否复核账户、是否给
   重试只由 `ContentApplicationError` 的 `requiresAccountRevalidation`／`isRetryable` 决定，Feature 不各自判断。
