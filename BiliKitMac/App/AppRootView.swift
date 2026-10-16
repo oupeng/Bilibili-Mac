@@ -5,6 +5,7 @@
 //  Created by shiinayane on 2026/07/21.
 //
 
+import BiliApplication
 import BiliAuthFeature
 import BiliBrowseFeature
 import BiliLibraryFeature

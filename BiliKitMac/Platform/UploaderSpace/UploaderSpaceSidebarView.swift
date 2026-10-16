@@ -1,4 +1,5 @@
 import AppKit
+import BiliApplication
 import BiliBrowseFeature
 import BiliModels
 import SwiftUI
