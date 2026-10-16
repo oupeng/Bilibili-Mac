@@ -1,12 +1,12 @@
 import Foundation
 import Testing
 
-@testable import BiliBrowseFeature
+@testable import BiliUI
 
 struct VideoMetadataFormattingTests {
     @Test
     func compactCountsMatchResourceLanguage() throws {
-        let language = try #require(BrowseFeatureStrings.bundle.preferredLocalizations.first)
+        let language = try #require(BiliUIStrings.bundle.preferredLocalizations.first)
         let locale = Locale(identifier: language)
         let expected: [String]
         switch language {
@@ -66,5 +66,5 @@ struct VideoMetadataFormattingTests {
 }
 
 private func localized(_ key: String.LocalizationValue) -> String {
-    String(localized: key, bundle: BrowseFeatureStrings.bundle)
+    String(localized: key, bundle: BiliUIStrings.bundle)
 }

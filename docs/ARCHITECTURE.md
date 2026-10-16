@@ -29,7 +29,7 @@ BiliKit App（Composition Root、AppKit/AVKit 宿主、Sparkle）
  ├─ BiliBrowseFeature ─┐
  ├─ BiliLibraryFeature ┼─> BiliApplication ─> BiliModels
  ├─ BiliAuthFeature ───┘         ^ ports
- │    (Browse/Library ─> BiliUI ─> SwiftUI/Foundation)
+ │    (Browse/Library ─> BiliUI ─> BiliApplication / SwiftUI)
  ├─ BiliAPI ──────┐
  ├─ BiliAuth ─────┼─> BiliApplication / BiliModels / BiliNetworking
  ├─ BiliPlayback ─┘
@@ -47,7 +47,7 @@ BiliNetworking 不依赖任何 Bili 模块
 | `BiliPlayback` | DASH→HLS bridge、loopback server、SIDX、`AVPlayerEngine`、线路偏好与测速、响度 tap | `BiliAPI`、`BiliAuth` |
 | `BiliDanmaku` | 弹幕会话、按媒体时间调度、lane 分配、Core Animation renderer | `BiliAPI`、`BiliAuth`、`BiliNetworking`、`BiliPlayback`、Feature、SwiftUI |
 | `Bili*Feature` | SwiftUI View 与 `@MainActor` ViewModel；Browse（Feed/Search/VideoDetail/UploaderSpace）、Library（History）、Auth | adapter target、其他 Feature、AppKit/AVKit/AVFoundation |
-| `BiliUI` | Browse、Library 与 App 原生网格、播放器浮层共用、无业务语义的卡片几何、网格、骨架、加载过渡与时长格式化；默认 `package` 访问级别，App 直接使用的卡片几何、时长格式化与播放器加载转圈为 `public`，无 library product | 除 Foundation、SwiftUI 外的任何模块 |
+| `BiliUI` | Feature 共享的 SwiftUI 呈现层：卡片几何、网格、骨架、加载过渡、刷新与分页状态胶囊、整页失败视图，`ContentApplicationError` 的失败文案（`ContentFailureText`），计数、时长与日期格式化，视频卡片的 B 站图片缩略地址；拥有自己的字符串目录。默认 `package` 访问级别，App 直接使用的卡片几何、时长格式化、播放器加载转圈与单行失败说明（`ContentFailureText.message`）为 `public`，无 library product | 除 Foundation、SwiftUI、BiliApplication 外的任何模块（含 BiliModels、AppKit 与其他 Feature） |
 | App `BiliKitMac` | composition root、导航协调、窗口 owner、`AVPlayerView` 宿主、原生网格／侧栏、Settings、Now Playing、Sparkle | `App/` 目录不直接 import adapter 或平台框架，具体实现只在 `Composition/`、`Platform/`、`Settings/` 出现；Application 只在持有搜索条件的工具栏与搜索路由文件中 import（成员可见性要求直接 import 定义模块，Feature 不转出 Application） |
 
 补充规则：
@@ -66,9 +66,12 @@ BiliNetworking 不依赖任何 Bili 模块
   `isRetryable`，评论列表、分页与楼中楼的失败界面据此决定是否给重试），调用方只读这些属性。
 - 新 target 需同时具备稳定独立领域、独立状态或安全／性能边界、真实调用方与测试；默认在现有
   target 内加子目录。不建立 `Common`／`Shared`／`Utils`，不建立空占位 target。
-- `BiliUI` 只在出现至少两个真实调用方且语义稳定时才接收新组件；B 站主机、图片参数、计数和日期
-  格式化留在拥有语义的 Feature；评论资源是不透明引用，其图片地址与缩略参数只由 BiliAPI 的 resolver
-  生成。
+- 两个以上 Feature（或 Feature 与 App）共用的呈现放进 `BiliUI`，只有一个调用方的留在拥有它的 Feature。
+  BiliUI 的组件只负责排版与措辞，标签、动作与“是否可重试”由调用方给出；文案用 BiliUI 自己的字符串目录，
+  调用方传入的标题（如失败标题的兜底）由调用方本地化。内容失败的标题与说明只有 `ContentFailureText`
+  一份：凭据类失败的说明按页面所知的账户复核进度（不跟踪／进行中／已结束）区分，没有专属标题的失败用来源
+  自己的标题。视频卡片封面与头像的缩略参数只由 `BiliImageThumbnail` 追加；评论资源是不透明引用，其图片
+  地址与缩略参数只由 BiliAPI 的 resolver 生成。
 
 ## 关键决策
 
@@ -160,8 +163,9 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   去重后截断；达到上限即收起分页尾标、不再请求下一页。
 - 首页推荐、热门、搜索与观看历史在已有内容时都原地刷新：网格不卸载，顶部显示共用的 `RefreshStatusCapsule`
   （BiliUI；结果为空时也显示），成功后整体替换并由刷新代次把该来源的网格滚回顶部；失败保留已显示内容并在
-  胶囊里给出原因。刷新期间各来源都收起分页尾标，结束后重新给出：网格对同一尾标只触发一次，刷新中被忽略的
-  近尾事件要靠尾标重新出现才能再布防。账户变化替换所有来源的内容，所有网格都回到顶部。
+  胶囊里给出原因。底部的加载更多转圈、失败原因与重试，以及历史空页之后的“加载更早的记录”按钮共用
+  `PaginationStatusOverlay`（BiliUI）。刷新期间各来源都收起分页尾标，结束后重新给出：
+  网格对同一尾标只触发一次，刷新中被忽略的近尾事件要靠尾标重新出现才能再布防。账户变化替换所有来源的内容，所有网格都回到顶部。
   历史在刷新或加载更多遇到凭据缺失或失效时放弃已显示内容、转入失败页并请求账户复核；复核期间显示“正在
   重新确认”，确认仍登录后自动重载一次（直到下一次加载成功前不再自动重载），复核结束仍失败时给静态说明。
   离开历史页时停止等待复核，凭据失败页回到初始状态，回来时重新加载。本地凭据读不到与复核失败显示

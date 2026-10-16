@@ -281,34 +281,6 @@
         }
       }
     },
-    "B 站暂时限制了请求，请稍后再试。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bilibili is temporarily limiting requests. Try again later."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bilibiliがリクエストを一時的に制限しています。しばらくしてからやり直してください。"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "B 站暂时限制了请求，请稍后再试。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "B 站暫時限制了要求，請稍後再試。"
-          }
-        }
-      }
-    },
     "B 站服务端默认" : {
       "localizations" : {
         "en" : {
@@ -1257,62 +1229,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "恢復適配大小"
-          }
-        }
-      }
-    },
-    "投稿加载失败" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Couldn't load videos"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "投稿を読み込めませんでした"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "投稿加载失败"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "投稿載入失敗"
-          }
-        }
-      }
-    },
-    "投稿加载失败，请检查网络连接后重试。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Couldn’t load videos. Check your network connection and try again."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "投稿を読み込めませんでした。ネットワーク接続を確認して、やり直してください。"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "投稿加载失败，请检查网络连接后重试。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "投稿載入失敗，請檢查網路連線後再試。"
           }
         }
       }
@@ -4925,34 +4841,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "登入後查看觀看記錄"
-          }
-        }
-      }
-    },
-    "登录状态已失效，正在重新确认。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your sign-in has expired. Reconfirming…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ログインの有効期限が切れました。再確認しています。"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "登录状态已失效，正在重新确认。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "登入狀態已失效，正在重新確認。"
           }
         }
       }

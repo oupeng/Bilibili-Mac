@@ -70,7 +70,11 @@ let package = Package(
             dependencies: ["BiliApplication", "BiliModels", "BiliUI"],
             resources: [.process("Resources")]
         ),
-        .target(name: "BiliUI"),
+        .target(
+            name: "BiliUI",
+            dependencies: ["BiliApplication"],
+            resources: [.process("Resources")]
+        ),
         .testTarget(
             name: "BiliModelsTests",
             dependencies: ["BiliModels"]
@@ -135,6 +139,10 @@ let package = Package(
         .testTarget(
             name: "BiliLibraryFeatureTests",
             dependencies: ["BiliApplication", "BiliLibraryFeature", "BiliModels"]
+        ),
+        .testTarget(
+            name: "BiliUITests",
+            dependencies: ["BiliApplication", "BiliUI"]
         )
     ]
 )

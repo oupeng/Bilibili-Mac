@@ -5,6 +5,7 @@ import SwiftUI
 
 public struct RecommendedFeedView<LoadedContent: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.locale) private var locale
     private let model: BrowseViewModel
     private let request = FeedRequest.recommendation(continuation: nil)
     private let makeLoadedContent: (LoadedFeedContent<RecommendedVideo>) -> LoadedContent
@@ -94,26 +95,13 @@ public struct RecommendedFeedView<LoadedContent: View>: View {
             refreshStatus(presentation)
         }
         .overlay(alignment: .bottom) {
-            if pagination.isLoadingMore {
-                ProgressView()
-                    .controlSize(.small)
-                    .padding(8)
-                    .background(.regularMaterial, in: Capsule())
-                    .accessibilityLabel(BrowseFeatureStrings.localized("正在加载更多首页推荐"))
-            } else if let error = pagination.loadMoreError {
-                HStack(spacing: 8) {
-                    Text(error.displayMessage)
-                        .lineLimit(2)
-                    if error.isRetryable {
-                        Button(BrowseFeatureStrings.localized("重试")) {
-                            model.retryLoadMore(.recommendation)
-                        }
-                    }
-                }
-                .font(.caption)
-                .padding(8)
-                .background(.regularMaterial, in: Capsule())
-            }
+            PaginationStatusOverlay(
+                pagination.overlayStatus(
+                    loadingMoreLabel: BrowseFeatureStrings.localized("正在加载更多首页推荐", locale: locale),
+                    locale: locale,
+                    retry: { model.retryLoadMore(.recommendation) }
+                )
+            )
         }
     }
 
@@ -123,7 +111,9 @@ public struct RecommendedFeedView<LoadedContent: View>: View {
         RefreshStatusCapsule(
             isRefreshing: presentation.isRefreshing,
             refreshingLabel: BrowseFeatureStrings.localized("正在刷新首页推荐"),
-            errorMessage: presentation.refreshError?.displayMessage
+            errorMessage: presentation.refreshError.map {
+                ContentFailureText.message(for: $0, locale: locale)
+            }
         )
     }
 

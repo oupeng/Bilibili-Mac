@@ -129,33 +129,6 @@ struct WatchHistoryCardFormattingTests {
         #expect(unknown.avatarURL == unknownURL)
     }
 
-    @Test
-    func historyImageOptimizationRejectsAmbiguousOrAlreadyTransformedURLs() throws {
-        let values = try [
-            #require(URL(string: "https://evilhdslb.com/avatar.jpg")),
-            #require(URL(string: "https://i0.hdslb.com/avatar.jpg?token=public")),
-            #require(URL(string: "https://i0.hdslb.com/avatar.jpg#fragment")),
-            #require(URL(string: "https://i0.hdslb.com/avatar.jpg@48w_48h.webp"))
-        ]
-
-        for (index, url) in values.enumerated() {
-            let presentation = WatchHistoryCardPresentation(
-                item: WatchHistoryItem(
-                    bvid: "BV1HistoryGuard\(index)",
-                    title: "图片边界",
-                    coverURL: url,
-                    owner: VideoOwner(id: Int64(index), name: "作者", avatarURL: url),
-                    progressSeconds: 1,
-                    durationSeconds: 10,
-                    viewedAt: .now
-                )
-            )
-
-            #expect(presentation.coverURL == url)
-            #expect(presentation.avatarURL == url)
-        }
-    }
-
     @Test(arguments: [
         (progress: 65, duration: 600, expected: "1:05/10:00"),
         (progress: 3_661, duration: 7_322, expected: "1:01:01/2:02:02"),

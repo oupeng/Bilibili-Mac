@@ -61,8 +61,8 @@ SCOPES = {
         "BiliDanmaku 只能依赖 Application/Models 与必要的系统渲染框架",
     ),
     f"{SOURCES}/BiliUI": (
-        {"Foundation", "SwiftUI"},
-        "BiliUI 只能依赖 Foundation 与 SwiftUI",
+        {"Foundation", "SwiftUI", "BiliApplication"},
+        "BiliUI 只能依赖 Foundation、SwiftUI 与 BiliApplication，不依赖 AppKit 或 Feature",
     ),
     **{
         f"{SOURCES}/{feature}": (

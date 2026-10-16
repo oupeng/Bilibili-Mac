@@ -25,16 +25,8 @@ public struct WatchHistoryCardPresentation: Sendable, Equatable {
         let viewedAt = WatchHistoryCardFormatting.viewedAt(item.viewedAt, locale: locale)
         bvid = item.bvid
         title = item.title
-        coverURL = optimizedHistoryImageURL(
-            item.coverURL,
-            width: 640,
-            height: 360
-        )
-        avatarURL = optimizedHistoryImageURL(
-            item.owner.avatarURL,
-            width: 96,
-            height: 96
-        )
+        coverURL = BiliImageThumbnail.url(item.coverURL, size: .videoCover)
+        avatarURL = BiliImageThumbnail.url(item.owner.avatarURL, size: .avatar)
         showsAvatar = item.owner.avatarURL != nil
         progressText = progress
         footerLeadingText = item.owner.name
@@ -51,28 +43,6 @@ public struct WatchHistoryCardPresentation: Sendable, Equatable {
                 .compactMap(\.self)
         )
     }
-}
-
-private func optimizedHistoryImageURL(
-    _ url: URL?,
-    width: Int,
-    height: Int
-) -> URL? {
-    guard let url,
-        let host = url.host?.lowercased(),
-        host == "hdslb.com" || host.hasSuffix(".hdslb.com"),
-        url.query == nil,
-        url.fragment == nil,
-        !url.path.contains("@")
-    else {
-        return url
-    }
-    var components = URLComponents(
-        url: url,
-        resolvingAgainstBaseURL: false
-    )
-    components?.path += "@\(width)w_\(height)h_1c.webp"
-    return components?.url ?? url
 }
 
 enum WatchHistoryCardFormatting {
@@ -114,42 +84,25 @@ enum WatchHistoryCardFormatting {
         calendar: Calendar = .current,
         locale: Locale = .current
     ) -> String {
-        let time = formatted(
+        let time = DateDisplayFormatting.formatted(
             date,
             date: .omitted,
             time: .shortened,
             calendar: calendar,
             locale: locale
         )
-        if calendar.isDate(date, inSameDayAs: now) {
+        switch DateDisplayFormatting.dayRelation(of: date, relativeTo: now, calendar: calendar) {
+        case .today:
             return LibraryFeatureStrings.localized("今天 \(time)", locale: locale)
-        }
-        if let yesterday = calendar.date(
-            byAdding: .day,
-            value: -1,
-            to: now
-        ), calendar.isDate(date, inSameDayAs: yesterday) {
+        case .yesterday:
             return LibraryFeatureStrings.localized("昨天 \(time)", locale: locale)
+        case .earlier:
+            let month = calendar.component(.month, from: date)
+            let day = calendar.component(.day, from: date)
+            return LibraryFeatureStrings.localized(
+                "\(month)月\(day)日 \(time)",
+                locale: locale
+            )
         }
-
-        let month = calendar.component(.month, from: date)
-        let day = calendar.component(.day, from: date)
-        return LibraryFeatureStrings.localized(
-            "\(month)月\(day)日 \(time)",
-            locale: locale
-        )
-    }
-
-    private static func formatted(
-        _ dateValue: Date,
-        date dateStyle: Date.FormatStyle.DateStyle,
-        time timeStyle: Date.FormatStyle.TimeStyle,
-        calendar: Calendar,
-        locale: Locale
-    ) -> String {
-        var style = Date.FormatStyle(date: dateStyle, time: timeStyle)
-            .locale(locale)
-        style.timeZone = calendar.timeZone
-        return dateValue.formatted(style)
     }
 }
