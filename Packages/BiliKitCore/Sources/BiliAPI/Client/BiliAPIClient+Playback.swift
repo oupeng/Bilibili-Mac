@@ -185,7 +185,7 @@ extension BiliAPIClient {
         )
     }
 
-    /// 每次尝试都用当前 WBI key 重新签名；签名被拒时刷新 key 并只重试一次。
+    /// 每次尝试都用当前 WBI key 与新的随机风控字段重新签名；重试与会话变化的处理见 `signedRequest`。
     private func signedPlayURL<Payload: Decodable & Sendable>(
         bvid: String,
         cid: Int64,
@@ -198,19 +198,19 @@ extension BiliAPIClient {
         signedParameters["cid"] = String(cid)
         signedParameters["qn"] = String(quality)
         signedParameters.merge(parameters) { $1 }
-        return try await withWBIKeyRefresh { forceKeyRefresh in
-            let keys = try await wbiKey(forceRefresh: forceKeyRefresh)
-            let query = try wbiSigner.sign(
-                parameters: signedParameters.merging(Self.playURLRiskControlParameters()) { $1 },
-                keys: keys,
-                timestamp: timestampProvider()
-            )
-            return try await getWithAuthorizationProvenance(
-                url: try endpoint(path: Self.playURLPath, percentEncodedQuery: query),
-                referer: Self.videoReferer(bvid),
-                access: access
-            )
-        }
+        return try await signedRequest(
+            path: Self.playURLPath,
+            parameters: {
+                signedParameters.merging(Self.playURLRiskControlParameters()) { $1 }
+            },
+            send: { url in
+                try await getWithAuthorizationProvenance(
+                    url: url,
+                    referer: Self.videoReferer(bvid),
+                    access: access
+                )
+            }
+        )
     }
 
     private func dashPlayback(

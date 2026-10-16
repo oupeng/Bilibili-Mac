@@ -22,32 +22,18 @@ extension BiliAPIClient {
 
     /// 视频详情的唯一请求：Web 播放页同款 WBI 签名 endpoint，未签名的 `/view` 对游客稳定返回 HTTP 412。
     ///
-    /// 主详情与测速样本共用，各自决定授权方式与解码形状。取 key 与重试期间会话变化则取消，
-    /// 不以新会话或匿名身份补发。
+    /// 主详情与测速样本共用，各自决定授权方式与解码形状；会话变化的处理见 `signedRequest`。
     func signedVideoDetail<Payload: Decodable & Sendable>(
         bvid: String,
         access: RequestAccess
     ) async throws -> Payload {
-        let sessionEpoch = authenticatedSessionEpoch
-        return try await withWBIKeyRefresh { forceKeyRefresh in
-            let keys = try await wbiKey(forceRefresh: forceKeyRefresh)
-            try requireAuthenticatedSessionEpoch(sessionEpoch)
-            let query = try wbiSigner.sign(
-                parameters: ["bvid": bvid],
-                keys: keys,
-                timestamp: timestampProvider()
-            )
-            let payload: Payload = try await get(
-                url: try endpoint(
-                    path: "/x/web-interface/wbi/view",
-                    percentEncodedQuery: query
-                ),
-                referer: Self.videoReferer(bvid),
-                access: access
-            )
-            try requireAuthenticatedSessionEpoch(sessionEpoch)
-            return payload
-        }
+        try await signedRequest(
+            path: "/x/web-interface/wbi/view",
+            parameters: { ["bvid": bvid] },
+            send: { url in
+                try await get(url: url, referer: Self.videoReferer(bvid), access: access)
+            }
+        )
     }
 
     /// 登录增强地读取相关推荐；只有本地明确无凭据时匿名。

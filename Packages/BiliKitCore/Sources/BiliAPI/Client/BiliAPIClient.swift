@@ -10,8 +10,9 @@ import Foundation
 /// 响应在解码前还要满足状态、大小与 Content-Type 边界。actor 隔离可变
 /// transport/WBI cache；跨 `await` 可重入，用户意图的取消与写回代次仍由上层 owner 管理。
 ///
-/// 本文件只含请求管线（access 选择、授权、epoch 复核、envelope 解码）与 WBI key；各域 endpoint
-/// 在同 actor 的 `BiliAPIClient+*.swift` 扩展中。`RequestAccess` 与管线方法对 `BiliAPI` 内部可见
+/// 本文件只含请求管线（access 选择、授权、epoch 复核、envelope 解码）、WBI key 与签名读取序列
+/// （`signedRequest`）；各域 endpoint 在同 actor 的 `BiliAPIClient+*.swift` 扩展中，签名读取一律经
+/// `signedRequest`。`RequestAccess` 与管线方法对 `BiliAPI` 内部可见
 /// 只为这些扩展；Repository adapter 只调用 endpoint 方法，不得自行构造 `RequestAccess`。
 public actor BiliAPIClient: AuthenticatedSessionInvalidating {
     enum MissingCredentialBehavior: Sendable, Equatable {
@@ -337,16 +338,47 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
         )
     }
 
+    /// WBI 签名读取的唯一序列：取 key、签名、请求与会话 epoch 复核都在这里，endpoint 只给出 path、
+    /// 参数与发送方式。
+    ///
+    /// 进入时记录认证会话 epoch；取 key 之后与 `send` 返回之后都比对，不一致抛 `CancellationError`，
+    /// 结果既不写回也不以新会话、新 key 或匿名身份补发。`parameters` 每次尝试都重新求值，`send` 拿到
+    /// 本次尝试用当前 key 与时间戳签好的 URL，自行决定授权方式与解码；重试规则见
+    /// `withWBIKeyRefresh`。heartbeat 写请求不经过这里：写入不做换 key 重试。
+    func signedRequest<Value>(
+        path: String,
+        intermittentRestrictionRetryDelay: Duration? = nil,
+        parameters: () -> [String: String],
+        send: (_ url: URL) async throws -> Value
+    ) async throws -> Value {
+        let sessionEpoch = authenticatedSessionEpoch
+        return try await withWBIKeyRefresh(
+            sessionEpoch: sessionEpoch,
+            intermittentRestrictionRetryDelay: intermittentRestrictionRetryDelay
+        ) { forceKeyRefresh in
+            let keys = try await wbiKey(forceRefresh: forceKeyRefresh)
+            try requireAuthenticatedSessionEpoch(sessionEpoch)
+            let query = try wbiSigner.sign(
+                parameters: parameters(),
+                keys: keys,
+                timestamp: timestampProvider()
+            )
+            let value = try await send(try endpoint(path: path, percentEncodedQuery: query))
+            try requireAuthenticatedSessionEpoch(sessionEpoch)
+            return value
+        }
+    }
+
     /// WBI 签名请求的唯一重试策略：任何组合下最多请求两次。
     ///
     /// 首次请求被 -403 或 `v_voucher` 挑战拒绝时强制刷新 WBI key 再请求一次。HTTP 403／412 是风控而不是
     /// key 过期，默认按受限失败关闭；只有传入 `intermittentRestrictionRetryDelay` 的调用方在首次请求被
     /// HTTP 412 拒绝时等待后用同一个 key 再请求一次，等待期间会话变化则取消。重试的结果不再进入任何重试。
-    func withWBIKeyRefresh<Value>(
-        intermittentRestrictionRetryDelay: Duration? = nil,
+    private func withWBIKeyRefresh<Value>(
+        sessionEpoch: UInt64,
+        intermittentRestrictionRetryDelay: Duration?,
         _ request: (_ forceKeyRefresh: Bool) async throws -> Value
     ) async throws -> Value {
-        let sessionEpoch = authenticatedSessionEpoch
         do {
             return try await request(false)
         } catch BiliAPIError.apiRejected(let code, _) where code == -403 {
@@ -386,6 +418,8 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
             return cachedWBIKey.key
         }
 
+        // 会话失效会清掉缓存的 key；nav 返回前会话已失效时不把迟到的 key 写回去。
+        let sessionEpoch = authenticatedSessionEpoch
         let url = try endpoint(path: "/x/web-interface/nav", queryItems: [])
         let response = try await response(
             url: url,
@@ -407,7 +441,9 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
             imageURL: image.imageURL,
             subURL: image.subURL
         )
-        cachedWBIKey = CachedWBIKey(key: key, day: currentDay)
+        if authenticatedSessionEpoch == sessionEpoch {
+            cachedWBIKey = CachedWBIKey(key: key, day: currentDay)
+        }
         return key
     }
 

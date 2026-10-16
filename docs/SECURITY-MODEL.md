@@ -81,7 +81,10 @@
 - WBI 签名请求在授权前先匿名取 nav；只按账户读取的签名 endpoint 在本地无凭据时，同样在 nav 之后
   的授权阶段失败，不发出该 endpoint 请求。
 - WBI key 的 nav 请求保持匿名。签名请求只在业务码 -403 或 `v_voucher` 挑战时强制刷新 key 并重试一次；
-  HTTP 403／412 是风控，按受限失败关闭，不换 key。
+  HTTP 403／412 是风控，按受限失败关闭，不换 key。所有签名读取共用 `BiliAPIClient.signedRequest`：
+  取 nav、换 key 重试与响应返回期间认证 epoch 变化时丢弃结果，不以新会话补发；会话失效后返回的
+  nav 也不写回 key 缓存。epoch 只在登出与凭据失效时推进，登录成功不推进：登录方向由关闭依赖账户的
+  播放器与各页面的 generation 隔离旧结果。
 
 **唯一写能力：观看进度**（`BiliPlaybackHeartbeatRequestAuthorizer`）
 
