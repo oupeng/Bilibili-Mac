@@ -92,13 +92,22 @@ public actor HTTPClient {
 }
 
 extension URLSessionConfiguration {
-    /// API、认证、媒体、字幕与图片 session 唯一的 ephemeral 基线：不自动附加 Cookie，没有 Cookie、
+    /// 交互式请求（API JSON、认证、字幕正文、图片）的超时：15 秒无数据或 30 秒未完成即按网络失败处理，
+    /// 让界面及时显示可重试的错误或占位；调大会让失败更晚出现，调小会让弱网下的大列表、大图或大字幕
+    /// 被误判失败。
+    static let interactiveRequestTimeout: TimeInterval = 15
+    static let interactiveResourceTimeout: TimeInterval = 30
+
+    /// API、认证、媒体、字幕、短链与图片 session 唯一的 ephemeral 基线：不自动附加 Cookie，没有 Cookie、
     /// 凭据与 URL cache（见 SECURITY-MODEL §4）。
     ///
-    /// 调用方只在此基础上设置用途专属的超时与连接数，不得重新打开 Cookie、凭据或缓存；redirect 策略由
-    /// 持有 session 的一方决定。需要账户凭据的请求只由授权器显式写入 header。
+    /// 默认使用交互式请求超时；只有用途确实不同的调用方（测速、媒体流、短链）覆盖超时，并在自己那里
+    /// 写明理由。调用方不得重新打开 Cookie、凭据或缓存；持有 session 的一方都以 delegate 拒绝 redirect。
+    /// 需要账户凭据的请求只由授权器显式写入 header。
     public static func credentialFreeEphemeral() -> URLSessionConfiguration {
         let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = interactiveRequestTimeout
+        configuration.timeoutIntervalForResource = interactiveResourceTimeout
         configuration.httpShouldSetCookies = false
         configuration.httpCookieStorage = nil
         configuration.urlCredentialStorage = nil
@@ -108,30 +117,21 @@ extension URLSessionConfiguration {
     }
 }
 
-/// `URLSession` adapter：按调用方给出的用途专属配置与 redirect 策略自建并拥有 session。
+/// `URLSession` adapter：按调用方给出的用途专属配置自建并拥有 session，一律拒绝跟随重定向。
 ///
-/// 没有回落到 `URLSession.shared` 的入口（见 SECURITY-MODEL §1）。transport 释放时让 session 完成
-/// 在途任务后失效，session 与 delegate 随之释放；`invalidateAndCancel` 立即取消在途请求。
+/// 来源校验只作用于发出的 URL，跟随重定向会绕过它，所以没有可跟随的选项（见 SECURITY-MODEL §4）；
+/// 也没有回落到 `URLSession.shared` 的入口（见 §1）。transport 释放时让 session 完成在途任务后
+/// 失效，session 与 delegate 随之释放；`invalidateAndCancel` 立即取消在途请求。
 public final class URLSessionTransport: HTTPTransport, HTTPTransportInvalidating,
     @unchecked Sendable
 {
     private let session: URLSession
 
-    public convenience init(
-        configuration: URLSessionConfiguration,
-        redirectPolicy: HTTPRedirectPolicy
-    ) {
-        let delegate: URLSessionTaskDelegate? =
-            switch redirectPolicy {
-            case .follow:
-                nil
-            case .reject:
-                RejectHTTPRedirectDelegate()
-            }
+    public convenience init(configuration: URLSessionConfiguration) {
         self.init(
             session: URLSession(
                 configuration: configuration,
-                delegate: delegate,
+                delegate: RejectHTTPRedirectDelegate(),
                 delegateQueue: nil
             )
         )
@@ -177,11 +177,6 @@ public final class URLSessionTransport: HTTPTransport, HTTPTransportInvalidating
     public func invalidateAndCancel() {
         session.invalidateAndCancel()
     }
-}
-
-public enum HTTPRedirectPolicy: Sendable {
-    case follow
-    case reject
 }
 
 final class RejectHTTPRedirectDelegate: NSObject, URLSessionTaskDelegate,

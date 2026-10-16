@@ -355,14 +355,6 @@ private final class NativeVideoImageSessionDelegate: NSObject, URLSessionDataDel
 /// Task；不拥有显示与动图播放（交给视图层）。`shutdown()` 先取消在途 Task 并唤醒等待者，再经
 /// `sessionGate` 失效 session；deinit 兜底失效。可变状态由 `Mutex` 隔离。
 final class NativeVideoImagePipeline: Sendable {
-    /// 单张图片有 variant 大小上限：15 秒无数据或 30 秒未完成即放弃，按失败返回 nil 而不是一直等待；
-    /// 调小会让弱网下的大图或动图被误判失败。
-    private static let requestTimeout: TimeInterval = 15
-    private static let resourceTimeout: TimeInterval = 30
-    /// 一屏卡片的封面多来自同一图床主机：6 个并发连接与浏览器默认一致，调大加重图床压力与风控风险，
-    /// 调小让首屏封面排队更久。
-    private static let maximumConnectionsPerHost = 6
-
     private struct InFlight {
         let id: UInt64
         var task: Task<Void, Never>?
@@ -395,12 +387,8 @@ final class NativeVideoImagePipeline: Sendable {
 
     init(cacheLimits: NativeVideoImageCacheLimits) {
         state = Mutex(State(cache: NativeVideoImageCache(limits: cacheLimits)))
-        let configuration = URLSessionConfiguration.credentialFreeEphemeral()
-        configuration.timeoutIntervalForRequest = Self.requestTimeout
-        configuration.timeoutIntervalForResource = Self.resourceTimeout
-        configuration.httpMaximumConnectionsPerHost = Self.maximumConnectionsPerHost
         session = URLSession(
-            configuration: configuration,
+            configuration: .credentialFreeEphemeral(),
             delegate: sessionDelegate,
             delegateQueue: nil
         )

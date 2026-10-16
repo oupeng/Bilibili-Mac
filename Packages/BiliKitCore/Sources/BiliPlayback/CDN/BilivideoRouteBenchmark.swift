@@ -85,6 +85,8 @@ private struct RouteProbeResult<Target: Hashable & Sendable>: Sendable {
 public actor BilivideoRouteBenchmark {
     public static let maximumMediaProbeBytes: UInt64 = 10 * 1_024 * 1_024
     public static let maximumIndexBytes: UInt64 = 256 * 1_024
+    /// 测速样本最多 `maximumMediaProbeBytes`：10 秒无数据即判该候选失败（卡顿这么久的线路不适合播放），
+    /// 30 秒总时限防止单个样本拖住整轮测速；调大让坏候选拖慢测速，调小会把慢但可用的线路误判失败。
     public static let requestTimeout: TimeInterval = 10
     public static let resourceTimeout: TimeInterval = 30
     public static let supportedRepetitions = 1...3

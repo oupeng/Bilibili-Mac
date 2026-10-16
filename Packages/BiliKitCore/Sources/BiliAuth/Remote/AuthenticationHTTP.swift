@@ -12,10 +12,6 @@ enum AuthenticationHTTP {
     }
 
     static let maximumResponseSize = 256 * 1_024
-    /// QR 轮询与 nav 校验都是很小的 JSON：15 秒无数据或 30 秒未完成即按网络失败处理，让登录与启动
-    /// 恢复及时报错；调大会让失败更晚出现，调小会让弱网下的正常请求被误判失败。
-    private static let requestTimeout: TimeInterval = 15
-    private static let resourceTimeout: TimeInterval = 30
     /// Cookie 已在服务端失效（被踢下线、改密）时 nav 的业务码，`data.isLogin` 同时为 false。
     static let notLoggedInCode = -101
 
@@ -28,13 +24,7 @@ enum AuthenticationHTTP {
 
     /// 无 Cookie storage、无 URL cache、拒绝 redirect 的 ephemeral transport。
     static func makeProductionTransport() -> URLSessionTransport {
-        let configuration = URLSessionConfiguration.credentialFreeEphemeral()
-        configuration.timeoutIntervalForRequest = requestTimeout
-        configuration.timeoutIntervalForResource = resourceTimeout
-        return URLSessionTransport(
-            configuration: configuration,
-            redirectPolicy: .reject
-        )
+        URLSessionTransport(configuration: .credentialFreeEphemeral())
     }
 
     /// `cookieHeader` 为 nil 时由授权器从 Keychain 附加凭据。

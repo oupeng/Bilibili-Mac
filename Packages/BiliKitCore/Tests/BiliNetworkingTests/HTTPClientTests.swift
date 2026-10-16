@@ -8,7 +8,7 @@ import Testing
 @Suite(.timeLimit(.minutes(1)))
 struct HTTPClientTests {
     @Test
-    func credentialFreeBaselineCarriesNoCookieCredentialOrCache() {
+    func credentialFreeBaselineCarriesNoCookieCredentialOrCacheAndInteractiveTimeouts() {
         let configuration = URLSessionConfiguration.credentialFreeEphemeral()
 
         #expect(!configuration.httpShouldSetCookies)
@@ -16,6 +16,14 @@ struct HTTPClientTests {
         #expect(configuration.urlCredentialStorage == nil)
         #expect(configuration.urlCache == nil)
         #expect(configuration.requestCachePolicy == .reloadIgnoringLocalCacheData)
+        #expect(
+            configuration.timeoutIntervalForRequest
+                == URLSessionConfiguration.interactiveRequestTimeout
+        )
+        #expect(
+            configuration.timeoutIntervalForResource
+                == URLSessionConfiguration.interactiveResourceTimeout
+        )
     }
 
     @Test

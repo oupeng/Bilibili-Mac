@@ -47,29 +47,24 @@ public protocol HTTPRangeStreaming: Sendable {
 /// chunk 交给下游；下游完成一个 chunk 后才恢复上游 task，避免把完整媒体积压在内存。
 /// 同一实例的请求共用一个 URLSession 与其 CDN 连接；实例释放时取消在途请求并失效 session。
 public final class HTTPRangeStreamingClient: HTTPRangeStreaming, @unchecked Sendable {
-    private let transport: URLSessionRangeTransport
-    private let urlPolicy: PublicHTTPSURLPolicy
+    /// 两次收到数据之间的空闲上限：比基线的交互式 15 秒宽，取 URLSession 原生的 60 秒，
+    /// CDN 首字节慢或下游暂停读取时不把仍在进行的媒体流判为失败。
+    static let idleTimeout: TimeInterval = 60
+    /// 整次传输的上限：取 URLSession 原生的七天，开放末尾 Range 随播放持续，分钟级绝对时限会截断它。
+    static let resourceTimeout: TimeInterval = 7 * 24 * 60 * 60
 
-    /// `requestTimeout` 是两次收到数据之间的空闲上限，默认与 URLSession 一致（60 秒）。
-    public init(
-        requestTimeout: TimeInterval = 60,
-        resourceTimeout: TimeInterval = 7 * 24 * 60 * 60,
-        urlPolicy: PublicHTTPSURLPolicy = PublicHTTPSURLPolicy()
-    ) {
+    private let transport: URLSessionRangeTransport
+    private let urlPolicy = PublicHTTPSURLPolicy()
+
+    public convenience init() {
         let configuration = URLSessionConfiguration.credentialFreeEphemeral()
-        configuration.timeoutIntervalForRequest = requestTimeout
-        // 保留 URLSession 的七天默认资源期限；不以分钟级绝对时限截断开放末尾 Range。
-        configuration.timeoutIntervalForResource = resourceTimeout
-        transport = URLSessionRangeTransport(configuration: configuration)
-        self.urlPolicy = urlPolicy
+        configuration.timeoutIntervalForRequest = Self.idleTimeout
+        configuration.timeoutIntervalForResource = Self.resourceTimeout
+        self.init(transport: URLSessionRangeTransport(configuration: configuration))
     }
 
-    init(
-        transport: URLSessionRangeTransport,
-        urlPolicy: PublicHTTPSURLPolicy = PublicHTTPSURLPolicy()
-    ) {
+    init(transport: URLSessionRangeTransport) {
         self.transport = transport
-        self.urlPolicy = urlPolicy
     }
 
     public func stream(
