@@ -407,7 +407,7 @@ public final class PlaybackCommentsViewModel {
     private func recordAuthenticationInvalidationIfNeeded(
         _ error: CommentReadError
     ) {
-        guard error == .authenticationInvalid else { return }
+        guard error.requiresAccountRevalidation else { return }
         authenticationRevalidationGeneration += 1
     }
 

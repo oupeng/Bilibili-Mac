@@ -15,14 +15,33 @@ extension BiliAPIClient {
         guard subject.type == 1, subject.oid > 0 else {
             throw BiliAPIError.invalidRequest
         }
-        return try await withWBIKeyRefresh { forceKeyRefresh in
-            try await signedCommentRootPage(
-                for: subject,
-                sort: sort,
-                offset: offset,
-                forceKeyRefresh: forceKeyRefresh
-            )
+        let paginationData = try JSONSerialization.data(
+            withJSONObject: ["offset": offset ?? ""],
+            options: [.sortedKeys]
+        )
+        guard let pagination = String(data: paginationData, encoding: .utf8) else {
+            throw BiliAPIError.invalidRequest
         }
+        let payload: CommentMainPayload = try await signedRequest(
+            path: "/x/v2/reply/wbi/main",
+            parameters: {
+                [
+                    "type": String(subject.type),
+                    "oid": String(subject.oid),
+                    "mode": sort == .hot ? "3" : "2",
+                    "pagination_str": pagination
+                ]
+            },
+            send: { url in
+                try await get(
+                    url: url,
+                    referer: "https://www.bilibili.com/",
+                    access: .accountRead(missingCredential: .useAnonymousRequest),
+                    maximumResponseSize: Self.maximumCommentPageSize
+                )
+            }
+        )
+        return try payload.page(for: subject)
     }
 
     func commentReplyPage(
@@ -50,41 +69,5 @@ extension BiliAPIClient {
             maximumResponseSize: Self.maximumCommentPageSize
         )
         return try payload.page(subject: subject, rootID: rootID)
-    }
-
-    private func signedCommentRootPage(
-        for subject: CommentSubjectIdentity,
-        sort: CommentSort,
-        offset: String?,
-        forceKeyRefresh: Bool
-    ) async throws -> CommentRemoteRootPage {
-        let paginationData = try JSONSerialization.data(
-            withJSONObject: ["offset": offset ?? ""],
-            options: [.sortedKeys]
-        )
-        guard let pagination = String(data: paginationData, encoding: .utf8) else {
-            throw BiliAPIError.invalidRequest
-        }
-        let keys = try await wbiKey(forceRefresh: forceKeyRefresh)
-        let query = try wbiSigner.sign(
-            parameters: [
-                "type": String(subject.type),
-                "oid": String(subject.oid),
-                "mode": sort == .hot ? "3" : "2",
-                "pagination_str": pagination
-            ],
-            keys: keys,
-            timestamp: timestampProvider()
-        )
-        let payload: CommentMainPayload = try await get(
-            url: try endpoint(
-                path: "/x/v2/reply/wbi/main",
-                percentEncodedQuery: query
-            ),
-            referer: "https://www.bilibili.com/",
-            access: .accountRead(missingCredential: .useAnonymousRequest),
-            maximumResponseSize: Self.maximumCommentPageSize
-        )
-        return try payload.page(for: subject)
     }
 }

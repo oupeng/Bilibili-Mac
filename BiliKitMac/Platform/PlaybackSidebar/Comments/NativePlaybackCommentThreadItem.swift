@@ -1,4 +1,5 @@
 import AppKit
+import BiliApplication
 import BiliBrowseFeature
 import BiliModels
 
@@ -619,10 +620,12 @@ private final class NativePlaybackCommentRepliesPanelView: NSView {
             if replyState?.isLoading == true {
                 statusLabel.stringValue = AppStrings.localized("回复加载中…")
                 statusLabel.isHidden = false
-            } else if replyState?.error != nil {
-                statusLabel.stringValue = AppStrings.localized("回复加载失败")
+            } else if let error = replyState?.error {
+                statusLabel.stringValue =
+                    error.isRetryable
+                    ? AppStrings.localized("回复加载失败") : error.nonRetryableDescription
                 statusLabel.isHidden = false
-                retryButton.isHidden = false
+                retryButton.isHidden = !error.isRetryable
             } else if let replyState {
                 previousButton.isHidden = false
                 pageLabel.isHidden = false

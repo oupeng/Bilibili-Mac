@@ -62,6 +62,8 @@ BiliNetworking 不依赖任何 Bili 模块
   `BiliAPIError.contentApplicationError(for:)` 映射到 `ContentApplicationError`：认证分无凭据、凭据失效、
   本地凭据读不到、风控四态，业务码 -404／62002／62004 归为“内容不存在或不可见”。是否复核账户、是否给
   重试只由 `ContentApplicationError` 的 `requiresAccountRevalidation`／`isRetryable` 决定，Feature 不各自判断。
+  评论、字幕与弹幕的 Application 错误不并入内容域，但同样各自提供 `requiresAccountRevalidation`（评论另有
+  `isRetryable`，评论列表、分页与楼中楼的失败界面据此决定是否给重试），调用方只读这些属性。
 - 新 target 需同时具备稳定独立领域、独立状态或安全／性能边界、真实调用方与测试；默认在现有
   target 内加子目录。不建立 `Common`／`Shared`／`Utils`，不建立空占位 target。
 - `BiliUI` 只在出现至少两个真实调用方且语义稳定时才接收新组件；B 站主机、图片参数、计数和日期

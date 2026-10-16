@@ -148,7 +148,7 @@ struct NativePlaybackCommentsPresentation: Equatable {
 
     var footer: NativePlaybackCommentsFooter {
         if isLoadingNextPage { return .loading }
-        if paginationError != nil { return .retry }
+        if let paginationError { return .failed(paginationError) }
         if paginationTermination == .emptyPage
             || paginationTermination == .duplicatePage
         {
@@ -161,9 +161,29 @@ struct NativePlaybackCommentsPresentation: Equatable {
     }
 }
 
+extension CommentReadError {
+    /// 不给重试的失败在评论列表、分页与楼中楼显示的说明。
+    ///
+    /// 可重试的失败由各处自己的“加载失败”文案加重试按钮表示；无法发出的请求与内容页同一中性说明，
+    /// 见 SECURITY-MODEL §3。
+    var nonRetryableDescription: String {
+        switch self {
+        case .authenticationRequired:
+            AppStrings.localized("需要登录")
+        case .closed:
+            AppStrings.localized("评论区已关闭")
+        case .contentUnavailable:
+            AppStrings.localized("内容不存在或不可见")
+        default:
+            AppStrings.localized("当前无法完成这次请求。")
+        }
+    }
+}
+
 enum NativePlaybackCommentsFooter: Equatable, Hashable {
     case loading
-    case retry
+    /// 是否给重试只由 `CommentReadError.isRetryable` 决定。
+    case failed(CommentReadError)
     case stopped
     case end(memoryLimited: Bool)
     case loadMore

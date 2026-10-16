@@ -84,20 +84,38 @@ extension BiliAPIClient {
         guard freshIndex > 0 else {
             throw BiliAPIError.invalidRequest
         }
-        let sessionEpoch = authenticatedSessionEpoch
-        return try await withWBIKeyRefresh { forceKeyRefresh in
-            try await signedRecommendations(
-                freshIndex: freshIndex,
-                sessionEpoch: sessionEpoch,
-                forceKeyRefresh: forceKeyRefresh
-            )
-        }
+        let payload: RecommendationPayload = try await signedRequest(
+            path: "/x/web-interface/wbi/index/top/feed/rcmd",
+            parameters: {
+                [
+                    "fresh_idx": String(freshIndex),
+                    "fresh_idx_1h": String(freshIndex)
+                ]
+            },
+            send: { url in
+                try await get(
+                    url: url,
+                    referer: "https://www.bilibili.com/",
+                    access: .accountRead(missingCredential: .useAnonymousRequest)
+                )
+            }
+        )
+        let videos = payload.item.compactMap { $0.model() }
+        let current = RecommendationContinuation(freshIndex: freshIndex)
+        let next =
+            freshIndex < Int.max && !videos.isEmpty
+            ? RecommendationContinuation(freshIndex: freshIndex + 1)
+            : nil
+        return RecommendationPage(
+            videos: videos,
+            continuation: current,
+            nextContinuation: next
+        )
     }
 
     public func searchVideos(
         request: VideoSearchRequest
     ) async throws -> SearchPage {
-        let searchSessionEpoch = authenticatedSessionEpoch
         let criteria = request.criteria
         guard criteria.isValid, request.page > 0 else {
             throw BiliAPIError.invalidRequest
@@ -114,75 +132,19 @@ extension BiliAPIClient {
             parameters["pubtime_begin_s"] = String(range.beginTimestamp)
             parameters["pubtime_end_s"] = String(range.endTimestamp)
         }
-        return try await withWBIKeyRefresh { forceKeyRefresh in
-            try await signedSearch(
-                parameters: parameters,
-                sessionEpoch: searchSessionEpoch,
-                forceKeyRefresh: forceKeyRefresh
-            )
-        }
-    }
-
-    private func signedSearch(
-        parameters: [String: String],
-        sessionEpoch: UInt64,
-        forceKeyRefresh: Bool
-    ) async throws -> SearchPage {
-        let keys = try await wbiKey(forceRefresh: forceKeyRefresh)
-        try requireAuthenticatedSessionEpoch(sessionEpoch)
-        let query = try wbiSigner.sign(
-            parameters: parameters,
-            keys: keys,
-            timestamp: timestampProvider()
+        let payload: SearchPayload = try await signedRequest(
+            path: "/x/web-interface/wbi/search/type",
+            parameters: { parameters },
+            send: { url in
+                // 该接口要求 Cookie 含 buvid3；匿名与账户读取两条路径都在授权后附加。
+                try await getWithAuthorizationProvenance(
+                    url: url,
+                    referer: "https://www.bilibili.com/",
+                    access: .accountRead(missingCredential: .useAnonymousRequest),
+                    additionalCookie: Self.searchBuvid3Cookie
+                ).payload
+            }
         )
-        // 该接口要求 Cookie 含 buvid3；匿名与账户读取两条路径都在授权后附加。
-        let payload: SearchPayload = try await getWithAuthorizationProvenance(
-            url: try endpoint(
-                path: "/x/web-interface/wbi/search/type",
-                percentEncodedQuery: query
-            ),
-            referer: "https://www.bilibili.com/",
-            access: .accountRead(missingCredential: .useAnonymousRequest),
-            additionalCookie: Self.searchBuvid3Cookie
-        ).payload
-        try requireAuthenticatedSessionEpoch(sessionEpoch)
         return try payload.model()
-    }
-
-    private func signedRecommendations(
-        freshIndex: Int,
-        sessionEpoch: UInt64,
-        forceKeyRefresh: Bool
-    ) async throws -> RecommendationPage {
-        let keys = try await wbiKey(forceRefresh: forceKeyRefresh)
-        try requireAuthenticatedSessionEpoch(sessionEpoch)
-        let query = try wbiSigner.sign(
-            parameters: [
-                "fresh_idx": String(freshIndex),
-                "fresh_idx_1h": String(freshIndex)
-            ],
-            keys: keys,
-            timestamp: timestampProvider()
-        )
-        let payload: RecommendationPayload = try await get(
-            url: try endpoint(
-                path: "/x/web-interface/wbi/index/top/feed/rcmd",
-                percentEncodedQuery: query
-            ),
-            referer: "https://www.bilibili.com/",
-            access: .accountRead(missingCredential: .useAnonymousRequest)
-        )
-        try requireAuthenticatedSessionEpoch(sessionEpoch)
-        let videos = payload.item.compactMap { $0.model() }
-        let current = RecommendationContinuation(freshIndex: freshIndex)
-        let next =
-            freshIndex < Int.max && !videos.isEmpty
-            ? RecommendationContinuation(freshIndex: freshIndex + 1)
-            : nil
-        return RecommendationPage(
-            videos: videos,
-            continuation: current,
-            nextContinuation: next
-        )
     }
 }

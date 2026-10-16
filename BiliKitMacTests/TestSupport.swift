@@ -1,3 +1,4 @@
+import AppKit
 import BiliApplication
 import BiliBrowseFeature
 import Foundation
@@ -6,7 +7,13 @@ import Testing
 
 @testable import BiliKit
 
-/// App 测试 target 共用的等待与记录替身；各测试文件不再各自复制。
+/// App 测试 target 共用的等待、记录替身与视图遍历；各测试文件不再各自复制。
+
+/// 视图及其全部子孙视图，按深度优先顺序；只用来找可见控件，不依赖层级位置。
+@MainActor
+func descendants(of view: NSView) -> [NSView] {
+    view.subviews.flatMap { [$0] + descendants(of: $0) }
+}
 
 /// 在一次性的 UserDefaults suite 中执行；前后都清空，测试之间、测试与真实偏好互不影响。
 func withIsolatedDefaults(_ body: (UserDefaults) throws -> Void) rethrows {

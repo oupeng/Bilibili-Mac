@@ -120,11 +120,15 @@ public actor BiliCommentRepository: CommentRepository {
             .requestRestricted
         case .rejected(let code) where code == closedCommentsCode:
             .closed
-        case .rejected(let code), .contentUnavailable(let code):
+        case .rejected(let code):
             .serviceRejected(code: code)
+        case .contentUnavailable:
+            .contentUnavailable
         case .transport:
             .transportFailure
-        case .invalidRequest, .invalidResponse:
+        case .invalidRequest:
+            .invalidRequest
+        case .invalidResponse:
             .invalidResponse
         case .unexpectedHTTPStatus, .unsupportedMedia, .noPlayableMedia:
             .unavailable

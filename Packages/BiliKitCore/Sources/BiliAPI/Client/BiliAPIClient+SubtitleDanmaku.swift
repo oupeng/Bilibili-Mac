@@ -10,7 +10,7 @@ extension BiliAPIClient {
     /// 被 HTTP 412 拒绝的弹幕分段再请求一次之前的等待时长。
     ///
     /// 弹幕分段会被间歇风控（游客更常见），稍后通常恢复。与 -403／v_voucher 的换 key 重试同属
-    /// `withWBIKeyRefresh` 的一次重试，不叠加。
+    /// `signedRequest` 的一次重试，不叠加。
     static let danmakuRestrictedRetryDelay: Duration = .seconds(2)
 
     func subtitleResources(
@@ -22,12 +22,24 @@ extension BiliAPIClient {
         guard hasAccountAuthorizer else {
             throw BiliAPIError.authorizationRequired
         }
-        return try await withWBIKeyRefresh { forceKeyRefresh in
-            try await signedSubtitleResources(
-                for: identity,
-                forceKeyRefresh: forceKeyRefresh
-            )
-        }
+        let payload: SubtitleCatalogPayload = try await signedRequest(
+            path: "/x/player/wbi/v2",
+            parameters: {
+                [
+                    "bvid": identity.bvid,
+                    "cid": String(identity.cid)
+                ]
+            },
+            send: { url in
+                try await get(
+                    url: url,
+                    referer: Self.videoReferer(identity.bvid),
+                    access: .accountRead(missingCredential: .fail),
+                    maximumResponseSize: Self.maximumSubtitleCatalogSize
+                )
+            }
+        )
+        return try payload.resources()
     }
 
     func danmakuSegmentData(
@@ -40,61 +52,24 @@ extension BiliAPIClient {
         else {
             throw BiliAPIError.invalidRequest
         }
-        return try await withWBIKeyRefresh(
-            intermittentRestrictionRetryDelay: Self.danmakuRestrictedRetryDelay
-        ) { forceKeyRefresh in
-            try await signedDanmakuSegmentData(
-                index: index,
-                for: identity,
-                forceKeyRefresh: forceKeyRefresh
-            )
-        }
-    }
-
-    private func signedSubtitleResources(
-        for identity: PlaybackItemIdentity,
-        forceKeyRefresh: Bool
-    ) async throws -> [SubtitleRemoteTrack] {
-        let keys = try await wbiKey(forceRefresh: forceKeyRefresh)
-        let query = try wbiSigner.sign(
-            parameters: [
-                "bvid": identity.bvid,
-                "cid": String(identity.cid)
-            ],
-            keys: keys,
-            timestamp: timestampProvider()
-        )
-        let payload: SubtitleCatalogPayload = try await get(
-            url: try endpoint(
-                path: "/x/player/wbi/v2",
-                percentEncodedQuery: query
-            ),
-            referer: Self.videoReferer(identity.bvid),
-            access: .accountRead(missingCredential: .fail),
-            maximumResponseSize: Self.maximumSubtitleCatalogSize
-        )
-        return try payload.resources()
-    }
-
-    private func signedDanmakuSegmentData(
-        index: Int,
-        for identity: PlaybackItemIdentity,
-        forceKeyRefresh: Bool
-    ) async throws -> Data {
-        let keys = try await wbiKey(forceRefresh: forceKeyRefresh)
-        let query = try wbiSigner.sign(
-            parameters: [
-                "type": "1",
-                "oid": String(identity.cid),
-                "segment_index": String(index)
-            ],
-            keys: keys,
-            timestamp: timestampProvider()
-        )
-        let url = try endpoint(
+        return try await signedRequest(
             path: "/x/v2/dm/wbi/web/seg.so",
-            percentEncodedQuery: query
+            intermittentRestrictionRetryDelay: Self.danmakuRestrictedRetryDelay,
+            parameters: {
+                [
+                    "type": "1",
+                    "oid": String(identity.cid),
+                    "segment_index": String(index)
+                ]
+            },
+            send: { url in
+                try await signedDanmakuSegment(url: url, referer: Self.videoReferer(identity.bvid))
+            }
         )
+    }
+
+    /// 一次签好的分段请求：protobuf 正文不走 JSON envelope 管线，JSON／HTML 错误体在这里识别。
+    private func signedDanmakuSegment(url: URL, referer: String) async throws -> Data {
         let access: RequestAccess =
             hasAccountAuthorizer
             ? .accountRead(missingCredential: .useAnonymousRequest)
@@ -104,7 +79,7 @@ extension BiliAPIClient {
                 url: url,
                 headers: [
                     "Accept": "application/octet-stream",
-                    "Referer": Self.videoReferer(identity.bvid),
+                    "Referer": referer,
                     "User-Agent": userAgent
                 ]
             ),

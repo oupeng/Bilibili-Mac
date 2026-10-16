@@ -12,6 +12,13 @@ public enum SubtitleApplicationError: Error, Sendable, Equatable {
     case unavailable
 }
 
+extension SubtitleApplicationError {
+    /// 只有凭据失效需要窗口复核账户会话；`SubtitleUseCase` 据此发出复核信号。
+    public var requiresAccountRevalidation: Bool {
+        self == .authenticationInvalid
+    }
+}
+
 /// 字幕目录与正文的 identity-scoped port。
 ///
 /// `reset` 是 adapter 清除当前身份 URL 映射的生命周期操作，不是一般缓存清理。
@@ -51,9 +58,9 @@ public struct SubtitleUseCase: Sendable {
         }
         do {
             return try await repository.tracks(for: identity)
-        } catch SubtitleApplicationError.authenticationInvalid {
+        } catch let error as SubtitleApplicationError where error.requiresAccountRevalidation {
             reportAuthenticationInvalidation()
-            throw SubtitleApplicationError.authenticationInvalid
+            throw error
         }
     }
 

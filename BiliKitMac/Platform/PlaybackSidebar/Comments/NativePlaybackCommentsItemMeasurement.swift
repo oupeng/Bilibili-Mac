@@ -26,7 +26,7 @@ enum NativePlaybackCommentsItemMeasurement {
     static func footer(_ footer: NativePlaybackCommentsFooter) -> CGFloat {
         switch footer {
         case .loading: 122
-        case .retry, .stopped: 48
+        case .failed, .stopped: 48
         case .end: 32
         case .loadMore: 40
         }
