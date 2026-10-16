@@ -24,13 +24,7 @@ enum AuthenticationHTTP {
 
     /// 无 Cookie storage、无 URL cache、拒绝 redirect 的 ephemeral transport。
     static func makeProductionTransport() -> URLSessionTransport {
-        let configuration = URLSessionConfiguration.credentialFreeEphemeral()
-        configuration.timeoutIntervalForRequest = 15
-        configuration.timeoutIntervalForResource = 30
-        return URLSessionTransport(
-            configuration: configuration,
-            redirectPolicy: .reject
-        )
+        URLSessionTransport(configuration: .credentialFreeEphemeral())
     }
 
     /// `cookieHeader` 为 nil 时由授权器从 Keychain 附加凭据。

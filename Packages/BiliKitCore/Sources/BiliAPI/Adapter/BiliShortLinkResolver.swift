@@ -18,10 +18,7 @@ public struct BiliShortLinkResolver: Sendable {
         configuration.timeoutIntervalForRequest = Self.timeout
         configuration.timeoutIntervalForResource = Self.timeout
         self.init(
-            transport: URLSessionTransport(
-                configuration: configuration,
-                redirectPolicy: .reject
-            )
+            transport: URLSessionTransport(configuration: configuration)
         )
     }
 

@@ -3,8 +3,29 @@ import Testing
 
 @testable import BiliNetworking
 
+/// HTTP 边界只放行可接受状态码、拒绝 redirect；session 基线不带 Cookie、凭据与缓存，
+/// transport 释放时失效自有 session。
 @Suite(.timeLimit(.minutes(1)))
 struct HTTPClientTests {
+    @Test
+    func credentialFreeBaselineCarriesNoCookieCredentialOrCacheAndInteractiveTimeouts() {
+        let configuration = URLSessionConfiguration.credentialFreeEphemeral()
+
+        #expect(!configuration.httpShouldSetCookies)
+        #expect(configuration.httpCookieStorage == nil)
+        #expect(configuration.urlCredentialStorage == nil)
+        #expect(configuration.urlCache == nil)
+        #expect(configuration.requestCachePolicy == .reloadIgnoringLocalCacheData)
+        #expect(
+            configuration.timeoutIntervalForRequest
+                == URLSessionConfiguration.interactiveRequestTimeout
+        )
+        #expect(
+            configuration.timeoutIntervalForResource
+                == URLSessionConfiguration.interactiveResourceTimeout
+        )
+    }
+
     @Test
     func rejectsUnexpectedStatusCode() async throws {
         let client = HTTPClient(
@@ -58,27 +79,9 @@ struct HTTPClientTests {
             delegateQueue: nil
         )
 
-        _ = URLSessionTransport(session: session, ownsSession: true)
+        _ = URLSessionTransport(session: session)
 
         await observer.waitUntilInvalidated()
-    }
-
-    @Test
-    func injectedSessionStaysUsableAfterTransportIsReleased() async throws {
-        TransportURLProtocol.state.configure(statusCode: 204, headers: [:], chunks: [])
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [TransportURLProtocol.self]
-        let session = URLSession(configuration: configuration)
-        defer { session.invalidateAndCancel() }
-        let url = try #require(URL(string: "https://api.example.com/x"))
-
-        _ = URLSessionTransport(session: session)
-        // 失效的 session 不能再创建任务；注入方仍持有的 session 必须继续可用。
-        let response = try await URLSessionTransport(session: session).send(
-            HTTPRequest(url: url)
-        )
-
-        #expect(response.statusCode == 204)
     }
 }
 
@@ -92,9 +95,4 @@ private final class SessionInvalidationObserver: NSObject, URLSessionDelegate, S
     func waitUntilInvalidated() async {
         try? await invalidated.value()
     }
-}
-
-private final class TransportURLProtocol: ScriptedRangeURLProtocol, @unchecked Sendable {
-    private static let sharedState = ScriptedRangeURLProtocolState()
-    override class var state: ScriptedRangeURLProtocolState { sharedState }
 }

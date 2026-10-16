@@ -349,6 +349,11 @@ private final class NativeVideoImageSessionDelegate: NSObject, URLSessionDataDel
     }
 }
 
+/// 原生界面远端图片的加载与解码缓存：同一 URL 与 variant 的并发请求合并为一次下载。
+///
+/// 拥有无 Cookie 的 ephemeral session、做响应校验与大小上限的 session delegate、内存缓存与在途下载
+/// Task；不拥有显示与动图播放（交给视图层）。`shutdown()` 先取消在途 Task 并唤醒等待者，再经
+/// `sessionGate` 失效 session；deinit 兜底失效。可变状态由 `Mutex` 隔离。
 final class NativeVideoImagePipeline: Sendable {
     private struct InFlight {
         let id: UInt64
@@ -382,17 +387,8 @@ final class NativeVideoImagePipeline: Sendable {
 
     init(cacheLimits: NativeVideoImageCacheLimits) {
         state = Mutex(State(cache: NativeVideoImageCache(limits: cacheLimits)))
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.httpShouldSetCookies = false
-        configuration.httpCookieStorage = nil
-        configuration.urlCredentialStorage = nil
-        configuration.urlCache = nil
-        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        configuration.timeoutIntervalForRequest = 15
-        configuration.timeoutIntervalForResource = 30
-        configuration.httpMaximumConnectionsPerHost = 6
         session = URLSession(
-            configuration: configuration,
+            configuration: .credentialFreeEphemeral(),
             delegate: sessionDelegate,
             delegateQueue: nil
         )

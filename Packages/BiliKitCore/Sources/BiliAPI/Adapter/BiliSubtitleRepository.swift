@@ -19,15 +19,9 @@ public actor BiliSubtitleRepository: SubtitleRepository {
     private var resourceURLs: [String: URL] = [:]
 
     public init(client: BiliAPIClient) {
-        let configuration = URLSessionConfiguration.credentialFreeEphemeral()
-        configuration.timeoutIntervalForRequest = 15
-        configuration.timeoutIntervalForResource = 30
         self.init(
             client: client,
-            bodyTransport: URLSessionTransport(
-                configuration: configuration,
-                redirectPolicy: .reject
-            )
+            bodyTransport: URLSessionTransport(configuration: .credentialFreeEphemeral())
         )
     }
 
