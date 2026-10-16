@@ -1,5 +1,6 @@
 import BiliApplication
 import BiliModels
+import Foundation
 
 enum PlaybackCollectionEpisodeResolver {
     static func resolve(

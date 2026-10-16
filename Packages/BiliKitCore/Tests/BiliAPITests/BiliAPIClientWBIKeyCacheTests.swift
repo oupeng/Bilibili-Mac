@@ -1,3 +1,5 @@
+import BiliNetworking
+import Foundation
 import Synchronization
 import Testing
 
