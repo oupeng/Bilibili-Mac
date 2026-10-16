@@ -56,6 +56,14 @@ expect_count 2 'PRODUCT_NAME = BiliKit;' "$project" "App 产品名不一致"
 expect_count 2 'INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";' "$project" "App 类别元数据不一致"
 expect_count 2 'INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 shiinayane.";' "$project" "App 版权元数据不一致"
 expect_count 2 'ENABLE_APP_SANDBOX = YES;' "$project" "App Sandbox 必须启用"
+# 并发语义与 Package 一致（见 ARCHITECTURE「平台与命名」）：不开 NonisolatedNonsendingByDefault。
+expect_count 0 'SWIFT_APPROACHABLE_CONCURRENCY = YES;' "$project" "App 与测试 target 不得开启 Approachable Concurrency"
+expect_count 0 'NONISOLATED_NONSENDING' "$project" "App 与测试 target 不得开启 NonisolatedNonsendingByDefault"
+expect_count 4 'SWIFT_UPCOMING_FEATURE_INFER_ISOLATED_CONFORMANCES = YES;' "$project" "App 与测试 target 必须开启 InferIsolatedConformances"
+expect_count 4 'SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;' "$project" "App 与测试 target 必须开启 MemberImportVisibility"
+expect_count 0 'NonisolatedNonsendingByDefault' "$package" "Package 不得开启 NonisolatedNonsendingByDefault"
+expect_count 1 '.enableUpcomingFeature("InferIsolatedConformances")' "$package" "Package 必须开启 InferIsolatedConformances"
+expect_count 1 '.enableUpcomingFeature("MemberImportVisibility")' "$package" "Package 必须开启 MemberImportVisibility"
 /usr/bin/plutil -convert json -o - "$project" | python3 -c '
 import json, sys
 objects = json.load(sys.stdin)["objects"].values()

@@ -2,6 +2,7 @@ import BiliApplication
 import BiliModels
 import BiliNetworking
 import Foundation
+import SwiftProtobuf
 import Testing
 
 @testable import BiliAPI

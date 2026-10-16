@@ -140,6 +140,13 @@ let package = Package(
 )
 
 // 只维护发布工具链一个版本：本包所有 target 的编译警告都视为错误。
+// 并发与 import 可见性的 upcoming feature 与 App target 保持同一组（见 ARCHITECTURE「平台与命名」）。
+let sharedSwiftSettings: [SwiftSetting] = [
+    .treatAllWarnings(as: .error),
+    .enableUpcomingFeature("InferIsolatedConformances"),
+    .enableUpcomingFeature("MemberImportVisibility")
+]
+
 for target in package.targets {
-    target.swiftSettings = (target.swiftSettings ?? []) + [.treatAllWarnings(as: .error)]
+    target.swiftSettings = (target.swiftSettings ?? []) + sharedSwiftSettings
 }

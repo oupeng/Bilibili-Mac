@@ -6,6 +6,11 @@
 ## 平台与命名
 
 - Swift 6、SwiftUI + AppKit、AVPlayer；App、测试 target 与 Package 最低 macOS 15。
+- App、App 测试与 Package 用同一组并发语义：Swift 6 语言模式、默认 `nonisolated` 隔离，加
+  `InferIsolatedConformances` 与 `MemberImportVisibility`；不开 Approachable Concurrency 的
+  `NonisolatedNonsendingByDefault`（`Scripts/check-project-contract.sh` 固定）。因此 `nonisolated async`
+  不继承调用方 actor：bridge 解析、授权器读 Keychain、Range 流、图片解码这类工作在 `@MainActor`
+  调用时仍离开主线程。代码在 App 与 Package 之间移动时不改变执行位置。
 - 用户可见 App、构建产品与 Swift app module 为 `BiliKit`；仓库、Xcode 工程、内部 App target
   和 `BiliKitMacTests` 保留 `BiliKitMac`，与原 BiliKit userscript 仓库区分。
 - Bundle ID `com.shiinayane.BiliKit`；Debug／Release 相同。Keychain access group 固定为
