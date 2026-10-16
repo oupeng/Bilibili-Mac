@@ -98,10 +98,12 @@ Sparkle 更新网络，以及任何 redirect 后的主机。不使用 `*.bilibil
 
 ## 4. 远端来源与重定向
 
-所有 API、媒体、字幕与图片 session 均为 ephemeral、`httpShouldSetCookies = false`、无 Cookie
-storage、无 URL cache，并拒绝 redirect。`PublicHTTPSURLPolicy` 是基线：HTTPS、无 userinfo／fragment、
-端口缺省或 443，拒绝 IP literal 与 `localhost`／`.local`／`.internal`／`home.arpa`。它不解析 DNS，
-不能证明域名不指向私网，所以各用途再叠加专属规则：
+所有 API、认证、媒体、字幕与图片 session 都从 `BiliNetworking` 唯一的
+`URLSessionConfiguration.credentialFreeEphemeral()` 基线构造：ephemeral、`httpShouldSetCookies = false`、
+无 Cookie 与凭据 storage、无 URL cache，调用方只另设用途专属的超时与连接数，并拒绝 redirect。
+`PublicHTTPSURLPolicy` 是基线：HTTPS、无 userinfo／fragment、端口缺省或 443，拒绝 IP literal 与
+`localhost`／`.local`／`.internal`／`home.arpa`。它不解析 DNS，不能证明域名不指向私网，
+所以各用途再叠加专属规则：
 
 | 用途 | 允许来源 | 其他限制 |
 | --- | --- | --- |

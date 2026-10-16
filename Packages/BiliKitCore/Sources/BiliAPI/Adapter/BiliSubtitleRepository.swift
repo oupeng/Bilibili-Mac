@@ -9,6 +9,10 @@ import Foundation
 /// generation 与 identity 共同防止旧目录或正文结果进入新视频。
 public actor BiliSubtitleRepository: SubtitleRepository {
     private static let maximumBodySize = 2 * 1_024 * 1_024
+    /// 正文不超过 `maximumBodySize`：15 秒无数据或 30 秒未完成即放弃，把失败及时交回调用方而不是
+    /// 一直等待；调小会让弱网下的大字幕被误判失败。
+    private static let requestTimeout: TimeInterval = 15
+    private static let resourceTimeout: TimeInterval = 30
 
     private let client: BiliAPIClient
     private let bodyTransport: any HTTPTransport
@@ -20,8 +24,8 @@ public actor BiliSubtitleRepository: SubtitleRepository {
 
     public init(client: BiliAPIClient) {
         let configuration = URLSessionConfiguration.credentialFreeEphemeral()
-        configuration.timeoutIntervalForRequest = 15
-        configuration.timeoutIntervalForResource = 30
+        configuration.timeoutIntervalForRequest = Self.requestTimeout
+        configuration.timeoutIntervalForResource = Self.resourceTimeout
         self.init(
             client: client,
             bodyTransport: URLSessionTransport(

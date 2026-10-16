@@ -1,3 +1,4 @@
+import BiliAPI
 import BiliNetworking
 import Foundation
 import Testing
@@ -212,6 +213,27 @@ final class StubTransport: HTTPTransport, HTTPTransportInvalidating, @unchecked 
 
 enum StubTransportError: Error {
     case noReply
+}
+
+extension BiliAPIClient {
+    /// 只用一个 stub transport 的 client：认证会话失效时 invalidate 这个 stub 后继续沿用它。
+    ///
+    /// 验证失效后换入新 transport 的测试直接传 `transportFactory`。
+    init(
+        transport: any HTTPTransport,
+        requestAuthorizer: (any HTTPRequestAuthorizing)? = nil,
+        historyWriteAuthorizer: (any HTTPRequestAuthorizing)? = nil,
+        timestampProvider: @escaping @Sendable () -> Int64 = {
+            Int64(Date().timeIntervalSince1970)
+        }
+    ) {
+        self.init(
+            requestAuthorizer: requestAuthorizer,
+            historyWriteAuthorizer: historyWriteAuthorizer,
+            transportFactory: { transport },
+            timestampProvider: timestampProvider
+        )
+    }
 }
 
 /// 按调用次序给出授权结果（最后一项重复）并记录请求；可挂起第 N 次授权。

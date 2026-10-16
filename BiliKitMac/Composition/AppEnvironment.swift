@@ -417,6 +417,11 @@ struct AppEnvironment {
 
     static let watchProgressAccountReadAllowedPaths: Set<String>? = nil
 
+    /// API JSON 有大小上限：15 秒无数据或 30 秒未完成即按网络失败处理，让页面及时显示可重试的错误；
+    /// 调大会让失败更晚出现，调小会让弱网下的大列表或评论页被误判失败。
+    nonisolated private static let apiRequestTimeout: TimeInterval = 15
+    nonisolated private static let apiResourceTimeout: TimeInterval = 30
+
     /// `isConfirmedSignedOut` 只给窗口主 API：已确认未登录时 Keychain 不可用不影响游客浏览。
     private static func makeLiveAPIClient(
         accountReadAllowedPaths: Set<String>?,
@@ -432,13 +437,9 @@ struct AppEnvironment {
         let historyWriteAuthorizer: (any HTTPRequestAuthorizing)? =
             historyWriteEnabled ? BiliPlaybackHeartbeatRequestAuthorizer() : nil
         let transportFactory: @Sendable () -> any HTTPTransport = {
-            let configuration = URLSessionConfiguration.ephemeral
-            configuration.httpShouldSetCookies = false
-            configuration.httpCookieStorage = nil
-            configuration.urlCache = nil
-            configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-            configuration.timeoutIntervalForRequest = 15
-            configuration.timeoutIntervalForResource = 30
+            let configuration = URLSessionConfiguration.credentialFreeEphemeral()
+            configuration.timeoutIntervalForRequest = Self.apiRequestTimeout
+            configuration.timeoutIntervalForResource = Self.apiResourceTimeout
             return URLSessionTransport(
                 configuration: configuration,
                 redirectPolicy: .reject

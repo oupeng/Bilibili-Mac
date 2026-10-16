@@ -75,7 +75,7 @@ public enum HTTPClientError: Error, Sendable, Equatable {
 public actor HTTPClient {
     private let transport: any HTTPTransport
 
-    public init(transport: any HTTPTransport = URLSessionTransport()) {
+    public init(transport: any HTTPTransport) {
         self.transport = transport
     }
 
@@ -92,10 +92,12 @@ public actor HTTPClient {
 }
 
 extension URLSessionConfiguration {
-    /// 认证、媒体与字幕共用的 ephemeral 基线：不自动附加 Cookie，没有 Cookie、凭据与 URL cache。
+    /// API、认证、媒体、字幕与图片 session 唯一的 ephemeral 基线：不自动附加 Cookie，没有 Cookie、
+    /// 凭据与 URL cache（见 SECURITY-MODEL §4）。
     ///
-    /// 超时按用途由调用方设置；需要账户凭据的请求只由授权器显式写入 header。
-    package static func credentialFreeEphemeral() -> URLSessionConfiguration {
+    /// 调用方只在此基础上设置用途专属的超时与连接数，不得重新打开 Cookie、凭据或缓存；redirect 策略由
+    /// 持有 session 的一方决定。需要账户凭据的请求只由授权器显式写入 header。
+    public static func credentialFreeEphemeral() -> URLSessionConfiguration {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpShouldSetCookies = false
         configuration.httpCookieStorage = nil
@@ -106,20 +108,14 @@ extension URLSessionConfiguration {
     }
 }
 
-/// `URLSession` adapter；实际 Cookie、缓存与重定向行为取决于注入的 session。
+/// `URLSession` adapter：按调用方给出的用途专属配置与 redirect 策略自建并拥有 session。
 ///
-/// 默认 `.shared` 不提供认证、媒体或字幕所需的隔离保证；这些调用方必须注入用途专属配置。
-/// 按配置自建的 session 归 transport 所有，transport 释放时让它完成在途任务后失效，session 与
-/// delegate 随之释放；注入的 session 由注入方负责生命周期。
+/// 没有回落到 `URLSession.shared` 的入口（见 SECURITY-MODEL §1）。transport 释放时让 session 完成
+/// 在途任务后失效，session 与 delegate 随之释放；`invalidateAndCancel` 立即取消在途请求。
 public final class URLSessionTransport: HTTPTransport, HTTPTransportInvalidating,
     @unchecked Sendable
 {
     private let session: URLSession
-    private let ownsSession: Bool
-
-    public convenience init(session: URLSession = .shared) {
-        self.init(session: session, ownsSession: false)
-    }
 
     public convenience init(
         configuration: URLSessionConfiguration,
@@ -137,21 +133,18 @@ public final class URLSessionTransport: HTTPTransport, HTTPTransportInvalidating
                 configuration: configuration,
                 delegate: delegate,
                 delegateQueue: nil
-            ),
-            ownsSession: true
+            )
         )
     }
 
-    init(session: URLSession, ownsSession: Bool) {
+    /// 接管 `session` 的生命周期：transport 释放时让它失效。
+    init(session: URLSession) {
         self.session = session
-        self.ownsSession = ownsSession
     }
 
     deinit {
         // 已被 `invalidateAndCancel` 失效的 session 再次失效是 no-op。
-        if ownsSession {
-            session.finishTasksAndInvalidate()
-        }
+        session.finishTasksAndInvalidate()
     }
 
     public func send(_ request: HTTPRequest) async throws -> HTTPResponse {

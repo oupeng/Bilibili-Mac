@@ -78,7 +78,7 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
 
     private var httpClient: HTTPClient
     private var transport: any HTTPTransport
-    private let transportFactory: (@Sendable () -> any HTTPTransport)?
+    private let transportFactory: @Sendable () -> any HTTPTransport
     private let requestAuthorizer: (any HTTPRequestAuthorizing)?
     private let historyWriteAuthorizer: (any HTTPRequestAuthorizing)?
     let userAgent = HTTPUserAgent.browserCompatible
@@ -92,17 +92,18 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
     var hasAccountAuthorizer: Bool { requestAuthorizer != nil }
     var hasHistoryWriteAuthorizer: Bool { historyWriteAuthorizer != nil }
 
+    /// `transportFactory` 由组合根提供用途专属 transport：初始化时取一次，每次认证会话失效时再取一个
+    /// 干净实例替换旧的；不存在回落到 `URLSession.shared` 的默认值（见 SECURITY-MODEL §1）。
     public init(
-        transport: any HTTPTransport = URLSessionTransport(),
         requestAuthorizer: (any HTTPRequestAuthorizing)? = nil,
         historyWriteAuthorizer: (any HTTPRequestAuthorizing)? = nil,
-        transportFactory: (@Sendable () -> any HTTPTransport)? = nil,
+        transportFactory: @escaping @Sendable () -> any HTTPTransport,
         timestampProvider: @escaping @Sendable () -> Int64 = {
             Int64(Date().timeIntervalSince1970)
         }
     ) {
-        let activeTransport = transportFactory?() ?? transport
-        self.transport = activeTransport
+        let activeTransport = transportFactory()
+        transport = activeTransport
         httpClient = HTTPClient(transport: activeTransport)
         self.transportFactory = transportFactory
         self.requestAuthorizer = requestAuthorizer
@@ -117,11 +118,9 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
         if let invalidating = transport as? any HTTPTransportInvalidating {
             invalidating.invalidateAndCancel()
         }
-        if let transportFactory {
-            let replacement = transportFactory()
-            transport = replacement
-            httpClient = HTTPClient(transport: replacement)
-        }
+        let replacement = transportFactory()
+        transport = replacement
+        httpClient = HTTPClient(transport: replacement)
         cachedWBIKey = nil
     }
 

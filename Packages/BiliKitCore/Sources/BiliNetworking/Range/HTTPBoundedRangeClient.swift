@@ -43,8 +43,8 @@ public struct HTTPBoundedRangeClient: HTTPBoundedRangeFetching, Sendable {
     private let urlPolicy: PublicHTTPSURLPolicy
 
     public init(
-        requestTimeout: TimeInterval = 15,
-        resourceTimeout: TimeInterval = 30,
+        requestTimeout: TimeInterval,
+        resourceTimeout: TimeInterval,
         urlPolicy: PublicHTTPSURLPolicy = PublicHTTPSURLPolicy()
     ) {
         let configuration = URLSessionConfiguration.credentialFreeEphemeral()
