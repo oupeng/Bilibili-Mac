@@ -1,3 +1,4 @@
+import BiliApplication
 import BiliAuthFeature
 import Synchronization
 

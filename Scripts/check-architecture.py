@@ -73,7 +73,7 @@ SCOPES = {
     },
     "BiliKitMac/App": (
         FEATURES | {"SwiftUI", "Observation", "Combine"},
-        "App 壳只组织 Feature 视图，不直接依赖 adapter 或平台框架；Application 只在 EXTRA_ALLOWED 登记的搜索条件使用点",
+        "App 壳只组织 Feature 视图，不直接依赖 adapter 或平台框架；Application 只在 EXTRA_ALLOWED 登记的搜索条件或账户投影的使用点",
     ),
     "BiliKitMac/Composition": (
         FEATURES | ADAPTERS | {
@@ -104,11 +104,16 @@ SCOPES = {
 
 # 单个文件额外允许的模块：每一项都是有明确理由的宿主或适配点。
 EXTRA_ALLOWED = {
-    # App 壳的搜索工具栏与搜索路由持有搜索条件；MemberImportVisibility 下成员只对直接 import
-    # 定义模块的文件可见，经 Feature 转出类型名不够用，在 Feature 镜像一份又违反“同一逻辑只写一处”。
+    # App 壳里搜索条件或账户投影（会话 scope、账户呈现状态）的使用点：搜索工具栏与搜索路由
+    # （AppRootView、AppShellView、AppSourceRootViews、SearchToolbarControls），侧栏账号行
+    # （AppSidebarViews）与窗口 owner（AppWindowOwner；AppRootView、AppShellView 也读取账户 scope）。
+    # MemberImportVisibility 下成员只对直接 import 定义模块的文件可见，经 Feature 转出类型名不够用，
+    # 在 Feature 镜像一份又违反“同一逻辑只写一处”。
     "BiliKitMac/App/AppRootView.swift": {"BiliApplication"},
     "BiliKitMac/App/AppShellView.swift": {"BiliApplication"},
+    "BiliKitMac/App/AppSidebarViews.swift": {"BiliApplication"},
     "BiliKitMac/App/AppSourceRootViews.swift": {"BiliApplication"},
+    "BiliKitMac/App/AppWindowOwner.swift": {"BiliApplication"},
     "BiliKitMac/App/SearchToolbarControls.swift": {"BiliApplication"},
     "BiliKitMac/Platform/AppUpdater.swift": {"Sparkle"},
     "BiliKitMac/Platform/DanmakuOverlayHostView.swift": {"BiliDanmaku"},

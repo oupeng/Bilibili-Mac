@@ -1709,34 +1709,6 @@
         }
       }
     },
-    "刷新" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Refresh"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "更新"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "刷新"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "重新整理"
-          }
-        }
-      }
-    },
     "前进 %lld 秒" : {
       "localizations" : {
         "en" : {
@@ -3809,62 +3781,6 @@
         }
       }
     },
-    "暂时无法确认登录状态" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Couldn’t confirm sign-in status"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ログイン状態を確認できません"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "暂时无法确认登录状态"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "目前無法確認登入狀態"
-          }
-        }
-      }
-    },
-    "本机登录状态没有被自动清除，请在账号页面重试。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The sign-in data on this Mac was not cleared automatically. Try again from Account."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このMacのログイン状態は自動的に削除されていません。アカウント画面でやり直してください。"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本机登录状态没有被自动清除，请在账号页面重试。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "此 Mac 的登入狀態未自動清除，請在帳號頁面再試一次。"
-          }
-        }
-      }
-    },
     "机构认证" : {
       "localizations" : {
         "en" : {
@@ -3973,34 +3889,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "查看第 %lld 張評論圖片"
-          }
-        }
-      }
-    },
-    "查看账号状态" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "View account status"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "アカウント状態を表示"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "查看账号状态"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "查看帳號狀態"
           }
         }
       }
@@ -4425,34 +4313,6 @@
         }
       }
     },
-    "正在检查登录状态…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Checking sign-in status…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ログイン状態を確認中…"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在检查登录状态…"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在檢查登入狀態…"
-          }
-        }
-      }
-    },
     "正在测试 %lld / %lld 项" : {
       "localizations" : {
         "en" : {
@@ -4813,34 +4673,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "登入後可瀏覽 UP 主投稿"
-          }
-        }
-      }
-    },
-    "登录后查看观看历史" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sign in to view watch history"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ログインして視聴履歴を表示"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "登录后查看观看历史"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "登入後查看觀看記錄"
           }
         }
       }
@@ -5625,34 +5457,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "觀看記錄"
-          }
-        }
-      }
-    },
-    "观看历史只在登录期间加载，不会保存到本机。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Watch history is loaded only while signed in and is not saved on this Mac."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "視聴履歴はログイン中のみ読み込まれ、このMacには保存されません。"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "观看历史只在登录期间加载，不会保存到本机。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "觀看記錄只會在登入期間載入，不會儲存在此 Mac。"
           }
         }
       }

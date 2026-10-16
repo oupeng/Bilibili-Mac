@@ -132,6 +132,8 @@ struct SearchTabRoot: View {
     }
 }
 
+/// 观看历史来源的 App 接线：登录门槛、刷新与加载语义在 Library 的 `WatchHistoryView`，这里只提供原生网格、
+/// 标题与打开登录页的动作。
 struct HistoryTabRoot: View {
     let model: WatchHistoryViewModel
     let accountState: AccountPresentationState
@@ -142,72 +144,21 @@ struct HistoryTabRoot: View {
     let onPresentAuthentication: () -> Void
 
     var body: some View {
-        content
-            .navigationTitle("观看历史")
-            .toolbar {
-                if case .signedIn = accountState {
-                    ToolbarItem(placement: .primaryAction) {
-                        HistoryRefreshButton(model: model)
-                    }
-                }
-            }
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        switch accountState {
-        case .signedIn:
-            WatchHistoryView(
-                model: model,
-                makeLoadedContent: { content in
-                    HistoryNativeGridView(
-                        content: content,
-                        scrollOffsetY: $scrollOffsetY,
-                        scrollReset: $scrollReset,
-                        imagePipeline: imagePipeline
-                    )
-                    .ignoresSafeArea(.container, edges: .top)
-                },
-                onSelect: onSelect
-            )
-        case .signedOut:
-            ContentUnavailableView {
-                Label("登录后查看观看历史", systemImage: "person.crop.circle")
-            } description: {
-                Text("观看历史只在登录期间加载，不会保存到本机。")
-            } actions: {
-                Button("登录", action: onPresentAuthentication)
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityHint("打开扫码登录")
-            }
-        case .resolving:
-            ProgressView("正在检查登录状态…")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case .unavailable:
-            ContentUnavailableView {
-                Label(
-                    "暂时无法确认登录状态",
-                    systemImage: "person.crop.circle.badge.exclamationmark"
+        WatchHistoryView(
+            model: model,
+            accountState: accountState,
+            makeLoadedContent: { content in
+                HistoryNativeGridView(
+                    content: content,
+                    scrollOffsetY: $scrollOffsetY,
+                    scrollReset: $scrollReset,
+                    imagePipeline: imagePipeline
                 )
-            } description: {
-                Text("本机登录状态没有被自动清除，请在账号页面重试。")
-            } actions: {
-                Button("查看账号状态", action: onPresentAuthentication)
-                    .buttonStyle(.borderedProminent)
-            }
-        }
-    }
-}
-
-struct HistoryRefreshButton: View {
-    let model: WatchHistoryViewModel
-
-    var body: some View {
-        Button {
-            model.reload()
-        } label: {
-            Label("刷新", systemImage: "arrow.clockwise")
-        }
-        .disabled(model.isBusy)
+                .ignoresSafeArea(.container, edges: .top)
+            },
+            onSelect: onSelect,
+            onPresentAuthentication: onPresentAuthentication
+        )
+        .navigationTitle("观看历史")
     }
 }
