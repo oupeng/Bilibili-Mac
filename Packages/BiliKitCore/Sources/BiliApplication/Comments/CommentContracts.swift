@@ -14,6 +14,13 @@ public enum CommentReadError: Error, Sendable, Equatable {
     case unavailable
 }
 
+extension CommentReadError {
+    /// 只有凭据失效需要窗口复核账户会话；评论 ViewModel 据此递增复核计数，不各自比较错误值。
+    public var requiresAccountRevalidation: Bool {
+        self == .authenticationInvalid
+    }
+}
+
 /// API adapter 生成并消费的不透明主评论分页令牌。
 public struct CommentContinuation: Sendable, Equatable, Hashable {
     package let rawValue: String

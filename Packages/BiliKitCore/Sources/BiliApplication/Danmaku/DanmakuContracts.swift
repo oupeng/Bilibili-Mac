@@ -1,5 +1,9 @@
 import BiliModels
 
+/// 弹幕分段读取的应用级错误。
+///
+/// 弹幕失败只让该分段静默失败，会话不再请求它，因此没有“需要登录”“本地凭据读不到”等独立状态，它们由
+/// adapter 归入 `unavailable`；只有凭据失效需要区分，用于触发账户复核。
 public enum DanmakuApplicationError: Error, Sendable, Equatable {
     case invalidRequest
     case authenticationInvalid
@@ -7,6 +11,13 @@ public enum DanmakuApplicationError: Error, Sendable, Equatable {
     case transportFailure
     case invalidResponse
     case unavailable
+}
+
+extension DanmakuApplicationError {
+    /// 只有凭据失效需要窗口复核账户会话；`DanmakuSession` 据此发出一次复核通知。
+    public var requiresAccountRevalidation: Bool {
+        self == .authenticationInvalid
+    }
 }
 
 public protocol DanmakuSegmentRepository: Sendable {

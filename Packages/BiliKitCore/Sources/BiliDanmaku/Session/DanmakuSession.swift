@@ -166,7 +166,7 @@ public final class DanmakuSession: DanmakuPresentationControlling {
                 else { return }
                 self.loadTasks[index] = nil
                 self.failedSegmentIndices.insert(index)
-                if (error as? DanmakuApplicationError) == .authenticationInvalid,
+                if (error as? DanmakuApplicationError)?.requiresAccountRevalidation == true,
                     !self.authenticationInvalidationReported
                 {
                     self.authenticationInvalidationReported = true
