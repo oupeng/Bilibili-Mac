@@ -45,11 +45,11 @@ private enum SeekSettlement: Equatable {
     case landed(positionSeconds: Double)
 }
 
-@MainActor
 /// AVPlayer、DASH→HLS 会话与统一播放时间线的唯一资源 owner。
 ///
 /// 每次 load 用 UUID generation 取代旧准备流程；迟到 bridge/readiness 结果必须自毁而不能
 /// 安装到当前 player。`stop` 同时释放 item、任务、loopback server、observer 与时间线 identity。
+@MainActor
 public final class AVPlayerEngine:
     PlaybackControlling,
     PlaybackTimelineProviding
@@ -57,11 +57,10 @@ public final class AVPlayerEngine:
     public let player: AVPlayer
 
     private let bridge: DASHToHLSBridge
-    private let subtitleUseCase: SubtitleUseCase?
+    private let subtitleUseCase: SubtitleUseCase
     private let sourcePreferenceProvider: @MainActor @Sendable () -> PlaybackSourcePreference
     private let loudnessNormalizationEnabledProvider: @MainActor @Sendable () -> Bool
-    private let failureEvents: AsyncStream<PlaybackFailureEvent>
-    private let failureContinuation: AsyncStream<PlaybackFailureEvent>.Continuation
+    private let failureEvents = AsyncBroadcast<PlaybackFailureEvent>()
     private let timeline: AVPlayerTimelineAdapter
     private var loadTask: Task<PreparedPlaybackAsset, any Error>?
     private var readinessTask: Task<Void, any Error>?
@@ -79,17 +78,11 @@ public final class AVPlayerEngine:
     private let loudness = LoudnessNormalizationController()
 
     public init(
-        player: AVPlayer = AVPlayer(),
+        player: AVPlayer,
         bridge: DASHToHLSBridge = DASHToHLSBridge(),
-        subtitleUseCase: SubtitleUseCase? = nil,
-        sourcePreferenceProvider:
-            @escaping @MainActor @Sendable () -> PlaybackSourcePreference = {
-                .serverDefault
-            },
-        loudnessNormalizationEnabledProvider:
-            @escaping @MainActor @Sendable () -> Bool = {
-                false
-            }
+        subtitleUseCase: SubtitleUseCase,
+        sourcePreferenceProvider: @escaping @MainActor @Sendable () -> PlaybackSourcePreference,
+        loudnessNormalizationEnabledProvider: @escaping @MainActor @Sendable () -> Bool
     ) {
         self.player = player
         player.preventsDisplaySleepDuringVideoPlayback = true
@@ -97,15 +90,8 @@ public final class AVPlayerEngine:
         self.subtitleUseCase = subtitleUseCase
         self.sourcePreferenceProvider = sourcePreferenceProvider
         self.loudnessNormalizationEnabledProvider = loudnessNormalizationEnabledProvider
-        if subtitleUseCase != nil {
-            player.appliesMediaSelectionCriteriaAutomatically = false
-        }
+        player.appliesMediaSelectionCriteriaAutomatically = false
         timeline = AVPlayerTimelineAdapter(player: player)
-        let failureStream = AsyncStream<PlaybackFailureEvent>.makeStream(
-            bufferingPolicy: .bufferingNewest(1)
-        )
-        failureEvents = failureStream.stream
-        failureContinuation = failureStream.continuation
         timeline.onFailed = { [weak self] in
             self?.handleCurrentItemFailure()
         }
@@ -119,26 +105,21 @@ public final class AVPlayerEngine:
         loadTask?.cancel()
         readinessTask?.cancel()
         preparedAsset?.stop()
-        if let subtitleUseCase, let subtitleIdentity {
+        if let subtitleIdentity {
             let previousReset = subtitleResetTask
-            Task {
+            Task { [subtitleUseCase] in
                 await previousReset?.value
                 await subtitleUseCase.reset(for: subtitleIdentity)
             }
         }
-        failureContinuation.finish()
     }
 
     public var currentTimelineSnapshot: PlaybackTimelineSnapshot {
         timeline.currentSnapshot
     }
 
-    public var nativeSubtitlesEnabled: Bool {
-        subtitleUseCase != nil
-    }
-
     public func toggleNativeSubtitles() async -> NativeSubtitleToggleResult {
-        guard subtitleUseCase != nil, let item = player.currentItem else {
+        guard let item = player.currentItem else {
             return .unavailable
         }
         let operationID = UUID()
@@ -202,7 +183,7 @@ public final class AVPlayerEngine:
     }
 
     public func playbackFailureEvents() -> AsyncStream<PlaybackFailureEvent> {
-        failureEvents
+        failureEvents.subscribe(startingWith: nil)
     }
 
     /// 准备并安装一个新播放项目；调用方取消会沿 generation 边界清理本次全部资源。
@@ -290,9 +271,7 @@ public final class AVPlayerEngine:
         }
         let subtitleSource =
             progressiveSource == nil
-            ? subtitleUseCase.map {
-                NativeSubtitleSource(useCase: $0, identity: identity)
-            } : nil
+            ? NativeSubtitleSource(useCase: subtitleUseCase, identity: identity) : nil
         if subtitleSource != nil {
             subtitleIdentity = identity
         }
@@ -784,9 +763,7 @@ public final class AVPlayerEngine:
         else { return }
         releaseCurrentPlayback()
         _ = enqueueSubtitleReset()
-        failureContinuation.yield(
-            PlaybackFailureEvent(identity: identity, intent: intent)
-        )
+        failureEvents.yield(PlaybackFailureEvent(identity: identity, intent: intent))
     }
 
     private func invalidateTransportSeek() {
@@ -817,7 +794,7 @@ public final class AVPlayerEngine:
 
     @discardableResult
     private func enqueueSubtitleReset() -> Task<Void, Never>? {
-        guard let subtitleUseCase, let identity = subtitleIdentity else {
+        guard let identity = subtitleIdentity else {
             return subtitleResetTask
         }
         subtitleIdentity = nil

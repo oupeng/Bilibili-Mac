@@ -49,9 +49,10 @@ public struct DanmakuOpacity: Sendable, Equatable {
     }
 }
 
-@MainActor
 /// 让 Feature 驱动弹幕会话开始、可见性与完整停止，而不暴露 scheduler 或 renderer。
+@MainActor
 public protocol DanmakuPresentationControlling: AnyObject {
+    /// 弹幕分段读取发现凭据失效时回调；由弹幕控制 ViewModel 创建时登记一次，用于请求窗口复核账户。
     func setAuthenticationInvalidationHandler(
         _ handler: @escaping @MainActor () -> Void
     )
@@ -67,10 +68,4 @@ public protocol DanmakuPresentationControlling: AnyObject {
     func setDisplayArea(_ displayArea: DanmakuDisplayArea)
     func setDensity(_ density: DanmakuDensity)
     func stop()
-}
-
-extension DanmakuPresentationControlling {
-    public func setAuthenticationInvalidationHandler(
-        _ handler: @escaping @MainActor () -> Void
-    ) {}
 }

@@ -17,7 +17,7 @@ enum NativePlaybackUploaderProfileReveal {
         previous?.isProfileLoading == true && !next.isProfileLoading
     }
 
-    /// 在本次提交的改动之前挂上淡入；之后同一事务里的变化都会淡入呈现。
+    /// 在当前 `CATransaction` 提交前、内容改动之前挂上淡入；同一事务里之后的图层变化都会淡入呈现。
     static func apply(to view: NSView) {
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
             let layer = view.layer

@@ -73,7 +73,7 @@ SCOPES = {
     },
     "BiliKitMac/App": (
         FEATURES | {"SwiftUI", "Observation", "Combine"},
-        "App 壳只组织 Feature 视图，不直接依赖 adapter、Application 或平台框架",
+        "App 壳只组织 Feature 视图，不直接依赖 adapter 或平台框架；Application 只在 EXTRA_ALLOWED 登记的搜索条件使用点",
     ),
     "BiliKitMac/Composition": (
         FEATURES | ADAPTERS | {
@@ -104,6 +104,12 @@ SCOPES = {
 
 # 单个文件额外允许的模块：每一项都是有明确理由的宿主或适配点。
 EXTRA_ALLOWED = {
+    # App 壳的搜索工具栏与搜索路由持有搜索条件；MemberImportVisibility 下成员只对直接 import
+    # 定义模块的文件可见，经 Feature 转出类型名不够用，在 Feature 镜像一份又违反“同一逻辑只写一处”。
+    "BiliKitMac/App/AppRootView.swift": {"BiliApplication"},
+    "BiliKitMac/App/AppShellView.swift": {"BiliApplication"},
+    "BiliKitMac/App/AppSourceRootViews.swift": {"BiliApplication"},
+    "BiliKitMac/App/SearchToolbarControls.swift": {"BiliApplication"},
     "BiliKitMac/Platform/AppUpdater.swift": {"Sparkle"},
     "BiliKitMac/Platform/DanmakuOverlayHostView.swift": {"BiliDanmaku"},
     "BiliKitMac/Platform/NativeVideoImagePipeline.swift": {"BiliNetworking"},
@@ -147,10 +153,7 @@ EXACT_SCOPES = {f"{SOURCES}/BiliUI"}
 
 # 允许 `@_exported import` 的文件与模块：转出的模块会出现在所有 import 该 target 的文件里，
 # 绕过它们自己的白名单，所以每一处都要登记。
-EXPORTED_ALLOWED = {
-    # App 经 BiliBrowseFeature 使用搜索语义类型（VideoSearchCriteria 等）。
-    f"{SOURCES}/BiliBrowseFeature/Search/VideoSearchSemanticTypes.swift": {"BiliApplication"},
-}
+EXPORTED_ALLOWED: dict[str, set[str]] = {}
 
 # 任意属性（含带括号参数的 `@_spi(X)`）、访问级别、kind import（`import class M.T`）、
 # clang 子模块（`import M.Sub`）与反引号模块名都归到第一段模块名。

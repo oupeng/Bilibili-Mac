@@ -194,7 +194,7 @@ struct LoopbackProgressiveStreamingTests {
         )
         let body = try Data(contentsOf: fixtureURL)
         let bridge = makeFixtureBridge(FixtureRangeTransport(media: [source: body]))
-        let engine = AVPlayerEngine(bridge: bridge)
+        let engine = makeFixtureEngine(bridge: bridge)
         let player = engine.player
         let sourceModel = ProgressivePlaybackSource(
             primaryURL: source,

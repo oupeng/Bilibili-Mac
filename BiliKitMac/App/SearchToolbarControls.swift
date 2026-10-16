@@ -1,3 +1,4 @@
+import BiliApplication
 import BiliBrowseFeature
 import Foundation
 import SwiftUI

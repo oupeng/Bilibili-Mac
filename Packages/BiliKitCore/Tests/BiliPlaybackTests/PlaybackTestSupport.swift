@@ -533,6 +533,24 @@ func makeFixtureBridge(_ transport: FixtureRangeTransport) -> DASHToHLSBridge {
     )
 }
 
+/// 用 fixture bridge 组装与生产同形的 engine：字幕目录默认为空，线路与响度取各自的关闭值。
+@MainActor
+func makeFixtureEngine(
+    bridge: DASHToHLSBridge,
+    subtitleRepository: any SubtitleRepository = FixtureSubtitleRepository(catalog: .tracks([]))
+) -> AVPlayerEngine {
+    AVPlayerEngine(
+        player: AVPlayer(),
+        bridge: bridge,
+        subtitleUseCase: SubtitleUseCase(
+            repository: subtitleRepository,
+            reportAuthenticationInvalidation: {}
+        ),
+        sourcePreferenceProvider: { .serverDefault },
+        loudnessNormalizationEnabledProvider: { false }
+    )
+}
+
 /// BiliPlaybackTests 唯一的 `SubtitleRepository` 替身。
 actor FixtureSubtitleRepository: SubtitleRepository {
     enum Catalog: Sendable {

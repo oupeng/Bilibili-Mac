@@ -2,6 +2,7 @@ import BiliApplication
 import BiliModels
 import Foundation
 
+/// 调度前按弹幕模式可见性与权重筛掉事件的值类型；模式开关来自用户偏好，由弹幕会话写入。
 public struct DanmakuFilter: Sendable, Equatable {
     public var showsScrolling: Bool
     public var showsTop: Bool
@@ -17,7 +18,7 @@ public struct DanmakuFilter: Sendable, Equatable {
         self.showsBottom = showsBottom
     }
 
-    /// 负权重的弹幕不显示，与删除可配置 `minimumWeight`（默认 0）之前的行为一致。
+    /// 权重为负的弹幕不显示；下限固定为 0，不随偏好变化。
     private static let minimumWeight = 0
 
     func allows(_ event: DanmakuEvent) -> Bool {

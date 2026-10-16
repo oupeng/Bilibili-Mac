@@ -14,18 +14,18 @@ LIMIT = 800
 GENERATED_SUFFIX = ".pb.swift"
 
 OVERSIZED = {
-    "BiliKitMac/Platform/PlaybackSidebar/NativePlaybackSidebarController.swift": 1071,
+    "BiliKitMac/Platform/PlaybackSidebar/NativePlaybackSidebarController.swift": 1066,
     "BiliKitMacTests/NativePlaybackSidebarTests.swift": 2764,
-    "BiliKitMacTests/VideoDetailLifecycleTests.swift": 1189,
+    "BiliKitMacTests/VideoDetailLifecycleTests.swift": 1186,
     "Packages/BiliKitCore/Sources/BiliPlayback/Bridge/LoopbackPlaybackServer.swift": 1188,
-    "Packages/BiliKitCore/Sources/BiliPlayback/Player/AVPlayerEngine.swift": 832,
+    "Packages/BiliKitCore/Sources/BiliPlayback/Player/AVPlayerEngine.swift": 809,
     "Packages/BiliKitCore/Sources/BiliPlayback/Player/AVPlayerTimelineAdapter.swift": 809,
     "Packages/BiliKitCore/Tests/BiliAPITests/BiliAPIClientTests.swift": 2166,
     "Packages/BiliKitCore/Tests/BiliAPITests/CommentAPIClientTests.swift": 946,
-    "Packages/BiliKitCore/Tests/BiliBrowseFeatureTests/BrowseAndVideoViewModelTests.swift": 2942,
+    "Packages/BiliKitCore/Tests/BiliBrowseFeatureTests/BrowseAndVideoViewModelTests.swift": 2928,
     "Packages/BiliKitCore/Tests/BiliDanmakuTests/DanmakuPresentationControllerTests.swift": 1023,
     "Packages/BiliKitCore/Tests/BiliDanmakuTests/DanmakuSessionTests.swift": 802,
-    "Packages/BiliKitCore/Tests/BiliPlaybackTests/AVPlayerEngineLifecycleTests.swift": 842,
+    "Packages/BiliKitCore/Tests/BiliPlaybackTests/AVPlayerEngineLifecycleTests.swift": 835,
 }
 
 

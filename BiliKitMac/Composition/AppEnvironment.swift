@@ -71,10 +71,6 @@ struct AppEnvironment {
         close: @escaping @MainActor @Sendable () -> Void,
         synchronizeSignedOutConfirmation: @escaping @MainActor @Sendable (Bool) -> Void
     ) {
-        precondition(
-            playerEngine.nativeSubtitlesEnabled,
-            "AVPlayerEngine must own native subtitle presentation"
-        )
         self.feedRepository = feedRepository
         self.videoRepository = videoRepository
         self.relatedVideoRepository = relatedVideoRepository
