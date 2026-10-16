@@ -49,7 +49,7 @@ public struct CommentUseCase: Sendable {
         pageSize: Int = 10
     ) async throws -> CommentReplyBatch {
         guard page > 0, pageSize > 0 else {
-            throw CommentReadError.invalidResponse
+            throw CommentReadError.invalidRequest
         }
         try Task.checkCancellation()
         let result = try await repository.replies(

@@ -107,6 +107,20 @@ struct CommentUseCaseTests {
             )
         }
     }
+
+    /// 不合规的页码是客户端无法发出的请求，不是接口数据错误，也不交给 repository。
+    @Test
+    func replyPageRejectsInvalidPageNumberAsInvalidRequest() async {
+        let useCase = CommentUseCase(repository: CommentRepositoryStub())
+
+        await #expect(throws: CommentReadError.invalidRequest) {
+            try await useCase.loadReplies(
+                for: .video(aid: 700_001),
+                rootID: CommentID(rawValue: 1),
+                page: 0
+            )
+        }
+    }
 }
 
 private actor CommentRepositoryStub: CommentRepository {

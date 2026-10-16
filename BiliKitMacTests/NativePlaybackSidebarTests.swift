@@ -1245,7 +1245,7 @@ struct NativePlaybackSidebarTests {
         let subject = CommentSubjectIdentity.video(aid: 700_001)
         for (error, kind) in [
             (CommentReadError.closed, NativePlaybackCommentsStateKind.closed),
-            (.transportFailure, .failed)
+            (.transportFailure, .failed(.transportFailure))
         ] {
             let comments = NativePlaybackCommentsPresentation(
                 subject: subject,
@@ -1262,7 +1262,7 @@ struct NativePlaybackSidebarTests {
 
         for (kind, offersRetry) in [
             (NativePlaybackCommentsStateKind.closed, false),
-            (.failed, true)
+            (.failed(.transportFailure), true)
         ] {
             let item = NativePlaybackCommentsStateItem()
             item.configure(kind: kind, onRetry: {})
@@ -1325,7 +1325,7 @@ struct NativePlaybackSidebarTests {
             footer.view.accessibilityLabel()
                 == AppStrings.localized("后续评论加载中")
         )
-        footer.configure(footer: .retry, onRetry: {}, onLoadMore: {})
+        footer.configure(footer: .failed(.transportFailure), onRetry: {}, onLoadMore: {})
         #expect(!footer.view.isAccessibilityElement())
         var loadMoreCount = 0
         footer.configure(
@@ -2755,10 +2755,5 @@ struct NativePlaybackSidebarTests {
             imagePipeline: NativeVideoImagePipeline(cacheLimits: .window),
             resolveURL: resolveURL
         )
-    }
-
-    @MainActor
-    private func descendants(of view: NSView) -> [NSView] {
-        view.subviews.flatMap { [$0] + descendants(of: $0) }
     }
 }

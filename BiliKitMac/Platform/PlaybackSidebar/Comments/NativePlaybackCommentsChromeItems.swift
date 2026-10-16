@@ -1,4 +1,5 @@
 import AppKit
+import BiliApplication
 import BiliBrowseFeature
 import BiliModels
 
@@ -210,11 +211,14 @@ private final class NativePlaybackCommentsStateView: NSView {
             titleLabel.stringValue = AppStrings.localized("评论区已关闭")
             detailLabel.stringValue = AppStrings.localized("这个视频的评论区已关闭。")
             setAccessibilityLabel(AppStrings.localized("评论区已关闭"))
-        case .failed:
-            titleLabel.stringValue = AppStrings.localized("评论加载失败")
+        case .failed(let error):
+            let title =
+                error.isRetryable
+                ? AppStrings.localized("评论加载失败") : error.nonRetryableDescription
+            titleLabel.stringValue = title
             detailLabel.stringValue = ""
-            retryButton.isHidden = false
-            setAccessibilityLabel(AppStrings.localized("评论加载失败"))
+            retryButton.isHidden = !error.isRetryable
+            setAccessibilityLabel(title)
         }
         setAccessibilityElement(true)
         needsLayout = true
@@ -225,7 +229,7 @@ private final class NativePlaybackCommentsStateView: NSView {
         super.layout()
         guard kind != .loading else { return }
         let contentWidth = max(120, bounds.width - 24)
-        if kind == .failed {
+        if case .failed = kind {
             titleLabel.alignment = .left
             titleLabel.frame = NSRect(x: 0, y: 13, width: contentWidth - 84, height: 22)
             retryButton.frame = NSRect(
@@ -308,6 +312,16 @@ final class NativePlaybackCommentsFooterItem: NSCollectionViewItem {
     }
 }
 
+extension NativePlaybackCommentsFooter {
+    /// 失败与停止共用左侧说明、右侧按钮的一行布局；按钮是否显示由各自的配置决定。
+    fileprivate var isInlineStatus: Bool {
+        switch self {
+        case .failed, .stopped: true
+        case .loading, .end, .loadMore: false
+        }
+    }
+}
+
 @MainActor
 private final class NativePlaybackCommentsFooterView: NSView {
     override var isFlipped: Bool { true }
@@ -349,10 +363,12 @@ private final class NativePlaybackCommentsFooterView: NSView {
             setAccessibilityRole(.staticText)
             setAccessibilityLabel(AppStrings.localized("后续评论加载中"))
             setAccessibilityValue(nil)
-        case .retry:
-            label.stringValue = AppStrings.localized("后续评论加载失败")
+        case .failed(let error):
+            label.stringValue =
+                error.isRetryable
+                ? AppStrings.localized("后续评论加载失败") : error.nonRetryableDescription
             actionButton.title = AppStrings.localized("重试")
-            actionButton.isHidden = false
+            actionButton.isHidden = !error.isRetryable
             setAccessibilityElement(false)
             setAccessibilityValue(nil)
         case .stopped:
@@ -381,7 +397,7 @@ private final class NativePlaybackCommentsFooterView: NSView {
 
     override func layout() {
         super.layout()
-        if footer == .retry || footer == .stopped {
+        if footer.isInlineStatus {
             label.alignment = .left
             label.frame = NSRect(x: 0, y: 14, width: max(1, bounds.width - 84), height: 20)
             actionButton.frame = NSRect(x: max(0, bounds.width - 76), y: 8, width: 76, height: 30)
@@ -439,7 +455,7 @@ private final class NativePlaybackCommentsFooterView: NSView {
 
     @objc private func performAction() {
         switch footer {
-        case .retry, .stopped:
+        case .failed, .stopped:
             onRetry?()
         case .loadMore:
             onLoadMore?()

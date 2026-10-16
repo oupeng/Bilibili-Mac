@@ -15,7 +15,7 @@ GENERATED_SUFFIX = ".pb.swift"
 
 OVERSIZED = {
     "BiliKitMac/Platform/PlaybackSidebar/NativePlaybackSidebarController.swift": 1066,
-    "BiliKitMacTests/NativePlaybackSidebarTests.swift": 2764,
+    "BiliKitMacTests/NativePlaybackSidebarTests.swift": 2759,
     "BiliKitMacTests/VideoDetailLifecycleTests.swift": 1186,
     "Packages/BiliKitCore/Sources/BiliPlayback/Bridge/LoopbackPlaybackServer.swift": 1188,
     "Packages/BiliKitCore/Sources/BiliPlayback/Player/AVPlayerEngine.swift": 809,

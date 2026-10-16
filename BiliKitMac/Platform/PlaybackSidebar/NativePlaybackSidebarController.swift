@@ -1046,7 +1046,7 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
             return .init(canLoadMore: true, tailIdentity: identity, isLoading: false)
         case .loading:
             return .init(canLoadMore: true, tailIdentity: identity, isLoading: true)
-        case .retry, .stopped, .end:
+        case .failed, .stopped, .end:
             return .init(canLoadMore: false, tailIdentity: identity, isLoading: false)
         }
     }

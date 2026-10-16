@@ -1121,6 +1121,34 @@
         }
       }
     },
+    "内容不存在或不可见" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Content unavailable"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コンテンツが存在しないか、表示できません"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "内容不存在或不可见"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "內容不存在或不可見"
+          }
+        }
+      }
+    },
     "原图下载失败，或无法写入所选位置。" : {
       "localizations" : {
         "en" : {
@@ -3105,6 +3133,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "彈幕已開啟"
+          }
+        }
+      }
+    },
+    "当前无法完成这次请求。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This request can’t be completed."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このリクエストは完了できません。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前无法完成这次请求。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "目前無法完成這次要求。"
           }
         }
       }
@@ -6801,6 +6857,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "阿里海外"
+          }
+        }
+      }
+    },
+    "需要登录" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sign-in required"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ログインが必要です"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "需要登录"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "需要登入"
           }
         }
       }

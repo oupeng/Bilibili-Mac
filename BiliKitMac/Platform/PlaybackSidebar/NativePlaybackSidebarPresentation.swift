@@ -93,7 +93,8 @@ enum NativePlaybackCommentsStateKind: Hashable {
     case loading
     case empty
     case closed
-    case failed
+    /// 是否给重试只由 `CommentReadError.isRetryable` 决定。
+    case failed(CommentReadError)
 }
 
 struct NativePlaybackSidebarSnapshotSection: Equatable {
@@ -192,8 +193,8 @@ extension NativePlaybackSidebarPresentation {
             items.append(.commentsState(subject: comments.subject, kind: .empty))
         case .failed(.closed):
             items.append(.commentsState(subject: comments.subject, kind: .closed))
-        case .failed:
-            items.append(.commentsState(subject: comments.subject, kind: .failed))
+        case .failed(let error):
+            items.append(.commentsState(subject: comments.subject, kind: .failed(error)))
         case .loaded:
             guard let subject = comments.subject else {
                 items.append(.commentsState(subject: nil, kind: .idle))

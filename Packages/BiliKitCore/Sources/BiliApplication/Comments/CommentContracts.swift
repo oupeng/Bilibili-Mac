@@ -1,12 +1,16 @@
 import BiliModels
 
 /// 认证与内容页同一四态：无凭据、凭据失效（唯一触发账户复核）、本地凭据读不到、风控。
-public enum CommentReadError: Error, Sendable, Equatable {
+public enum CommentReadError: Error, Sendable, Hashable {
+    /// 客户端无法发出的请求：参数不合规，或授权器拒绝（path 不在 allowlist），见 SECURITY-MODEL §3。
+    case invalidRequest
     case authenticationRequired
     case authenticationInvalid
     case authenticationUnavailable
     case requestRestricted
     case serviceRejected(code: Int)
+    /// 稿件或根评论不存在、已删除或不可见（业务码 -404／62002／62004），与内容域同一分类。
+    case contentUnavailable
     /// 评论区已关闭；不是可重试的失败。
     case closed
     case transportFailure
@@ -18,6 +22,20 @@ extension CommentReadError {
     /// 只有凭据失效需要窗口复核账户会话；评论 ViewModel 据此递增复核计数，不各自比较错误值。
     public var requiresAccountRevalidation: Bool {
         self == .authenticationInvalid
+    }
+
+    /// 用户重试可能得到不同结果才提供重试；评论列表、分页与楼中楼的失败界面据此决定是否显示重试。
+    ///
+    /// 需要登录、内容不存在或不可见、评论区已关闭与客户端无法发出的请求重试只会得到同样的结果，
+    /// 与内容域规则一致。
+    public var isRetryable: Bool {
+        switch self {
+        case .authenticationRequired, .contentUnavailable, .closed, .invalidRequest:
+            false
+        case .authenticationInvalid, .authenticationUnavailable, .requestRestricted,
+            .serviceRejected, .transportFailure, .invalidResponse, .unavailable:
+            true
+        }
     }
 }
 
