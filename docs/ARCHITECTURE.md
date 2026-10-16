@@ -1,7 +1,7 @@
 # BiliKit 架构
 
 本文只记录当前模块边界和仍约束代码的决策。事实以 `Packages/BiliKitCore/Package.swift`、
-`Scripts/check-architecture.sh` 和 Xcode 工程为准；安全规则见 [`SECURITY-MODEL.md`](SECURITY-MODEL.md)。
+`Scripts/check-architecture.py` 和 Xcode 工程为准；安全规则见 [`SECURITY-MODEL.md`](SECURITY-MODEL.md)。
 
 ## 平台与命名
 
@@ -352,6 +352,11 @@ gain 只压低不放大：`min(−18 LUFS − I, 0)`，下限 −12 dB。不放�
 - Gate 构建的 App 不签名，测试宿主的身份每次构建都变。App 测试不读仓库源文件：仓库在外接卷上时，
   系统每次都会弹出访问授权，Gate 无法无人值守。字符串目录完整性这类源文件检查放在 static 阶段的
   脚本里（`Scripts/check-localization.py`），App 测试只检查构建产物。
+- 字符串目录按位置发现：App 用 `BiliKitMac/Localizable.xcstrings`，经 `AppStrings` 或 SwiftUI 字面量
+  （`Bundle.main`）查表；Package target 用 `Resources/Localizable.xcstrings`，经本 target 的
+  `XxxFeatureStrings` 查表。脚本要求调用点的字面量 key 都在本 target 目录里、目录里的 key 都仍被
+  使用：缺 key 运行期会静默回退中文源文，残留 key 让译文脱离代码。key 写成单行字面量，不动态拼接。
+  Package 里未指定 bundle 的 SwiftUI 字面量会查 App 的 `Bundle.main`，非 ASCII 文案必须走本 target 的 helper。
 
 ## 不采用
 

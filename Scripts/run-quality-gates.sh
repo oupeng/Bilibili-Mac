@@ -45,7 +45,8 @@ trap 'exit 143' TERM
 . Scripts/isolated-toolchain.sh
 
 echo "[Gate] static"
-sh Scripts/check-architecture.sh
+python3 -B Scripts/check-architecture.py
+python3 -B Scripts/check-file-length.py
 sh Scripts/check-secrets.sh
 sh Scripts/check-project-contract.sh
 python3 -B Scripts/check-localization.py

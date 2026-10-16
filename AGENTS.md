@@ -25,7 +25,8 @@ App（Composition、AppKit/AVKit 宿主）组装以上全部
 - Feature 不互相 import；跨页面协调在 App 层，具体 adapter 只在 `Composition/`、`Platform/`、`Settings/` 可见。
 - `BiliApplication` 不出现 endpoint DTO、UI／播放框架、具体 client、Keychain 或 Cookie。
 - 没有真实边界时不新增 Package、target 或 `Common`／`Shared`／`Utils`。依赖方向由
-  `Scripts/check-architecture.sh` 检查；`references/` 不进入产品或 fixture。
+  `Scripts/check-architecture.py` 按目录白名单检查，新增 target 或 App 目录先在其中登记；`references/`
+  不进入产品或 fixture。
 - Cookie、QR key、token 与完整认证 URL 只存在于 `BiliAuth` 的短生命周期内存和 Keychain。
 - 可变网络、认证与播放会话必须有 owner、取消与清理点；旧结果用 identity 或 generation 隔离。
 - 认证、远端来源、重定向、本地服务器、字幕、弹幕、图片或缓存改动先对照 `docs/SECURITY-MODEL.md`。
@@ -35,9 +36,29 @@ App（Composition、AppKit/AVKit 宿主）组装以上全部
 - 同一逻辑只写一处。发现第二份副本就合并；已经分叉的副本按 bug 处理。禁止的是没有第二个调用方的
   抽象，不是消除重复的帮手。
 - 布局尺寸、时限、容量等数值用具名常量，并放在唯一的几何／策略来源里；测量与布局共用同一计算。
-- 单个文件超过约 800 行时，新增代码优先按职责拆到新文件，不再继续堆叠。
+- Swift 文件不超过 800 行，新增代码按职责拆到新文件；已经超长的文件只能缩短（`Scripts/check-file-length.py`）。
 - 生产代码不为测试保留恒定参数、计数器或只有测试调用的重载。
 - AppKit 只用于有明确理由的地方（见 `docs/ARCHITECTURE.md`）；其余界面默认 SwiftUI。
+
+## 注释
+
+- 注释用中文，写现状与理由。声明文档用 `///`，放在 `@MainActor` 等属性之上；函数体内的理由用 `//`。
+  不写文件头，不用 `MARK` 分段代替拆文件。
+- 必须写：
+  - 每个非 private 类型，以及拥有可变状态的 private 类型：一句职责，加上它拥有什么、不拥有什么（交给谁）。
+  - 持有 Task、连接、server 或 observer 的类型：owner、取消与清理点及其顺序要求、隔离方式；
+    `@unchecked Sendable` 写明由哪把锁或哪个队列保证。
+  - generation、epoch、token 与 in-flight 计数：何时递增、谁比对、不匹配时丢弃什么。
+  - 跨文件契约：由谁调用，调用方必须或不得做什么。
+  - 安全相关检查（来源、Host、重定向、Cookie 路径、响应校验）：一句理由，加 `见 SECURITY-MODEL §N`。
+  - 策略类具名常量：为什么是这个值、改变它影响什么；名字已能说明的几何常量可以省略。
+  - 反直觉写法（顺序依赖、刻意不做的事、绕过系统行为）：不这样做会出什么问题。
+  - 用 AppKit 而不用 SwiftUI 的类型：一句理由，或指向 `docs/ARCHITECTURE.md` 的对应小节。
+- 不写：复述代码、PR／issue 编号、日期、“以前／改为／删除了……”、未来计划、没有 owner 的 TODO、
+  只为测试存在的说明（需要“测试可注入”时应删掉这个缝隙）。
+- 修改行为的提交同步修改周围注释与 port 文档；注释与 ARCHITECTURE／SECURITY-MODEL 冲突按 bug 处理。
+  规则在文档里详述，代码里只留一句并指向文档。
+- 测试用一句话写清每个 Suite 或测试类型固定的产品契约，不逐个测试写。
 
 ## 测试与 accessibility
 
