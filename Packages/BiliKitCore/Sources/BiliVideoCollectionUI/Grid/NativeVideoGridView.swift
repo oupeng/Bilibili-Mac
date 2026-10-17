@@ -2,6 +2,10 @@ import AppKit
 import BiliUI
 import SwiftUI
 
+/// 首页推荐、热门、搜索与历史共用的原生视频网格，用 AppKit 的理由见 ARCHITECTURE「原生 AppKit 集合视图」。
+///
+/// 只渲染调用方给的卡片、尾部状态与回顶请求；内容、分页与选择的意图归调用方，图片下载与缓存归注入的
+/// `imagePipeline`。滚动位置经 `scrollOffsetY` 双向同步，回顶请求经 `scrollReset` 握手确认。
 public struct NativeVideoGridView: NSViewRepresentable {
     let items: [NativeVideoCardPresentation]
     @Binding var scrollOffsetY: CGFloat
@@ -77,6 +81,11 @@ public struct NativeVideoGridView: NSViewRepresentable {
         coordinator.reset()
     }
 
+    /// 网格的唯一 owner：滚动视图、集合视图、diffable 数据源、通知观察、悬停与滚动／分页状态。
+    ///
+    /// 不拥有图片管线（由窗口关闭）。`dismantleNSView` 调 `reset()`：先记录并同步最后的滚动位置（置位
+    /// `isReset` 后 `persistScrollOffset` 直接返回），再推进 `updateEpoch` 作废在途快照回调、移除观察并清空
+    /// 回调。之后 `update`、滚动与翻页判断按 `isReset` 返回；已排队的预备区域刷新靠 `window != nil` 兜底。
     @MainActor
     public final class Coordinator: NSObject, NSCollectionViewDelegateFlowLayout {
         private let scrollView = NativeVideoGridScrollView()
@@ -87,6 +96,7 @@ public struct NativeVideoGridView: NSViewRepresentable {
         private var contents: NativeVideoCardContents
         private var accessibilityLabel: String
         private var tailState: NativeVideoGridTailState
+        /// 以已确认的回顶 ID 起步，每个新的 `requestID` 只消费一次：网格重建后仍会执行未确认的请求。
         private var scrollResetGate: NativeVideoGridScrollResetGate
         private var nearEndPagination = NearEndPagination<String>(
             tailChangeInsideThreshold: .rearms
@@ -96,20 +106,32 @@ public struct NativeVideoGridView: NSViewRepresentable {
         private var onNearEnd: () -> Void
         private var onSelect: (String) -> Void
         private var observers = NativeVideoNotificationObservers()
+        /// 待应用的逻辑偏移：初次恢复、回顶请求、外部请求，以及整体替换时 `topPin` 保持置顶或锚点卡片已不在
+        /// 新内容里（后两者都回到 0）；视口可渲染时应用并清空，非 nil 期间不记录滚动、不判断翻页。
         private var pendingRestoreOffsetY: CGFloat?
+        /// 回顶真正落地后才经 `onAcknowledgeScrollReset` 确认的请求 ID；非 nil 时忽略外部偏移请求。
         private var pendingScrollResetAcknowledgementID: UInt64?
         private var retainedScrollOffset: NativeVideoScrollOffsetRetention
         private var scrollBindingBridge: NativeVideoScrollBindingBridge
         private let hover = NativeVideoHoverTracker()
+        /// 最近一次可渲染的视口尺寸；nil 表示当前没有可渲染的排版（初次、视口过窄或已拆除），锚点、恢复与
+        /// 翻页判断都等它。
         private var lastViewportSize: NSSize?
         private var documentLayoutNeedsInvalidation = true
+        /// 内容身份变化的每次快照与 `reset()` 都推进；快照完成回调只在仍是最新一次时执行。
         private var updateEpoch = NativeVideoGridOperationEpoch()
+        /// 整体替换前记下的可见首卡及当时的 `scrollGeneration`；快照完成时只在其间没再滚动、也不在实时
+        /// 滚动时恢复。
         private var pendingViewportAnchor: NativeVideoGridViewportAnchor?
         private var pendingAnchorScrollGeneration: UInt64?
+        /// 不在程序设置偏移、也没有待恢复偏移时，每记录一次 bounds 变化就加一（含用户滚动、AppKit 因
+        /// document 尺寸变化的夹取与 `reset()` 时的记录）；锚点恢复与 `topPin` 用它判断其间是否又有滚动。
         private var scrollGeneration: UInt64 = 0
         private var topPin = NativeVideoGridTopPin()
+        /// 程序设置偏移期间为 true，让随之而来的 bounds 通知不被记成用户滚动。
         private var isApplyingRestoration = false
         private var isLiveScrolling = false
+        /// 重排 document 期间为 true：其间到来的视口回调不再重排，也不判断翻页。
         private var isResizingDocument = false
         private var isReset = false
 
@@ -219,6 +241,7 @@ public struct NativeVideoGridView: NSViewRepresentable {
             }
 
             applySnapshot()
+            // 返回时滚动视图还没装进 SwiftUI 的层级；下一轮再排版、恢复位置并判断翻页。
             DispatchQueue.main.async { [weak self] in
                 self?.resizeDocument()
                 self?.restorePendingOffsetIfPossible()
@@ -244,6 +267,8 @@ public struct NativeVideoGridView: NSViewRepresentable {
             self.onNearEnd = onNearEnd
             self.onSelect = onSelect
             self.tailState = tailState
+            // binding 每次都先交给 bridge：滤掉网格刚同步出去的当前值的回声，以及同一轮更新里交回的、
+            // 被它替换掉的上一个值（`supersededOffsetY`）。回顶请求优先于外部偏移。
             let requestedExternalOffset = scrollBindingBridge.takeExternalRequest(
                 requestedScrollOffsetY
             )
@@ -668,6 +693,7 @@ public struct NativeVideoGridView: NSViewRepresentable {
     }
 }
 
+/// 网格的滚动视图：在 `layout()` 里报告视口尺寸与 contentInsets 的变化，由 Coordinator 重排与保持位置。
 @MainActor
 private final class NativeVideoGridScrollView: NSScrollView {
     var onViewportLayout: (() -> Void)?
@@ -684,6 +710,7 @@ private final class NativeVideoGridScrollView: NSScrollView {
     }
 }
 
+/// 网格的集合视图：扩大预备区域，并处理点击激活与按列数移动的键盘选择。
 @MainActor
 private final class NativeVideoCollectionView: NativeVideoCardCollectionView {
     /// AppKit 默认只准备视野内的卡片，封面要等卡片露出来才开始加载；这里上下各多准备一屏。

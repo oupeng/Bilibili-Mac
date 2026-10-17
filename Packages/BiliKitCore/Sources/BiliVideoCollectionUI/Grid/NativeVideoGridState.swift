@@ -1,8 +1,10 @@
 import AppKit
 import BiliUI
 
+/// 网格的分页尾部状态；尾部身份由调用方给出（如最后一页的标识），变化即视为新尾部。
 public typealias NativeVideoGridTailState = NearEndTailState<String>
 
+/// 一次内容更新相对上一次的差异：决定是否应用新快照、只重配内容变了的可见卡片，以及是否保持视口锚点。
 struct NativeVideoGridUpdatePlan: Equatable {
     let identityChanged: Bool
     let insertedIDs: [String]
@@ -10,6 +12,7 @@ struct NativeVideoGridUpdatePlan: Equatable {
     let changedExistingIDs: Set<String>
     let isStrictTailAppend: Bool
 
+    /// 严格尾部追加不改变已有卡片的位置，不需要锚点。
     var restoresViewportAnchor: Bool { identityChanged && !isStrictTailAppend }
 
     /// 锚点卡片仍在更新后的内容里时才有位置可保持；它被替换掉时网格回到顶部。
@@ -41,6 +44,7 @@ struct NativeVideoGridUpdatePlan: Equatable {
     }
 }
 
+/// 回顶请求的消费门：记住最后处理的请求 ID，同一个 ID 只放行一次。
 struct NativeVideoGridScrollResetGate {
     private var requestID: UInt64
 
@@ -71,6 +75,10 @@ struct NativeVideoGridTopPin: Equatable {
     }
 }
 
+/// 调用方持有的回顶握手状态，经 binding 交给网格。
+///
+/// 调用方用 `request()` 递增 `requestID`；网格把偏移真正设到顶部后才把 `acknowledgedRequestID` 写成该 ID。
+/// 两者不等表示请求还没落地：网格在落地前被重建，新网格从已确认的 ID 起步，仍会执行它。
 public struct NativeVideoGridScrollResetState: Equatable, Sendable {
     private(set) var requestID: UInt64 = 0
     var acknowledgedRequestID: UInt64 = 0
@@ -82,11 +90,13 @@ public struct NativeVideoGridScrollResetState: Equatable, Sendable {
     }
 }
 
+/// 视口锚点：视野内最靠上的卡片及其顶边到视口顶边的距离。
 struct NativeVideoGridViewportAnchor: Equatable {
     let id: String
     let offsetFromViewportTop: CGFloat
 }
 
+/// 按锚点卡片的新位置算出目标偏移，夹在可滚动范围内。
 enum NativeVideoGridAnchorRetention {
     static func targetOffsetY(
         itemOriginY: CGFloat,
@@ -101,6 +111,8 @@ enum NativeVideoGridAnchorRetention {
     }
 }
 
+/// 网格最近观察到的滚动位置，与已同步给 binding 的位置分开记：用户滚动时只记录、不逐帧写回 SwiftUI，
+/// 实时滚动结束或拆除时才把超过半点的差异同步出去。
 struct NativeVideoScrollOffsetRetention {
     private(set) var offsetY: CGFloat
     private var persistedOffsetY: CGFloat
@@ -126,6 +138,7 @@ struct NativeVideoScrollOffsetRetention {
     }
 }
 
+/// 区分 binding 交回的值是网格自己同步出去的回声，还是外部写入的新请求。
 struct NativeVideoScrollBindingBridge {
     private(set) var synchronizedOffsetY: CGFloat
     /// 刚被同步替换掉的旧值，binding 赶上新值后清除。
@@ -160,6 +173,7 @@ struct NativeVideoScrollBindingBridge {
     }
 }
 
+/// 异步操作的代次：每次发起都 `advance()`，完成时只有仍等于当前值的结果被接受。
 struct NativeVideoGridOperationEpoch {
     private(set) var value: UInt64 = 0
 

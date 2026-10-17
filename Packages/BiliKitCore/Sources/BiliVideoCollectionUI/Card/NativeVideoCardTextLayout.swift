@@ -2,6 +2,7 @@ import AppKit
 import CoreText
 import QuartzCore
 
+/// 卡片文字层的几何常量与单行测量；尾部宽度的测量与排版都经 `singleLineWidth`。
 enum NativeVideoCardTextLayout {
     static let recommendationCapsuleHeight: CGFloat = 16
     static let recommendationCapsuleHorizontalPadding: CGFloat = 10
@@ -65,6 +66,8 @@ enum NativeVideoCardTextLayout {
         )
     }
 
+    /// 关掉这些属性的隐式动画，卡片复用时文字、颜色与位置立即替换；字典值不是 Sendable，只读，故用
+    /// `nonisolated(unsafe)`。
     nonisolated(unsafe) static let disabledLayerActions: [String: CAAction] = [
         "bounds": NSNull(),
         "backgroundColor": NSNull(),
@@ -81,8 +84,11 @@ enum NativeVideoCardTextLayout {
     ]
 }
 
+/// 页脚尾部的文字层，普通样式也用它；只有推荐理由胶囊样式打开竖直居中：`CATextLayer` 只按顶边排字，
+/// 居中时在绘制前整体下移。
 @MainActor
 final class NativeVideoVerticallyCenteredTextLayer: CATextLayer {
+    /// 由渲染器在主线程写入；非隔离的 `draw(in:)` 要读它，故用 `nonisolated(unsafe)`。
     nonisolated(unsafe) var centersTextVertically = false
 
     override func draw(in context: CGContext) {
@@ -101,6 +107,9 @@ final class NativeVideoVerticallyCenteredTextLayer: CATextLayer {
     }
 }
 
+/// 卡片标题与页脚的文字层组：持有 `CATextLayer` 与尾部图标层，按外观解析颜色并排版。
+///
+/// 文字一律是纯字符串，不用 `NSAttributedString`；父 layer 归卡片，`install` 时挂上，`reset` 清空复用前的内容。
 @MainActor
 final class NativeVideoCardTextRenderer {
     let titleLayer = NativeVideoCardTextRenderer.makeTextLayer(isWrapped: true)

@@ -1,8 +1,9 @@
 import AppKit
 
-/// 逻辑偏移从内容起点算起，与 contentInsets 无关；物理偏移是 clip view 的 bounds origin。
+/// 滚动偏移在逻辑与物理坐标之间的唯一换算。
 ///
-/// 纵向（网格、侧栏、详情页）传 top／bottom inset，横向（shelf）传 left／right inset。
+/// 逻辑偏移从内容起点算起，与 contentInsets 无关；物理偏移是 clip view 的 bounds origin。纵向（网格、
+/// 播放侧栏、UP 主空间）传 top／bottom inset，横向（shelf）传 left／right inset。
 public enum NativeVideoScrollCoordinateSpace {
     public static func logicalOffset(
         physicalOffset: CGFloat,

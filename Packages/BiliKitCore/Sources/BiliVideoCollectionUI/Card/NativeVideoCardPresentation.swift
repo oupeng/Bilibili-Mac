@@ -1,5 +1,6 @@
 import Foundation
 
+/// 封面左下角的一项指标（播放、弹幕数等）：已格式化的文字与 SF Symbol 名。
 public struct NativeVideoCardMetric: Equatable, Sendable {
     public let text: String
     public let systemImage: String
@@ -10,8 +11,11 @@ public struct NativeVideoCardMetric: Equatable, Sendable {
     }
 }
 
+/// 页脚尾部文字的样式。
 public enum NativeVideoCardFooterTrailingStyle: Equatable, Sendable {
+    /// 靠右的普通文字，前面可带小图标。
     case plain
+    /// 品牌色描边胶囊，排在页脚最前（首页推荐理由），页脚文字随后。
     case brandOutlinedCapsule
 }
 
@@ -55,6 +59,7 @@ public struct NativeVideoCardPresentation: Equatable, Sendable {
         self.coverURL = coverURL
         self.avatarURL = avatarURL
         self.showsAvatar = showsAvatar
+        // 封面只有两个指标位，多出的丢弃。
         self.coverMetrics = Array(coverMetrics.prefix(2))
         self.coverTrailingText = coverTrailingText
         self.footerLeadingText = footerLeadingText
@@ -66,11 +71,13 @@ public struct NativeVideoCardPresentation: Equatable, Sendable {
     }
 }
 
+/// 复用卡片的身份：视频 ID 加卡片自己的配置代次，异步取图回来时据此判断卡片是否已改配。
 struct NativeVideoReuseIdentity: Equatable {
     let itemID: String
     let generation: UInt64
 }
 
+/// 取图结果能否写回卡片：未取消，且卡片当前身份与发起时相同；否则丢弃结果。
 enum NativeVideoImageApplicationGate {
     static func accepts(
         currentIdentity: NativeVideoReuseIdentity?,
