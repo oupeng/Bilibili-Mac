@@ -229,33 +229,8 @@ struct PlaybackSelectionProjectionTests {
         pages: [VideoPage],
         collection: VideoCollection? = nil
     ) -> VideoContext {
-        let detail = VideoDetail(
-            bvid: "BVCurrent",
-            title: "当前视频",
-            summary: "说明",
-            coverURL: nil,
-            owner: VideoOwner(id: 1, name: "作者"),
-            statistics: VideoStatistics(
-                viewCount: 1,
-                danmakuCount: 1,
-                likeCount: 1
-            ),
-            durationSeconds: 10,
-            publishedAt: Date(timeIntervalSince1970: 1_700_000_000),
-            pages: pages,
-            collection: collection
-        )
-        return VideoContext(
-            detail: detail,
-            pages: pages,
-            selectedPage: pages[0],
-            playback: VideoPlayback(
-                manifest: PlaybackManifest(
-                    videoRepresentations: [],
-                    originalAudioRepresentations: []
-                ),
-                mediaHeaders: [:]
-            )
+        makeVideoContext(
+            detail: makeVideoDetail(durationSeconds: 10, pages: pages, collection: collection)
         )
     }
 

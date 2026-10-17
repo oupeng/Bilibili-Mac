@@ -3,7 +3,6 @@ import BiliApplication
 import BiliModels
 import Testing
 
-@testable import BiliKit
 @testable import BiliVideoDetailFeature
 
 /// 评论列表与分页的失败行只在 `CommentReadError.isRetryable` 时给重试；不可重试的失败在同一行显示说明，

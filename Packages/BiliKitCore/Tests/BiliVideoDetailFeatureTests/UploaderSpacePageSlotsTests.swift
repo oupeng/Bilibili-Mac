@@ -1,8 +1,8 @@
 import Testing
 
-@testable import BiliKit
 @testable import BiliVideoDetailFeature
 
+/// 空间页码条显示首尾、当前页邻居与折叠的间隔。
 struct UploaderSpacePageSlotsTests {
     @Test(
         arguments: [

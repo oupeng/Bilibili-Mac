@@ -158,6 +158,7 @@ let package = Package(
                 "BiliApplication",
                 "BiliModels",
                 "BiliUI",
+                "BiliVideoCollectionUI",
                 "BiliVideoDetailFeature"
             ]
         ),

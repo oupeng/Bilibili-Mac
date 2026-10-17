@@ -3,9 +3,9 @@ import BiliModels
 import Foundation
 import Testing
 
-@testable import BiliKit
 @testable import BiliVideoDetailFeature
 
+/// 空间层的状态覆盖、页码条与头部投稿数只按空间状态呈现。
 struct UploaderSpaceSidebarPresentationTests {
     @Test(
         arguments: [

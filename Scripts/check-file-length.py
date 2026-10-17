@@ -14,7 +14,6 @@ LIMIT = 800
 GENERATED_SUFFIX = ".pb.swift"
 
 OVERSIZED = {
-    "BiliKitMacTests/NativePlaybackSidebarTests.swift": 2758,
     "BiliKitMacTests/VideoDetailLifecycleTests.swift": 1185,
     "Packages/BiliKitCore/Sources/BiliPlayback/Bridge/LoopbackPlaybackServer.swift": 1188,
     "Packages/BiliKitCore/Sources/BiliVideoDetailFeature/PlaybackSidebar/NativePlaybackSidebarController.swift": 1061,

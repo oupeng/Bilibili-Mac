@@ -3,9 +3,10 @@ import BiliVideoCollectionUI
 import Foundation
 import Testing
 
-@testable import BiliKit
 @testable import BiliVideoDetailFeature
 
+/// 相关推荐横排按页滚动并露出下一张，视口通知推迟到布局之后；拆除时清掉横排里的第一响应者，键盘激活按稳定 ID
+/// 找卡片、不依赖可见项实例；换视频时整体替换并作废旧的封面请求。
 struct NativeVideoShelfTests {
     @Test
     @MainActor

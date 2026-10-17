@@ -2,9 +2,9 @@ import AppKit
 import BiliModels
 import Testing
 
-@testable import BiliKit
 @testable import BiliVideoDetailFeature
 
+/// UP 主空间列表的头部随列表宽度重新布局。
 struct UploaderSpaceListLayoutTests {
     /// 空间层进场时列表可能先以很窄的中间宽度布局；变宽后头部必须跟着重新布局。
     ///
@@ -12,7 +12,7 @@ struct UploaderSpaceListLayoutTests {
     @Test @MainActor
     func headerFollowsTheListWidthAfterAnInterimNarrowLayout() throws {
         let controller = UploaderSpaceListController(
-            imagePipeline: NativeVideoImagePipeline(cacheLimits: .window)
+            imagePipeline: StubVideoDetailImageLoader()
         )
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 600),

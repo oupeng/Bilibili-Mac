@@ -1,9 +1,9 @@
 import AppKit
 import Testing
 
-@testable import BiliKit
 @testable import BiliVideoDetailFeature
 
+/// 作者入口的可点区域只覆盖给出的矩形，清空后整块不可点。
 struct NativeClickRegionTests {
     /// 只在给出的区域内开始单击；空区域被忽略，区域清空后整块不可点。
     @Test @MainActor

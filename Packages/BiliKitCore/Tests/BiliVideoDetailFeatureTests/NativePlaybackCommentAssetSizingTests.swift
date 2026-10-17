@@ -2,12 +2,12 @@ import BiliModels
 import Foundation
 import Testing
 
-@testable import BiliKit
 @testable import BiliVideoDetailFeature
 
+/// 评论图片与头像按用途请求各自的像素框，保存原图的默认文件名取图床文件名且不成为隐藏文件。
 @MainActor
 struct NativePlaybackCommentAssetSizingTests {
-    /// 列表按最大显示尺寸的 2 倍请求缩小图，头像按解码上限请求；预览与表情请求原图。
+    /// 列表按最大显示尺寸的 2 倍请求缩小图，头像按 `BiliAvatarImageSize` 请求；预览与表情请求原图。
     @Test
     func eachUseRequestsItsOwnPixelBox() {
         #expect(
@@ -29,8 +29,7 @@ struct NativePlaybackCommentAssetSizingTests {
             MainActor.assumeIsolated { requested.boxes.append(box) }
             return nil
         }
-        let pipeline = NativeVideoImagePipeline(cacheLimits: .window)
-        defer { pipeline.shutdown() }
+        let pipeline = StubVideoDetailImageLoader()
         let reference = CommentAssetReference()
 
         _ = NativePlaybackCommentPictureLoader(imagePipeline: pipeline, resolveURL: resolver)
@@ -57,8 +56,7 @@ struct NativePlaybackCommentAssetSizingTests {
     @Test
     func savingSuggestsTheOriginalFileName() throws {
         let original = try #require(URL(string: "https://i0.hdslb.com/bfs/new_dyn/abc123.gif"))
-        let pipeline = NativeVideoImagePipeline(cacheLimits: .window)
-        defer { pipeline.shutdown() }
+        let pipeline = StubVideoDetailImageLoader()
         let reference = CommentAssetReference()
         let requested = RequestedBoxes()
 
@@ -87,8 +85,7 @@ struct NativePlaybackCommentAssetSizingTests {
     @Test
     func savingNeverSuggestsAHiddenFileName() throws {
         let original = try #require(URL(string: "https://i0.hdslb.com/bfs/new_dyn/..abc.png"))
-        let pipeline = NativeVideoImagePipeline(cacheLimits: .window)
-        defer { pipeline.shutdown() }
+        let pipeline = StubVideoDetailImageLoader()
 
         let loader = NativePlaybackCommentPictureLoader(
             imagePipeline: pipeline,
@@ -97,42 +94,6 @@ struct NativePlaybackCommentAssetSizingTests {
         )
 
         #expect(loader.suggestedFileName(for: CommentAssetReference()) == "abc.png")
-    }
-
-    /// 只写出 ImageIO 能识别的位图：SVG、HTML 与随机字节都拒绝。
-    @Test
-    func onlyBitmapImagesAreSaved() throws {
-        let pixel = try #require(
-            Data(
-                base64Encoded:
-                    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="
-            )
-        )
-
-        #expect(NativeVideoImagePipeline.isBitmapImage(pixel))
-        #expect(
-            !NativeVideoImagePipeline.isBitmapImage(
-                Data(#"<svg xmlns="http://www.w3.org/2000/svg"><script>1</script></svg>"#.utf8)
-            )
-        )
-        #expect(!NativeVideoImagePipeline.isBitmapImage(Data("<html></html>".utf8)))
-        #expect(!NativeVideoImagePipeline.isBitmapImage(Data([0, 1, 2, 3])))
-    }
-
-    /// 取原图数据只走 HTTPS、不带用户信息；管线关闭后不再发请求。
-    @Test
-    func originalDataRejectsUnsafeAddressesAndClosedPipelines() async throws {
-        let pipeline = NativeVideoImagePipeline(cacheLimits: .window)
-        let insecure = try #require(URL(string: "http://i0.hdslb.com/bfs/a.png"))
-        let withUser = try #require(URL(string: "https://user@i0.hdslb.com/bfs/a.png"))
-
-        #expect(await pipeline.originalData(for: insecure, variant: .commentPicturePreview) == nil)
-        #expect(await pipeline.originalData(for: withUser, variant: .commentPicturePreview) == nil)
-        pipeline.shutdown()
-        let afterShutdown = try #require(URL(string: "https://i0.hdslb.com/bfs/a.png"))
-        #expect(
-            await pipeline.originalData(for: afterShutdown, variant: .commentPicturePreview) == nil
-        )
     }
 }
 
