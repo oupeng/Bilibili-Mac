@@ -1,6 +1,8 @@
 import AppKit
 
 /// 网格与 shelf 共用的卡片内容：去重、按 ID 查找与 diffable 快照。
+///
+/// 空 ID 与重复 ID 被丢弃，保留第一次出现的那张；值类型，由网格与 shelf 的 Coordinator 各自持有。
 public struct NativeVideoCardContents: Sendable {
     static let section = 0
 
@@ -44,6 +46,7 @@ public struct NativeVideoCardContents: Sendable {
     }
 }
 
+/// 网格与 shelf 共用的 diffable 数据源：按 ID 取卡片内容、配置复用的卡片并同步键盘选择框。
 @MainActor
 public enum NativeVideoCardDataSource {
     /// 调用方以 `[weak self]` 捕获 Coordinator，工厂本身不持有任何 owner。
@@ -84,6 +87,9 @@ public protocol NativeHoverableCollectionItem: NSCollectionViewItem {
 }
 
 /// 指针悬停的唯一 owner：同一时刻最多一个集合项处于悬停外观。
+///
+/// 由使用悬停的集合视图 owner 持有（网格与 shelf 的 Coordinator、UP 主空间列表）；只弱引用悬停项，
+/// 不拥有集合项本身。
 @MainActor
 public final class NativeVideoHoverTracker {
     private(set) weak var hoveredItem: (any NativeHoverableCollectionItem)?
@@ -169,7 +175,9 @@ public enum NativeVideoCollectionKeys {
     }
 }
 
-/// 网格与 shelf 的集合视图基类：激活回调与键盘选择框状态。
+/// 网格与 shelf 的集合视图基类：激活回调与键盘选择框状态；`open` 供 App 的横排子类化。
+///
+/// 用 AppKit 的理由见 ARCHITECTURE「原生 AppKit 集合视图」。
 @MainActor
 open class NativeVideoCardCollectionView: NSCollectionView {
     public var onActivateSelection: ((String) -> Void)?
@@ -202,7 +210,10 @@ open class NativeVideoCardCollectionView: NSCollectionView {
     }
 }
 
-/// 原生滚动视图 owner 持有的主线程通知观察；teardown 时一次性移除。
+/// 一组主线程通知观察的 token 集合：登记滚动、实时滚动、辅助功能显示选项等通知，teardown 时一次性移除。
+///
+/// 持有者必须在 teardown 时调用 `removeAll()`：结构体没有 deinit，丢弃它不会移除观察。通知在主队列投递，
+/// 回调在 MainActor 上执行。
 @MainActor
 public struct NativeVideoNotificationObservers {
     private var tokens: [(center: NotificationCenter, token: NSObjectProtocol)] = []

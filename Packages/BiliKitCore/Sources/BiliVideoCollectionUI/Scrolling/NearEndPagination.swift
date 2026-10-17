@@ -20,7 +20,8 @@ extension NearEndTailState: Sendable where Identity: Sendable {}
 /// 网格与评论侧栏共用的近尾部自动分页。
 ///
 /// 进入阈值时每个尾部只触发一次，加载中不触发；新尾部到来时视野仍在阈值内的处理由
-/// `TailChangeInsideThreshold` 决定。一次实时滚动手势最多自动加载一页。
+/// `TailChangeInsideThreshold` 决定。一次实时滚动手势最多自动加载一页。由网格 Coordinator 与侧栏控制器
+/// 各自持有，只回答“现在是否该请求下一页”，请求本身由调用方发出。
 public struct NearEndPagination<Identity: Equatable> {
     /// 新尾部到来时视野仍在阈值内的处理。
     public enum TailChangeInsideThreshold: Sendable {
@@ -33,8 +34,12 @@ public struct NearEndPagination<Identity: Equatable> {
 
     private let tailChangeInsideThreshold: TailChangeInsideThreshold
     private var tailIdentity: Identity?
+    /// 上一次评估时的有效在阈值内状态（背压期间记为 false）：一直留在阈值内不重复触发；换尾部时按
+    /// `TailChangeInsideThreshold` 处理。
     private var wasInsideThreshold = false
+    /// 已为其触发过的尾部；同一尾部不再触发。
     private var triggeredTailIdentity: Identity?
+    /// 实时滚动中触发过一次后为 true，直到新手势开始或内容整体替换时 `releaseBackpressure()`。
     private var requiresNewGesture = false
 
     public init(tailChangeInsideThreshold: TailChangeInsideThreshold) {

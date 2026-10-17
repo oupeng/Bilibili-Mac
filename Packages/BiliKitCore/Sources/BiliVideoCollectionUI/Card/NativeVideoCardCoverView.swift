@@ -3,11 +3,13 @@ import BiliUI
 import CoreGraphics
 import QuartzCore
 
+/// 栅格化后的 SF Symbol：位图与它的点尺寸。
 struct NativeVideoCardSymbolRaster {
     let image: CGImage
     let size: NSSize
 }
 
+/// 封面指标图标的栅格化与缓存：按名字、字号、字重、缩放与外观画成 `CGImage`，直接作为 layer 内容。
 @MainActor
 enum NativeVideoCardSymbolRasterizer {
     private struct Key: Hashable {
@@ -18,6 +20,7 @@ enum NativeVideoCardSymbolRasterizer {
         let appearanceName: String
     }
 
+    /// 只防止无界增长：实际用到的图标、缩放与外观组合远少于此，满了随意淘汰一项即可。
     private static let maximumRasterCount = 32
     private static var rasters: [Key: NativeVideoCardSymbolRaster] = [:]
 
@@ -108,6 +111,9 @@ enum NativeVideoCardSymbolRasterizer {
     }
 }
 
+/// 卡片封面：图片、占位、底部渐变与指标／时长文字都是同一视图里的持久 layer，不用子视图与 SwiftUI。
+///
+/// 不接收点击（`hitTest` 返回 nil），由卡片处理；图片由卡片经 `setImage` 设置。
 @MainActor
 final class NativeVideoMergedCoverView: NSView {
     private static let overlayHeight: CGFloat = 35
@@ -150,6 +156,7 @@ final class NativeVideoMergedCoverView: NSView {
         alignmentMode: .right
     )
     private var trailingSize = NSSize.zero
+    /// 每次 `setImage` 递增；淡入结束的回调只在仍是同一次设置时才隐藏占位。
     private var imageGeneration: UInt64 = 0
 
     override var isFlipped: Bool { true }
@@ -446,12 +453,14 @@ final class NativeVideoMergedCoverView: NSView {
     }
 }
 
+/// 卡片头像，以及 UP 主空间的头像与投稿封面：占位 SF Symbol 与图片两层，图片到达时可淡入。
 @MainActor
 public final class NativeVideoLayerImageView: NSView {
     private let placeholderSystemSymbolName: String
     private let placeholderTintColor: NSColor
     private let placeholderLayer = CALayer()
     private let imageLayer = CALayer()
+    /// 每次 `setImage` 递增；淡入结束的回调只在仍是同一次设置时才隐藏占位。
     private var imageGeneration: UInt64 = 0
 
     public init(

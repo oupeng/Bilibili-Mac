@@ -4,16 +4,24 @@ import CoreGraphics
 import QuartzCore
 
 extension NSUserInterfaceItemIdentifier {
+    /// 网格与 shelf 注册、取用 `NativeVideoCollectionItem` 的复用标识。
     public static let nativeVideoCard = Self("native.video-card")
 }
 
+/// 页脚首尾两段文字分到的宽度。
 struct NativeVideoCardFooterWidths: Equatable {
     let leading: CGFloat
     let trailing: CGFloat
 }
 
+/// 页脚宽度分配的唯一计算，测量与排版共用。
+///
+/// 普通页脚：尾部取测得宽度（上限是给首段留 1pt 与间距后的剩余），余下给首段文字。推荐理由胶囊：先给首段保留
+/// `recommendationFooterMinimumLeadingWidth`，胶囊取测得宽度与剩余宽度中较小者，余下仍归首段。
 enum NativeVideoCardLayout {
     static let footerSpacing: CGFloat = 8
+    /// 胶囊再长也给其后的页脚文字保留的宽度；取值没有另行记录的依据，按 13pt 正文约能放下 5 个汉字；
+    /// 调大则窄卡片上的胶囊更早截断，调小则长理由会把作者名挤到只剩几个字。
     static let recommendationFooterMinimumLeadingWidth: CGFloat = 72
 
     static func footerWidths(
@@ -78,6 +86,7 @@ enum NativeVideoCardLayout {
     }
 }
 
+/// 单行宽度的单项缓存：文字与测量变体（样式、字体、字号）都不变时不重新测量。
 struct NativeVideoSingleLineWidthCache {
     private var text: String?
     private var variant = ""
@@ -102,8 +111,15 @@ struct NativeVideoSingleLineWidthCache {
     }
 }
 
+/// 网格与 shelf 复用的卡片集合项，用 AppKit 的理由见 ARCHITECTURE「原生 AppKit 集合视图」。
+///
+/// 拥有封面与头像的取图 Task 及配置代次；不拥有图片管线与悬停仲裁（交给 `NativeVideoHoverTracker`）。
+/// 离屏（`invalidateImageRequests`）、复用与拆除（`invalidate`）时取消 Task，deinit 兜底取消；`generation`
+/// 在换视频、换封面或头像地址、头像显隐变化与 `invalidate` 时递增，晚到的结果经 `NativeVideoImageApplicationGate`
+/// 比对身份后丢弃。
 @MainActor
 public final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHoverableCollectionItem {
+    /// 只在 `.idle` 时发起请求；取消把加载中与失败都退回 `.idle`，卡片再次显示时重试。
     private enum ImagePhase: Equatable {
         case idle
         case loading(URL)
@@ -136,6 +152,7 @@ public final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHovera
         view = card
     }
 
+    /// 内容相同时只补发缺失的取图；换视频或换图片地址时先取消旧请求、清掉旧图再配置。
     public func configure(
         presentation: NativeVideoCardPresentation,
         imagePipeline: any NativeVideoImageLoading,
@@ -311,6 +328,9 @@ public final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHovera
     }
 }
 
+/// 卡片视图：封面、头像与文字层的排版，悬停、按下与键盘选中的外观，读屏按钮语义。
+///
+/// 不取图，图片由 `NativeVideoCollectionItem` 设置；悬停变化经回调交给集合项。
 @MainActor
 final class NativeVideoCardView: NSView {
     private let cover = NativeVideoMergedCoverView(frame: .zero)
