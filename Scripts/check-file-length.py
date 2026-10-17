@@ -15,9 +15,6 @@ GENERATED_SUFFIX = ".pb.swift"
 
 OVERSIZED = {
     "BiliKitMacTests/VideoDetailLifecycleTests.swift": 1185,
-    "Packages/BiliKitCore/Sources/BiliPlayback/Bridge/LoopbackPlaybackServer.swift": 1188,
-    "Packages/BiliKitCore/Sources/BiliPlayback/Player/AVPlayerEngine.swift": 809,
-    "Packages/BiliKitCore/Sources/BiliPlayback/Player/AVPlayerTimelineAdapter.swift": 809,
     "Packages/BiliKitCore/Tests/BiliAPITests/BiliAPIClientTests.swift": 2166,
     "Packages/BiliKitCore/Tests/BiliAPITests/CommentAPIClientTests.swift": 946,
     "Packages/BiliKitCore/Tests/BiliDanmakuTests/DanmakuPresentationControllerTests.swift": 1023,

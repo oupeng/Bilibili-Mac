@@ -139,9 +139,7 @@ struct PlaybackPreferencesControllerTests {
     }
 }
 
-private final class InMemoryPlaybackPreferencesStore:
-    PlaybackPreferencesStoring, @unchecked Sendable
-{
+private final class InMemoryPlaybackPreferencesStore: PlaybackPreferencesStoring, Sendable {
     func load() -> PlaybackPreferences { .defaults }
     func saveVolume(_ volume: Float) {}
     func saveMuted(_ isMuted: Bool) {}

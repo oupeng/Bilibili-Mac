@@ -122,9 +122,7 @@ extension URLSessionConfiguration {
 /// 来源校验只作用于发出的 URL，跟随重定向会绕过它，所以没有可跟随的选项（见 SECURITY-MODEL §4）；
 /// 也没有回落到 `URLSession.shared` 的入口（见 §1）。transport 释放时让 session 完成在途任务后
 /// 失效，session 与 delegate 随之释放；`invalidateAndCancel` 立即取消在途请求。
-public final class URLSessionTransport: HTTPTransport, HTTPTransportInvalidating,
-    @unchecked Sendable
-{
+public final class URLSessionTransport: HTTPTransport, HTTPTransportInvalidating, Sendable {
     private let session: URLSession
 
     public convenience init(configuration: URLSessionConfiguration) {
@@ -179,9 +177,8 @@ public final class URLSessionTransport: HTTPTransport, HTTPTransportInvalidating
     }
 }
 
-final class RejectHTTPRedirectDelegate: NSObject, URLSessionTaskDelegate,
-    @unchecked Sendable
-{
+/// 拒绝一切 redirect 的 session delegate：跳转目标不经来源校验，见 SECURITY-MODEL §4。
+final class RejectHTTPRedirectDelegate: NSObject, URLSessionTaskDelegate, Sendable {
     func urlSession(
         _ session: URLSession,
         task: URLSessionTask,

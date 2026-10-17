@@ -1,14 +1,13 @@
 import AppKit
-import BiliBrowseFeature
 import BiliNetworking
 import BiliUI
-import BiliVideoCollectionUI
 import BiliVideoDetailFeature
 import CoreGraphics
 import Foundation
 import ImageIO
 import Synchronization
 
+/// 图片结果的来源：内存缓存或网络，决定是否淡入。
 enum NativeVideoImageLoadOrigin: Equatable {
     case memoryCache
     case network
@@ -17,6 +16,7 @@ enum NativeVideoImageLoadOrigin: Equatable {
     var shouldFadeIn: Bool { self == .network }
 }
 
+/// 管线交给各取图 port 的统一结果：第一帧、来源与可选的动图数据。
 struct NativeVideoImageLoadResult: Sendable {
     /// 第一帧（静态图就是整张图），按用途限制解码尺寸。
     let image: CGImage
@@ -47,6 +47,7 @@ enum NativeAnimatedImagePolicy {
     }
 }
 
+/// 管线的图片用途：决定解码尺寸上限、响应大小上限与是否保留动图；各 Feature 的取图用途都映射到这里。
 enum NativeVideoImageVariant: Hashable, Sendable {
     case cover
     case avatar
@@ -96,74 +97,10 @@ enum NativeVideoImageVariant: Hashable, Sendable {
     }
 }
 
+/// 缓存与在途请求合并的键：同一 URL 在不同用途下分别解码与缓存。
 struct NativeVideoImageKey: Hashable, Sendable {
     let url: URL
     let variant: NativeVideoImageVariant
-}
-
-struct NativeVideoImageResponseAccumulator {
-    private(set) var data = Data()
-    let maximumBytes: Int
-
-    mutating func append(_ chunk: Data) -> Bool {
-        guard chunk.count <= maximumBytes - data.count else { return false }
-        data.append(chunk)
-        return true
-    }
-}
-
-private struct NativeVideoImageResponse: Sendable {
-    let data: Data
-}
-
-private enum NativeVideoImageTransferError: Error {
-    case invalidResponse
-    case responseTooLarge
-}
-
-private final class NativeVideoImageTaskBox: Sendable {
-    private struct State {
-        var task: URLSessionTask?
-        var isCancelled = false
-    }
-
-    private let state = Mutex(State())
-
-    func store(_ task: URLSessionTask) {
-        let isCancelled = state.withLock { state in
-            if !state.isCancelled { state.task = task }
-            return state.isCancelled
-        }
-        if isCancelled { task.cancel() }
-    }
-
-    func cancel() {
-        let task = state.withLock { state in
-            state.isCancelled = true
-            return state.task
-        }
-        task?.cancel()
-    }
-}
-
-final class NativeVideoImageSessionGate: Sendable {
-    private let isInvalidated = Mutex(false)
-
-    func register(_ operation: () -> Void) -> Bool {
-        isInvalidated.withLock { isInvalidated in
-            guard !isInvalidated else { return false }
-            operation()
-            return true
-        }
-    }
-
-    func invalidate(_ session: URLSession) {
-        isInvalidated.withLock { isInvalidated in
-            guard !isInvalidated else { return }
-            isInvalidated = true
-            session.invalidateAndCancel()
-        }
-    }
 }
 
 /// 一个等待者只 resume 一次：先完成则缓存结果，先挂起则由 `finish` 恢复；两边都在锁外 resume。
@@ -208,137 +145,6 @@ final class NativeVideoImageWaiter: Sendable {
                 }
             }
         continuation?.resume(returning: result)
-    }
-}
-
-private final class NativeVideoImageSessionDelegate: NSObject, URLSessionDataDelegate, Sendable {
-    private struct Pending {
-        let expectedHost: String
-        let continuation: CheckedContinuation<NativeVideoImageResponse, Error>
-        var isAccepted = false
-        var accumulator: NativeVideoImageResponseAccumulator
-    }
-
-    private let pending = Mutex<[Int: Pending]>([:])
-
-    func response(
-        for request: URLRequest,
-        maximumBytes: Int,
-        using session: URLSession,
-        gate: NativeVideoImageSessionGate
-    ) async throws -> NativeVideoImageResponse {
-        guard let expectedHost = request.url?.host?.lowercased() else {
-            throw NativeVideoImageTransferError.invalidResponse
-        }
-        let taskBox = NativeVideoImageTaskBox()
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                var task: URLSessionDataTask?
-                let registered = gate.register {
-                    let dataTask = session.dataTask(with: request)
-                    pending.withLock {
-                        $0[dataTask.taskIdentifier] = Pending(
-                            expectedHost: expectedHost,
-                            continuation: continuation,
-                            accumulator: NativeVideoImageResponseAccumulator(
-                                maximumBytes: maximumBytes
-                            )
-                        )
-                    }
-                    taskBox.store(dataTask)
-                    task = dataTask
-                }
-                guard registered, let task else {
-                    continuation.resume(throwing: CancellationError())
-                    return
-                }
-                task.resume()
-            }
-        } onCancel: {
-            taskBox.cancel()
-        }
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        task: URLSessionTask,
-        willPerformHTTPRedirection response: HTTPURLResponse,
-        newRequest request: URLRequest,
-        completionHandler: @escaping (URLRequest?) -> Void
-    ) {
-        completionHandler(nil)
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        dataTask: URLSessionDataTask,
-        didReceive response: URLResponse,
-        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
-    ) {
-        let http = response as? HTTPURLResponse
-        let isAccepted = pending.withLock { pending in
-            guard let http, var transfer = pending[dataTask.taskIdentifier] else {
-                return false
-            }
-            transfer.isAccepted =
-                (200..<300).contains(http.statusCode)
-                && http.url?.scheme?.lowercased() == "https"
-                && http.url?.host?.lowercased() == transfer.expectedHost
-                && http.mimeType?.lowercased().hasPrefix("image/") == true
-                && NativeVideoImagePipeline.acceptsExpectedLength(
-                    http.expectedContentLength,
-                    maximumBytes: transfer.accumulator.maximumBytes
-                )
-            pending[dataTask.taskIdentifier] = transfer
-            return transfer.isAccepted
-        }
-        if isAccepted {
-            completionHandler(.allow)
-        } else {
-            fail(dataTask, with: .invalidResponse)
-            completionHandler(.cancel)
-        }
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        dataTask: URLSessionDataTask,
-        didReceive data: Data
-    ) {
-        let accepted = pending.withLock { pending in
-            guard var transfer = pending[dataTask.taskIdentifier] else { return true }
-            guard transfer.accumulator.append(data) else { return false }
-            pending[dataTask.taskIdentifier] = transfer
-            return true
-        }
-        guard !accepted else { return }
-        fail(dataTask, with: .responseTooLarge)
-        dataTask.cancel()
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        task: URLSessionTask,
-        didCompleteWithError error: Error?
-    ) {
-        guard let transfer = pending.withLock({ $0.removeValue(forKey: task.taskIdentifier) })
-        else { return }
-        if let error {
-            transfer.continuation.resume(throwing: error)
-        } else if transfer.isAccepted {
-            transfer.continuation.resume(
-                returning: NativeVideoImageResponse(data: transfer.accumulator.data)
-            )
-        } else {
-            transfer.continuation.resume(
-                throwing: NativeVideoImageTransferError.invalidResponse
-            )
-        }
-    }
-
-    private func fail(_ task: URLSessionTask, with error: NativeVideoImageTransferError) {
-        pending.withLock { $0.removeValue(forKey: task.taskIdentifier) }?
-            .continuation.resume(throwing: error)
     }
 }
 
@@ -662,102 +468,5 @@ final class NativeVideoImagePipeline: Sendable {
             state.cache.insert(image, animation: animation, for: key)
             return true
         }
-    }
-}
-
-/// 卡片与网格经 `NativeVideoImageLoading` 取图：只用封面与头像两种用途，结果只带第一帧与是否淡入。
-extension NativeVideoImagePipeline: NativeVideoImageLoading {
-    func cachedImage(for url: URL, kind: NativeVideoCardImageKind) -> CGImage? {
-        cachedImage(for: url, variant: NativeVideoImageVariant(kind))
-    }
-
-    func image(for url: URL, kind: NativeVideoCardImageKind) async -> NativeVideoCardImage? {
-        guard let result = await image(for: url, variant: NativeVideoImageVariant(kind)) else {
-            return nil
-        }
-        return NativeVideoCardImage(image: result.image, fadesIn: result.origin.shouldFadeIn)
-    }
-}
-
-/// 搜索起始页经 Browse 的 `TrendingSearchIconLoading` 取热搜图标：固定用 `.trendingSearchIcon`，只给第一帧；
-/// 请求地址与响应仍走本管线的校验（见 SECURITY-MODEL §4、§6）。
-extension NativeVideoImagePipeline: TrendingSearchIconLoading {
-    func cachedTrendingSearchIcon(for url: URL) -> CGImage? {
-        cachedImage(for: url, variant: .trendingSearchIcon)
-    }
-
-    func trendingSearchIcon(for url: URL) async -> CGImage? {
-        await image(for: url, variant: .trendingSearchIcon)?.image
-    }
-}
-
-/// 播放侧栏、评论、评论图片预览与 UP 主空间经 BiliVideoDetailFeature 的 `VideoDetailImageLoading` 取图；
-/// 用途映射到本管线的用途，请求地址、响应校验、解码上限与缓存仍只在这里（见 SECURITY-MODEL §4）。
-extension NativeVideoImagePipeline: VideoDetailImageLoading {
-    func cachedImage(for url: URL, purpose: VideoDetailImagePurpose) -> CGImage? {
-        cachedImage(for: url, variant: NativeVideoImageVariant(purpose))
-    }
-
-    func cachedAnimation(for url: URL, purpose: VideoDetailImagePurpose) -> NativeAnimatedImage? {
-        cachedAnimation(for: url, variant: NativeVideoImageVariant(purpose))
-    }
-
-    func image(for url: URL, purpose: VideoDetailImagePurpose) async -> VideoDetailImage? {
-        guard let result = await image(for: url, variant: NativeVideoImageVariant(purpose)) else {
-            return nil
-        }
-        return VideoDetailImage(
-            image: result.image,
-            animation: result.animation,
-            fadesIn: result.origin.shouldFadeIn
-        )
-    }
-
-    func originalData(for url: URL, purpose: VideoDetailImagePurpose) async -> Data? {
-        await originalData(for: url, variant: NativeVideoImageVariant(purpose))
-    }
-}
-
-extension NativeVideoImageVariant {
-    init(_ purpose: VideoDetailImagePurpose) {
-        switch purpose {
-        case .avatar: self = .avatar
-        case .cover: self = .cover
-        case .commentEmote: self = .commentEmote
-        case .commentPicture: self = .commentPicture
-        case .commentPicturePreview: self = .commentPicturePreview
-        }
-    }
-
-    init(_ kind: NativeVideoCardImageKind) {
-        switch kind {
-        case .cover: self = .cover
-        case .avatar: self = .avatar
-        }
-    }
-}
-
-/// 管线的生命周期 owner：持有系统内存压力监听，shutdown 时先取消监听再关闭管线。
-final class NativeVideoImagePipelineOwner {
-    let pipeline: NativeVideoImagePipeline
-    private let memoryPressure: SystemMemoryPressureObserver
-
-    init(cacheLimits: NativeVideoImageCacheLimits) {
-        let pipeline = NativeVideoImagePipeline(cacheLimits: cacheLimits)
-        self.pipeline = pipeline
-        memoryPressure = SystemMemoryPressureObserver(
-            queue: .global(qos: .utility)
-        ) { [weak pipeline] in
-            pipeline?.discardCachedImages()
-        }
-    }
-
-    func shutdown() {
-        memoryPressure.cancel()
-        pipeline.shutdown()
-    }
-
-    deinit {
-        shutdown()
     }
 }

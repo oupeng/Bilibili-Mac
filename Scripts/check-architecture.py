@@ -139,11 +139,12 @@ EXTRA_ALLOWED = {
     "BiliKitMac/App/AppWindowOwner.swift": {"BiliApplication"},
     "BiliKitMac/App/SearchToolbarControls.swift": {"BiliApplication"},
     # 观看进度连接、播放器宿主与网格、侧栏共用同一份通知观察集合（NativeVideoNotificationObservers）；
-    # 图片管线实现卡片取图 port（NativeVideoImageLoading）。
+    # 图片管线在 NativeVideoImageLoadingPorts 实现卡片取图 port（NativeVideoImageLoading）。
     "BiliKitMac/Composition/WatchProgressWindowConnection.swift": {"BiliVideoCollectionUI"},
     "BiliKitMac/Platform/AppUpdater.swift": {"Sparkle"},
     "BiliKitMac/Platform/DanmakuOverlayHostView.swift": {"BiliDanmaku"},
-    "BiliKitMac/Platform/NativeVideoImagePipeline.swift": {"BiliNetworking", "BiliVideoCollectionUI"},
+    "BiliKitMac/Platform/NativeVideoImageLoadingPorts.swift": {"BiliVideoCollectionUI"},
+    "BiliKitMac/Platform/NativeVideoImagePipeline.swift": {"BiliNetworking"},
     "BiliKitMac/Platform/PlaybackPreferencesController.swift": {"AVFoundation"},
     "BiliKitMac/Platform/PlayerHostView.swift": {"AVKit", "BiliDanmaku", "BiliPlayback", "BiliVideoCollectionUI"},
     "BiliKitMac/Platform/PlayerKeyboardShortcutController.swift": {"BiliPlayback"},
