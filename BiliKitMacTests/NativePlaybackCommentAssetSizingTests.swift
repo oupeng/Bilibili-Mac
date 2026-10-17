@@ -3,6 +3,7 @@ import Foundation
 import Testing
 
 @testable import BiliKit
+@testable import BiliVideoDetailFeature
 
 @MainActor
 struct NativePlaybackCommentAssetSizingTests {
@@ -37,7 +38,7 @@ struct NativePlaybackCommentAssetSizingTests {
         _ = NativePlaybackCommentPictureLoader(
             imagePipeline: pipeline,
             resolveURL: resolver,
-            variant: .commentPicturePreview
+            purpose: .commentPicturePreview
         )
         .cachedImage(for: reference)
         _ = NativePlaybackCommentAvatarLoader(imagePipeline: pipeline, resolveURL: resolver)
@@ -67,7 +68,7 @@ struct NativePlaybackCommentAssetSizingTests {
                 MainActor.assumeIsolated { requested.boxes.append(box) }
                 return original
             },
-            variant: .commentPicturePreview
+            purpose: .commentPicturePreview
         )
 
         #expect(loader.suggestedFileName(for: reference) == "abc123.gif")
@@ -76,7 +77,7 @@ struct NativePlaybackCommentAssetSizingTests {
             NativePlaybackCommentPictureLoader(
                 imagePipeline: pipeline,
                 resolveURL: { _, _ in nil },
-                variant: .commentPicturePreview
+                purpose: .commentPicturePreview
             )
             .suggestedFileName(for: reference) == nil
         )
@@ -92,7 +93,7 @@ struct NativePlaybackCommentAssetSizingTests {
         let loader = NativePlaybackCommentPictureLoader(
             imagePipeline: pipeline,
             resolveURL: { _, _ in original },
-            variant: .commentPicturePreview
+            purpose: .commentPicturePreview
         )
 
         #expect(loader.suggestedFileName(for: CommentAssetReference()) == "abc.png")

@@ -1,6 +1,7 @@
 import Testing
 
 @testable import BiliKit
+@testable import BiliVideoDetailFeature
 
 struct UploaderSpacePageSlotsTests {
     @Test(

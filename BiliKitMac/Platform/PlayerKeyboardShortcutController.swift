@@ -1,9 +1,6 @@
 import AppKit
 import BiliPlayback
-
-/// 打开时独占方向键等按键的浮层；播放器快捷键不会越过它。
-@MainActor
-protocol PlayerKeyboardFocusOwner: NSView {}
+import BiliVideoDetailFeature
 
 /// 播放器键盘快捷键：本地 key monitor、长按临时倍速、离散快捷键与焦点让渡规则。
 ///

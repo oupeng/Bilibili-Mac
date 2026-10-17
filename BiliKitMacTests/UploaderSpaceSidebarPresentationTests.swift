@@ -1,10 +1,10 @@
 import BiliApplication
 import BiliModels
-import BiliVideoDetailFeature
 import Foundation
 import Testing
 
 @testable import BiliKit
+@testable import BiliVideoDetailFeature
 
 struct UploaderSpaceSidebarPresentationTests {
     @Test(

@@ -2,6 +2,7 @@ import CoreGraphics
 import Testing
 
 @testable import BiliKit
+@testable import BiliVideoDetailFeature
 
 @MainActor
 struct NativeCommentImagePreviewOriginalsTests {
@@ -11,10 +12,10 @@ struct NativeCommentImagePreviewOriginalsTests {
         let originals = NativeCommentImagePreviewOriginals()
         let image = try #require(Self.makeImage())
         var requested: [Int] = []
-        func load(_ index: Int) async -> NativeVideoImageLoadResult? {
+        func load(_ index: Int) async -> VideoDetailImage? {
             await originals.image(at: index) {
                 requested.append(index)
-                return NativeVideoImageLoadResult(image: image, origin: .network, animation: nil)
+                return VideoDetailImage(image: image, animation: nil, fadesIn: true)
             }
         }
 
@@ -23,7 +24,7 @@ struct NativeCommentImagePreviewOriginalsTests {
         let back = await load(0)
 
         #expect(requested == [0, 1])
-        #expect(back?.origin == .memoryCache)
+        #expect(back?.fadesIn == false)
     }
 
     /// 只持有当前与前后各一张：走远之后再回来要重新请求。
@@ -35,7 +36,7 @@ struct NativeCommentImagePreviewOriginalsTests {
         func load(_ index: Int) async {
             _ = await originals.image(at: index) {
                 requested.append(index)
-                return NativeVideoImageLoadResult(image: image, origin: .network, animation: nil)
+                return VideoDetailImage(image: image, animation: nil, fadesIn: true)
             }
         }
 

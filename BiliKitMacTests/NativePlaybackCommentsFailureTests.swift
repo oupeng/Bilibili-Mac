@@ -1,10 +1,10 @@
 import AppKit
 import BiliApplication
 import BiliModels
-import BiliVideoDetailFeature
 import Testing
 
 @testable import BiliKit
+@testable import BiliVideoDetailFeature
 
 /// 评论列表与分页的失败行只在 `CommentReadError.isRetryable` 时给重试；不可重试的失败在同一行显示说明，
 /// 无法发出的请求用与内容页相同的中性说明。
@@ -15,9 +15,9 @@ struct NativePlaybackCommentsFailureTests {
     func rootFailureOffersRetryOnlyWhenRetryCanHelp(error: CommentReadError) {
         let title =
             switch error {
-            case .invalidRequest: AppStrings.localized("当前无法完成这次请求。")
-            case .authenticationRequired: AppStrings.localized("需要登录")
-            default: AppStrings.localized("评论加载失败")
+            case .invalidRequest: VideoDetailFeatureStrings.localized("当前无法完成这次请求。")
+            case .authenticationRequired: VideoDetailFeatureStrings.localized("需要登录")
+            default: VideoDetailFeatureStrings.localized("评论加载失败")
             }
         let item = NativePlaybackCommentsStateItem()
         item.configure(kind: .failed(error), onRetry: {})
@@ -32,7 +32,8 @@ struct NativePlaybackCommentsFailureTests {
     func paginationFailureOffersRetryOnlyWhenRetryCanHelp(error: CommentReadError) {
         let text =
             error.isRetryable
-            ? AppStrings.localized("后续评论加载失败") : AppStrings.localized("当前无法完成这次请求。")
+            ? VideoDetailFeatureStrings.localized("后续评论加载失败")
+            : VideoDetailFeatureStrings.localized("当前无法完成这次请求。")
         let comments = NativePlaybackCommentsPresentation(
             subject: .video(aid: 700_001),
             sort: .hot,

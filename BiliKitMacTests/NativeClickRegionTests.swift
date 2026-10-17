@@ -2,6 +2,7 @@ import AppKit
 import Testing
 
 @testable import BiliKit
+@testable import BiliVideoDetailFeature
 
 struct NativeClickRegionTests {
     /// 只在给出的区域内开始单击；空区域被忽略，区域清空后整块不可点。

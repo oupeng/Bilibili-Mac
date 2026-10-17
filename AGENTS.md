@@ -19,7 +19,7 @@ BiliKit 是原生、macOS-first、非官方 B 站浏览与播放客户端：Swif
 Bili*Feature ──> BiliApplication ──> BiliModels      Browse/VideoDetail/Library ──> BiliUI ──> Application
                         ^ ports
 BiliAPI / BiliAuth / BiliPlayback ──> BiliNetworking    BiliDanmaku ──> Application/Models
-App（Composition、AppKit/AVKit 宿主）组装以上全部    Browse/Library ──> BiliVideoCollectionUI（AppKit 卡片与网格）──> BiliUI
+App（Composition、AppKit/AVKit 宿主）组装以上全部    Browse/VideoDetail/Library ──> BiliVideoCollectionUI（AppKit 卡片与网格）──> BiliUI
 ```
 
 - Feature 不互相 import；跨页面协调在 App 层，具体 adapter 只在 `Composition/`、`Platform/`、`Settings/` 可见。
