@@ -1,4 +1,5 @@
 import AppKit
+import BiliVideoCollectionUI
 import Foundation
 import Testing
 

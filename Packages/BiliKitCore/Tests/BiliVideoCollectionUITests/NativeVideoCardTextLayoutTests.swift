@@ -2,7 +2,7 @@ import AppKit
 import QuartzCore
 import Testing
 
-@testable import BiliKit
+@testable import BiliVideoCollectionUI
 
 struct NativeVideoCardTextLayoutTests {
     @Test @MainActor

@@ -1,4 +1,5 @@
 import AppKit
+import BiliVideoCollectionUI
 
 /// 右下角带“返回顶部”玻璃按钮的滚动视图；播放侧栏评论区与 UP 主空间共用。
 ///

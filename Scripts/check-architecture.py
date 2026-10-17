@@ -64,6 +64,10 @@ SCOPES = {
         {"Foundation", "SwiftUI", "BiliApplication"},
         "BiliUI 只能依赖 Foundation、SwiftUI 与 BiliApplication，不依赖 AppKit 或 Feature",
     ),
+    f"{SOURCES}/BiliVideoCollectionUI": (
+        {"BiliUI", "AppKit", "QuartzCore", "CoreText", "CoreGraphics", "SwiftUI"},
+        "BiliVideoCollectionUI 是共享的 AppKit 卡片与网格，只依赖 BiliUI 与界面框架；图片经 port 注入，不依赖网络或 adapter",
+    ),
     **{
         f"{SOURCES}/{feature}": (
             FEATURE_SHARED,
@@ -83,8 +87,8 @@ SCOPES = {
     ),
     "BiliKitMac/Platform": (
         FEATURES | {
-            "BiliModels", "BiliApplication", "BiliUI", "SwiftUI", "Observation", "Combine", "AppKit",
-            "CoreFoundation", "CoreGraphics", "CoreText", "ImageIO", "QuartzCore",
+            "BiliModels", "BiliApplication", "BiliUI", "BiliVideoCollectionUI", "SwiftUI", "Observation",
+            "Combine", "AppKit", "CoreFoundation", "CoreGraphics", "CoreText", "ImageIO", "QuartzCore",
         },
         "Platform 不能依赖 BiliAPI/BiliAuth；播放、弹幕、网络、系统媒体与更新框架只允许在 EXTRA_ALLOWED 登记的宿主文件里",
     ),
@@ -109,12 +113,16 @@ EXTRA_ALLOWED = {
     # （AppSidebarViews）与窗口 owner（AppWindowOwner；AppRootView、AppShellView 也读取账户 scope）。
     # MemberImportVisibility 下成员只对直接 import 定义模块的文件可见，经 Feature 转出类型名不够用，
     # 在 Feature 镜像一份又违反“同一逻辑只写一处”。
+    # AppShellView、AppSourceRootViews 另持有各来源网格的回顶请求（BiliVideoCollectionUI 的
+    # `NativeVideoGridScrollResetState`）；App 壳其余文件不接触 AppKit 集合视图。
     "BiliKitMac/App/AppRootView.swift": {"BiliApplication"},
-    "BiliKitMac/App/AppShellView.swift": {"BiliApplication"},
+    "BiliKitMac/App/AppShellView.swift": {"BiliApplication", "BiliVideoCollectionUI"},
     "BiliKitMac/App/AppSidebarViews.swift": {"BiliApplication"},
-    "BiliKitMac/App/AppSourceRootViews.swift": {"BiliApplication"},
+    "BiliKitMac/App/AppSourceRootViews.swift": {"BiliApplication", "BiliVideoCollectionUI"},
     "BiliKitMac/App/AppWindowOwner.swift": {"BiliApplication"},
     "BiliKitMac/App/SearchToolbarControls.swift": {"BiliApplication"},
+    # 观看进度连接与网格、侧栏共用同一份通知观察集合（NativeVideoNotificationObservers）。
+    "BiliKitMac/Composition/WatchProgressWindowConnection.swift": {"BiliVideoCollectionUI"},
     "BiliKitMac/Platform/AppUpdater.swift": {"Sparkle"},
     "BiliKitMac/Platform/DanmakuOverlayHostView.swift": {"BiliDanmaku"},
     "BiliKitMac/Platform/NativeVideoImagePipeline.swift": {"BiliNetworking"},

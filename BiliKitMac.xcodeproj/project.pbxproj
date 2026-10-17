@@ -17,6 +17,7 @@
 		A1000000000000000000000A /* BiliApplication in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000015 /* BiliApplication */; };
 		A1000000000000000000000B /* BiliLibraryFeature in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000019 /* BiliLibraryFeature */; };
 		A1000000000000000000000C /* BiliDanmaku in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000001A /* BiliDanmaku */; };
+		A1000000000000000000000D /* BiliVideoCollectionUI in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000001B /* BiliVideoCollectionUI */; };
 		A20000000000000000000001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A20000000000000000000002 /* Sparkle */; };
 /* End PBXBuildFile section */
 
@@ -84,6 +85,7 @@
 				A10000000000000000000004 /* BiliAPI in Frameworks */,
 				A10000000000000000000003 /* BiliPlayback in Frameworks */,
 				A1000000000000000000000C /* BiliDanmaku in Frameworks */,
+				A1000000000000000000000D /* BiliVideoCollectionUI in Frameworks */,
 				A20000000000000000000001 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -157,6 +159,7 @@
 				A10000000000000000000013 /* BiliPlayback */,
 				A10000000000000000000014 /* BiliAPI */,
 				A1000000000000000000001A /* BiliDanmaku */,
+				A1000000000000000000001B /* BiliVideoCollectionUI */,
 				A20000000000000000000002 /* Sparkle */,
 			);
 			productName = BiliKitMac;
@@ -617,6 +620,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A10000000000000000000020 /* XCLocalSwiftPackageReference "Packages/BiliKitCore" */;
 			productName = BiliDanmaku;
+		};
+		A1000000000000000000001B /* BiliVideoCollectionUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A10000000000000000000020 /* XCLocalSwiftPackageReference "Packages/BiliKitCore" */;
+			productName = BiliVideoCollectionUI;
 		};
 		A20000000000000000000002 /* Sparkle */ = {
 			isa = XCSwiftPackageProductDependency;

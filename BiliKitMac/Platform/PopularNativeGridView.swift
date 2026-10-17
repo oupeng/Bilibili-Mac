@@ -1,5 +1,6 @@
 import BiliBrowseFeature
 import BiliModels
+import BiliVideoCollectionUI
 import Foundation
 import SwiftUI
 

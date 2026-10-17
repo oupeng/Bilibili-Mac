@@ -1,5 +1,6 @@
 import AppKit
 import BiliNetworking
+import BiliVideoCollectionUI
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -668,6 +669,29 @@ final class NativeVideoImagePipeline: Sendable {
             guard !state.isShutdown else { return false }
             state.cache.insert(image, animation: animation, for: key)
             return true
+        }
+    }
+}
+
+/// 卡片与网格经 `NativeVideoImageLoading` 取图：只用封面与头像两种用途，结果只带第一帧与是否淡入。
+extension NativeVideoImagePipeline: NativeVideoImageLoading {
+    func cachedImage(for url: URL, kind: NativeVideoCardImageKind) -> CGImage? {
+        cachedImage(for: url, variant: NativeVideoImageVariant(kind))
+    }
+
+    func image(for url: URL, kind: NativeVideoCardImageKind) async -> NativeVideoCardImage? {
+        guard let result = await image(for: url, variant: NativeVideoImageVariant(kind)) else {
+            return nil
+        }
+        return NativeVideoCardImage(image: result.image, fadesIn: result.origin.shouldFadeIn)
+    }
+}
+
+extension NativeVideoImageVariant {
+    init(_ kind: NativeVideoCardImageKind) {
+        switch kind {
+        case .cover: self = .cover
+        case .avatar: self = .avatar
         }
     }
 }

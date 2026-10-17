@@ -2,6 +2,7 @@ import AppKit
 import BiliApplication
 import BiliBrowseFeature
 import BiliModels
+import BiliVideoCollectionUI
 import Foundation
 
 @MainActor

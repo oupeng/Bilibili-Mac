@@ -1,21 +1,29 @@
 /// 自动分页的尾部状态；`tailIdentity` 标识当前最后一页，变化即视为新尾部。
-struct NearEndTailState<Identity: Equatable>: Equatable {
-    let canLoadMore: Bool
-    let tailIdentity: Identity?
-    let isLoading: Bool
+public struct NearEndTailState<Identity: Equatable>: Equatable {
+    public let canLoadMore: Bool
+    public let tailIdentity: Identity?
+    public let isLoading: Bool
 
-    static var end: Self {
+    public init(canLoadMore: Bool, tailIdentity: Identity?, isLoading: Bool) {
+        self.canLoadMore = canLoadMore
+        self.tailIdentity = tailIdentity
+        self.isLoading = isLoading
+    }
+
+    public static var end: Self {
         Self(canLoadMore: false, tailIdentity: nil, isLoading: false)
     }
 }
+
+extension NearEndTailState: Sendable where Identity: Sendable {}
 
 /// 网格与评论侧栏共用的近尾部自动分页。
 ///
 /// 进入阈值时每个尾部只触发一次，加载中不触发；新尾部到来时视野仍在阈值内的处理由
 /// `TailChangeInsideThreshold` 决定。一次实时滚动手势最多自动加载一页。
-struct NearEndPagination<Identity: Equatable> {
+public struct NearEndPagination<Identity: Equatable> {
     /// 新尾部到来时视野仍在阈值内的处理。
-    enum TailChangeInsideThreshold {
+    public enum TailChangeInsideThreshold: Sendable {
         /// 先离开阈值再为新尾部布防：阈值比一页矮的调用方（评论侧栏）用它避免短页接连触发。
         case requiresExit
         /// 立即布防：网格的阈值是 1.5 屏，可能比一页还高，否则到底后不再翻页；仍受每尾部一次、
@@ -29,17 +37,17 @@ struct NearEndPagination<Identity: Equatable> {
     private var triggeredTailIdentity: Identity?
     private var requiresNewGesture = false
 
-    init(tailChangeInsideThreshold: TailChangeInsideThreshold) {
+    public init(tailChangeInsideThreshold: TailChangeInsideThreshold) {
         self.tailChangeInsideThreshold = tailChangeInsideThreshold
     }
 
     /// 新的实时滚动手势开始或内容整体替换时解除背压。
-    mutating func releaseBackpressure() {
+    public mutating func releaseBackpressure() {
         requiresNewGesture = false
     }
 
     /// 返回 true 表示调用方应立即请求下一页。
-    mutating func shouldLoadMore(
+    public mutating func shouldLoadMore(
         isInsideThreshold: Bool,
         state: NearEndTailState<Identity>,
         isLiveScrolling: Bool
@@ -54,7 +62,7 @@ struct NearEndPagination<Identity: Equatable> {
         return true
     }
 
-    mutating func reset() {
+    public mutating func reset() {
         tailIdentity = nil
         wasInsideThreshold = false
         triggeredTailIdentity = nil
@@ -91,3 +99,5 @@ struct NearEndPagination<Identity: Equatable> {
         return true
     }
 }
+
+extension NearEndPagination: Sendable where Identity: Sendable {}

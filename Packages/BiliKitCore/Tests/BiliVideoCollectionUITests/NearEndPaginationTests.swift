@@ -1,6 +1,6 @@
 import Testing
 
-@testable import BiliKit
+@testable import BiliVideoCollectionUI
 
 struct NearEndPaginationTests {
     enum Step: CustomStringConvertible, Sendable {

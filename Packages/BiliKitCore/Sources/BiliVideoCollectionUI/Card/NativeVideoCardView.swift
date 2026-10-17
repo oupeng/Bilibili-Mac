@@ -4,7 +4,7 @@ import CoreGraphics
 import QuartzCore
 
 extension NSUserInterfaceItemIdentifier {
-    static let nativeVideoCard = Self("native.video-card")
+    public static let nativeVideoCard = Self("native.video-card")
 }
 
 struct NativeVideoCardFooterWidths: Equatable {
@@ -103,7 +103,7 @@ struct NativeVideoSingleLineWidthCache {
 }
 
 @MainActor
-final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHoverableCollectionItem {
+public final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHoverableCollectionItem {
     private enum ImagePhase: Equatable {
         case idle
         case loading(URL)
@@ -122,23 +122,23 @@ final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHoverableColl
     private var activation: ((String) -> Void)?
     private var hoverChanged: ((NativeVideoCollectionItem, Bool) -> Void)?
 
-    override var isSelected: Bool {
+    public override var isSelected: Bool {
         didSet { card.setSelected(isSelected) }
     }
 
-    override var highlightState: NSCollectionViewItem.HighlightState {
+    public override var highlightState: NSCollectionViewItem.HighlightState {
         didSet { card.setPressed(highlightState == .forSelection) }
     }
 
     var representedVideoID: String? { currentPresentation?.id }
 
-    override func loadView() {
+    public override func loadView() {
         view = card
     }
 
-    func configure(
+    public func configure(
         presentation: NativeVideoCardPresentation,
-        imagePipeline: NativeVideoImagePipeline,
+        imagePipeline: any NativeVideoImageLoading,
         hoverChanged: @escaping (NativeVideoCollectionItem, Bool) -> Void,
         activation: @escaping (String) -> Void
     ) {
@@ -193,7 +193,7 @@ final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHoverableColl
         )
     }
 
-    override func prepareForReuse() {
+    public override func prepareForReuse() {
         super.prepareForReuse()
         invalidate()
     }
@@ -203,7 +203,7 @@ final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHoverableColl
         avatarTask?.cancel()
     }
 
-    func invalidateImageRequests() {
+    public func invalidateImageRequests() {
         coverTask?.cancel()
         avatarTask?.cancel()
         if case .loading = coverPhase { coverPhase = .idle }
@@ -214,7 +214,7 @@ final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHoverableColl
         avatarTask = nil
     }
 
-    func invalidate() {
+    public func invalidate() {
         invalidateImageRequests()
         generation &+= 1
         currentPresentation = nil
@@ -227,8 +227,8 @@ final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHoverableColl
         hoverChanged = nil
     }
 
-    func setHovered(_ isHovered: Bool) { card.setHovered(isHovered) }
-    func clearHover() { card.setHovered(false) }
+    public func setHovered(_ isHovered: Bool) { card.setHovered(isHovered) }
+    public func clearHover() { card.setHovered(false) }
     func setKeyboardFocusVisible(_ isVisible: Bool) {
         card.setKeyboardFocusVisible(isVisible)
     }
@@ -237,17 +237,17 @@ final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHoverableColl
     private func restartMissingImageRequests(
         presentation: NativeVideoCardPresentation,
         identity: NativeVideoReuseIdentity,
-        pipeline: NativeVideoImagePipeline
+        pipeline: any NativeVideoImageLoading
     ) {
         if let coverURL = presentation.coverURL, coverPhase == .idle {
-            if let cached = pipeline.cachedImage(for: coverURL, variant: .cover) {
+            if let cached = pipeline.cachedImage(for: coverURL, kind: .cover) {
                 coverPhase = .loaded(coverURL)
                 card.setCover(cached, animated: false)
             } else {
                 coverPhase = .loading(coverURL)
                 coverTask = loadImage(
                     at: coverURL,
-                    variant: .cover,
+                    kind: .cover,
                     identity: identity,
                     pipeline: pipeline
                 ) { [weak self] result in
@@ -255,7 +255,7 @@ final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHoverableColl
                     coverTask = nil
                     if let result {
                         coverPhase = .loaded(coverURL)
-                        card.setCover(result.image, animated: result.origin.shouldFadeIn)
+                        card.setCover(result.image, animated: result.fadesIn)
                     } else {
                         coverPhase = .failed(coverURL)
                     }
@@ -266,7 +266,7 @@ final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHoverableColl
             let avatarURL = presentation.avatarURL,
             avatarPhase == .idle
         {
-            if let cached = pipeline.cachedImage(for: avatarURL, variant: .avatar) {
+            if let cached = pipeline.cachedImage(for: avatarURL, kind: .avatar) {
                 avatarPhase = .loaded(avatarURL)
                 card.setAvatar(cached, animated: false)
                 return
@@ -274,7 +274,7 @@ final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHoverableColl
             avatarPhase = .loading(avatarURL)
             avatarTask = loadImage(
                 at: avatarURL,
-                variant: .avatar,
+                kind: .avatar,
                 identity: identity,
                 pipeline: pipeline
             ) { [weak self] result in
@@ -282,7 +282,7 @@ final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHoverableColl
                 avatarTask = nil
                 if let result {
                     avatarPhase = .loaded(avatarURL)
-                    card.setAvatar(result.image, animated: result.origin.shouldFadeIn)
+                    card.setAvatar(result.image, animated: result.fadesIn)
                 } else {
                     avatarPhase = .failed(avatarURL)
                 }
@@ -292,13 +292,13 @@ final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHoverableColl
 
     private func loadImage(
         at url: URL,
-        variant: NativeVideoImageVariant,
+        kind: NativeVideoCardImageKind,
         identity: NativeVideoReuseIdentity,
-        pipeline: NativeVideoImagePipeline,
-        apply: @escaping @MainActor (NativeVideoImageLoadResult?) -> Void
+        pipeline: any NativeVideoImageLoading,
+        apply: @escaping @MainActor (NativeVideoCardImage?) -> Void
     ) -> Task<Void, Never> {
         Task { [weak self] in
-            let result = await pipeline.image(for: url, variant: variant)
+            let result = await pipeline.image(for: url, kind: kind)
             guard
                 NativeVideoImageApplicationGate.accepts(
                     currentIdentity: self?.reuseIdentity,
@@ -374,7 +374,7 @@ final class NativeVideoCardView: NSView {
         )
         setAccessibilityLabel(presentation.accessibilityLabel)
         setAccessibilityHelp(presentation.accessibilityHelp)
-        setAccessibilityValue(selected ? AppStrings.localized("已选择") : nil)
+        setAccessibilityValue(selected ? VideoCardAccessibilityText.selectedValue : nil)
         needsLayout = true
     }
 
@@ -388,7 +388,7 @@ final class NativeVideoCardView: NSView {
 
     func setSelected(_ selected: Bool) {
         self.selected = selected
-        setAccessibilityValue(selected ? AppStrings.localized("已选择") : nil)
+        setAccessibilityValue(selected ? VideoCardAccessibilityText.selectedValue : nil)
         updateInteractionAppearance()
     }
 

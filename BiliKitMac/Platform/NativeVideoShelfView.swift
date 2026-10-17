@@ -1,5 +1,6 @@
 import AppKit
 import BiliUI
+import BiliVideoCollectionUI
 import SwiftUI
 
 /// 横排的分页与滚动换算；尺寸常量来自 `VideoCardShelfGeometry`。

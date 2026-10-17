@@ -1,6 +1,7 @@
 import AppKit
 import BiliBrowseFeature
 import BiliModels
+import BiliVideoCollectionUI
 
 /// 原生列表需要的全部展示值；加载、失败等状态由 SwiftUI 覆盖层负责，这里只画头部与已加载的行。
 struct UploaderSpaceListContent: Equatable {

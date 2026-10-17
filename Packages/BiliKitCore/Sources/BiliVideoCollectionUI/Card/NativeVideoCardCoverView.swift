@@ -447,14 +447,14 @@ final class NativeVideoMergedCoverView: NSView {
 }
 
 @MainActor
-final class NativeVideoLayerImageView: NSView {
+public final class NativeVideoLayerImageView: NSView {
     private let placeholderSystemSymbolName: String
     private let placeholderTintColor: NSColor
     private let placeholderLayer = CALayer()
     private let imageLayer = CALayer()
     private var imageGeneration: UInt64 = 0
 
-    init(
+    public init(
         placeholderSystemSymbolName: String,
         placeholderTintColor: NSColor
     ) {
@@ -483,11 +483,11 @@ final class NativeVideoLayerImageView: NSView {
         setImage(nil, animated: false)
     }
 
-    required init?(coder: NSCoder) {
+    public required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func layout() {
+    public override func layout() {
         super.layout()
         let size = bounds.size
         placeholderLayer.frame = NSRect(
@@ -501,17 +501,17 @@ final class NativeVideoLayerImageView: NSView {
         imageLayer.contentsScale = window?.backingScaleFactor ?? 2
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         refreshPlaceholderImage()
     }
 
-    override func viewDidMoveToWindow() {
+    public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         needsLayout = true
     }
 
-    func setImage(_ image: CGImage?, animated: Bool) {
+    public func setImage(_ image: CGImage?, animated: Bool) {
         imageGeneration &+= 1
         let generation = imageGeneration
         imageLayer.removeAnimation(forKey: "native-video-image.fade")

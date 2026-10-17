@@ -1,4 +1,5 @@
 import BiliLibraryFeature
+import BiliVideoCollectionUI
 import SwiftUI
 
 struct HistoryNativeGridView: View {

@@ -2,6 +2,7 @@ import AppKit
 import BiliBrowseFeature
 import BiliModels
 import BiliUI
+import BiliVideoCollectionUI
 
 @MainActor
 final class NativePlaybackSidebarUploaderItem: NSCollectionViewItem {

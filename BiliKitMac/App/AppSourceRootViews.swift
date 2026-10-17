@@ -2,6 +2,7 @@ import BiliApplication
 import BiliAuthFeature
 import BiliBrowseFeature
 import BiliLibraryFeature
+import BiliVideoCollectionUI
 import SwiftUI
 
 struct RecommendedTabRoot: View {
