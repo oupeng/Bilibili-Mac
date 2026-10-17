@@ -38,13 +38,8 @@ struct FeedRefreshTests {
         await model.waitForCurrentTask()
         await appendGate.open()
 
-        guard case .loaded(.popular(let page)) = model.state else {
-            Issue.record("刷新后的热门榜单应保持 loaded")
-            return
-        }
-        #expect(page.videos.map(\.bvid) == [fresh.bvid])
-        #expect(page.pageNumber == 1)
-        #expect(!page.hasMore)
+        #expect(BrowseFeed.popular.loadedBVIDs(model) == [fresh.bvid])
+        #expect(!model.pagination(for: .popular(page: 1, pageSize: 50)).canLoadMore)
         #expect(model.successfulRefreshGeneration(for: .popular) == 1)
     }
 
@@ -67,7 +62,7 @@ struct FeedRefreshTests {
             model.successfulRefreshGeneration(for: .popular)
 
         model.refreshPopular(pageSize: 50)
-        #expect(model.state == loadedState)
+        #expect(BrowseFeed.popular.loadedBVIDs(model) == [fixture.bvid])
         #expect(model.isRefreshing)
         await model.waitForCurrentTask()
 

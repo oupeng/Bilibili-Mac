@@ -33,18 +33,8 @@ struct FeedWorksetTests {
         await model.waitForCurrentTask()
         await searchGate.open()
 
-        #expect(
-            model.state
-                == .loaded(
-                    .popular(
-                        PopularPage(
-                            videos: [fixture.popularVideo],
-                            pageNumber: 1,
-                            pageSize: 20
-                        )
-                    )
-                )
-        )
+        #expect(model.activeRequestIdentity == .popular(page: 1, pageSize: 20))
+        #expect(BrowseFeed.popular.loadedBVIDs(model) == [fixture.bvid])
     }
 
     @Test
@@ -74,21 +64,12 @@ struct FeedWorksetTests {
 
         model.retry(.search(query: "macOS", page: 1))
         await model.waitForCurrentTask()
-        #expect(
-            model.state
-                == .loaded(
-                    .search(
-                        query: "macOS",
-                        page: SearchPage(
-                            videos: [fixture.searchVideo],
-                            pageNumber: 1,
-                            pageSize: 20,
-                            totalResults: 1,
-                            totalPages: 1
-                        )
-                    )
-                )
-        )
+        guard case .loaded(.search(let query, _)) = model.state else {
+            Issue.record("重试后搜索应为 loaded")
+            return
+        }
+        #expect(query == "macOS")
+        #expect(BrowseFeed.search.loadedBVIDs(model) == [fixture.bvid])
     }
 
     /// 新关键词与同关键词换筛选条件都开启新的第 1 页工作集。
@@ -132,13 +113,12 @@ struct FeedWorksetTests {
         await model.waitForCurrentTask()
         await oldAppendGate.open()
 
-        guard case .loaded(.search(let query, let page)) = model.state else {
+        guard case .loaded(.search(let query, _)) = model.state else {
             Issue.record("新搜索应保持 loaded")
             return
         }
         #expect(query == newCriteria.query)
-        #expect(page.pageNumber == 1)
-        #expect(page.videos.map(\.bvid) == [fresh.bvid])
+        #expect(BrowseFeed.search.loadedBVIDs(model) == [fresh.bvid])
         #expect(
             model.activeRequestIdentity
                 == .search(VideoSearchRequest(criteria: newCriteria, page: 1))
@@ -180,8 +160,9 @@ struct FeedWorksetTests {
         #expect(await repository.popularPages == [1, 2])
         #expect(await repository.searchRequests.count == 1)
         #expect(
-            model.presentation(for: .search(query: "macOS", page: 1)).state
-                == .loaded(.search(query: "macOS", page: searchFixture.searchPage()))
+            BrowseFeed.search.loadedBVIDs(
+                in: model.presentation(for: .search(query: "macOS", page: 1)).state
+            ) == [searchFixture.bvid]
         )
     }
 

@@ -140,8 +140,9 @@ struct WatchHistoryContentView: View {
         HistoryNativeGridView(
             content: LoadedHistoryContent(
                 items: items.map { WatchHistoryCardPresentation(item: $0, locale: locale) },
+                // 尾标只在可自动加载时存在：显式继续门、加载更多失败与原地刷新都暂停近尾触发。
                 tailState: NativeVideoGridTailState(
-                    canLoadMore: canLoadMore && !requiresManualLoadMore,
+                    canLoadMore: model.paginationTailIdentity != nil,
                     tailIdentity: model.paginationTailIdentity,
                     isLoading: isLoadingMore
                 ),
