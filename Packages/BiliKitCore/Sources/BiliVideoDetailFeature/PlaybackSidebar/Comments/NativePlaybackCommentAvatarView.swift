@@ -29,6 +29,10 @@ enum NativeCommentAvatarMark: Equatable {
     }
 }
 
+/// 评论作者头像：圆形头像、加载中与失败时的剪影占位，以及右下角的身份角标（遮罩在角标周围抠出缝隙）。
+///
+/// 拥有头像加载 Task 与它的代次 `imageGeneration`：每次配置、释放或复位时递增并取消在途请求；到达的头像只在代次
+/// 与头像引用都仍相同时显示，否则丢弃。新到的头像按 `fadesIn` 淡入，淡入结束且代次未变才隐藏占位。
 @MainActor
 final class NativePlaybackCommentAvatarView: NSView {
     override var isFlipped: Bool { true }

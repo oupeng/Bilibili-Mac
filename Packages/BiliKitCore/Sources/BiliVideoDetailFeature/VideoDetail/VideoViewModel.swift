@@ -51,11 +51,11 @@ public struct PlaybackResumeNotice: Sendable, Equatable {
     }
 }
 
-@MainActor
-@Observable
 /// 拥有单个视频准备意图，并把内容准备与播放器安装串成同一个可替换的 Task。
 ///
 /// 新视频、重试或 reset 都使旧任务失效；旧任务即使忽略取消，也不能覆盖当前状态。
+@MainActor
+@Observable
 public final class VideoViewModel {
     public private(set) var state: VideoLoadState = .idle
     public var failedPageCID: Int64? {

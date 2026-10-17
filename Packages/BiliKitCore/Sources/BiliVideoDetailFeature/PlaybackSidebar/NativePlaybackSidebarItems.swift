@@ -2,6 +2,7 @@ import AppKit
 import BiliModels
 import BiliUI
 
+/// 侧栏非评论条目的尺寸常量与高度测量；测量与各条目的 `layout()` 共用同一组几何，缓存的行高不会与实际布局漂移。
 @MainActor
 enum NativePlaybackSidebarItemMeasurement {
     static let avatarSize: CGFloat = 48
@@ -314,6 +315,9 @@ final class NativePlaybackSidebarReadOnlyTextView: NSTextView, NSTextViewDelegat
     }
 }
 
+/// 评论不可用时的占位条目。
+///
+/// 集合视图注册了它，但当前没有条目身份会产生它（`makeItem` 不创建）。
 @MainActor
 final class NativePlaybackSidebarUnavailableItem: NSCollectionViewItem {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier(
@@ -356,6 +360,7 @@ final class NativePlaybackSidebarUnavailableItem: NSCollectionViewItem {
     }
 }
 
+/// 自上而下排版的容器视图，侧栏条目的根视图用它，坐标与布局计算的方向一致。
 @MainActor
 final class NativePlaybackSidebarFlippedView: NSView {
     override var isFlipped: Bool { true }

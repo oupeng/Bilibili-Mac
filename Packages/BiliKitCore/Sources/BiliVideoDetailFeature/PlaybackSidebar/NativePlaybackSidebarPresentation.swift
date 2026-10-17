@@ -3,6 +3,9 @@ import BiliModels
 import CoreGraphics
 import Foundation
 
+/// 侧栏一次呈现的全部内容：UP 主名片、简介、选集与评论的投影。
+///
+/// 由 `NativePlaybackSidebarView` 从 `VideoViewModel` 与 `PlaybackCommentsViewModel` 读出；只是值，不拥有任何状态。
 struct NativePlaybackSidebarContent: Equatable {
     let bvid: String
     let uploader: VideoUploaderHeaderContent
@@ -15,6 +18,9 @@ struct NativePlaybackSidebarContent: Equatable {
     let timestampLimitSeconds: Int?
 }
 
+/// 盖在侧栏内容上的状态层：加载中、可重试的失败或不可用。
+///
+/// 除 `.none` 外都挡住内容，集合视图隐藏并交出焦点。
 enum NativePlaybackSidebarOverlay: Equatable {
     case none
     case loading(label: String)
@@ -65,11 +71,13 @@ extension NativePlaybackSidebarOverlay {
     }
 }
 
+/// 侧栏控制器的输入：内容（可能为空）与覆盖层；分区、条目身份与变化的条目都由它推导。
 struct NativePlaybackSidebarPresentation: Equatable {
     let content: NativePlaybackSidebarContent?
     let overlay: NativePlaybackSidebarOverlay
 }
 
+/// 集合视图的语义分区；顺序固定为名片、简介、选集、评论，没有内容的分区不出现。
 enum NativePlaybackSidebarSectionID: Hashable {
     case uploader
     case summary
@@ -77,6 +85,10 @@ enum NativePlaybackSidebarSectionID: Hashable {
     case comments
 }
 
+/// diffable 数据源的条目身份。
+///
+/// 视频相关的条目按 BVID 区分，评论按评论对象（subject）与根评论 ID 区分：换视频或换评论对象时身份变化、整项
+/// 替换，同一对象内追加的评论保持原有身份，行高缓存与阅读锚点据此延续。
 enum NativePlaybackSidebarItemID: Hashable {
     case uploader(bvid: String)
     case summary(bvid: String)
@@ -87,6 +99,7 @@ enum NativePlaybackSidebarItemID: Hashable {
     case commentsFooter(subject: CommentSubjectIdentity)
 }
 
+/// 评论区没有评论列表时显示的状态行。
 enum NativePlaybackCommentsStateKind: Hashable {
     case idle
     case loading
@@ -96,11 +109,13 @@ enum NativePlaybackCommentsStateKind: Hashable {
     case failed(CommentReadError)
 }
 
+/// 一个分区及其条目，供更新策略比较当前快照与下一快照。
 struct NativePlaybackSidebarSnapshotSection: Equatable {
     let id: NativePlaybackSidebarSectionID
     let items: [NativePlaybackSidebarItemID]
 }
 
+/// 一次呈现更新落到集合视图的方式，由 `NativePlaybackSidebarCollectionUpdatePolicy` 选出。
 enum NativePlaybackSidebarCollectionUpdateStrategy: Equatable {
     case none
     case reloadChangedItems
@@ -108,6 +123,9 @@ enum NativePlaybackSidebarCollectionUpdateStrategy: Equatable {
     case replaceSnapshot
 }
 
+/// 选择更新方式：结构不变只重载变化的行；评论在页脚之前追加时走追加路径（先更新布局，再在时长 0 的动画组里按差异插入，阅读位置不跳）；其余整体替换快照。
+///
+/// 上一个快照还在应用中时一律整体替换，避免在未完成的快照上做增量。
 enum NativePlaybackSidebarCollectionUpdatePolicy {
     static func resolve(
         current: [NativePlaybackSidebarSnapshotSection],
@@ -272,6 +290,7 @@ extension NativePlaybackSidebarPresentation {
     }
 }
 
+/// 换到另一个视频（BVID 变化且新值非空）时侧栏回到顶部；同一视频内的更新保持阅读位置。
 enum NativePlaybackSidebarIdentityPolicy {
     static func resetsToTop(
         previousBVID: String?,
@@ -281,6 +300,8 @@ enum NativePlaybackSidebarIdentityPolicy {
     }
 }
 
+/// 评论分页或页脚变化时按评论锚点保持相对位置，而不是跟随底部：同一评论对象、同一排序、都已加载，且页脚
+/// 变化，或新列表更长并以旧列表为前缀。
 enum NativePlaybackCommentsAnchorPolicy {
     static func preservesRelativePosition(
         previous: NativePlaybackCommentsPresentation?,
@@ -299,7 +320,9 @@ enum NativePlaybackCommentsAnchorPolicy {
     }
 }
 
+/// 判断视口是否贴在底部；贴底时更新后继续贴底，否则按语义锚点恢复。
 enum NativePlaybackSidebarAnchorPolicy {
+    /// 距底部 2pt 以内算贴底：吸收布局取整误差，又不会把离底部还有一行的位置误判为贴底。
     private static let bottomTolerance: CGFloat = 2
 
     static func isBottomPinned(

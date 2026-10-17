@@ -201,6 +201,9 @@ public struct NativePlaybackSidebarView: View {
     }
 }
 
+/// 侧栏条目可以触发的全部动作：由 `NativePlaybackSidebarView` 接到 ViewModel 或 App 回调，控制器只转发。
+///
+/// 两个空间入口为 nil 时不显示对应入口。
 struct NativePlaybackSidebarActions {
     let selectEpisode: (VideoCollectionEpisodeIdentity) -> Void
     let selectPage: (String, Int64) -> Void
@@ -219,6 +222,8 @@ struct NativePlaybackSidebarActions {
     var openCommentAuthorSpace: ((CommentAuthor) -> Void)? = nil
 }
 
+/// 把侧栏控制器挂进 SwiftUI：控制器作为 coordinator 随视图创建，`dismantleNSView` 时 `tearDown`；
+/// 被空间层盖住时直接隐藏 AppKit 根视图（理由见 `NativePlaybackSidebarView.isObscured`）。
 private struct NativePlaybackSidebarRepresentable: NSViewRepresentable {
     let presentation: NativePlaybackSidebarPresentation
     let commentAssetURLResolver: CommentAssetURLResolver
@@ -257,6 +262,7 @@ private struct NativePlaybackSidebarRepresentable: NSViewRepresentable {
     }
 }
 
+/// 侧栏的 AppKit 根视图：承载带“返回顶部”按钮的滚动视图，布局后把视口尺寸告诉控制器（宽度变化触发重排）。
 @MainActor
 final class NativePlaybackSidebarRootView: NSView {
     let scrollView = NativeScrollToTopScrollView(

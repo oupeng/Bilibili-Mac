@@ -1,12 +1,14 @@
 import AppKit
 import BiliModels
 
+/// 评论图片的一个格子：图片引用与原始像素尺寸；接口给了数量却没给图片时引用为 nil，格子显示占位、不可点。
 struct NativePlaybackCommentPictureSlot: Equatable {
     let reference: CommentAssetReference?
     let pixelWidth: Int?
     let pixelHeight: Int?
 }
 
+/// 按接口给的位置把图片放进格子，最多 9 格；没有位置的按出现顺序，同一位置只取第一张。
 struct NativePlaybackCommentPictureSlots {
     static func slots(
         images: [CommentImage],
@@ -36,7 +38,12 @@ struct NativePlaybackCommentPictureSlots {
     }
 }
 
+/// 评论图片的流式排版，是格子尺寸与行高测量的唯一来源：每张按原图一半（2x 素材）显示，再等比缩进可用宽度与最大高度，不放大；放不下时换行。
+///
+/// 没有尺寸的格子用固定边长的正方形。
 struct NativePlaybackCommentPictureLayout: Equatable {
+    /// 图片区的最大宽度与单张最大高度，按官方网页评论区的图片流取值；列表请求的缩小图框按它们的 2 倍
+    /// （`NativePlaybackCommentAssetSizing`）。
     static let maximumContentWidth: CGFloat = 364
     static let maximumImageHeight: CGFloat = 180
     static let gap: CGFloat = 4
@@ -136,6 +143,9 @@ public struct NativePlaybackCommentPictureGallery {
     let restoreFocus: () -> Void
 }
 
+/// 评论里的图片区：最多 9 个可点的格子，点开时把这条评论里有图片引用的格子交给 `onOpen`（App 打开预览），关闭预览后焦点只在格子仍显示同一张图时交还。
+///
+/// 各格子自己拥有取图 Task 与动图播放。
 @MainActor
 final class NativePlaybackCommentPicturesView: NSView {
     nonisolated override var isFlipped: Bool { true }
@@ -240,6 +250,11 @@ final class NativePlaybackCommentPicturesView: NSView {
     }
 }
 
+/// 一个图片格子：拥有取图 Task 与代次 `imageGeneration`、动图播放与 GIF 角标。
+///
+/// 每次配置、释放或复位时递增代次并取消在途请求；到达的图片只在代次与引用都仍相同时显示。新到的图片按
+/// `fadesIn` 淡入，占位底色在淡入结束且代次未变时才撤下；动图只在格子真正可见时播放（见
+/// `NativeAnimatedImagePlayback`）。用按钮是为了键盘焦点与 VoiceOver 的按下操作。
 @MainActor
 private final class NativePlaybackCommentPictureTileView: NSButton {
     nonisolated override var isFlipped: Bool { true }

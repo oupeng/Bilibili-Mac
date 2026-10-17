@@ -18,6 +18,7 @@ struct UploaderSpaceListContent: Equatable {
     let reservesPagerSpace: Bool
 }
 
+/// 空间列表的用户动作：返回详情、切换排序、选择投稿；由 `UploaderSpaceSidebarView` 接到 ViewModel 与 App 回调。
 struct UploaderSpaceListActions {
     let close: () -> Void
     let selectOrder: (UploaderVideoOrder) -> Void
@@ -30,11 +31,18 @@ struct UploaderSpaceListActions {
     )
 }
 
+/// 列表条目身份：头部固定一个，投稿行按 BVID 区分。
 enum UploaderSpaceListItemID: Hashable, Sendable {
     case header
     case video(String)
 }
 
+/// UP 主空间列表的 `NSCollectionView` 协调器：头部与投稿行在同一个集合视图里，拥有 diffable 数据源、悬停与
+/// 滚动观察；行高固定，不需要测量缓存。
+///
+/// 投稿数据、排序与分页归 `UploaderSpaceViewModel`；加载、空、失败与登录提示由 SwiftUI 覆盖层负责。取图经注入的
+/// port。`tearDown` 由 `UploaderSpaceSidebarView` 在视图拆除时调用一次：移除观察、清掉悬停并取消可见项的图片
+/// 请求，之后的 `update` 直接返回。用 AppKit 的理由见 ARCHITECTURE「原生 AppKit 集合视图」。
 @MainActor
 final class UploaderSpaceListController: NSObject, NSCollectionViewDelegateFlowLayout {
     private enum Section: Int, Hashable, Sendable {
@@ -94,8 +102,6 @@ final class UploaderSpaceListController: NSObject, NSCollectionViewDelegateFlowL
             (item as? UploaderSpaceHeaderItem)?.invalidateImageRequests()
         }
     }
-
-    // MARK: - Collection view
 
     private func configureCollectionView() {
         layout.minimumLineSpacing = UploaderSpaceGeometry.rowSpacing
@@ -259,8 +265,6 @@ final class UploaderSpaceListController: NSObject, NSCollectionViewDelegateFlowL
             header.invalidateImageRequests()
         }
     }
-
-    // MARK: - Scrolling
 
     private func viewportDidScroll() {
         guard !isTornDown else { return }

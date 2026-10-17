@@ -2,10 +2,12 @@ import AppKit
 import BiliModels
 import CoreText
 
+/// 评论作者名字后的标记：性别、等级（硬核会员带闪电）与 UP 主，用 Core Text 绘制，不为每个标记建子视图。
 @MainActor
 final class NativePlaybackCommentAuthorBadgesView: NSView {
     override var isFlipped: Bool { true }
 
+    /// 一个标记的文字与配色；宽度由文字与水平内边距算出。
     struct Segment {
         let text: String
         let foreground: NSColor
@@ -218,6 +220,7 @@ final class NativePlaybackCommentAuthorBadgesView: NSView {
     }
 }
 
+/// 评论来源标记（置顶、UP 主觉得很赞）：按顺序在一行里绘制成圆角标签；读屏把它们合成一句标签。
 @MainActor
 final class NativePlaybackCommentProvenanceBadgesView: NSView {
     override var isFlipped: Bool { true }

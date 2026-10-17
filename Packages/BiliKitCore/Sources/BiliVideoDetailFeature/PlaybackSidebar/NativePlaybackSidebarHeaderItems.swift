@@ -3,6 +3,10 @@ import BiliModels
 import BiliUI
 import BiliVideoCollectionUI
 
+/// 侧栏顶部的 UP 主名片条目：头像、名字、签名与进入空间的入口。
+///
+/// 内容视图拥有头像加载 Task；复用前（`prepareForReuse`）与离屏（控制器在条目结束显示时调用
+/// `releaseOffscreenResources`）取消并放下图片。
 @MainActor
 final class NativePlaybackSidebarUploaderItem: NSCollectionViewItem {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier(
@@ -39,6 +43,9 @@ final class NativePlaybackSidebarUploaderItem: NSCollectionViewItem {
     }
 }
 
+/// 名片的内容视图：拥有头像加载 Task 与它的代次，以及头像与名字这一行的可点区域。
+///
+/// `generation` 在每次取消或重新加载头像时递增；到达的头像只在代次与地址都仍相同时显示，否则丢弃。
 @MainActor
 private final class NativePlaybackSidebarUploaderView: NSView {
     override var isFlipped: Bool { true }
@@ -261,6 +268,7 @@ private final class NativePlaybackSidebarUploaderView: NSView {
     }
 }
 
+/// 视频简介条目：可选择的正文、链接与时间戳，超过五行时可展开或收起；展开状态由侧栏控制器持有。
 @MainActor
 final class NativePlaybackSidebarSummaryItem: NSCollectionViewItem {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier(
@@ -301,6 +309,7 @@ final class NativePlaybackSidebarSummaryItem: NSCollectionViewItem {
     }
 }
 
+/// 简介的内容视图：持有当前正文、展开状态与动作回调；高度由 `NativePlaybackSummaryGeometry` 决定，与测量一致。
 @MainActor
 private final class NativePlaybackSidebarSummaryView: NSView {
     override var isFlipped: Bool { true }

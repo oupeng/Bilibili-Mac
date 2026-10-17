@@ -5,41 +5,47 @@ import BiliVideoCollectionUI
 
 /// 播放页侧栏的 `NSCollectionView` 协调器：拥有 diffable 数据源、行高缓存、评论分页与滚动状态。
 ///
-/// 窗口级图片管线与评论资源 resolver 由宿主注入，管线的关闭不归这里；`tearDown` 取消细化与分页
-/// Task、移除 observer 并释放可见项资源与数据源。用 AppKit 的理由见 ARCHITECTURE「原生 AppKit 集合视图」。
+/// 窗口级图片管线与评论资源 resolver 由宿主注入，管线的关闭不归这里；评论数据、排序与分页请求归
+/// `PlaybackCommentsViewModel`，这里只把呈现落到集合视图并在近尾时调用 `loadNextComments`。职责按文件拆开：
+/// 单元格（`+Items`）、快照与行高（`+Snapshot`）、视口与锚点（`+Viewport`）、遮挡与焦点（`+Focus`）、
+/// 评论近尾分页（`+Pagination`）。
+///
+/// 只在主线程使用（`@MainActor`）。`tearDown` 由 `NativePlaybackSidebarView` 在视图拆除时调用一次：先递增
+/// 快照代次并取消精测与分页 Task，再交出焦点、移除 observer、释放可见项资源，最后丢掉数据源与 document view；
+/// 之后的 `update` 与回调都直接返回。用 AppKit 的理由见 ARCHITECTURE「原生 AppKit 集合视图」。
 @MainActor
 final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate {
     let rootView = NativePlaybackSidebarRootView()
-    private let collectionView = NSCollectionView()
-    private let layout = NativePlaybackSidebarLayout()
-    private let heightCache = NativePlaybackSidebarHeightCache()
-    private let imagePipeline: any VideoDetailImageLoading
+    let collectionView = NSCollectionView()
+    let layout = NativePlaybackSidebarLayout()
+    let heightCache = NativePlaybackSidebarHeightCache()
+    let imagePipeline: any VideoDetailImageLoading
     private let commentAssetURLResolver: CommentAssetURLResolver
-    private lazy var commentTextRenderer = NativePlaybackCommentTextRenderer(
+    lazy var commentTextRenderer = NativePlaybackCommentTextRenderer(
         imagePipeline: imagePipeline,
         resolveURL: commentAssetURLResolver
     )
-    private lazy var commentAvatarLoader = NativePlaybackCommentAvatarLoader(
+    lazy var commentAvatarLoader = NativePlaybackCommentAvatarLoader(
         imagePipeline: imagePipeline,
         resolveURL: commentAssetURLResolver
     )
-    private lazy var commentPictureLoader = NativePlaybackCommentPictureLoader(
+    lazy var commentPictureLoader = NativePlaybackCommentPictureLoader(
         imagePipeline: imagePipeline,
         resolveURL: commentAssetURLResolver
     )
-    private var dataSource:
+    private(set) var dataSource:
         NSCollectionViewDiffableDataSource<
             NativePlaybackSidebarSectionID,
             NativePlaybackSidebarItemID
         >?
-    private var presentation = NativePlaybackSidebarPresentation(
+    private(set) var presentation = NativePlaybackSidebarPresentation(
         content: nil,
         overlay: .unavailable(
             title: VideoDetailFeatureStrings.localized("没有播放上下文"),
             message: VideoDetailFeatureStrings.localized("返回来源页并重新选择视频。")
         )
     )
-    private var actions = NativePlaybackSidebarActions(
+    private(set) var actions = NativePlaybackSidebarActions(
         selectEpisode: { _ in },
         selectPage: { _, _ in },
         retryPages: {},
@@ -54,27 +60,38 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
         openCommentLink: { _ in },
         openCommentPictures: { _ in }
     )
-    private var itemIDs: [NativePlaybackSidebarItemID] = []
-    private var commentThreadsByItemID:
+    var itemIDs: [NativePlaybackSidebarItemID] = []
+    private(set) var commentThreadsByItemID:
         [NativePlaybackSidebarItemID: NativePlaybackCommentThreadPresentation] = [:]
-    private var commentRenderRevisions: [NativePlaybackSidebarItemID: UInt64] = [:]
-    private var summaryExpanded = false
-    private var browsedSectionID: VideoCollectionSectionIdentity?
+    /// 评论正文重新排版的次数：表情或链接图标加载失败、改回原文时递增（成功到达只在固定尺寸的附件里换图，
+    /// 行高不变）；并入行高缓存的 revision，让这一行重新测量。
+    var commentRenderRevisions: [NativePlaybackSidebarItemID: UInt64] = [:]
+    /// 简介是否展开：侧栏自己的界面状态，不进 ViewModel；换视频时复位。
+    private(set) var summaryExpanded = false
+    /// 正在浏览的合集分区：用户可以翻看别的分区而不切换视频；换视频、所选选集变化或该分区不再存在时，
+    /// 回到所选选集所在的分区，没有所选时取第一个（见 `reconcileBrowsedSection`）。
+    private(set) var browsedSectionID: VideoCollectionSectionIdentity?
+    /// 上次协调浏览分区时的所选选集；选集变化才把浏览分区拉回所选分区，否则保留用户的浏览。
     private var lastSelectedEpisodeID: VideoCollectionEpisodeIdentity?
-    private var measuredViewportWidth: CGFloat = 0
-    private var snapshotGeneration: UInt64 = 0
-    private var refinementGeneration: UInt64 = 0
-    private var refinementTask: Task<Void, Never>?
-    private var paginationTask: Task<Void, Never>?
-    private var commentsPagination = NearEndPagination<NativePlaybackCommentsPaginationIdentity>(
+    /// 上次按它重新布局的视口宽度；变化不足 0.5pt 的尺寸通知忽略，避免重复失效布局。
+    var measuredViewportWidth: CGFloat = 0
+    /// 快照的代次与在途数（含义见 `NativePlaybackSidebarSnapshotTracker`）。
+    let snapshots = NativePlaybackSidebarSnapshotTracker()
+    /// 分批精测行高；本控制器拥有，`cancelRefinement` 与 `tearDown` 取消。
+    let refinement = NativePlaybackSidebarRefinementScheduler()
+    /// 评论分页判断；快照更新、条目原地变化与 `tearDown` 时取消。
+    let pagination = NativePlaybackSidebarPaginationScheduler()
+    /// 评论近尾分页的布防状态：同一尾部只请求一次，离开阈值后才重新布防（阈值比一页评论矮，见 ARCHITECTURE「原生 AppKit 集合视图」）。
+    var commentsPagination = NearEndPagination<NativePlaybackCommentsPaginationIdentity>(
         tailChangeInsideThreshold: .requiresExit
     )
-    private var isLiveScrolling = false
-    private var snapshotApplicationsInFlight = 0
-    private var pendingResetToTop = false
-    private var pendingScrollToComments = false
+    private(set) var isLiveScrolling = false
+    /// 换视频（回到顶部）与换排序（跳到评论区）的视口意图：快照应用完成后才执行，回到顶部优先。
+    var pendingResetToTop = false
+    var pendingScrollToComments = false
+    /// 滚动与实时滚动的通知观察；`tearDown` 时移除。
     private var observers = NativeVideoNotificationObservers()
-    private var isTornDown = false
+    private(set) var isTornDown = false
 
     init(
         commentAssetURLResolver: @escaping CommentAssetURLResolver,
@@ -181,10 +198,9 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
     func tearDown() {
         guard !isTornDown else { return }
         isTornDown = true
-        snapshotGeneration &+= 1
+        snapshots.invalidate()
         cancelRefinement()
-        paginationTask?.cancel()
-        paginationTask = nil
+        pagination.cancel()
         commentsPagination.reset()
         isLiveScrolling = false
         pendingResetToTop = false
@@ -259,162 +275,6 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
         rootView.scrollView.documentView = collectionView
     }
 
-    private func configureUploader(
-        _ item: NativePlaybackSidebarUploaderItem,
-        content: VideoUploaderHeaderContent
-    ) {
-        item.configure(
-            content: content,
-            imagePipeline: imagePipeline,
-            onOpenSpace: actions.openUploaderSpace == nil
-                ? nil : { [weak self] in self?.releasingFocus { $0.actions.openUploaderSpace?() } }
-        )
-    }
-
-    /// 同一视频内可见的 UP 主行原地更新、不整项重载，返回已处理的项。
-    ///
-    /// 重载会换掉视图，名片到达时就没有旧画面可淡出（见 `NativePlaybackUploaderProfileReveal`）。
-    private func reconfigureVisibleUploader(
-        in changedItemIDs: Set<NativePlaybackSidebarItemID>
-    ) -> Set<NativePlaybackSidebarItemID> {
-        guard let content = presentation.content else { return [] }
-        let uploaderID = NativePlaybackSidebarItemID.uploader(bvid: content.bvid)
-        guard changedItemIDs.contains(uploaderID),
-            let indexPath = dataSource?.indexPath(for: uploaderID),
-            let item = collectionView.item(at: indexPath)
-                as? NativePlaybackSidebarUploaderItem
-        else { return [] }
-        configureUploader(item, content: content.uploader)
-        return [uploaderID]
-    }
-
-    private func makeItem(
-        collectionView: NSCollectionView,
-        indexPath: IndexPath,
-        itemID: NativePlaybackSidebarItemID
-    ) -> NSCollectionViewItem? {
-        guard let content = presentation.content else { return nil }
-        switch itemID {
-        case .uploader:
-            guard
-                let item = collectionView.makeItem(
-                    withIdentifier: NativePlaybackSidebarUploaderItem.reuseIdentifier,
-                    for: indexPath
-                ) as? NativePlaybackSidebarUploaderItem
-            else { return nil }
-            configureUploader(item, content: content.uploader)
-            return item
-        case .summary:
-            guard
-                let item = collectionView.makeItem(
-                    withIdentifier: NativePlaybackSidebarSummaryItem.reuseIdentifier,
-                    for: indexPath
-                ) as? NativePlaybackSidebarSummaryItem
-            else { return nil }
-            item.configure(
-                summary: content.summary,
-                links: content.summaryLinks,
-                timestampLimitSeconds: content.timestampLimitSeconds,
-                expanded: summaryExpanded,
-                onToggle: { [weak self] in self?.toggleSummary() },
-                onOpenLink: { [weak self] target in
-                    self?.releasingFocus { $0.actions.openCommentLink(target) }
-                }
-            )
-            return item
-        case .selection:
-            guard
-                let item = collectionView.makeItem(
-                    withIdentifier: NativePlaybackSidebarSelectionItem.reuseIdentifier,
-                    for: indexPath
-                ) as? NativePlaybackSidebarSelectionItem
-            else { return nil }
-            item.configure(
-                projection: content.selection,
-                browsedSectionID: browsedSectionID,
-                onSelectSection: { [weak self] in self?.browseSection($0) },
-                onSelectEpisode: { [weak self] in self?.actions.selectEpisode($0) },
-                onSelectPage: { [weak self] cid in
-                    guard self?.presentation.content?.bvid == content.bvid else { return }
-                    self?.actions.selectPage(content.bvid, cid)
-                },
-                onRetryPages: { [weak self] in self?.actions.retryPages() }
-            )
-            return item
-        case .commentsHeader:
-            guard
-                let item = collectionView.makeItem(
-                    withIdentifier: NativePlaybackCommentsHeaderItem.reuseIdentifier,
-                    for: indexPath
-                ) as? NativePlaybackCommentsHeaderItem
-            else { return nil }
-            item.configure(
-                presentation: content.comments,
-                onSelectSort: { [weak self] in self?.actions.selectCommentSort($0) }
-            )
-            return item
-        case .commentsState(_, let kind):
-            guard
-                let item = collectionView.makeItem(
-                    withIdentifier: NativePlaybackCommentsStateItem.reuseIdentifier,
-                    for: indexPath
-                ) as? NativePlaybackCommentsStateItem
-            else { return nil }
-            item.configure(
-                kind: kind,
-                onRetry: { [weak self] in self?.actions.retryComments() }
-            )
-            return item
-        case .commentThread(_, let rootID):
-            guard
-                let thread = commentThreadsByItemID[itemID],
-                let item = collectionView.makeItem(
-                    withIdentifier: NativePlaybackCommentThreadItem.reuseIdentifier,
-                    for: indexPath
-                ) as? NativePlaybackCommentThreadItem
-            else { return nil }
-            item.configure(
-                presentation: thread,
-                textRenderer: commentTextRenderer,
-                avatarLoader: commentAvatarLoader,
-                pictureLoader: commentPictureLoader,
-                onTextLayoutChange: { [weak self] in
-                    self?.commentTextLayoutDidChange(for: itemID)
-                },
-                onExpand: { [weak self] in self?.actions.expandReplies(rootID) },
-                onCollapse: { [weak self] in self?.actions.collapseReplies(rootID) },
-                onPrevious: { [weak self] in self?.actions.previousReplyPage(rootID) },
-                onNext: { [weak self] in self?.actions.nextReplyPage(rootID) },
-                onRetry: { [weak self] in self?.actions.retryReplies(rootID) },
-                onOpenLink: { [weak self] target in
-                    self?.releasingFocus { $0.actions.openCommentLink(target) }
-                },
-                onOpenPictures: { [weak self] in
-                    self?.actions.openCommentPictures($0)
-                },
-                onOpenAuthorSpace: actions.openCommentAuthorSpace == nil
-                    ? nil
-                    : { [weak self] author in
-                        self?.releasingFocus { $0.actions.openCommentAuthorSpace?(author) }
-                    }
-            )
-            return item
-        case .commentsFooter:
-            guard
-                let item = collectionView.makeItem(
-                    withIdentifier: NativePlaybackCommentsFooterItem.reuseIdentifier,
-                    for: indexPath
-                ) as? NativePlaybackCommentsFooterItem
-            else { return nil }
-            item.configure(
-                footer: content.comments.footer,
-                onRetry: { [weak self] in self?.actions.retryComments() },
-                onLoadMore: { [weak self] in self?.actions.loadNextComments() }
-            )
-            return item
-        }
-    }
-
     private func reconcileBrowsedSection(
         with selection: PlaybackSelectionProjection?
     ) {
@@ -437,542 +297,16 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
         lastSelectedEpisodeID = selection.selectedEpisodeID
     }
 
-    private func applySnapshot(
-        resetToTop: Bool,
-        scrollToComments: Bool,
-        preservesCommentPaginationPosition: Bool,
-        changedItemIDs: Set<NativePlaybackSidebarItemID>
-    ) {
-        guard let dataSource else { return }
-        let currentSnapshot = dataSource.snapshot()
-        let currentSections = currentSnapshot.sectionIdentifiers.map {
-            NativePlaybackSidebarSnapshotSection(
-                id: $0,
-                items: currentSnapshot.itemIdentifiers(inSection: $0)
-            )
-        }
-        let nextSections = presentation.snapshotSections
-        let strategy = NativePlaybackSidebarCollectionUpdatePolicy.resolve(
-            current: currentSections,
-            next: nextSections,
-            changedItemIDs: changedItemIDs,
-            hasSnapshotInFlight: snapshotApplicationsInFlight > 0
-        )
-        guard strategy != .none else {
-            paginationTask?.cancel()
-            paginationTask = nil
-            if !presentation.overlay.blocksContent {
-                scheduleNextCommentsPageIfNeeded()
-            }
-            return
-        }
-        cancelRefinement()
-        paginationTask?.cancel()
-        paginationTask = nil
-        let anchor =
-            resetToTop
-            ? nil
-            : captureAnchor(
-                allowsBottomFollowing: !preservesCommentPaginationPosition
-            )
-        if resetToTop {
-            pendingResetToTop = true
-            pendingScrollToComments = false
-        } else if scrollToComments, !pendingResetToTop {
-            pendingScrollToComments = true
-        }
-        itemIDs = presentation.itemIDs
-        if strategy == .reloadChangedItems {
-            snapshotGeneration &+= 1
-            updateLayoutEntries(invalidating: changedItemIDs)
-            let reloadedItemIDs = changedItemIDs.subtracting(
-                reconfigureVisibleUploader(in: changedItemIDs)
-            )
-            let indexPaths = Set(
-                reloadedItemIDs.compactMap { dataSource.indexPath(for: $0) }
-            )
-            if !indexPaths.isEmpty {
-                collectionView.reloadItems(at: indexPaths)
-            }
-            completeCollectionUpdate(anchor: anchor)
-            return
-        }
-        var snapshot = NSDiffableDataSourceSnapshot<
-            NativePlaybackSidebarSectionID,
-            NativePlaybackSidebarItemID
-        >()
-        for section in presentation.sections {
-            snapshot.appendSections([section.id])
-            snapshot.appendItems(section.items, toSection: section.id)
-        }
-        if !changedItemIDs.isEmpty {
-            let existing = Set(currentSnapshot.itemIdentifiers)
-            let reloadable = itemIDs.filter {
-                existing.contains($0) && changedItemIDs.contains($0)
-            }
-            if !reloadable.isEmpty {
-                snapshot.reloadItems(reloadable)
-            }
-        }
-        snapshotGeneration &+= 1
-        let generation = snapshotGeneration
-        snapshotApplicationsInFlight += 1
-        let updatesLayoutBeforeSnapshot = strategy == .appendComments
-        if updatesLayoutBeforeSnapshot {
-            updateLayoutEntries(invalidating: changedItemIDs)
-            collectionView.layoutSubtreeIfNeeded()
-        }
-        let completion = { [weak self] in
-            guard let self else { return }
-            self.snapshotApplicationsInFlight = max(
-                0,
-                self.snapshotApplicationsInFlight - 1
-            )
-            guard !self.isTornDown else { return }
-            guard self.snapshotGeneration == generation else {
-                if self.snapshotApplicationsInFlight == 0 {
-                    self.scheduleNextCommentsPageIfNeeded()
-                }
-                return
-            }
-            if !updatesLayoutBeforeSnapshot {
-                self.updateLayoutEntries(invalidating: changedItemIDs)
-            }
-            self.completeCollectionUpdate(anchor: anchor)
-        }
-        if strategy == .appendComments {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0
-                context.allowsImplicitAnimation = false
-                dataSource.apply(
-                    snapshot,
-                    animatingDifferences: true,
-                    completion: completion
-                )
-            }
-        } else {
-            dataSource.apply(
-                snapshot,
-                animatingDifferences: false,
-                completion: completion
-            )
-        }
-    }
-
-    private func completeCollectionUpdate(anchor: Anchor?) {
-        collectionView.layoutSubtreeIfNeeded()
-        synchronizeDocumentFrame()
-        applyPendingViewportIntent(fallbackAnchor: anchor)
-        scheduleRefinement()
-        updateTopButton()
-        scheduleNextCommentsPageIfNeeded()
-    }
-
-    private func updateLayoutEntries(
-        invalidating changedItemIDs: Set<NativePlaybackSidebarItemID> = []
-    ) {
-        guard presentation.content != nil else {
-            layout.update(entries: [])
-            return
-        }
-        let entries = presentation.sections.enumerated().flatMap {
-            sectionIndex,
-            section in
-            section.items.enumerated().map { itemIndex, itemID in
-                NativePlaybackSidebarLayout.Entry(
-                    indexPath: IndexPath(item: itemIndex, section: sectionIndex),
-                    itemID: itemID
-                )
-            }
-        }
-        layout.update(entries: entries, invalidating: changedItemIDs)
-    }
-
-    private func cachedHeight(
-        for itemID: NativePlaybackSidebarItemID,
-        width: CGFloat
-    ) -> CGFloat {
-        guard let content = presentation.content else { return 1 }
-        let key = NativePlaybackSidebarHeightCacheKey(
-            itemID: itemID,
-            widthBucket: Int((width * 2).rounded()),
-            revision: revision(for: itemID, content: content)
-        )
-        if let value = heightCache.value(for: key) { return value }
-        let value = height(for: itemID, content: content, width: width)
-        heightCache.insert(value, for: key)
-        return value
-    }
-
-    private func revision(
-        for itemID: NativePlaybackSidebarItemID,
-        content: NativePlaybackSidebarContent
-    ) -> Int {
-        var hasher = Hasher()
-        hasher.combine(itemID)
-        switch itemID {
-        case .uploader:
-            hasher.combine(String(reflecting: content.uploader))
-        case .summary:
-            hasher.combine(content.summary)
-            hasher.combine(summaryExpanded)
-        case .selection:
-            hasher.combine(String(reflecting: content.selection))
-            hasher.combine(browsedSectionID)
-        case .commentsHeader:
-            hasher.combine(content.comments.sort)
-            hasher.combine(content.comments.totalCount)
-            hasher.combine(content.comments.sortIsEnabled)
-        case .commentsState(_, let kind):
-            hasher.combine(kind)
-        case .commentThread:
-            hasher.combine(commentThreadsByItemID[itemID]?.revision ?? 0)
-            hasher.combine(commentRenderRevisions[itemID] ?? 0)
-        case .commentsFooter:
-            hasher.combine(content.comments.footer)
-        }
-        return hasher.finalize()
-    }
-
-    private func height(
-        for itemID: NativePlaybackSidebarItemID,
-        content: NativePlaybackSidebarContent,
-        width: CGFloat
-    ) -> CGFloat {
-        switch itemID {
-        case .uploader:
-            return NativePlaybackSidebarItemMeasurement.uploader(content.uploader, width: width)
-        case .summary:
-            return NativePlaybackSidebarItemMeasurement.summary(
-                content.summary,
-                width: width,
-                expanded: summaryExpanded
-            )
-        case .selection:
-            return NativePlaybackSidebarItemMeasurement.selection(
-                content.selection,
-                width: width,
-                browsedSectionID: browsedSectionID
-            )
-        case .commentsHeader:
-            return NativePlaybackCommentsItemMeasurement.headerHeight
-        case .commentsState(_, let kind):
-            return NativePlaybackCommentsItemMeasurement.state(kind, width: width)
-        case .commentThread:
-            guard let thread = commentThreadsByItemID[itemID] else { return 1 }
-            return NativePlaybackCommentsItemMeasurement.thread(
-                thread,
-                width: width,
-                textRenderer: commentTextRenderer
-            )
-        case .commentsFooter:
-            return NativePlaybackCommentsItemMeasurement.footer(content.comments.footer)
-        }
-    }
-
-    private func viewportSizeDidChange(_ size: CGSize) {
-        guard !isTornDown, size.width > 0,
-            abs(size.width - measuredViewportWidth) > 0.5
-        else { return }
-        cancelRefinement()
-        let anchor = captureAnchor()
-        measuredViewportWidth = size.width
-        collectionView.frame.size.width = size.width
-        layout.invalidateLayout()
-        collectionView.layoutSubtreeIfNeeded()
-        synchronizeDocumentFrame()
-        if let anchor {
-            restore(anchor)
-        }
-        scheduleRefinement()
-    }
-
-    private func toggleSummary() {
+    func toggleSummary() {
         mutateItem(.summary(bvid: presentation.content?.bvid ?? "")) {
             summaryExpanded.toggle()
         }
     }
 
-    private func browseSection(_ sectionID: VideoCollectionSectionIdentity) {
+    func browseSection(_ sectionID: VideoCollectionSectionIdentity) {
         guard let bvid = presentation.content?.bvid else { return }
         mutateItem(.selection(bvid: bvid)) {
             browsedSectionID = sectionID
-        }
-    }
-
-    private func mutateItem(
-        _ itemID: NativePlaybackSidebarItemID,
-        mutation: () -> Void
-    ) {
-        guard itemIDs.contains(itemID), let dataSource else { return }
-        cancelRefinement()
-        paginationTask?.cancel()
-        paginationTask = nil
-        let anchor = captureAnchor()
-        mutation()
-        updateLayoutEntries(invalidating: [itemID])
-        var snapshot = dataSource.snapshot()
-        if snapshot.itemIdentifiers.contains(itemID) {
-            snapshot.reloadItems([itemID])
-        }
-        snapshotGeneration &+= 1
-        let generation = snapshotGeneration
-        snapshotApplicationsInFlight += 1
-        dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
-            guard let self else { return }
-            self.snapshotApplicationsInFlight = max(
-                0,
-                self.snapshotApplicationsInFlight - 1
-            )
-            guard !self.isTornDown else { return }
-            guard self.snapshotGeneration == generation else {
-                if self.snapshotApplicationsInFlight == 0 {
-                    self.scheduleNextCommentsPageIfNeeded()
-                }
-                return
-            }
-            self.collectionView.layoutSubtreeIfNeeded()
-            self.synchronizeDocumentFrame()
-            self.applyPendingViewportIntent(fallbackAnchor: anchor)
-            self.scheduleRefinement()
-            self.scheduleNextCommentsPageIfNeeded()
-        }
-    }
-
-    private func commentTextLayoutDidChange(
-        for itemID: NativePlaybackSidebarItemID
-    ) {
-        guard !isTornDown, itemIDs.contains(itemID) else { return }
-        cancelRefinement()
-        paginationTask?.cancel()
-        paginationTask = nil
-        let anchor = captureAnchor()
-        commentRenderRevisions[itemID, default: 0] &+= 1
-        updateLayoutEntries(invalidating: [itemID])
-        if let indexPath = dataSource?.indexPath(for: itemID) {
-            collectionView.item(at: indexPath)?.view.needsLayout = true
-        }
-        collectionView.layoutSubtreeIfNeeded()
-        synchronizeDocumentFrame()
-        if let anchor { restore(anchor) }
-        scheduleRefinement()
-        updateTopButton()
-        scheduleNextCommentsPageIfNeeded()
-    }
-
-    private struct Anchor {
-        let itemID: NativePlaybackSidebarItemID
-        let relativeY: CGFloat
-        let wasPinnedToBottom: Bool
-    }
-
-    private func captureAnchor(
-        allowsBottomFollowing: Bool = true
-    ) -> Anchor? {
-        collectionView.layoutSubtreeIfNeeded()
-        let viewport = rootView.scrollView.documentVisibleRect
-        let wasPinnedToBottom =
-            allowsBottomFollowing
-            && NativePlaybackSidebarAnchorPolicy.isBottomPinned(
-                contentHeight: layout.collectionViewContentSize.height,
-                viewport: viewport
-            )
-        return collectionView.indexPathsForVisibleItems()
-            .compactMap { indexPath -> (NativePlaybackSidebarItemID, NSRect)? in
-                guard let itemID = dataSource?.itemIdentifier(for: indexPath),
-                    let attributes = layout.layoutAttributesForItem(at: indexPath),
-                    attributes.frame.intersects(viewport)
-                else { return nil }
-                return (itemID, attributes.frame)
-            }
-            .sorted { $0.1.minY < $1.1.minY }
-            .first
-            .map {
-                Anchor(
-                    itemID: $0.0,
-                    relativeY: $0.1.minY - viewport.minY,
-                    wasPinnedToBottom: wasPinnedToBottom
-                )
-            }
-    }
-
-    private func restore(_ anchor: Anchor) {
-        if anchor.wasPinnedToBottom {
-            scrollToBottom()
-            return
-        }
-        guard let indexPath = dataSource?.indexPath(for: anchor.itemID),
-            let attributes = layout.layoutAttributesForItem(at: indexPath)
-        else { return }
-        let physicalOffset = attributes.frame.minY - anchor.relativeY
-        scroll(
-            to: NativeVideoScrollCoordinateSpace.logicalOffset(
-                physicalOffset: physicalOffset,
-                leadingInset: rootView.scrollView.contentInsets.top
-            )
-        )
-    }
-
-    private func synchronizeDocumentFrame() {
-        let size = NSSize(
-            width: rootView.scrollView.contentSize.width,
-            height: max(
-                rootView.scrollView.contentSize.height,
-                layout.collectionViewContentSize.height
-            )
-        )
-        guard collectionView.frame.size != size else { return }
-        collectionView.setFrameSize(size)
-    }
-
-    private func scrollToTop() {
-        scroll(to: 0)
-    }
-
-    private func scrollToBottom() {
-        scroll(to: layout.collectionViewContentSize.height)
-    }
-
-    private func cancelRefinement() {
-        refinementGeneration &+= 1
-        refinementTask?.cancel()
-        refinementTask = nil
-    }
-
-    private func scheduleRefinement() {
-        guard !isTornDown, !layout.pendingRefinementIndexes.isEmpty else {
-            return
-        }
-        refinementGeneration &+= 1
-        let generation = refinementGeneration
-        refinementTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            while !Task.isCancelled,
-                !self.isTornDown,
-                self.refinementGeneration == generation,
-                !self.layout.pendingRefinementIndexes.isEmpty
-            {
-                let anchor = self.captureAnchor()
-                guard
-                    self.layout.refineNextBatch(
-                        maximumCount: NativePlaybackSidebarLayout.refinementBatchSize,
-                        prioritizing: anchor?.itemID
-                    )
-                else { break }
-                self.collectionView.layoutSubtreeIfNeeded()
-                self.synchronizeDocumentFrame()
-                if let anchor { self.restore(anchor) }
-                await Task.yield()
-            }
-            if self.refinementGeneration == generation {
-                self.refinementTask = nil
-            }
-        }
-    }
-
-    private func scrollToCommentsHeader() {
-        guard
-            let itemID = itemIDs.first(where: {
-                if case .commentsHeader = $0 { return true }
-                return false
-            }), let indexPath = dataSource?.indexPath(for: itemID),
-            let attributes = layout.layoutAttributesForItem(at: indexPath)
-        else { return }
-        scroll(to: attributes.frame.minY)
-    }
-
-    private func applyPendingViewportIntent(fallbackAnchor: Anchor?) {
-        if pendingResetToTop {
-            pendingResetToTop = false
-            pendingScrollToComments = false
-            scrollToTop()
-        } else if pendingScrollToComments {
-            pendingScrollToComments = false
-            scrollToCommentsHeader()
-        } else if let fallbackAnchor {
-            restore(fallbackAnchor)
-        }
-    }
-
-    private func updateTopButton() {
-        rootView.scrollView.updateTopButtonVisibility(
-            isBlocked: presentation.overlay.blocksContent
-        )
-    }
-
-    /// “返回顶部”回到侧栏最上面（UP 主信息），而不只是评论区。
-    @objc private func scrollToTopFromButton() {
-        scroll(to: 0, animated: true)
-    }
-
-    /// 只有用户点“返回顶部”时 `animated` 为 true；其余程序内部定位直接跳转。
-    func scroll(to y: CGFloat, animated: Bool = false) {
-        synchronizeDocumentFrame()
-        let maximumY = NativeVideoScrollCoordinateSpace.maximumLogicalOffset(
-            documentLength: layout.collectionViewContentSize.height,
-            viewportLength: rootView.scrollView.contentSize.height,
-            leadingInset: rootView.scrollView.contentInsets.top,
-            trailingInset: rootView.scrollView.contentInsets.bottom
-        )
-        let logicalTarget = min(max(0, y), maximumY)
-        rootView.scrollView.scrollVertically(
-            toPhysicalOffset: NativeVideoScrollCoordinateSpace.physicalOffset(
-                logicalOffset: logicalTarget,
-                leadingInset: rootView.scrollView.contentInsets.top
-            ),
-            animated: animated
-        )
-    }
-
-    private func updateOverlay() {
-        let blocked = presentation.overlay.blocksContent
-        if blocked, !collectionView.isHidden {
-            releaseCollectionFirstResponder()
-        }
-        rootView.scrollView.setAccessibilityHidden(blocked)
-        rootView.scrollView.isHidden = false
-        collectionView.isHidden = blocked
-        updateTopButton()
-    }
-
-    /// 打开空间或跟随链接前先交出侧栏里的焦点，再执行动作。
-    ///
-    /// 空间层打开时侧栏会被真正隐藏；焦点若还留在其中（例如刚点过的评论正文、选中过的简介），
-    /// 系统会在空间层进场动画中途改派焦点，引发额外布局，进场变成从中间宽度伸展开。
-    private func releasingFocus(_ action: (NativePlaybackSidebarController) -> Void) {
-        releaseCollectionFirstResponder()
-        action(self)
-    }
-
-    private func releaseCollectionFirstResponder() {
-        guard let window = rootView.window,
-            let responder = window.firstResponder,
-            collectionOwnsFirstResponder(responder)
-        else { return }
-        window.makeFirstResponder(nil)
-    }
-
-    private func collectionOwnsFirstResponder(_ responder: NSResponder) -> Bool {
-        if let responderView = responder as? NSView,
-            responderView === collectionView
-                || responderView.isDescendant(of: collectionView)
-        {
-            return true
-        }
-        return containsFieldEditor(responder, in: collectionView)
-    }
-
-    private func containsFieldEditor(
-        _ responder: NSResponder,
-        in view: NSView
-    ) -> Bool {
-        if let textField = view as? NSTextField,
-            textField.currentEditor() === responder
-        {
-            return true
-        }
-        return view.subviews.contains {
-            containsFieldEditor(responder, in: $0)
         }
     }
 
@@ -995,67 +329,5 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
             case .commentsFooter = itemID
         else { return }
         scheduleNextCommentsPageIfNeeded()
-    }
-
-    private func viewportDidScroll() {
-        updateTopButton()
-        scheduleNextCommentsPageIfNeeded()
-    }
-
-    private func scheduleNextCommentsPageIfNeeded() {
-        guard !isTornDown, snapshotApplicationsInFlight == 0,
-            paginationTask == nil
-        else { return }
-        let generation = snapshotGeneration
-        paginationTask = Task { @MainActor [weak self] in
-            await Task.yield()
-            guard let self else { return }
-            self.paginationTask = nil
-            guard !Task.isCancelled, !self.isTornDown,
-                self.snapshotApplicationsInFlight == 0,
-                self.snapshotGeneration == generation
-            else { return }
-            guard
-                self.commentsPagination.shouldLoadMore(
-                    isInsideThreshold: self.commentsFooterIsVisible,
-                    state: self.commentsPaginationTailState,
-                    isLiveScrolling: self.isLiveScrolling
-                ), self.presentation.content?.comments.footer == .loadMore
-            else { return }
-            self.actions.loadNextComments()
-        }
-    }
-
-    private var commentsPaginationTailState:
-        NearEndTailState<NativePlaybackCommentsPaginationIdentity>
-    {
-        guard let comments = presentation.content?.comments,
-            let subject = comments.subject
-        else { return .end }
-        let identity = NativePlaybackCommentsPaginationIdentity(
-            subject: subject,
-            lastRootID: comments.threads.last?.thread.id
-        )
-        switch comments.footer {
-        case .loadMore:
-            return .init(canLoadMore: true, tailIdentity: identity, isLoading: false)
-        case .loading:
-            return .init(canLoadMore: true, tailIdentity: identity, isLoading: true)
-        case .failed, .stopped, .end:
-            return .init(canLoadMore: false, tailIdentity: identity, isLoading: false)
-        }
-    }
-
-    private var commentsFooterIsVisible: Bool {
-        guard
-            let footerID = itemIDs.first(where: {
-                if case .commentsFooter = $0 { return true }
-                return false
-            }),
-            let footerPath = dataSource?.indexPath(for: footerID),
-            collectionView.indexPathsForVisibleItems().contains(footerPath),
-            let attributes = layout.layoutAttributesForItem(at: footerPath)
-        else { return false }
-        return attributes.frame.intersects(rootView.scrollView.documentVisibleRect)
     }
 }

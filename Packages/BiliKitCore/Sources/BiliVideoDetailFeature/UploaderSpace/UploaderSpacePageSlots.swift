@@ -4,7 +4,9 @@ enum UploaderSpacePageSlot: Hashable, Sendable {
     case gap(ClosedRange<Int>)
 }
 
+/// 页码条展开时的页码排布：首页、末页、当前页前后各 `neighborCount` 页，其余折成省略号。
 enum UploaderSpacePageSlots {
+    /// 当前页两侧各显示两页：侧栏宽度下一行放得下，又能一步跳到附近的页。
     static let neighborCount = 2
 
     /// 只省略一页时直接显示那一页：省略号并不比数字更短。

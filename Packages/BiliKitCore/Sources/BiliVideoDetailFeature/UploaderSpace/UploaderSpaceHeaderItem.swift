@@ -41,6 +41,10 @@ final class UploaderSpaceHeaderItem: NSCollectionViewItem {
     }
 }
 
+/// 空间头部的内容视图：返回按钮、头像、名字、投稿数与三段排序。
+///
+/// 拥有头像加载 Task：换头像地址时取消上一次，到达的头像只在地址仍相同时显示；`cancelAvatarRequest` 经条目的
+/// `invalidateImageRequests` 在头部离屏（`didEndDisplaying`）与列表拆除时调用。
 @MainActor
 private final class UploaderSpaceHeaderView: NSView {
     override var isFlipped: Bool { true }

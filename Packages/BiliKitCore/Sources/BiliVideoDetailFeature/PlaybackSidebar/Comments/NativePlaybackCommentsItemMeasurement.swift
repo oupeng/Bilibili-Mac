@@ -1,6 +1,7 @@
 import AppKit
 import BiliModels
 
+/// 评论条目的尺寸常量与高度测量，是评论行布局的唯一几何来源：条目的 `layout()` 与控制器的行高测量都经它计算。
 @MainActor
 enum NativePlaybackCommentsItemMeasurement {
     static let headerHeight: CGFloat = 42
@@ -194,6 +195,7 @@ struct NativePlaybackCommentRowGeometry {
         textRenderer: NativePlaybackCommentTextRenderer?,
         textScope: NativePlaybackCommentTextScope?
     ) {
+        /// 只为缩短本初始化里的常量引用。
         typealias Measurement = NativePlaybackCommentsItemMeasurement
         let avatarSize = isReply ? Measurement.replyAvatarSize : Measurement.rootAvatarSize
         avatarFrame = NSRect(x: 0, y: 0, width: avatarSize, height: avatarSize)
@@ -284,6 +286,7 @@ struct NativePlaybackCommentRowGeometry {
     }
 }
 
+/// 评论头像、评论图片格子与预览共用的淡入时长；与卡片封面淡入相同，评论区与网格的观感一致。
 enum NativePlaybackCommentImageTransition {
     static let duration: CFTimeInterval = 0.15
 }

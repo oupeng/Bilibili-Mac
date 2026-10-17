@@ -1,6 +1,11 @@
 import AppKit
 import BiliModels
 
+/// 评论正文：可选择、不可编辑的 `NSTextView`，显示渲染器给出的富文本，点击链接（含链接前的图标附件）交给
+/// `onOpenLink`。
+///
+/// 拥有表情与链接图标的加载 Task 与它的代次 `renderGeneration`：每次设置内容或释放时递增并取消在途加载；加载结果
+/// 只在代次与渲染作用域都仍相同时写回附件。有附件加载失败时重新渲染（失败的改回原文）并通知行高变化。
 @MainActor
 final class NativePlaybackCommentTextView: NSTextView, NSTextViewDelegate {
     var onOpenLink: ((CommentLinkTarget) -> Void)?

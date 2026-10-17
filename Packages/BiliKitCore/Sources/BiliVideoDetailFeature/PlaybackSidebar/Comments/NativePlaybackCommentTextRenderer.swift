@@ -2,19 +2,29 @@ import AppKit
 import BiliApplication
 import BiliModels
 
+/// 一次正文渲染的作用域：评论对象、根评论与这条评论呈现的 revision。
+///
+/// 附件加载失败按作用域记录，内容一变即是新作用域。
 struct NativePlaybackCommentTextScope: Hashable {
     let subject: CommentSubjectIdentity
     let rootID: CommentID
     let revision: Int
 }
 
+/// 评论正文的渲染器：把文字、接口链接、识别出的链接、时间戳与表情排成富文本，测量与显示共用同一结果。
+///
+/// 侧栏控制器持有一个，所有评论行共用；拥有“哪些表情或图标在哪个作用域里加载失败”的有界记录（最多 512 条，
+/// 按先进先出淘汰；控制器每次更新只保留仍在呈现列表里的作用域，拆除时清空）。失败的附件在该作用域内改回原文，
+/// 不再请求。图片加载经取图 port，不缓存图片。
 @MainActor
 final class NativePlaybackCommentTextRenderer {
+    /// 一个需要加载的附件：资源引用与解析出的地址；同一引用在一次渲染里只加载一次。
     struct PendingAsset: Hashable {
         let reference: CommentAssetReference
         let url: URL
     }
 
+    /// 一次渲染的结果：富文本、按引用分组的附件（加载后统一换图）、待加载的附件、链接目标与读屏文本。
     struct RenderedText {
         let attributedString: NSAttributedString
         let attachments: [CommentAssetReference: [NSTextAttachment]]
@@ -35,6 +45,7 @@ final class NativePlaybackCommentTextRenderer {
         let reference: CommentAssetReference
     }
 
+    /// 失败记录的上限：足够覆盖一屏评论里的表情与图标，又不让长时间浏览后的记录无界增长。
     private static let maximumUnavailableAssetCount = 512
     private var activeScopes: Set<NativePlaybackCommentTextScope> = []
     private var unavailableAssets: Set<UnavailableAssetKey> = []

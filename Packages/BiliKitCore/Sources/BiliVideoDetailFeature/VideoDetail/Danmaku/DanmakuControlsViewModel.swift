@@ -1,11 +1,11 @@
 import BiliApplication
 import Observation
 
-@MainActor
-@Observable
 /// 只保存用户可见的弹幕开关，并把视频 lifecycle 交给 presentation port。
 ///
 /// 它不拥有 protobuf、分段缓存、时间线或 renderer；`reset` 必须停止整条会话而非只隐藏画面。
+@MainActor
+@Observable
 public final class DanmakuControlsViewModel {
     public private(set) var isEnabled = true
     public private(set) var showsScrolling = true

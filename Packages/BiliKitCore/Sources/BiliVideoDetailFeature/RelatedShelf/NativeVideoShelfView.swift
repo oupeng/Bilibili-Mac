@@ -31,6 +31,9 @@ enum NativeVideoShelfGeometry {
     }
 }
 
+/// 把横排挂进 SwiftUI：coordinator 拥有集合视图与滚动视图，`dismantleNSView` 时 `reset()`。
+///
+/// `contentIdentity` 变化时即使卡片 ID 相同也整体替换内容：旧卡片的在途封面请求作废，横排回到起点。
 struct NativeVideoShelfView: NSViewRepresentable {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.isEnabled) private var isEnabled
