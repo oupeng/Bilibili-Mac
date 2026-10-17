@@ -59,37 +59,41 @@ struct FeedPagingTests {
         )
     }
 
+    /// 推荐批次的 continuation 与所请求的不符时按无效响应记为加载失败，已显示卡片不变，重试仍请求同一批。
     @Test
     @MainActor
-    func recommendationWorksetStopsAtItsRetainedCapacity() async {
+    func recommendationBatchThatDoesNotContinueTheRequestIsInvalid() async {
+        let first = ContentFixtures(bvid: "BV1RcmdC3", title: "第一批")
+        let stray = ContentFixtures(bvid: "BV1RcmdD4", title: "错位批次")
         let repository = FeedRepositoryStub(recommendations: { continuation, _ in
-            let freshIndex = continuation?.freshIndex ?? 1
-            let range = freshIndex == 1 ? 0..<999 : 999..<1_004
+            guard continuation != nil else { return first.recommendationPage }
             return RecommendationPage(
-                videos: range.map { index in
-                    ContentFixtures(
-                        bvid: "BV-capacity-\(index)",
-                        title: "推荐 \(index)"
-                    ).recommendedVideo
-                },
-                continuation: RecommendationContinuation(freshIndex: freshIndex),
-                nextContinuation: RecommendationContinuation(freshIndex: freshIndex + 1)
+                videos: [stray.recommendedVideo],
+                continuation: RecommendationContinuation(freshIndex: 5),
+                nextContinuation: RecommendationContinuation(freshIndex: 6)
             )
         })
-        let model = BrowseViewModel(
-            useCase: FeedUseCase(repository: repository)
-        )
+        let model = BrowseViewModel(useCase: FeedUseCase(repository: repository))
+        let request = FeedRequest.recommendation(continuation: nil)
 
         model.activateRecommendation()
         await model.waitForCurrentTask()
         model.loadMore(.recommendation)
         await model.waitForCurrentTask()
 
+        #expect(BrowseFeed.recommendation.loadedBVIDs(model) == [first.bvid])
+        #expect(model.pagination(for: request).loadMoreError == .invalidResponse)
+        #expect(!model.pagination(for: request).canLoadMore)
+
+        model.loadMore(.recommendation)
+        await model.waitForCurrentTask()
         #expect(
-            BrowseFeed.recommendation.loadedBVIDs(model).count
-                == VideoListRetention.maximumItemCount
+            await repository.recommendationRequests == [
+                nil,
+                RecommendationContinuation(freshIndex: 2),
+                RecommendationContinuation(freshIndex: 2)
+            ]
         )
-        #expect(!model.pagination(for: .recommendation(continuation: nil)).canLoadMore)
     }
 
     /// 热门与搜索的下一页没有新条目时停止翻页，不再请求。
