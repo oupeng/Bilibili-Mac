@@ -1,5 +1,6 @@
 import BiliNetworking
 import Foundation
+import Synchronization
 
 /// DASH 分段的远端来源：构造时校验媒体 CDN 来源与正长度，见 SECURITY-MODEL §4、§5。
 public struct LoopbackRemoteResource: Sendable, Equatable {
@@ -30,16 +31,15 @@ public struct LoopbackRemoteResource: Sendable, Equatable {
 
 /// 单个 progressive item 的来源选择状态。
 ///
-/// 首个通过响应头验证的完整 URL 会固定给后续 Range。
-public final class LoopbackProgressiveResource: @unchecked Sendable, Equatable {
+/// 首个通过响应头验证的完整 URL 会固定给后续 Range；选中的来源只经 `Mutex` 读写。
+public final class LoopbackProgressiveResource: Sendable, Equatable {
     public let candidateURLs: [URL]
     public let contentLength: Int64
     public let contentType: String
     public let allowedUpstreamContentTypes: Set<String>
     public let headers: [String: String]
 
-    private let lock = NSLock()
-    private var selectedSourceURL: URL?
+    private let selectedSourceURL = Mutex<URL?>(nil)
 
     public init(
         candidateURLs: [URL],
@@ -79,13 +79,13 @@ public final class LoopbackProgressiveResource: @unchecked Sendable, Equatable {
     }
 
     var eligibleSourceURLs: [URL] {
-        lock.withLock {
+        selectedSourceURL.withLock { selectedSourceURL in
             selectedSourceURL.map { [$0] } ?? candidateURLs
         }
     }
 
     func select(_ url: URL) -> Bool {
-        lock.withLock {
+        selectedSourceURL.withLock { selectedSourceURL in
             if let selectedSourceURL {
                 return selectedSourceURL == url
             }
@@ -105,17 +105,24 @@ public enum LoopbackGeneratedResourceError: Error, Sendable, Equatable {
 }
 
 /// 首次请求时生成正文；成功后只缓存于当前 loopback 会话，失败可由后续请求重试。
-public final class LoopbackGeneratedResource: @unchecked Sendable, Equatable {
+///
+/// 拥有在途生成 Task 与缓存正文，状态只经 `Mutex` 访问：Task 在锁内创建并登记，等待在锁外。
+/// generation 在每次开始生成与 `cancel()` 时递增；生成结束时与之比对，不一致即丢弃结果，旧生成不会
+/// 写回缓存或清掉新的在途 Task。`cancel()` 之后的请求都以取消失败。
+public final class LoopbackGeneratedResource: Sendable, Equatable {
     public let contentType: String
 
-    private let lock = NSLock()
+    private struct State {
+        var generation: UInt64 = 0
+        var remainingLoadAttempts: Int
+        var invalidated = false
+        var cachedBody: Data?
+        var loadTask: Task<Data, any Error>?
+    }
+
+    private let state: Mutex<State>
     private let maximumContentLength: Int
     private let loader: @Sendable () async throws -> Data
-    private var generation: UInt64 = 0
-    private var remainingLoadAttempts: Int
-    private var invalidated = false
-    private var cachedBody: Data?
-    private var loadTask: Task<Data, any Error>?
 
     public init(
         contentType: String,
@@ -135,7 +142,7 @@ public final class LoopbackGeneratedResource: @unchecked Sendable, Equatable {
         }
         self.contentType = contentType
         self.maximumContentLength = maximumContentLength
-        self.remainingLoadAttempts = maximumLoadAttempts
+        state = Mutex(State(remainingLoadAttempts: maximumLoadAttempts))
         self.loader = loader
     }
 
@@ -147,34 +154,34 @@ public final class LoopbackGeneratedResource: @unchecked Sendable, Equatable {
     }
 
     func resolve() async throws -> Data {
-        let pending = lock.withLock { () -> (UInt64, Task<Data, any Error>, Data?) in
-            guard !invalidated else {
-                return (generation, Task { throw CancellationError() }, nil)
+        let pending = state.withLock { state -> (UInt64, Task<Data, any Error>, Data?) in
+            guard !state.invalidated else {
+                return (state.generation, Task { throw CancellationError() }, nil)
             }
-            if let cachedBody {
+            if let cachedBody = state.cachedBody {
                 let cached = cachedBody
-                return (generation, Task { cached }, cached)
+                return (state.generation, Task { cached }, cached)
             }
-            if let loadTask {
-                return (generation, loadTask, nil)
+            if let loadTask = state.loadTask {
+                return (state.generation, loadTask, nil)
             }
-            guard remainingLoadAttempts > 0 else {
+            guard state.remainingLoadAttempts > 0 else {
                 return (
-                    generation,
+                    state.generation,
                     Task {
                         throw LoopbackGeneratedResourceError.loadAttemptsExhausted
                     },
                     nil
                 )
             }
-            remainingLoadAttempts -= 1
-            generation &+= 1
-            let loadGeneration = generation
+            state.remainingLoadAttempts -= 1
+            state.generation &+= 1
+            let loadGeneration = state.generation
             let task = Task {
                 try await generateAndCache(generation: loadGeneration)
             }
-            loadTask = task
-            return (generation, task, nil)
+            state.loadTask = task
+            return (state.generation, task, nil)
         }
         if let cached = pending.2 {
             return cached
@@ -193,20 +200,20 @@ public final class LoopbackGeneratedResource: @unchecked Sendable, Equatable {
                     body.count
                 )
             }
-            let accepted = lock.withLock { () -> Bool in
-                guard generation == loadGeneration, !invalidated else {
+            let accepted = state.withLock { state -> Bool in
+                guard state.generation == loadGeneration, !state.invalidated else {
                     return false
                 }
-                cachedBody = body
-                loadTask = nil
+                state.cachedBody = body
+                state.loadTask = nil
                 return true
             }
             guard accepted else { throw CancellationError() }
             return body
         } catch {
-            lock.withLock {
-                if generation == loadGeneration {
-                    loadTask = nil
+            state.withLock { state in
+                if state.generation == loadGeneration {
+                    state.loadTask = nil
                 }
             }
             throw error
@@ -214,12 +221,12 @@ public final class LoopbackGeneratedResource: @unchecked Sendable, Equatable {
     }
 
     func cancel() {
-        let task = lock.withLock { () -> Task<Data, any Error>? in
-            generation &+= 1
-            invalidated = true
-            cachedBody = nil
-            let task = loadTask
-            loadTask = nil
+        let task = state.withLock { state -> Task<Data, any Error>? in
+            state.generation &+= 1
+            state.invalidated = true
+            state.cachedBody = nil
+            let task = state.loadTask
+            state.loadTask = nil
             return task
         }
         task?.cancel()

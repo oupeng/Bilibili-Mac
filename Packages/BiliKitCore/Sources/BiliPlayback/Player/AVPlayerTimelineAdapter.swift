@@ -566,6 +566,12 @@ final class AVPlayerTimelineAdapter {
     }
 }
 
+/// 当前 item 的 AVPlayer 观察集合（periodic observer、KVO 与通知 observer）：替换或清空时在锁内整体
+/// 换出，在锁外注销换出的旧集合；deinit 兜底注销。
+///
+/// 用 `OSAllocatedUnfairLock(uncheckedState:)` 而不用 `Mutex`：`replace` 要把调用方传入的 observer
+/// （`Any`、`NSObjectProtocol` 等非 Sendable 值）存进锁内状态，`Mutex` 的 `inout sending` 闭包参数
+/// 不允许并入这类外部值。
 private final class PlayerTimelineObserverBag: Sendable {
     private struct Storage {
         var player: AVPlayer? = nil
