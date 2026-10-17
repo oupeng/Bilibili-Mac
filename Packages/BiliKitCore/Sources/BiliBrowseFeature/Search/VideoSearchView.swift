@@ -120,7 +120,9 @@ public struct VideoSearchView<LoadedContent: View, StartContent: View>: View {
                 "正在刷新搜索结果",
                 locale: locale
             ),
-            errorMessage: presentation.refreshError?.displayMessage
+            errorMessage: presentation.refreshError.map {
+                ContentFailureText.message(for: $0, locale: locale)
+            }
         )
     }
 
@@ -143,28 +145,13 @@ public struct VideoSearchView<LoadedContent: View, StartContent: View>: View {
             )
         )
         .overlay(alignment: .bottom) {
-            if pagination.isLoadingMore {
-                ProgressView()
-                    .controlSize(.small)
-                    .padding(8)
-                    .background(.regularMaterial, in: Capsule())
-                    .accessibilityLabel(
-                        BrowseFeatureStrings.localized("正在加载更多搜索结果", locale: locale)
-                    )
-            } else if let error = pagination.loadMoreError {
-                HStack(spacing: 8) {
-                    Text(error.displayMessage)
-                        .lineLimit(2)
-                    if error.isRetryable {
-                        Button(BrowseFeatureStrings.localized("重试", locale: locale)) {
-                            model.retryLoadMore(.search)
-                        }
-                    }
-                }
-                .font(.caption)
-                .padding(8)
-                .background(.regularMaterial, in: Capsule())
-            }
+            PaginationStatusOverlay(
+                pagination.overlayStatus(
+                    loadingMoreLabel: BrowseFeatureStrings.localized("正在加载更多搜索结果", locale: locale),
+                    locale: locale,
+                    retry: { model.retryLoadMore(.search) }
+                )
+            )
         }
     }
 }

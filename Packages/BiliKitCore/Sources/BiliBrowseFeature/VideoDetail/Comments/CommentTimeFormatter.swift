@@ -1,3 +1,4 @@
+import BiliUI
 import Foundation
 
 public enum CommentTimeFormatter {
@@ -29,7 +30,7 @@ public enum CommentTimeFormatter {
                 to: referenceDay
             ).day ?? 0
         if dayDifference == 1 {
-            let time = formatted(
+            let time = DateDisplayFormatting.formatted(
                 date,
                 date: .omitted,
                 time: .shortened,
@@ -49,25 +50,12 @@ public enum CommentTimeFormatter {
             let day = calendar.component(.day, from: date)
             return BrowseFeatureStrings.localized("\(month)月\(day)日", locale: locale)
         }
-        return formatted(
+        return DateDisplayFormatting.formatted(
             date,
             date: .long,
             time: .omitted,
             calendar: calendar,
             locale: locale
         )
-    }
-
-    private static func formatted(
-        _ dateValue: Date,
-        date dateStyle: Date.FormatStyle.DateStyle,
-        time timeStyle: Date.FormatStyle.TimeStyle,
-        calendar: Calendar,
-        locale: Locale
-    ) -> String {
-        var style = Date.FormatStyle(date: dateStyle, time: timeStyle)
-            .locale(locale)
-        style.timeZone = calendar.timeZone
-        return dateValue.formatted(style)
     }
 }

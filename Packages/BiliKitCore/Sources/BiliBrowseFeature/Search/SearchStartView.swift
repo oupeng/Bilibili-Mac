@@ -1,5 +1,6 @@
 import BiliApplication
 import BiliModels
+import BiliUI
 import SwiftUI
 
 /// 搜索起始页的几何：内容宽度、分区间距、历史词胶囊与热搜行。
@@ -131,7 +132,7 @@ public struct SearchStartView<TrendingIcon: View>: View {
                 )
         case .failed(let error):
             HStack(spacing: SearchStartLayout.inlineSpacing) {
-                Text(error.displayMessage)
+                Text(ContentFailureText.message(for: error, locale: locale))
                     .foregroundStyle(.secondary)
                 Button(BrowseFeatureStrings.localized("重试", locale: locale)) {
                     trendingModel.refresh()

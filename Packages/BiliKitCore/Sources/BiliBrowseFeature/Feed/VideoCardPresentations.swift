@@ -17,16 +17,8 @@ public struct PopularVideoCardPresentation: Sendable, Equatable {
     public init(video: PopularVideo, locale: Locale = .current) {
         bvid = video.bvid
         title = video.title
-        coverURL = optimizedBiliImageURL(
-            video.coverURL,
-            width: 640,
-            height: 360
-        )
-        avatarURL = optimizedBiliImageURL(
-            video.owner.avatarURL,
-            width: 96,
-            height: 96
-        )
+        coverURL = BiliImageThumbnail.url(video.coverURL, size: .videoCover)
+        avatarURL = BiliImageThumbnail.url(video.owner.avatarURL, size: .avatar)
         ownerName = video.owner.name
         viewCountText = VideoMetadataFormatting.compactCount(
             video.statistics.viewCount,
@@ -72,16 +64,8 @@ public struct RecommendedVideoCardPresentation: Sendable, Equatable {
     public init(video: RecommendedVideo, locale: Locale = .current) {
         bvid = video.bvid
         title = video.title
-        coverURL = optimizedBiliImageURL(
-            video.coverURL,
-            width: 640,
-            height: 360
-        )
-        avatarURL = optimizedBiliImageURL(
-            video.owner.avatarURL,
-            width: 96,
-            height: 96
-        )
+        coverURL = BiliImageThumbnail.url(video.coverURL, size: .videoCover)
+        avatarURL = BiliImageThumbnail.url(video.owner.avatarURL, size: .avatar)
         ownerName = video.owner.name
         viewCountText = VideoMetadataFormatting.compactCount(
             video.statistics.viewCount,
@@ -128,16 +112,8 @@ public struct SearchVideoCardPresentation: Sendable, Equatable {
     public init(video: SearchVideo, locale: Locale = .current) {
         bvid = video.bvid
         title = video.title
-        coverURL = optimizedBiliImageURL(
-            video.coverURL,
-            width: 640,
-            height: 360
-        )
-        avatarURL = optimizedBiliImageURL(
-            video.owner.avatarURL,
-            width: 96,
-            height: 96
-        )
+        coverURL = BiliImageThumbnail.url(video.coverURL, size: .videoCover)
+        avatarURL = BiliImageThumbnail.url(video.owner.avatarURL, size: .avatar)
         ownerName = video.owner.name
         viewCountText = VideoMetadataFormatting.compactCount(
             video.statistics.viewCount,
@@ -193,26 +169,4 @@ private func videoCardAccessibilityLabel(
             }
         ].compactMap { $0 }
     )
-}
-
-private func optimizedBiliImageURL(
-    _ url: URL?,
-    width: Int,
-    height: Int
-) -> URL? {
-    guard let url,
-        let host = url.host?.lowercased(),
-        host == "hdslb.com" || host.hasSuffix(".hdslb.com"),
-        url.query == nil,
-        url.fragment == nil,
-        !url.path.contains("@")
-    else {
-        return url
-    }
-    var components = URLComponents(
-        url: url,
-        resolvingAgainstBaseURL: false
-    )
-    components?.path += "@\(width)w_\(height)h_1c.webp"
-    return components?.url ?? url
 }

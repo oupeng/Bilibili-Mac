@@ -2,6 +2,7 @@ import AppKit
 import BiliApplication
 import BiliBrowseFeature
 import BiliModels
+import BiliUI
 import SwiftUI
 
 /// 压在侧栏上的 UP 主空间层。
@@ -130,27 +131,12 @@ struct UploaderSpaceSidebarView: View {
                 action: onLogin
             )
         case .failure(let error):
+            // 紧凑布局只放一行说明：共享说明已分开风控、凭据失效、凭据读不到与网络，标题只会重复它。
             message(
-                Self.failureText(error),
+                ContentFailureText.message(for: error, locale: locale),
                 actionTitle: error.isRetryable ? AppStrings.localized("重试") : nil,
                 action: model.reload
             )
-        }
-    }
-
-    /// 至少分开风控、凭据与网络；其余失败沿用通用说明。
-    private static func failureText(_ error: ContentApplicationError) -> String {
-        switch error {
-        case .requestRestricted:
-            AppStrings.localized("B 站暂时限制了请求，请稍后再试。")
-        case .authenticationInvalid:
-            AppStrings.localized("登录状态已失效，正在重新确认。")
-        case .authenticationUnavailable:
-            AppStrings.localized("无法读取登录状态，请稍后重试。")
-        case .transportFailure:
-            AppStrings.localized("投稿加载失败，请检查网络连接后重试。")
-        default:
-            AppStrings.localized("投稿加载失败")
         }
     }
 

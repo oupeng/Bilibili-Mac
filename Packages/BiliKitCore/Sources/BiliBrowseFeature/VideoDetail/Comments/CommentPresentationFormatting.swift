@@ -1,3 +1,4 @@
+import BiliUI
 import Foundation
 
 public enum CommentPresentationFormatting {

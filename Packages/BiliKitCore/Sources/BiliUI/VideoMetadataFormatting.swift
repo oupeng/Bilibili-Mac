@@ -1,26 +1,29 @@
 import Foundation
 
-enum VideoMetadataFormatting {
+/// 视频卡片、投稿行、相关推荐、播放页详情与评论共用的计数和发布日期文字。
+///
+/// 只拥有格式与对应文案；用到哪些字段、如何拼进卡片由各 Feature 的 presentation 决定。
+package enum VideoMetadataFormatting {
     /// “12万播放”：播放数与单位文字的本地化组合。
-    static func viewCountText(_ count: Int64, locale: Locale = .current) -> String {
+    package static func viewCountText(_ count: Int64, locale: Locale = .current) -> String {
         viewCountText(compactText: compactCount(count, locale: locale), locale: locale)
     }
 
     /// 已经算好紧凑计数（如卡片封面上的“12万”）时直接组合，不再重复格式化。
-    static func viewCountText(compactText: String, locale: Locale = .current) -> String {
-        BrowseFeatureStrings.localized("\(compactText)播放", locale: locale)
+    package static func viewCountText(compactText: String, locale: Locale = .current) -> String {
+        BiliUIStrings.localized("\(compactText)播放", locale: locale)
     }
 
     /// “3000弹幕”：弹幕数与单位文字的本地化组合。
-    static func danmakuCountText(_ count: Int64, locale: Locale = .current) -> String {
+    package static func danmakuCountText(_ count: Int64, locale: Locale = .current) -> String {
         danmakuCountText(compactText: compactCount(count, locale: locale), locale: locale)
     }
 
-    static func danmakuCountText(compactText: String, locale: Locale = .current) -> String {
-        BrowseFeatureStrings.localized("\(compactText)弹幕", locale: locale)
+    package static func danmakuCountText(compactText: String, locale: Locale = .current) -> String {
+        BiliUIStrings.localized("\(compactText)弹幕", locale: locale)
     }
 
-    static func compactCount(_ count: Int64, locale: Locale = .current) -> String {
+    package static func compactCount(_ count: Int64, locale: Locale = .current) -> String {
         let normalizedCount = max(0, count)
         if locale.language.languageCode?.identifier == "en" {
             if normalizedCount >= 1_000_000_000 {
@@ -38,44 +41,35 @@ enum VideoMetadataFormatting {
             return compactUnit(
                 normalizedCount,
                 divisor: 100_000_000,
-                suffix: BrowseFeatureStrings.localized("亿", locale: locale)
+                suffix: BiliUIStrings.localized("亿", locale: locale)
             )
         }
         if normalizedCount >= 10_000 {
             return compactUnit(
                 normalizedCount,
                 divisor: 10_000,
-                suffix: BrowseFeatureStrings.localized("万", locale: locale)
+                suffix: BiliUIStrings.localized("万", locale: locale)
             )
         }
         return String(normalizedCount)
     }
 
-    static func publishedDate(
+    /// 发布日期：当天“N小时前”、前一天“昨天”、同年“M月D日”，更早给完整日期。
+    package static func publishedDate(
         _ date: Date,
         relativeTo now: Date = .now,
         calendar: Calendar = .current,
         locale: Locale = .current
     ) -> String {
-        if calendar.isDate(date, inSameDayAs: now) {
-            let elapsedHours =
-                calendar.dateComponents(
-                    [.hour],
-                    from: date,
-                    to: now
-                ).hour ?? 0
+        switch DateDisplayFormatting.dayRelation(of: date, relativeTo: now, calendar: calendar) {
+        case .today:
+            let elapsedHours = calendar.dateComponents([.hour], from: date, to: now).hour ?? 0
             let hours = max(1, elapsedHours)
-            return BrowseFeatureStrings.localized("\(hours)小时前", locale: locale)
-        }
-
-        if let yesterday = calendar.date(
-            byAdding: .day,
-            value: -1,
-            to: now
-        ),
-            calendar.isDate(date, inSameDayAs: yesterday)
-        {
-            return BrowseFeatureStrings.localized("昨天", locale: locale)
+            return BiliUIStrings.localized("\(hours)小时前", locale: locale)
+        case .yesterday:
+            return BiliUIStrings.localized("昨天", locale: locale)
+        case .earlier:
+            break
         }
 
         let sameYear =
@@ -84,9 +78,9 @@ enum VideoMetadataFormatting {
         if sameYear {
             let month = calendar.component(.month, from: date)
             let day = calendar.component(.day, from: date)
-            return BrowseFeatureStrings.localized("\(month)月\(day)日", locale: locale)
+            return BiliUIStrings.localized("\(month)月\(day)日", locale: locale)
         }
-        return formatted(
+        return DateDisplayFormatting.formatted(
             date,
             date: .long,
             time: .omitted,
@@ -95,31 +89,19 @@ enum VideoMetadataFormatting {
         )
     }
 
-    static func fullPublishedDate(
+    /// 播放页详情里的完整发布时间（日期与时分秒）。
+    package static func fullPublishedDate(
         _ date: Date,
         calendar: Calendar = .current,
         locale: Locale = .current
     ) -> String {
-        formatted(
+        DateDisplayFormatting.formatted(
             date,
             date: .long,
             time: .standard,
             calendar: calendar,
             locale: locale
         )
-    }
-
-    private static func formatted(
-        _ dateValue: Date,
-        date dateStyle: Date.FormatStyle.DateStyle,
-        time timeStyle: Date.FormatStyle.TimeStyle,
-        calendar: Calendar,
-        locale: Locale
-    ) -> String {
-        var style = Date.FormatStyle(date: dateStyle, time: timeStyle)
-            .locale(locale)
-        style.timeZone = calendar.timeZone
-        return dateValue.formatted(style)
     }
 
     private static func compactUnit(
