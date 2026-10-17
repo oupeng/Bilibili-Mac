@@ -699,25 +699,20 @@ extension NativeVideoImageVariant {
 /// 管线的生命周期 owner：持有系统内存压力监听，shutdown 时先取消监听再关闭管线。
 final class NativeVideoImagePipelineOwner {
     let pipeline: NativeVideoImagePipeline
-    private let memoryPressureSource: any DispatchSourceMemoryPressure
+    private let memoryPressure: SystemMemoryPressureObserver
 
     init(cacheLimits: NativeVideoImageCacheLimits) {
         let pipeline = NativeVideoImagePipeline(cacheLimits: cacheLimits)
         self.pipeline = pipeline
-        let source = DispatchSource.makeMemoryPressureSource(
-            eventMask: [.warning, .critical],
+        memoryPressure = SystemMemoryPressureObserver(
             queue: .global(qos: .utility)
-        )
-        source.setEventHandler { [weak pipeline] in
+        ) { [weak pipeline] in
             pipeline?.discardCachedImages()
         }
-        source.resume()
-        memoryPressureSource = source
     }
 
     func shutdown() {
-        memoryPressureSource.setEventHandler {}
-        memoryPressureSource.cancel()
+        memoryPressure.cancel()
         pipeline.shutdown()
     }
 
