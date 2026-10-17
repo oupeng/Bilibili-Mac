@@ -1,5 +1,6 @@
 import AppKit
 import BiliModels
+import BiliVideoCollectionUI
 
 /// 评论头像右下角的身份角标：认证为黄／蓝底白色闪电，大会员为粉底白色“大”字。
 ///

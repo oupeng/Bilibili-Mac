@@ -1,7 +1,7 @@
 import AppKit
 import BiliUI
 
-typealias NativeVideoGridTailState = NearEndTailState<String>
+public typealias NativeVideoGridTailState = NearEndTailState<String>
 
 struct NativeVideoGridUpdatePlan: Equatable {
     let identityChanged: Bool
@@ -71,11 +71,13 @@ struct NativeVideoGridTopPin: Equatable {
     }
 }
 
-struct NativeVideoGridScrollResetState: Equatable {
+public struct NativeVideoGridScrollResetState: Equatable, Sendable {
     private(set) var requestID: UInt64 = 0
     var acknowledgedRequestID: UInt64 = 0
 
-    mutating func request() {
+    public init() {}
+
+    public mutating func request() {
         requestID &+= 1
     }
 }

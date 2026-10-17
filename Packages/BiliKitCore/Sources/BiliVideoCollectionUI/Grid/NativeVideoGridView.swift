@@ -2,17 +2,37 @@ import AppKit
 import BiliUI
 import SwiftUI
 
-struct NativeVideoGridView: NSViewRepresentable {
+public struct NativeVideoGridView: NSViewRepresentable {
     let items: [NativeVideoCardPresentation]
     @Binding var scrollOffsetY: CGFloat
     let accessibilityLabel: String
     let tailState: NativeVideoGridTailState
     @Binding var scrollReset: NativeVideoGridScrollResetState
-    let imagePipeline: NativeVideoImagePipeline
+    let imagePipeline: any NativeVideoImageLoading
     let onNearEnd: () -> Void
     let onSelect: (String) -> Void
 
-    func makeCoordinator() -> Coordinator {
+    public init(
+        items: [NativeVideoCardPresentation],
+        scrollOffsetY: Binding<CGFloat>,
+        accessibilityLabel: String,
+        tailState: NativeVideoGridTailState,
+        scrollReset: Binding<NativeVideoGridScrollResetState>,
+        imagePipeline: any NativeVideoImageLoading,
+        onNearEnd: @escaping () -> Void,
+        onSelect: @escaping (String) -> Void
+    ) {
+        self.items = items
+        _scrollOffsetY = scrollOffsetY
+        self.accessibilityLabel = accessibilityLabel
+        self.tailState = tailState
+        _scrollReset = scrollReset
+        self.imagePipeline = imagePipeline
+        self.onNearEnd = onNearEnd
+        self.onSelect = onSelect
+    }
+
+    public func makeCoordinator() -> Coordinator {
         Coordinator(
             items: items,
             initialScrollOffsetY: scrollOffsetY,
@@ -30,11 +50,11 @@ struct NativeVideoGridView: NSViewRepresentable {
         )
     }
 
-    func makeNSView(context: Context) -> NSScrollView {
+    public func makeNSView(context: Context) -> NSScrollView {
         context.coordinator.makeScrollView()
     }
 
-    func updateNSView(_ view: NSScrollView, context: Context) {
+    public func updateNSView(_ view: NSScrollView, context: Context) {
         context.coordinator.update(
             items: items,
             accessibilityLabel: accessibilityLabel,
@@ -50,7 +70,7 @@ struct NativeVideoGridView: NSViewRepresentable {
         )
     }
 
-    static func dismantleNSView(
+    public static func dismantleNSView(
         _ view: NSScrollView,
         coordinator: Coordinator
     ) {
@@ -58,11 +78,11 @@ struct NativeVideoGridView: NSViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject, NSCollectionViewDelegateFlowLayout {
+    public final class Coordinator: NSObject, NSCollectionViewDelegateFlowLayout {
         private let scrollView = NativeVideoGridScrollView()
         private let collectionView = NativeVideoCollectionView()
         private let layout = NSCollectionViewFlowLayout()
-        private let imagePipeline: NativeVideoImagePipeline
+        private let imagePipeline: any NativeVideoImageLoading
         private var dataSource: NSCollectionViewDiffableDataSource<Int, String>?
         private var contents: NativeVideoCardContents
         private var accessibilityLabel: String
@@ -100,7 +120,7 @@ struct NativeVideoGridView: NSViewRepresentable {
             tailState: NativeVideoGridTailState,
             scrollResetRequestID: UInt64,
             acknowledgedScrollResetRequestID: UInt64,
-            imagePipeline: NativeVideoImagePipeline,
+            imagePipeline: any NativeVideoImageLoading,
             onScroll: @escaping (CGFloat) -> Void,
             onAcknowledgeScrollReset: @escaping (UInt64) -> Void,
             onNearEnd: @escaping () -> Void,
@@ -628,7 +648,7 @@ struct NativeVideoGridView: NSViewRepresentable {
             hover.itemDidChangeHover(item, isHovered: isHovered)
         }
 
-        func collectionView(
+        public func collectionView(
             _ collectionView: NSCollectionView,
             layout collectionViewLayout: NSCollectionViewLayout,
             sizeForItemAt indexPath: IndexPath
@@ -636,7 +656,7 @@ struct NativeVideoGridView: NSViewRepresentable {
             NativeVideoGridGeometry.itemSize(for: collectionView.bounds.width)
         }
 
-        func collectionView(
+        public func collectionView(
             _ collectionView: NSCollectionView,
             didEndDisplaying item: NSCollectionViewItem,
             forRepresentedObjectAt indexPath: IndexPath

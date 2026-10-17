@@ -1,11 +1,16 @@
 import Foundation
 
-struct NativeVideoCardMetric: Equatable, Sendable {
-    let text: String
-    let systemImage: String
+public struct NativeVideoCardMetric: Equatable, Sendable {
+    public let text: String
+    public let systemImage: String
+
+    public init(text: String, systemImage: String) {
+        self.text = text
+        self.systemImage = systemImage
+    }
 }
 
-enum NativeVideoCardFooterTrailingStyle: Equatable, Sendable {
+public enum NativeVideoCardFooterTrailingStyle: Equatable, Sendable {
     case plain
     case brandOutlinedCapsule
 }
@@ -14,23 +19,23 @@ enum NativeVideoCardFooterTrailingStyle: Equatable, Sendable {
 ///
 /// Feature 或 composition adapter 负责图片 URL 优化、数字/日期/进度格式化与 AX 文案；
 /// renderer 不读取 endpoint model，也不推断任何业务状态。
-struct NativeVideoCardPresentation: Equatable, Sendable {
-    let id: String
-    let title: String
-    let coverURL: URL?
-    let avatarURL: URL?
-    let showsAvatar: Bool
-    let coverMetrics: [NativeVideoCardMetric]
-    let coverTrailingText: String?
-    let footerLeadingText: String
-    let footerTrailingText: String?
+public struct NativeVideoCardPresentation: Equatable, Sendable {
+    public let id: String
+    public let title: String
+    public let coverURL: URL?
+    public let avatarURL: URL?
+    public let showsAvatar: Bool
+    public let coverMetrics: [NativeVideoCardMetric]
+    public let coverTrailingText: String?
+    public let footerLeadingText: String
+    public let footerTrailingText: String?
     /// 尾部文字前的小图标（SF Symbol 名），只用于普通样式。
-    let footerTrailingSymbolName: String?
-    let footerTrailingStyle: NativeVideoCardFooterTrailingStyle
-    let accessibilityLabel: String
-    let accessibilityHelp: String?
+    public let footerTrailingSymbolName: String?
+    public let footerTrailingStyle: NativeVideoCardFooterTrailingStyle
+    public let accessibilityLabel: String
+    public let accessibilityHelp: String?
 
-    init(
+    public init(
         id: String,
         title: String,
         coverURL: URL?,

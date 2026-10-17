@@ -1,4 +1,5 @@
 import AppKit
+import BiliVideoCollectionUI
 import ImageIO
 
 /// 在一个宿主视图里播放评论动图：用 ImageIO 边解码边播放，不预先解出所有帧，始终无限循环。

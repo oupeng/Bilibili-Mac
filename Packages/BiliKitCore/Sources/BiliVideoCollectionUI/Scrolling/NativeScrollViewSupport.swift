@@ -3,22 +3,22 @@ import AppKit
 /// 逻辑偏移从内容起点算起，与 contentInsets 无关；物理偏移是 clip view 的 bounds origin。
 ///
 /// 纵向（网格、侧栏、详情页）传 top／bottom inset，横向（shelf）传 left／right inset。
-enum NativeVideoScrollCoordinateSpace {
-    static func logicalOffset(
+public enum NativeVideoScrollCoordinateSpace {
+    public static func logicalOffset(
         physicalOffset: CGFloat,
         leadingInset: CGFloat
     ) -> CGFloat {
         max(0, physicalOffset + max(0, leadingInset))
     }
 
-    static func physicalOffset(
+    public static func physicalOffset(
         logicalOffset: CGFloat,
         leadingInset: CGFloat
     ) -> CGFloat {
         max(0, logicalOffset) - max(0, leadingInset)
     }
 
-    static func maximumLogicalOffset(
+    public static func maximumLogicalOffset(
         documentLength: CGFloat,
         viewportLength: CGFloat,
         leadingInset: CGFloat,
@@ -34,18 +34,20 @@ enum NativeVideoScrollCoordinateSpace {
 }
 
 /// NSScrollView 子类在 `layout()` 中用它判断 viewport 尺寸与 contentInsets 是否变化（半点容差）。
-struct NativeScrollViewportTracker {
-    struct Change {
-        let sizeChanged: Bool
+public struct NativeScrollViewportTracker: Sendable {
+    public struct Change: Sendable {
+        public let sizeChanged: Bool
         /// insets 变化时为变化前的值。
-        let previousInsets: NSEdgeInsets?
+        public let previousInsets: NSEdgeInsets?
     }
 
     private var lastSize: NSSize?
     private var lastInsets = NSEdgeInsetsZero
 
+    public init() {}
+
     @MainActor
-    mutating func update(for scrollView: NSScrollView) -> Change {
+    public mutating func update(for scrollView: NSScrollView) -> Change {
         let size = scrollView.contentSize
         let insets = scrollView.contentInsets
         let sizeChanged =
@@ -71,7 +73,7 @@ struct NativeScrollViewportTracker {
 private let nativeUserScrollAnimationDuration: TimeInterval = 0.25
 
 extension NSScrollView {
-    func scrollVertically(toPhysicalOffset offsetY: CGFloat) {
+    public func scrollVertically(toPhysicalOffset offsetY: CGFloat) {
         contentView.scroll(to: NSPoint(x: 0, y: offsetY))
         reflectScrolledClipView(contentView)
     }
@@ -80,7 +82,7 @@ extension NSScrollView {
     ///
     /// “减弱动态效果”开启或 `animated` 为 false 时直接跳转；程序内部的定位（换内容回到顶部、
     /// 恢复滚动位置）始终不加动画。
-    func scrollVertically(toPhysicalOffset offsetY: CGFloat, animated: Bool) {
+    public func scrollVertically(toPhysicalOffset offsetY: CGFloat, animated: Bool) {
         guard animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             scrollVertically(toPhysicalOffset: offsetY)
             return
@@ -94,7 +96,7 @@ extension NSScrollView {
     }
 
     /// contentInsets 变化后保持逻辑纵向位置不变。
-    func preserveLogicalVerticalOffset(
+    public func preserveLogicalVerticalOffset(
         from oldInsets: NSEdgeInsets,
         to newInsets: NSEdgeInsets
     ) {

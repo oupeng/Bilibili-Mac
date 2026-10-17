@@ -1,4 +1,5 @@
 import AppKit
+import BiliVideoCollectionUI
 
 @MainActor
 final class NativeVideoShelfScrollView: NSScrollView {

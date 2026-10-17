@@ -188,3 +188,8 @@ enum NativePlaybackCommentsFooter: Equatable, Hashable {
     case end(memoryLimited: Bool)
     case loadMore
 }
+
+struct NativePlaybackCommentsPaginationIdentity: Equatable {
+    let subject: CommentSubjectIdentity
+    let lastRootID: CommentID?
+}

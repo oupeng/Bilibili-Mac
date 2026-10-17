@@ -1,5 +1,6 @@
 import AppKit
 import BiliModels
+import BiliVideoCollectionUI
 
 /// 空间层头部的展示值。
 struct UploaderSpaceHeaderContent: Equatable {

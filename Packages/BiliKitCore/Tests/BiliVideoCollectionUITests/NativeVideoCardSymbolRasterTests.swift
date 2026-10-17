@@ -1,7 +1,7 @@
 import AppKit
 import Testing
 
-@testable import BiliKit
+@testable import BiliVideoCollectionUI
 
 struct NativeVideoCardSymbolRasterTests {
     @Test @MainActor
