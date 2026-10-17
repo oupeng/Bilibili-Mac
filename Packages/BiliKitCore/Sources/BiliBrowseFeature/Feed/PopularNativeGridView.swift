@@ -1,28 +1,24 @@
-import BiliBrowseFeature
 import BiliModels
 import BiliVideoCollectionUI
 import Foundation
 import SwiftUI
 
+/// 热门的已加载网格：把热门条目映射为原生卡片，交给共享的 `NativeVideoGridView`；用 AppKit 网格的理由见
+/// ARCHITECTURE「原生 AppKit 集合视图」。
+///
+/// 只负责映射与接线：分页与选择意图回送 `PopularFeedView` 给出的回调，滚动位置、回顶请求与取图 port
+/// 来自 App 窗口的 `NativeVideoGridHostContext`。
 struct PopularNativeGridView: View {
     @Environment(\.locale) private var locale
     let content: LoadedFeedContent<PopularVideo>
-    @Binding var scrollOffsetY: CGFloat
-    @Binding var scrollReset: NativeVideoGridScrollResetState
-    let imagePipeline: NativeVideoImagePipeline
+    let host: NativeVideoGridHostContext
 
     var body: some View {
         NativeVideoGridView(
             items: Self.makePresentations(content.items, locale: locale),
-            scrollOffsetY: $scrollOffsetY,
-            accessibilityLabel: AppStrings.localized("热门视频", locale: locale),
-            tailState: NativeVideoGridTailState(
-                canLoadMore: content.canLoadMore,
-                tailIdentity: content.tailIdentity,
-                isLoading: content.isLoadingMore
-            ),
-            scrollReset: $scrollReset,
-            imagePipeline: imagePipeline,
+            accessibilityLabel: BrowseFeatureStrings.localized("热门视频", locale: locale),
+            tailState: content.tailState,
+            host: host,
             onNearEnd: content.loadMore,
             onSelect: content.select
         )

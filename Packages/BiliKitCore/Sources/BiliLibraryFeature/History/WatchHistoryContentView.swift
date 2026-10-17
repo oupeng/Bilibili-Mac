@@ -1,6 +1,7 @@
 import BiliApplication
 import BiliModels
 import BiliUI
+import BiliVideoCollectionUI
 import SwiftUI
 
 struct WatchHistoryLoadedSurface: Equatable {
@@ -31,11 +32,16 @@ struct WatchHistoryLoadedSurface: Equatable {
     }
 }
 
-struct WatchHistoryContentView<LoadedContent: View>: View {
+/// 已登录时的观看历史主区：按 `WatchHistoryViewModel` 的状态显示骨架、空页、失败页或原生网格，叠加刷新与
+/// 分页状态胶囊；凭据失败的说明按模型的账户复核进度区分。
+///
+/// 不拥有请求、分页与复核（`WatchHistoryViewModel`），滚动位置、回顶请求与图片管线由 `WatchHistoryView`
+/// 从 App 窗口转交。
+struct WatchHistoryContentView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.locale) private var locale
     let model: WatchHistoryViewModel
-    let makeLoadedContent: (LoadedHistoryContent) -> LoadedContent
+    let gridHost: NativeVideoGridHostContext
     let onSelect: (String) -> Void
 
     var body: some View {
@@ -131,16 +137,20 @@ struct WatchHistoryContentView<LoadedContent: View>: View {
         requiresManualLoadMore: Bool,
         loadMoreError: ContentApplicationError?
     ) -> some View {
-        makeLoadedContent(
-            LoadedHistoryContent(
+        HistoryNativeGridView(
+            content: LoadedHistoryContent(
                 items: items.map { WatchHistoryCardPresentation(item: $0, locale: locale) },
-                canLoadMore: canLoadMore && !requiresManualLoadMore,
-                tailIdentity: model.paginationTailIdentity,
-                isLoadingMore: isLoadingMore,
+                tailState: NativeVideoGridTailState(
+                    canLoadMore: canLoadMore && !requiresManualLoadMore,
+                    tailIdentity: model.paginationTailIdentity,
+                    isLoading: isLoadingMore
+                ),
                 loadMore: model.loadMore,
                 select: onSelect
-            )
+            ),
+            host: gridHost
         )
+        .ignoresSafeArea(.container, edges: .top)
         .overlay(alignment: .top) {
             RefreshStatusCapsule(
                 isRefreshing: model.isRefreshing,

@@ -88,58 +88,107 @@ struct NativeVideoShelfTests {
         #expect(selected == "BV-stable")
     }
 
-    @Test
+    /// 父视频变了即使 ID 序列相同也整体替换：旧卡片的在途封面请求被取消，横排回到起点后重新配置可见卡片。
+    @Test(.timeLimit(.minutes(1)))
     @MainActor
-    func sameContentIdentityReloadsChangedCardWithoutResettingTheShelf() {
-        let old = presentation(id: "BV-a", title: "旧标题")
-        let updated = presentation(id: "BV-a", title: "新标题")
-        let stable = presentation(id: "BV-b", title: "不变")
-        let plan = NativeVideoShelfUpdatePlan(
-            previousContentIdentity: "BV-parent",
-            updatedContentIdentity: "BV-parent",
-            previousIDs: [old.id, stable.id],
-            previousContents: [old.id: old, stable.id: stable],
-            updatedIDs: [updated.id, stable.id],
-            updatedContents: [updated.id: updated, stable.id: stable]
+    func parentVideoChangeReplacesContentEvenWithTheSameIDs() async {
+        let loader = NativeVideoShelfPendingImageLoader()
+        var events = loader.events.makeAsyncIterator()
+        let items = (0..<12).map { index in
+            NativeVideoCardPresentation(
+                id: "BV-\(index)",
+                title: "相关推荐 \(index)",
+                coverURL: URL(string: "https://i0.hdslb.com/bfs/archive/\(index).jpg"),
+                avatarURL: nil,
+                showsAvatar: false,
+                footerLeadingText: "作者",
+                accessibilityLabel: "相关推荐 \(index)"
+            )
+        }
+        let coordinator = NativeVideoShelfView.Coordinator(
+            contentIdentity: "BV-parent-a",
+            items: items,
+            imagePipeline: loader,
+            reduceMotion: true,
+            isInteractionEnabled: true,
+            onSelect: { _ in }
+        )
+        let scrollView = coordinator.makeScrollView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 300),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = scrollView
+        defer {
+            coordinator.reset()
+            window.contentView = NSView()
+        }
+        scrollView.layoutSubtreeIfNeeded()
+
+        // 首张开始加载的封面属于视野内的卡片；只滚动半张卡片的距离，它仍在视野内。
+        guard case .started(let visibleCoverURL)? = await events.next() else {
+            Issue.record("横排没有为可见卡片发起封面请求")
+            return
+        }
+        scrollView.scrollHorizontally(to: NativeVideoShelfGeometry.stride / 2, animated: false)
+        #expect(Self.logicalOffset(of: scrollView) > 0)
+
+        coordinator.update(
+            contentIdentity: "BV-parent-b",
+            items: items,
+            reduceMotion: true,
+            isInteractionEnabled: true,
+            onSelect: { _ in }
         )
 
-        #expect(!plan.identityChanged)
-        #expect(plan.changedExistingIDs == ["BV-a"])
+        // 快照完成后重配可见卡片会为同一张封面重新发起请求；先要看到旧请求被取消。
+        var cancelledVisibleCover = false
+        while let event = await events.next() {
+            if event == .cancelled(visibleCoverURL) { cancelledVisibleCover = true }
+            if cancelledVisibleCover, event == .started(visibleCoverURL) { break }
+        }
+        #expect(cancelledVisibleCover)
+        #expect(Self.logicalOffset(of: scrollView) == 0)
     }
 
-    @Test
     @MainActor
-    func contentReplacementRequiresIdentityDiffAndLeadingResetContract() {
-        let old = presentation(id: "BV-a", title: "A")
-        let updated = presentation(id: "BV-b", title: "B")
-        let plan = NativeVideoShelfUpdatePlan(
-            previousContentIdentity: "BV-parent-a",
-            updatedContentIdentity: "BV-parent-b",
-            previousIDs: [old.id],
-            previousContents: [old.id: old],
-            updatedIDs: [updated.id],
-            updatedContents: [updated.id: updated]
+    private static func logicalOffset(of scrollView: NSScrollView) -> CGFloat {
+        NativeVideoScrollCoordinateSpace.logicalOffset(
+            physicalOffset: scrollView.contentView.bounds.origin.x,
+            leadingInset: scrollView.contentInsets.left
         )
+    }
+}
 
-        #expect(plan.identityChanged)
-        #expect(plan.changedExistingIDs.isEmpty)
-        #expect(NativeVideoShelfGeometry.offset(for: 0) == 0)
+/// 永不完成的取图替身：每次加载记一条“开始”，被取消时记一条“取消”，用来观察卡片的在途请求。
+private final class NativeVideoShelfPendingImageLoader: NativeVideoImageLoading {
+    enum Event: Equatable {
+        case started(URL)
+        case cancelled(URL)
     }
 
-    @MainActor
-    private func presentation(
-        id: String,
-        title: String
-    ) -> NativeVideoCardPresentation {
-        NativeVideoCardPresentation(
-            id: id,
-            title: title,
-            coverURL: nil,
-            avatarURL: nil,
-            showsAvatar: false,
-            footerLeadingText: "作者",
-            accessibilityLabel: title
-        )
+    let events: AsyncStream<Event>
+    private let continuation: AsyncStream<Event>.Continuation
+
+    init() {
+        (events, continuation) = AsyncStream.makeStream()
+    }
+
+    func cachedImage(for url: URL, kind: NativeVideoCardImageKind) -> CGImage? {
+        nil
+    }
+
+    func image(for url: URL, kind: NativeVideoCardImageKind) async -> NativeVideoCardImage? {
+        continuation.yield(.started(url))
+        await withTaskCancellationHandler {
+            // 只为挂起到被取消，时长不参与判断。
+            try? await Task.sleep(for: .seconds(3_600))
+        } onCancel: {
+            continuation.yield(.cancelled(url))
+        }
+        return nil
     }
 }
 

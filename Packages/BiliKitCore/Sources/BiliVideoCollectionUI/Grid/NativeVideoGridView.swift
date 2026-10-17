@@ -4,9 +4,10 @@ import SwiftUI
 
 /// 首页推荐、热门、搜索与历史共用的原生视频网格，用 AppKit 的理由见 ARCHITECTURE「原生 AppKit 集合视图」。
 ///
-/// 只渲染调用方给的卡片、尾部状态与回顶请求；内容、分页与选择的意图归调用方，图片下载与缓存归注入的
-/// `imagePipeline`。滚动位置经 `scrollOffsetY` 双向同步，回顶请求经 `scrollReset` 握手确认。
-public struct NativeVideoGridView: NSViewRepresentable {
+/// 调用方是 Browse 与 Library 的网格包装，所以是 `package`。只渲染调用方给的卡片、尾部状态与回顶请求；
+/// 内容、分页与选择的意图归调用方，滚动位置、回顶请求与取图 port 来自 App 窗口的
+/// `NativeVideoGridHostContext`。滚动位置经 binding 双向同步，回顶请求经 `scrollReset` 握手确认。
+package struct NativeVideoGridView: NSViewRepresentable {
     let items: [NativeVideoCardPresentation]
     @Binding var scrollOffsetY: CGFloat
     let accessibilityLabel: String
@@ -16,27 +17,25 @@ public struct NativeVideoGridView: NSViewRepresentable {
     let onNearEnd: () -> Void
     let onSelect: (String) -> Void
 
-    public init(
+    package init(
         items: [NativeVideoCardPresentation],
-        scrollOffsetY: Binding<CGFloat>,
         accessibilityLabel: String,
         tailState: NativeVideoGridTailState,
-        scrollReset: Binding<NativeVideoGridScrollResetState>,
-        imagePipeline: any NativeVideoImageLoading,
+        host: NativeVideoGridHostContext,
         onNearEnd: @escaping () -> Void,
         onSelect: @escaping (String) -> Void
     ) {
         self.items = items
-        _scrollOffsetY = scrollOffsetY
+        _scrollOffsetY = host.scrollOffsetY
         self.accessibilityLabel = accessibilityLabel
         self.tailState = tailState
-        _scrollReset = scrollReset
-        self.imagePipeline = imagePipeline
+        _scrollReset = host.scrollReset
+        imagePipeline = host.imageLoader
         self.onNearEnd = onNearEnd
         self.onSelect = onSelect
     }
 
-    public func makeCoordinator() -> Coordinator {
+    package func makeCoordinator() -> Coordinator {
         Coordinator(
             items: items,
             initialScrollOffsetY: scrollOffsetY,
@@ -54,11 +53,11 @@ public struct NativeVideoGridView: NSViewRepresentable {
         )
     }
 
-    public func makeNSView(context: Context) -> NSScrollView {
+    package func makeNSView(context: Context) -> NSScrollView {
         context.coordinator.makeScrollView()
     }
 
-    public func updateNSView(_ view: NSScrollView, context: Context) {
+    package func updateNSView(_ view: NSScrollView, context: Context) {
         context.coordinator.update(
             items: items,
             accessibilityLabel: accessibilityLabel,
@@ -74,7 +73,7 @@ public struct NativeVideoGridView: NSViewRepresentable {
         )
     }
 
-    public static func dismantleNSView(
+    package static func dismantleNSView(
         _ view: NSScrollView,
         coordinator: Coordinator
     ) {
@@ -87,7 +86,7 @@ public struct NativeVideoGridView: NSViewRepresentable {
     /// `isReset` 后 `persistScrollOffset` 直接返回），再推进 `updateEpoch` 作废在途快照回调、移除观察并清空
     /// 回调。之后 `update`、滚动与翻页判断按 `isReset` 返回；已排队的预备区域刷新靠 `window != nil` 兜底。
     @MainActor
-    public final class Coordinator: NSObject, NSCollectionViewDelegateFlowLayout {
+    package final class Coordinator: NSObject, NSCollectionViewDelegateFlowLayout {
         private let scrollView = NativeVideoGridScrollView()
         private let collectionView = NativeVideoCollectionView()
         private let layout = NSCollectionViewFlowLayout()
@@ -673,7 +672,7 @@ public struct NativeVideoGridView: NSViewRepresentable {
             hover.itemDidChangeHover(item, isHovered: isHovered)
         }
 
-        public func collectionView(
+        package func collectionView(
             _ collectionView: NSCollectionView,
             layout collectionViewLayout: NSCollectionViewLayout,
             sizeForItemAt indexPath: IndexPath
@@ -681,7 +680,7 @@ public struct NativeVideoGridView: NSViewRepresentable {
             NativeVideoGridGeometry.itemSize(for: collectionView.bounds.width)
         }
 
-        public func collectionView(
+        package func collectionView(
             _ collectionView: NSCollectionView,
             didEndDisplaying item: NSCollectionViewItem,
             forRepresentedObjectAt indexPath: IndexPath

@@ -198,8 +198,14 @@ struct AppShellView: View {
         ]
     }
 
-    private func gridScrollBinding(_ tab: AppTab) -> Binding<SourceGridScrollState> {
-        $gridScroll[dynamicMember: \.[tab]]
+    /// 某个来源网格的窗口级依赖：本视图持有的滚动位置与回顶请求，加上窗口图片管线。
+    private func gridHost(_ tab: AppTab) -> NativeVideoGridHostContext {
+        let scroll = $gridScroll[dynamicMember: \.[tab]]
+        return NativeVideoGridHostContext(
+            scrollOffsetY: scroll.offsetY,
+            scrollReset: scroll.reset,
+            imageLoader: imagePipeline
+        )
     }
 
     /// 回顶只发 reset 请求：已挂载的网格立即滚到 0 并把位置同步回 offset binding，
@@ -341,9 +347,7 @@ struct AppShellView: View {
         case .home:
             RecommendedTabRoot(
                 model: browseModel,
-                scrollOffsetY: gridScrollBinding(.home).offsetY,
-                scrollReset: gridScrollBinding(.home).reset,
-                imagePipeline: imagePipeline,
+                gridHost: gridHost(.home),
                 onSelect: navigationCoordinator.openPlayback
             )
         case .search:
@@ -355,8 +359,7 @@ struct AppShellView: View {
                     set: { navigationCoordinator.searchDraft = $0 }
                 ),
                 submittedSearchCriteria: submittedSearchCriteria,
-                scrollOffsetY: gridScrollBinding(.search).offsetY,
-                scrollReset: gridScrollBinding(.search).reset,
+                gridHost: gridHost(.search),
                 imagePipeline: imagePipeline,
                 trendingSearchModel: trendingSearchModel,
                 searchHistory: searchHistory,
@@ -371,18 +374,14 @@ struct AppShellView: View {
         case .popular:
             PopularTabRoot(
                 model: browseModel,
-                scrollOffsetY: gridScrollBinding(.popular).offsetY,
-                scrollReset: gridScrollBinding(.popular).reset,
-                imagePipeline: imagePipeline,
+                gridHost: gridHost(.popular),
                 onSelect: navigationCoordinator.openPlayback
             )
         case .history:
             HistoryTabRoot(
                 model: historyModel,
                 accountState: authenticationModel.accountPresentationState,
-                scrollOffsetY: gridScrollBinding(.history).offsetY,
-                scrollReset: gridScrollBinding(.history).reset,
-                imagePipeline: imagePipeline,
+                gridHost: gridHost(.history),
                 onSelect: navigationCoordinator.openPlayback,
                 onPresentAuthentication: {
                     isAuthenticationPresented = true

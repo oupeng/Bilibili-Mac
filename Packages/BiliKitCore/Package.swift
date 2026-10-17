@@ -58,7 +58,7 @@ let package = Package(
         ),
         .target(
             name: "BiliBrowseFeature",
-            dependencies: ["BiliApplication", "BiliModels", "BiliUI"],
+            dependencies: ["BiliApplication", "BiliModels", "BiliUI", "BiliVideoCollectionUI"],
             resources: [.process("Resources")]
         ),
         .target(
@@ -68,7 +68,7 @@ let package = Package(
         ),
         .target(
             name: "BiliLibraryFeature",
-            dependencies: ["BiliApplication", "BiliModels", "BiliUI"],
+            dependencies: ["BiliApplication", "BiliModels", "BiliUI", "BiliVideoCollectionUI"],
             resources: [.process("Resources")]
         ),
         .target(
@@ -134,7 +134,8 @@ let package = Package(
                 "BiliApplication",
                 "BiliBrowseFeature",
                 "BiliModels",
-                "BiliUI"
+                "BiliUI",
+                "BiliVideoCollectionUI"
             ]
         ),
         .testTarget(
