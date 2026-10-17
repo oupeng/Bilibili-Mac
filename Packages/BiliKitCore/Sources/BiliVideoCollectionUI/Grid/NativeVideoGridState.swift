@@ -2,7 +2,7 @@ import AppKit
 import BiliUI
 
 /// 网格的分页尾部状态；尾部身份由调用方给出（如最后一页的标识），变化即视为新尾部。
-public typealias NativeVideoGridTailState = NearEndTailState<String>
+package typealias NativeVideoGridTailState = NearEndTailState<String>
 
 /// 一次内容更新相对上一次的差异：决定是否应用新快照、只重配内容变了的可见卡片，以及是否保持视口锚点。
 struct NativeVideoGridUpdatePlan: Equatable {

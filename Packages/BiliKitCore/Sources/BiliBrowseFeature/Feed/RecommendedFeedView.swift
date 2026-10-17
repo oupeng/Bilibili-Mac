@@ -1,24 +1,30 @@
 import BiliApplication
 import BiliModels
 import BiliUI
+import BiliVideoCollectionUI
 import SwiftUI
 
-public struct RecommendedFeedView<LoadedContent: View>: View {
+/// 首页推荐来源的根视图：按 `BrowseViewModel` 的状态显示骨架、空页、失败页或原生网格，叠加刷新与分页
+/// 状态胶囊，并在工具栏提供刷新。
+///
+/// 拥有呈现与网格渲染；不拥有请求、分页与 generation（`BrowseViewModel`），也不拥有滚动位置、回顶请求与
+/// 图片管线——它们属于 App 窗口，经 `NativeVideoGridHostContext` 原样交给网格，App 据此在刷新与账户变化时
+/// 让网格回到顶部。
+public struct RecommendedFeedView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.locale) private var locale
     private let model: BrowseViewModel
     private let request = FeedRequest.recommendation(continuation: nil)
-    private let makeLoadedContent: (LoadedFeedContent<RecommendedVideo>) -> LoadedContent
+    private let gridHost: NativeVideoGridHostContext
     private let onSelect: (String) -> Void
 
     public init(
         model: BrowseViewModel,
-        makeLoadedContent:
-            @escaping (LoadedFeedContent<RecommendedVideo>) -> LoadedContent,
+        gridHost: NativeVideoGridHostContext,
         onSelect: @escaping (String) -> Void
     ) {
         self.model = model
-        self.makeLoadedContent = makeLoadedContent
+        self.gridHost = gridHost
         self.onSelect = onSelect
     }
 
@@ -81,16 +87,16 @@ public struct RecommendedFeedView<LoadedContent: View>: View {
         presentation: FeedPresentation
     ) -> some View {
         let pagination = model.pagination(for: .recommendation(continuation: nil))
-        return makeLoadedContent(
-            LoadedFeedContent(
+        return RecommendedNativeGridView(
+            content: LoadedFeedContent(
                 items: page.videos,
-                canLoadMore: pagination.canLoadMore,
-                tailIdentity: pagination.tailIdentity,
-                isLoadingMore: pagination.isLoadingMore,
+                tailState: pagination.gridTailState,
                 loadMore: { model.loadMore(.recommendation) },
                 select: onSelect
-            )
+            ),
+            host: gridHost
         )
+        .ignoresSafeArea(.container, edges: .top)
         .overlay(alignment: .top) {
             refreshStatus(presentation)
         }

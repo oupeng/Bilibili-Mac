@@ -1,10 +1,12 @@
 import CoreGraphics
 import SwiftUI
 
-/// 热搜词旁的小图标（如“热”“新”）；经窗口共用的无凭据图片管线加载，加载失败时不占位。
+/// 热搜词旁的小图标（如“热”“新”）；经注入的 `TrendingSearchIconLoading` 加载，加载失败时不占位。
+///
+/// 只持有当前地址已到达的图；`.task(id:)` 随地址变化取消旧加载，旧地址的结果按地址比对后不显示。
 struct TrendingSearchIconView: View {
     let url: URL
-    let imagePipeline: NativeVideoImagePipeline
+    let iconLoader: any TrendingSearchIconLoading
     @State private var loaded: (url: URL, image: CGImage)?
 
     var body: some View {
@@ -19,14 +21,14 @@ struct TrendingSearchIconView: View {
             }
         }
         .task(id: url) {
-            if let cached = imagePipeline.cachedImage(for: url, variant: .trendingSearchIcon) {
+            if let cached = iconLoader.cachedTrendingSearchIcon(for: url) {
                 loaded = (url, cached)
                 return
             }
-            guard let result = await imagePipeline.image(for: url, variant: .trendingSearchIcon),
+            guard let image = await iconLoader.trendingSearchIcon(for: url),
                 !Task.isCancelled
             else { return }
-            loaded = (url, result.image)
+            loaded = (url, image)
         }
     }
 }

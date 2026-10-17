@@ -1,31 +1,37 @@
 import BiliApplication
 import BiliModels
 import BiliUI
+import BiliVideoCollectionUI
 import SwiftUI
 
-public struct PopularFeedView<LoadedContent: View>: View {
+/// 热门来源的根视图：按 `BrowseViewModel` 的状态显示骨架、空页、失败页或原生网格，叠加刷新与分页状态
+/// 胶囊，并在工具栏提供刷新。
+///
+/// 拥有呈现与网格渲染；不拥有请求、分页与 generation（`BrowseViewModel`），也不拥有滚动位置、回顶请求与
+/// 图片管线——它们属于 App 窗口，经 `NativeVideoGridHostContext` 原样交给网格，App 据此在刷新与账户变化时
+/// 让网格回到顶部。
+public struct PopularFeedView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.locale) private var locale
     private let model: BrowseViewModel
     private let request: FeedRequest
     private let initialPage: Int
     private let pageSize: Int
-    private let makeLoadedContent: (LoadedFeedContent<PopularVideo>) -> LoadedContent
+    private let gridHost: NativeVideoGridHostContext
     private let onSelect: (String) -> Void
 
     public init(
         model: BrowseViewModel,
         page: Int = 1,
         pageSize: Int = BrowseViewModel.popularPageSize,
-        makeLoadedContent:
-            @escaping (LoadedFeedContent<PopularVideo>) -> LoadedContent,
+        gridHost: NativeVideoGridHostContext,
         onSelect: @escaping (String) -> Void
     ) {
         self.model = model
         request = .popular(page: page, pageSize: pageSize)
         initialPage = page
         self.pageSize = pageSize
-        self.makeLoadedContent = makeLoadedContent
+        self.gridHost = gridHost
         self.onSelect = onSelect
     }
 
@@ -91,16 +97,16 @@ public struct PopularFeedView<LoadedContent: View>: View {
         presentation: FeedPresentation
     ) -> some View {
         let pagination = model.pagination(for: request)
-        return makeLoadedContent(
-            LoadedFeedContent(
+        return PopularNativeGridView(
+            content: LoadedFeedContent(
                 items: page.videos,
-                canLoadMore: pagination.canLoadMore,
-                tailIdentity: pagination.tailIdentity,
-                isLoadingMore: pagination.isLoadingMore,
+                tailState: pagination.gridTailState,
                 loadMore: { model.loadMore(.popular) },
                 select: onSelect
-            )
+            ),
+            host: gridHost
         )
+        .ignoresSafeArea(.container, edges: .top)
         .overlay(alignment: .top) {
             refreshStatus(presentation)
         }

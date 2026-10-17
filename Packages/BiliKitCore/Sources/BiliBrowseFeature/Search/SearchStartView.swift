@@ -24,39 +24,49 @@ enum SearchStartLayout {
     static let highlightedRankCount = 3
 }
 
-/// 未提交搜索时的起始页：本机搜索历史与 B 站热搜，点选任一词即发起搜索。
+/// 搜索起始页的输入，由 App 构造；整体为 nil 时起始页留空，所以没有热搜模型就不会有图标 loader。
 ///
-/// 历史由 App 层的进程级 store 持有，这里只接收值与意图回调；热搜图标的加载由 App 注入。
-public struct SearchStartView<TrendingIcon: View>: View {
-    @Environment(\.locale) private var locale
-    private let history: [String]
-    private let trendingModel: TrendingSearchViewModel
-    private let onSearch: (String) -> Void
-    private let onRemoveHistory: (String) -> Void
-    private let onClearHistory: () -> Void
-    private let makeTrendingIcon: (URL) -> TrendingIcon
+/// 历史由 App 层的进程级 store 持有：`history` 是读取闭包，只在起始页的 body 里调用，历史变化只让起始页
+/// 重算，不牵动搜索页其余部分与工具栏。点选历史或热搜词经 `onSearch` 交给 App 走提交搜索的同一路径。
+public struct SearchStartPageContext {
+    let trendingModel: TrendingSearchViewModel
+    let iconLoader: any TrendingSearchIconLoading
+    let history: () -> [String]
+    let onSearch: (String) -> Void
+    let onRemoveHistory: (String) -> Void
+    let onClearHistory: () -> Void
 
     public init(
-        history: [String],
         trendingModel: TrendingSearchViewModel,
+        iconLoader: any TrendingSearchIconLoading,
+        history: @escaping () -> [String],
         onSearch: @escaping (String) -> Void,
         onRemoveHistory: @escaping (String) -> Void,
-        onClearHistory: @escaping () -> Void,
-        @ViewBuilder makeTrendingIcon: @escaping (URL) -> TrendingIcon
+        onClearHistory: @escaping () -> Void
     ) {
-        self.history = history
         self.trendingModel = trendingModel
+        self.iconLoader = iconLoader
+        self.history = history
         self.onSearch = onSearch
         self.onRemoveHistory = onRemoveHistory
         self.onClearHistory = onClearHistory
-        self.makeTrendingIcon = makeTrendingIcon
     }
+}
 
-    public var body: some View {
+/// 未提交搜索时的起始页：本机搜索历史与 B 站热搜，点选任一词即发起搜索。
+///
+/// 只接收 `SearchStartPageContext` 给的值与意图回调；热搜状态归 `TrendingSearchViewModel`，图标经 App 注入的
+/// `TrendingSearchIconLoading` 加载。
+struct SearchStartView: View {
+    @Environment(\.locale) private var locale
+    let context: SearchStartPageContext
+
+    var body: some View {
+        let history = context.history()
         ScrollView {
             VStack(alignment: .leading, spacing: SearchStartLayout.sectionSpacing) {
                 if !history.isEmpty {
-                    historySection
+                    historySection(history)
                 }
                 trendingSection
             }
@@ -65,20 +75,23 @@ public struct SearchStartView<TrendingIcon: View>: View {
             .frame(maxWidth: .infinity)
         }
         .task {
-            trendingModel.refresh()
+            context.trendingModel.refresh()
         }
     }
 
-    private var historySection: some View {
+    private func historySection(_ history: [String]) -> some View {
         VStack(alignment: .leading, spacing: SearchStartLayout.headerSpacing) {
             HStack {
                 sectionHeader(BrowseFeatureStrings.localized("搜索历史", locale: locale))
                 Spacer()
-                Button(BrowseFeatureStrings.localized("清除", locale: locale), action: onClearHistory)
-                    .buttonStyle(.link)
-                    .accessibilityLabel(
-                        BrowseFeatureStrings.localized("清除搜索历史", locale: locale)
-                    )
+                Button(
+                    BrowseFeatureStrings.localized("清除", locale: locale),
+                    action: context.onClearHistory
+                )
+                .buttonStyle(.link)
+                .accessibilityLabel(
+                    BrowseFeatureStrings.localized("清除搜索历史", locale: locale)
+                )
             }
             SearchHistoryFlowLayout(spacing: SearchStartLayout.historyChipSpacing) {
                 ForEach(history, id: \.self) { query in
@@ -91,7 +104,7 @@ public struct SearchStartView<TrendingIcon: View>: View {
     private func historyChip(_ query: String) -> some View {
         let removeTitle = BrowseFeatureStrings.localized("删除", locale: locale)
         return Button {
-            onSearch(query)
+            context.onSearch(query)
         } label: {
             Text(query)
                 .lineLimit(1)
@@ -106,11 +119,11 @@ public struct SearchStartView<TrendingIcon: View>: View {
         .help(query)
         .contextMenu {
             Button(removeTitle, role: .destructive) {
-                onRemoveHistory(query)
+                context.onRemoveHistory(query)
             }
         }
         .accessibilityAction(named: removeTitle) {
-            onRemoveHistory(query)
+            context.onRemoveHistory(query)
         }
     }
 
@@ -123,7 +136,7 @@ public struct SearchStartView<TrendingIcon: View>: View {
 
     @ViewBuilder
     private var trendingContent: some View {
-        switch trendingModel.state {
+        switch context.trendingModel.state {
         case .idle, .loading:
             ProgressView()
                 .controlSize(.small)
@@ -135,7 +148,7 @@ public struct SearchStartView<TrendingIcon: View>: View {
                 Text(ContentFailureText.message(for: error, locale: locale))
                     .foregroundStyle(.secondary)
                 Button(BrowseFeatureStrings.localized("重试", locale: locale)) {
-                    trendingModel.refresh()
+                    context.trendingModel.refresh()
                 }
             }
         case .loaded(let keywords) where keywords.isEmpty:
@@ -163,7 +176,7 @@ public struct SearchStartView<TrendingIcon: View>: View {
 
     private func trendingRow(rank: Int, keyword: TrendingSearchKeyword) -> some View {
         Button {
-            onSearch(keyword.keyword)
+            context.onSearch(keyword.keyword)
         } label: {
             HStack(spacing: SearchStartLayout.inlineSpacing) {
                 Text(rank, format: .number)
@@ -178,7 +191,7 @@ public struct SearchStartView<TrendingIcon: View>: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 if let iconURL = keyword.iconURL {
-                    makeTrendingIcon(iconURL)
+                    TrendingSearchIconView(url: iconURL, iconLoader: context.iconLoader)
                         .frame(height: SearchStartLayout.trendingIconHeight)
                         .accessibilityHidden(true)
                 }

@@ -20,7 +20,10 @@ import swift_source
 
 # 任何范围都可以使用的标准库与并发基础设施。
 BASE = {"Foundation", "Synchronization", "os", "Darwin", "Dispatch"}
-FEATURE_SHARED = {"BiliModels", "BiliApplication", "BiliUI", "SwiftUI", "Observation", "CoreGraphics"}
+# Feature 经 BiliVideoCollectionUI 渲染共享的 AppKit 卡片与网格，自己不直接 import AppKit 等界面框架。
+FEATURE_SHARED = {
+    "BiliModels", "BiliApplication", "BiliUI", "BiliVideoCollectionUI", "SwiftUI", "Observation", "CoreGraphics",
+}
 FEATURES = {"BiliAuthFeature", "BiliBrowseFeature", "BiliLibraryFeature"}
 ADAPTERS = {"BiliAPI", "BiliAuth", "BiliNetworking", "BiliPlayback", "BiliDanmaku"}
 
@@ -71,7 +74,7 @@ SCOPES = {
     **{
         f"{SOURCES}/{feature}": (
             FEATURE_SHARED,
-            "Feature 不能依赖 adapter、其他 Feature、AppKit 或播放与网络框架",
+            "Feature 不能依赖 adapter、其他 Feature、AppKit 或播放与网络框架；共享的 AppKit 卡片与网格只经 BiliVideoCollectionUI",
         )
         for feature in sorted(FEATURES)
     },
@@ -113,8 +116,9 @@ EXTRA_ALLOWED = {
     # （AppSidebarViews）与窗口 owner（AppWindowOwner；AppRootView、AppShellView 也读取账户 scope）。
     # MemberImportVisibility 下成员只对直接 import 定义模块的文件可见，经 Feature 转出类型名不够用，
     # 在 Feature 镜像一份又违反“同一逻辑只写一处”。
-    # AppShellView、AppSourceRootViews 另持有各来源网格的回顶请求（BiliVideoCollectionUI 的
-    # `NativeVideoGridScrollResetState`）；App 壳其余文件不接触 AppKit 集合视图。
+    # AppShellView 持有各来源网格的滚动位置与回顶请求，并与图片管线一起构造 BiliVideoCollectionUI 的
+    # `NativeVideoGridHostContext`，AppSourceRootViews 把它转交给 Feature；网格本身在 Feature 里，
+    # App 壳其余文件不接触 AppKit 集合视图。
     "BiliKitMac/App/AppRootView.swift": {"BiliApplication"},
     "BiliKitMac/App/AppShellView.swift": {"BiliApplication", "BiliVideoCollectionUI"},
     "BiliKitMac/App/AppSidebarViews.swift": {"BiliApplication"},
