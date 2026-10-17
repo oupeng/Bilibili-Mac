@@ -497,30 +497,25 @@ struct PlaybackSidebarCommentRowTests: PlaybackSidebarFixtures {
         }
     }
 
-    /// 正文 @ 提及在应用内打开空间；其他链接、以及没有空间入口时，交给原有处理。
+    /// 正文 @ 提及在应用内打开空间；其他链接交给原有处理。
     @Test
     func commentMentionLinksOpenTheSpaceInsideTheApp() {
         let mentioned = CommentAuthor(id: CommentAuthorID(rawValue: "301"), name: "回复用户")
         var openedSpaces: [CommentAuthor] = []
         var otherLinks: [CommentLinkTarget] = []
-        func open(_ target: CommentLinkTarget, hasSpace: Bool) {
+        func open(_ target: CommentLinkTarget) {
             NativePlaybackCommentAuthorSpace.openLink(
                 target,
-                openSpace: hasSpace ? { openedSpaces.append($0) } : nil,
+                openSpace: { openedSpaces.append($0) },
                 otherwise: { otherLinks.append($0) }
             )
         }
 
-        open(.member(mentioned), hasSpace: true)
-        open(.video(bvid: "BV1FixtureA1", page: nil, startSeconds: nil), hasSpace: true)
-        open(.member(mentioned), hasSpace: false)
+        open(.member(mentioned))
+        open(.video(bvid: "BV1FixtureA1", page: nil, startSeconds: nil))
 
         #expect(openedSpaces == [mentioned])
-        #expect(
-            otherLinks == [
-                .video(bvid: "BV1FixtureA1", page: nil, startSeconds: nil), .member(mentioned)
-            ]
-        )
+        #expect(otherLinks == [.video(bvid: "BV1FixtureA1", page: nil, startSeconds: nil)])
     }
 
     @Test(arguments: [2, 3])

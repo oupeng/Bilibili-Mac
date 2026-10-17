@@ -8,8 +8,8 @@ enum CommentLinkRoute: Sendable {
     case playback(PlaybackSelectionIntent)
     /// 正文时间戳：在当前视频正在播的分 P 里跳到该秒数并播放。
     case seek(seconds: Int)
-    /// 在侧栏空间层打开；没有空间功能时打开 `webFallback`。
-    case space(memberID: Int64, webFallback: URL?)
+    /// 在侧栏空间层打开。
+    case space(memberID: Int64)
     case web(URL)
     /// 短链：点击后由 `resolve` 解析出真正的去向；解析不出时打开 `webFallback`（原短链）。
     case shortLink(resolve: @Sendable () async -> CommentLinkRoute?, webFallback: URL?)
@@ -35,8 +35,11 @@ struct CommentLinkRouting: Sendable {
         case .timestamp(let seconds):
             return .seek(seconds: seconds)
         case .space(let memberID):
-            return .space(memberID: memberID, webFallback: linkResolver.externalURL(for: target))
-        case .member, .external:
+            return .space(memberID: memberID)
+        case .member(let user):
+            // 播放侧栏已把 @ 提及直接打开为空间；经这里的同样进空间，非正整数 MID 没有去向。
+            return user.id.memberID.map { .space(memberID: $0) }
+        case .external:
             return linkResolver.externalURL(for: target).map(CommentLinkRoute.web)
         case .shortLink:
             let routing = self

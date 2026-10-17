@@ -35,14 +35,12 @@ struct CommentLinkRoutingTests {
     }
 
     @Test
-    func spaceLinksOpenTheSpaceWithAWebFallback() {
-        guard case .space(let memberID, let webFallback) = routing.route(for: .space(memberID: 42))
-        else {
+    func spaceLinksOpenTheSpace() {
+        guard case .space(let memberID) = routing.route(for: .space(memberID: 42)) else {
             Issue.record("空间链接应在空间层打开")
             return
         }
         #expect(memberID == 42)
-        #expect(webFallback?.absoluteString == "https://space.bilibili.com/42")
     }
 
     @Test

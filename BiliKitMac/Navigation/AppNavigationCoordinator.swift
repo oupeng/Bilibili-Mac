@@ -51,11 +51,11 @@ final class AppNavigationCoordinator {
     var currentPlaybackIntent: PlaybackSelectionIntent? {
         activePlayback?.intent
     }
-    /// 侧栏上下文层的内容模型；为 nil 时窗口没有空间功能，空间入口不出现，空间链接交给浏览器。
-    @ObservationIgnored let uploaderSpace: UploaderSpaceViewModel?
+    /// 侧栏上下文层的内容模型；每个窗口都有，空间入口与空间链接都在这里打开。
+    @ObservationIgnored let uploaderSpace: UploaderSpaceViewModel
     /// 上下文层是否打开：底层要隐藏、侧栏要叠上空间列表。
     var isSidebarContextOpen: Bool {
-        uploaderSpace?.owner != nil
+        uploaderSpace.owner != nil
     }
 
     private var activePlayback: ActivePlayback?
@@ -70,7 +70,7 @@ final class AppNavigationCoordinator {
     init(
         startPlayback: @escaping (PlaybackSelectionIntent) -> Void,
         stopPlayback: @escaping () -> Void,
-        uploaderSpace: UploaderSpaceViewModel?
+        uploaderSpace: UploaderSpaceViewModel
     ) {
         self.startPlayback = startPlayback
         self.stopPlayback = stopPlayback
@@ -79,14 +79,12 @@ final class AppNavigationCoordinator {
 
     /// 在侧栏上下文层打开某位 UP 主的空间（播放侧栏的 UP 主行、评论作者与 @ 提及）。
     func openUploaderSpace(owner: VideoOwner) {
-        uploaderSpace?.open(owner: owner)
+        uploaderSpace.open(owner: owner)
     }
 
-    /// 只有 MID 的入口（评论正文里的空间链接）；窗口没有空间功能时返回 false，由调用方回退到网页。
-    func openUploaderSpace(ownerID: Int64) -> Bool {
-        guard let uploaderSpace else { return false }
+    /// 只有 MID 的入口（评论正文里的空间链接）：先以 UID 作头部打开，名片到达后补上名字与头像。
+    func openUploaderSpace(ownerID: Int64) {
         uploaderSpace.open(ownerID: ownerID)
-        return true
     }
 
     /// 首次打开建立播放 surface；连续打开其他视频只替换媒体 identity。
@@ -153,6 +151,6 @@ final class AppNavigationCoordinator {
     }
 
     private func closeSidebarContext() {
-        uploaderSpace?.close()
+        uploaderSpace.close()
     }
 }

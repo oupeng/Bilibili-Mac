@@ -15,8 +15,8 @@ public struct NativePlaybackSidebarView: View {
     let onSelectPlayback: (String, Int64?) -> Void
     let onOpenCommentLink: (CommentLinkTarget) -> Void
     let onOpenCommentPictures: (NativePlaybackCommentPictureGallery) -> Void
-    /// 点击 UP 主行或评论作者（头像与昵称）进入空间；nil 时不显示入口。
-    var onOpenUploaderSpace: ((VideoOwner) -> Void)?
+    /// 点击 UP 主行、评论作者（头像与昵称）或正文 @ 提及进入空间。
+    let onOpenUploaderSpace: (VideoOwner) -> Void
     /// 被空间层盖住时真正隐藏原生视图：SwiftUI 的透明度与 hit testing 管不到 AppKit 的
     /// cursor rect 与 tracking area，只设透明会让评论正文继续改变指针形状。
     var isObscured: Bool
@@ -30,7 +30,7 @@ public struct NativePlaybackSidebarView: View {
         onSelectPlayback: @escaping (String, Int64?) -> Void,
         onOpenCommentLink: @escaping (CommentLinkTarget) -> Void,
         onOpenCommentPictures: @escaping (NativePlaybackCommentPictureGallery) -> Void,
-        onOpenUploaderSpace: ((VideoOwner) -> Void)? = nil,
+        onOpenUploaderSpace: @escaping (VideoOwner) -> Void,
         isObscured: Bool = false
     ) {
         self.model = model
@@ -75,11 +75,9 @@ public struct NativePlaybackSidebarView: View {
                     )
                 },
                 openCommentPictures: onOpenCommentPictures,
-                openUploaderSpace: onOpenUploaderSpace.map { open in
-                    {
-                        guard let owner = model.presentedContext?.detail.owner else { return }
-                        open(owner)
-                    }
+                openUploaderSpace: { [onOpenUploaderSpace] in
+                    guard let owner = model.presentedContext?.detail.owner else { return }
+                    onOpenUploaderSpace(owner)
                 },
                 openCommentAuthorSpace: openUserSpace
             )
@@ -90,18 +88,16 @@ public struct NativePlaybackSidebarView: View {
         .navigationTitle(VideoDetailFeatureStrings.localized("观看辅助"))
     }
 
-    /// 评论作者与正文 @ 用户进入空间的同一入口；没有空间功能时为 nil。
-    private var openUserSpace: ((CommentAuthor) -> Void)? {
-        onOpenUploaderSpace.map { open in
-            { [commentAssetURLResolver] user in
-                guard
-                    let owner = NativePlaybackCommentAuthorSpace.owner(
-                        for: user,
-                        resolveAvatar: commentAssetURLResolver
-                    )
-                else { return }
-                open(owner)
-            }
+    /// 评论作者与正文 @ 用户进入空间的同一入口。
+    private var openUserSpace: (CommentAuthor) -> Void {
+        { [commentAssetURLResolver, onOpenUploaderSpace] user in
+            guard
+                let owner = NativePlaybackCommentAuthorSpace.owner(
+                    for: user,
+                    resolveAvatar: commentAssetURLResolver
+                )
+            else { return }
+            onOpenUploaderSpace(owner)
         }
     }
 

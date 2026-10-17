@@ -99,7 +99,7 @@ struct AppNavigationCoordinatorTests {
         let coordinator = AppNavigationCoordinator(
             startPlayback: { _ in },
             stopPlayback: { stopCount += 1 },
-            uploaderSpace: nil
+            uploaderSpace: makeUploaderSpace()
         )
         coordinator.selectedTab = source
 
@@ -121,7 +121,7 @@ struct AppNavigationCoordinatorTests {
         let coordinator = AppNavigationCoordinator(
             startPlayback: { events.append("start:\($0.bvid)") },
             stopPlayback: { events.append("stop") },
-            uploaderSpace: nil
+            uploaderSpace: makeUploaderSpace()
         )
         coordinator.selectedTab = .search
 
@@ -150,7 +150,7 @@ struct AppNavigationCoordinatorTests {
         let coordinator = AppNavigationCoordinator(
             startPlayback: { events.append("start:\($0.bvid)") },
             stopPlayback: { events.append("stop") },
-            uploaderSpace: nil
+            uploaderSpace: makeUploaderSpace()
         )
         let forgedDestination = PlaybackDestination(surfaceID: UUID())
 
@@ -175,7 +175,7 @@ struct AppNavigationCoordinatorTests {
         let coordinator = AppNavigationCoordinator(
             startPlayback: { _ in startCount += 1 },
             stopPlayback: {},
-            uploaderSpace: nil
+            uploaderSpace: makeUploaderSpace()
         )
 
         coordinator.openPlayback("BV1SameA")
@@ -192,7 +192,7 @@ struct AppNavigationCoordinatorTests {
         let coordinator = AppNavigationCoordinator(
             startPlayback: { intents.append($0) },
             stopPlayback: {},
-            uploaderSpace: nil
+            uploaderSpace: makeUploaderSpace()
         )
 
         coordinator.openPlayback(
@@ -214,7 +214,7 @@ struct AppNavigationCoordinatorTests {
         let coordinator = AppNavigationCoordinator(
             startPlayback: { intents.append($0) },
             stopPlayback: {},
-            uploaderSpace: nil
+            uploaderSpace: makeUploaderSpace()
         )
 
         coordinator.openPlayback(
@@ -235,7 +235,7 @@ struct AppNavigationCoordinatorTests {
         let coordinator = AppNavigationCoordinator(
             startPlayback: { _ in },
             stopPlayback: { stopCount += 1 },
-            uploaderSpace: nil
+            uploaderSpace: makeUploaderSpace()
         )
 
         coordinator.openPlayback("BV1SidebarA")
@@ -255,7 +255,7 @@ struct AppNavigationCoordinatorTests {
         let coordinator = AppNavigationCoordinator(
             startPlayback: { _ in },
             stopPlayback: { stopCount += 1 },
-            uploaderSpace: nil
+            uploaderSpace: makeUploaderSpace()
         )
         coordinator.selectedTab = .history
         coordinator.openPlayback("BV1CloseA")
@@ -276,7 +276,7 @@ struct AppNavigationCoordinatorTests {
         let coordinator = AppNavigationCoordinator(
             startPlayback: { _ in },
             stopPlayback: { stopCount += 1 },
-            uploaderSpace: nil
+            uploaderSpace: makeUploaderSpace()
         )
         coordinator.selectedTab = .search
         coordinator.openPlayback("BV1Logout")
@@ -380,28 +380,22 @@ struct AppNavigationCoordinatorTests {
         #expect(events == ["stop context:false"])
     }
 
-    /// 空间链接只有 MID：有空间功能时在侧栏打开，没有时告诉调用方回退到网页。
+    /// 空间链接只有 MID：在侧栏空间层打开，并补取名片。
     @Test
     @MainActor
-    func memberIDLinksOpenTheSpaceOnlyWhenTheWindowHasOne() async throws {
+    func memberIDLinksOpenTheSpace() async throws {
         let profiles = UploaderProfileRepositoryStub(holdsRequests: true)
         let space = makeUploaderSpace(profiles: profiles)
-        let withSpace = AppNavigationCoordinator(
+        let coordinator = AppNavigationCoordinator(
             startPlayback: { _ in },
             stopPlayback: {},
             uploaderSpace: space
         )
-        let withoutSpace = AppNavigationCoordinator(
-            startPlayback: { _ in },
-            stopPlayback: {},
-            uploaderSpace: nil
-        )
 
-        #expect(withSpace.openUploaderSpace(ownerID: 42))
+        coordinator.openUploaderSpace(ownerID: 42)
+
         #expect(space.owner?.id == 42)
-        #expect(withSpace.isSidebarContextOpen)
-        #expect(!withoutSpace.openUploaderSpace(ownerID: 42))
-        #expect(!withoutSpace.isSidebarContextOpen)
+        #expect(coordinator.isSidebarContextOpen)
         // 只有 MID 的入口会补取名片：放行它，不留下挂起的请求。
         try await profiles.waitForRequest()
         await profiles.releaseLateResult()
@@ -414,7 +408,7 @@ struct AppNavigationCoordinatorTests {
         let coordinator = AppNavigationCoordinator(
             startPlayback: { events.append("start:\($0.bvid)") },
             stopPlayback: { events.append("stop") },
-            uploaderSpace: nil
+            uploaderSpace: makeUploaderSpace()
         )
 
         coordinator.openPlayback("")

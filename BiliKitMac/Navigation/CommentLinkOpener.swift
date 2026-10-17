@@ -18,8 +18,7 @@ struct CommentLinkOpener {
 
     /// 按路由执行一次点击。
     ///
-    /// @ 提及在侧栏内已进入空间，到这里只剩没有空间功能时的网页回退。短链先由窗口级 owner 解析，解析出的路由
-    /// 再走这里一次，解析不出时打开原短链。时间戳与指向正在播放分 P 的 `t=` 直接跳转，不经过导航去重，同一个
+    /// 空间链接在侧栏空间层打开。短链先由窗口级 owner 解析，解析出的路由再走这里一次，解析不出时打开原短链。时间戳与指向正在播放分 P 的 `t=` 直接跳转，不经过导航去重，同一个
     /// 时间点可以反复点。
     func open(_ route: CommentLinkRoute?) {
         switch route {
@@ -36,10 +35,8 @@ struct CommentLinkOpener {
             if let bvid = navigationCoordinator.currentPlaybackBVID {
                 seekPlayback(bvid, seconds)
             }
-        case .space(let memberID, let webFallback):
-            if !navigationCoordinator.openUploaderSpace(ownerID: memberID), let webFallback {
-                openURL(webFallback)
-            }
+        case .space(let memberID):
+            navigationCoordinator.openUploaderSpace(ownerID: memberID)
         case .web(let url):
             openURL(url)
         case .shortLink(let resolve, let webFallback):

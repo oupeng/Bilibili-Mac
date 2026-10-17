@@ -227,9 +227,7 @@ struct AppShellView: View {
             },
             onOpenCommentLink: { commentLinkOpener.open(commentLinkRouter($0)) },
             onOpenCommentPictures: openCommentPictures,
-            onOpenUploaderSpace: navigationCoordinator.uploaderSpace.map { _ in
-                navigationCoordinator.openUploaderSpace(owner:)
-            },
+            onOpenUploaderSpace: { navigationCoordinator.openUploaderSpace(owner: $0) },
             isObscured: isSidebarContextOpen
         )
         .ignoresSafeArea(.container, edges: .top)
@@ -241,9 +239,9 @@ struct AppShellView: View {
 
     @ViewBuilder
     private var sidebarContextLayer: some View {
-        if let uploaderSpace = navigationCoordinator.uploaderSpace, isSidebarContextOpen {
+        if isSidebarContextOpen {
             UploaderSpaceSidebarView(
-                model: uploaderSpace,
+                model: navigationCoordinator.uploaderSpace,
                 currentBVID: navigationCoordinator.currentPlaybackBVID,
                 imagePipeline: imagePipeline,
                 onSelect: navigationCoordinator.openPlaybackFromSidebarContext,

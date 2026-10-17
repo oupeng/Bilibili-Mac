@@ -6,8 +6,8 @@ import Testing
 
 @testable import BiliKit
 
-/// 评论链接的执行：视频在应用内播放或原地跳转，时间戳只在有播放时跳转，空间链接在侧栏打开（没有空间功能时打开
-/// 网页），网页与解析不出的短链交给浏览器。
+/// 评论链接的执行：视频在应用内播放或原地跳转，时间戳只在有播放时跳转，空间链接在侧栏打开，网页与解析不出的
+/// 短链交给浏览器。
 @Suite(.timeLimit(.minutes(1)))
 @MainActor
 struct CommentLinkOpenerTests {
@@ -17,7 +17,7 @@ struct CommentLinkOpenerTests {
 
     @Test
     func videoLinksOpenPlaybackUnlessTheyCanSeekInPlace() async {
-        let harness = OpenerHarness(fixture: fixture, uploaderSpace: nil)
+        let harness = OpenerHarness(fixture: fixture)
         let linkIntent = PlaybackSelectionIntent(bvid: fixture.bvid, preferredStartSeconds: 30)
 
         harness.opener.open(.playback(linkIntent))
@@ -37,7 +37,7 @@ struct CommentLinkOpenerTests {
 
     @Test
     func timestampsSeekOnlyWhilePlaying() async {
-        let harness = OpenerHarness(fixture: fixture, uploaderSpace: nil)
+        let harness = OpenerHarness(fixture: fixture)
 
         harness.opener.open(.seek(seconds: 10))
         #expect(harness.recorder.seeks.isEmpty)
@@ -49,29 +49,19 @@ struct CommentLinkOpenerTests {
     }
 
     @Test
-    func spaceLinksOpenTheSidebarSpaceOrFallBackToTheWeb() async throws {
-        let profiles = UploaderProfileRepositoryStub(holdsRequests: true)
-        let withSpace = OpenerHarness(
-            fixture: fixture,
-            uploaderSpace: makeUploaderSpace(profiles: profiles)
-        )
-        let withoutSpace = OpenerHarness(fixture: fixture, uploaderSpace: nil)
+    func spaceLinksOpenTheSidebarSpace() {
+        let harness = OpenerHarness(fixture: fixture)
 
-        withSpace.opener.open(.space(memberID: 42, webFallback: webURL))
-        withoutSpace.opener.open(.space(memberID: 42, webFallback: webURL))
-        withoutSpace.opener.open(.space(memberID: 42, webFallback: nil))
+        harness.opener.open(.space(memberID: 42))
 
-        #expect(withSpace.coordinator.uploaderSpace?.owner?.id == 42)
-        #expect(withSpace.recorder.openedURLs.isEmpty)
-        #expect(withoutSpace.recorder.openedURLs == [webURL])
-        // 只有 MID 的入口会补取名片：放行它，不留下挂起的请求。
-        try await profiles.waitForRequest()
-        await profiles.releaseLateResult()
+        #expect(harness.coordinator.uploaderSpace.owner?.id == 42)
+        #expect(harness.coordinator.isSidebarContextOpen)
+        #expect(harness.recorder.openedURLs.isEmpty)
     }
 
     @Test
     func webLinksOpenInTheBrowserAndMissingRoutesDoNothing() {
-        let harness = OpenerHarness(fixture: fixture, uploaderSpace: nil)
+        let harness = OpenerHarness(fixture: fixture)
 
         harness.opener.open(nil)
         harness.opener.open(.web(webURL))
@@ -82,7 +72,7 @@ struct CommentLinkOpenerTests {
 
     @Test
     func shortLinksOpenTheirResolvedRouteOrTheOriginalLink() async {
-        let harness = OpenerHarness(fixture: fixture, uploaderSpace: nil)
+        let harness = OpenerHarness(fixture: fixture)
         let resolvedTarget = webURL
 
         let resolved = await harness.recorder.nextOpenedURL {
@@ -107,7 +97,7 @@ private struct OpenerHarness {
     let coordinator: AppNavigationCoordinator
     let opener: CommentLinkOpener
 
-    init(fixture: VideoFixture, uploaderSpace: UploaderSpaceViewModel?) {
+    init(fixture: VideoFixture) {
         let videoModel = makeVideoViewModel(
             useCase: VideoUseCase(repository: FixtureVideoRepository(fixtures: [fixture])),
             playback: RecordingPlayback()
@@ -120,7 +110,9 @@ private struct OpenerHarness {
                 videoModel.select(intent)
             },
             stopPlayback: { videoModel.reset() },
-            uploaderSpace: uploaderSpace
+            uploaderSpace: makeUploaderSpace(
+                profiles: UploaderProfileRepositoryStub(holdsRequests: false)
+            )
         )
         self.videoModel = videoModel
         opener = CommentLinkOpener(
