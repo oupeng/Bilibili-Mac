@@ -1,3 +1,4 @@
+import AppKit
 import BiliApplication
 import BiliModels
 import Foundation
@@ -261,6 +262,47 @@ extension VideoRepositoryStub {
     }
 }
 
+/// 合成的视频详情：本 target 构造 `VideoDetail` 的唯一入口，各测试只传自己关心的字段；时长缺省取最长分 P 的时长。
+func makeVideoDetail(
+    bvid: String = "BVCurrent",
+    title: String = "当前视频",
+    summary: String = "说明",
+    owner: VideoOwner = VideoOwner(id: 1, name: "作者"),
+    statistics: VideoStatistics = VideoStatistics(viewCount: 1, danmakuCount: 1, likeCount: 1),
+    durationSeconds: Int? = nil,
+    pages: [VideoPage],
+    collection: VideoCollection? = nil
+) -> VideoDetail {
+    VideoDetail(
+        bvid: bvid,
+        title: title,
+        summary: summary,
+        coverURL: nil,
+        owner: owner,
+        statistics: statistics,
+        durationSeconds: durationSeconds ?? pages.map(\.durationSeconds).max() ?? 0,
+        publishedAt: Date(timeIntervalSince1970: 1_700_000_000),
+        pages: pages,
+        collection: collection
+    )
+}
+
+/// 合成的视频上下文：选中第一个分 P，播放地址为空清单；构造 `VideoContext` 的唯一入口。
+func makeVideoContext(detail: VideoDetail) -> VideoContext {
+    VideoContext(
+        detail: detail,
+        pages: detail.pages,
+        selectedPage: detail.pages[0],
+        playback: VideoPlayback(
+            manifest: PlaybackManifest(
+                videoRepresentations: [],
+                originalAudioRepresentations: []
+            ),
+            mediaHeaders: [:]
+        )
+    )
+}
+
 /// 单个视频的合成详情、分 P 与播放地址；`VideoRepositoryStub` 的便捷构造按它回答。
 struct ContentFixtures: Sendable {
     let bvid: String
@@ -276,15 +318,12 @@ struct ContentFixtures: Sendable {
     }
 
     var detail: VideoDetail {
-        VideoDetail(
+        makeVideoDetail(
             bvid: bvid,
             title: title,
             summary: "脱敏详情",
-            coverURL: nil,
             owner: owner,
             statistics: VideoStatistics(viewCount: 10, danmakuCount: 2, likeCount: 3),
-            durationSeconds: 120,
-            publishedAt: Date(timeIntervalSince1970: 1_700_000_000),
             pages: [page]
         )
     }
@@ -582,3 +621,46 @@ private final class CountingFailureSubscription {
 }
 
 private struct PlayerStubFailure: Error {}
+
+/// `VideoDetailImageLoading` 的唯一测试替身：全部未命中、加载不返回图；本 target 的视图测试不验证取图。
+struct StubVideoDetailImageLoader: VideoDetailImageLoading {
+    func cachedImage(for url: URL, purpose: VideoDetailImagePurpose) -> CGImage? { nil }
+
+    func cachedAnimation(for url: URL, purpose: VideoDetailImagePurpose) -> NativeAnimatedImage? {
+        nil
+    }
+
+    func image(for url: URL, purpose: VideoDetailImagePurpose) async -> VideoDetailImage? { nil }
+
+    func originalData(for url: URL, purpose: VideoDetailImagePurpose) async -> Data? { nil }
+}
+
+/// 侧栏控制器的测试组装：不解析评论资源，取图全部未命中。
+@MainActor
+func makeSidebarController() -> NativePlaybackSidebarController {
+    NativePlaybackSidebarController(
+        commentAssetURLResolver: { _, _ in nil },
+        imagePipeline: StubVideoDetailImageLoader()
+    )
+}
+
+/// 视图及其全部子孙视图，按深度优先顺序；只用来找可见控件，不依赖层级位置。
+@MainActor
+func descendants(of view: NSView) -> [NSView] {
+    view.subviews.flatMap { [$0] + descendants(of: $0) }
+}
+
+/// 等待 AppKit 在后续 main actor 回合完成的布局或 diff 应用；只让出执行权，不按固定时长轮询。
+@MainActor
+func waitUntil(
+    timeout: Duration = .seconds(2),
+    _ condition: @MainActor () -> Bool
+) async -> Bool {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while !condition() {
+        guard clock.now < deadline else { return false }
+        await Task.yield()
+    }
+    return true
+}

@@ -1,11 +1,36 @@
 import CoreGraphics
 import Testing
 
-@testable import BiliKit
 @testable import BiliVideoDetailFeature
 
+/// 评论图片预览的选择与原图持有：起始位置夹进范围、翻页到头即停不循环；预览会话只持有当前与前后各一张原图，
+/// 来回翻页不重复请求。
 @MainActor
 struct NativeCommentImagePreviewOriginalsTests {
+    @Test
+    func commentImagePreviewClampsSelectionAndNavigatesWithoutWrapping() {
+        var selection = NativeCommentImagePreviewSelection(
+            count: 3,
+            requestedIndex: 9
+        )
+        #expect(selection.index == 2)
+        #expect(selection.canSelectPrevious)
+        #expect(!selection.canSelectNext)
+        let didSelectPastEnd = selection.selectNext()
+        let didSelectPrevious = selection.selectPrevious()
+        #expect(!didSelectPastEnd)
+        #expect(didSelectPrevious)
+        #expect(selection.index == 1)
+
+        selection = NativeCommentImagePreviewSelection(
+            count: 3,
+            requestedIndex: -4
+        )
+        #expect(selection.index == 0)
+        #expect(!selection.canSelectPrevious)
+        #expect(selection.canSelectNext)
+    }
+
     /// 共享缓存放不下的大原图由预览会话持有：翻到下一张再回上一张不重复请求。
     @Test
     func returningToTheNeighborDoesNotRequestAgain() async throws {

@@ -1,18 +1,18 @@
 import Foundation
 
 /// 封面左下角的一项指标（播放、弹幕数等）：已格式化的文字与 SF Symbol 名。
-public struct NativeVideoCardMetric: Equatable, Sendable {
-    public let text: String
-    public let systemImage: String
+package struct NativeVideoCardMetric: Equatable, Sendable {
+    package let text: String
+    package let systemImage: String
 
-    public init(text: String, systemImage: String) {
+    package init(text: String, systemImage: String) {
         self.text = text
         self.systemImage = systemImage
     }
 }
 
 /// 页脚尾部文字的样式。
-public enum NativeVideoCardFooterTrailingStyle: Equatable, Sendable {
+package enum NativeVideoCardFooterTrailingStyle: Equatable, Sendable {
     /// 靠右的普通文字，前面可带小图标。
     case plain
     /// 品牌色描边胶囊，排在页脚最前（首页推荐理由），页脚文字随后。
@@ -23,23 +23,23 @@ public enum NativeVideoCardFooterTrailingStyle: Equatable, Sendable {
 ///
 /// Feature 或 composition adapter 负责图片 URL 优化、数字/日期/进度格式化与 AX 文案；
 /// renderer 不读取 endpoint model，也不推断任何业务状态。
-public struct NativeVideoCardPresentation: Equatable, Sendable {
-    public let id: String
-    public let title: String
-    public let coverURL: URL?
-    public let avatarURL: URL?
-    public let showsAvatar: Bool
-    public let coverMetrics: [NativeVideoCardMetric]
-    public let coverTrailingText: String?
-    public let footerLeadingText: String
-    public let footerTrailingText: String?
+package struct NativeVideoCardPresentation: Equatable, Sendable {
+    package let id: String
+    package let title: String
+    package let coverURL: URL?
+    package let avatarURL: URL?
+    package let showsAvatar: Bool
+    package let coverMetrics: [NativeVideoCardMetric]
+    package let coverTrailingText: String?
+    package let footerLeadingText: String
+    package let footerTrailingText: String?
     /// 尾部文字前的小图标（SF Symbol 名），只用于普通样式。
-    public let footerTrailingSymbolName: String?
-    public let footerTrailingStyle: NativeVideoCardFooterTrailingStyle
-    public let accessibilityLabel: String
-    public let accessibilityHelp: String?
+    package let footerTrailingSymbolName: String?
+    package let footerTrailingStyle: NativeVideoCardFooterTrailingStyle
+    package let accessibilityLabel: String
+    package let accessibilityHelp: String?
 
-    public init(
+    package init(
         id: String,
         title: String,
         coverURL: URL?,

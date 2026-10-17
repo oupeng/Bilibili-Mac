@@ -277,6 +277,42 @@ struct NativeVideoImagePipelineTests {
         #expect(accumulator.data.count == 8)
     }
 
+    /// 只写出 ImageIO 能识别的位图：SVG、HTML 与随机字节都拒绝。
+    @Test
+    func onlyBitmapImagesAreSaved() throws {
+        let pixel = try #require(
+            Data(
+                base64Encoded:
+                    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="
+            )
+        )
+
+        #expect(NativeVideoImagePipeline.isBitmapImage(pixel))
+        #expect(
+            !NativeVideoImagePipeline.isBitmapImage(
+                Data(#"<svg xmlns="http://www.w3.org/2000/svg"><script>1</script></svg>"#.utf8)
+            )
+        )
+        #expect(!NativeVideoImagePipeline.isBitmapImage(Data("<html></html>".utf8)))
+        #expect(!NativeVideoImagePipeline.isBitmapImage(Data([0, 1, 2, 3])))
+    }
+
+    /// 取原图数据只走 HTTPS、不带用户信息；管线关闭后不再发请求。
+    @Test
+    func originalDataRejectsUnsafeAddressesAndClosedPipelines() async throws {
+        let pipeline = NativeVideoImagePipeline(cacheLimits: .window)
+        let insecure = try #require(URL(string: "http://i0.hdslb.com/bfs/a.png"))
+        let withUser = try #require(URL(string: "https://user@i0.hdslb.com/bfs/a.png"))
+
+        #expect(await pipeline.originalData(for: insecure, variant: .commentPicturePreview) == nil)
+        #expect(await pipeline.originalData(for: withUser, variant: .commentPicturePreview) == nil)
+        pipeline.shutdown()
+        let afterShutdown = try #require(URL(string: "https://i0.hdslb.com/bfs/a.png"))
+        #expect(
+            await pipeline.originalData(for: afterShutdown, variant: .commentPicturePreview) == nil
+        )
+    }
+
     private static func key(
         _ name: String,
         variant: NativeVideoImageVariant = .cover

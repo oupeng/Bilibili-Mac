@@ -5,7 +5,7 @@ import QuartzCore
 
 extension NSUserInterfaceItemIdentifier {
     /// 网格与 shelf 注册、取用 `NativeVideoCollectionItem` 的复用标识。
-    public static let nativeVideoCard = Self("native.video-card")
+    package static let nativeVideoCard = Self("native.video-card")
 }
 
 /// 页脚首尾两段文字分到的宽度。
@@ -118,7 +118,7 @@ struct NativeVideoSingleLineWidthCache {
 /// 在换视频、换封面或头像地址、头像显隐变化与 `invalidate` 时递增，晚到的结果经 `NativeVideoImageApplicationGate`
 /// 比对身份后丢弃。
 @MainActor
-public final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHoverableCollectionItem {
+package final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHoverableCollectionItem {
     /// 只在 `.idle` 时发起请求；取消把加载中与失败都退回 `.idle`，卡片再次显示时重试。
     private enum ImagePhase: Equatable {
         case idle
@@ -138,22 +138,22 @@ public final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHovera
     private var activation: ((String) -> Void)?
     private var hoverChanged: ((NativeVideoCollectionItem, Bool) -> Void)?
 
-    public override var isSelected: Bool {
+    package override var isSelected: Bool {
         didSet { card.setSelected(isSelected) }
     }
 
-    public override var highlightState: NSCollectionViewItem.HighlightState {
+    package override var highlightState: NSCollectionViewItem.HighlightState {
         didSet { card.setPressed(highlightState == .forSelection) }
     }
 
     var representedVideoID: String? { currentPresentation?.id }
 
-    public override func loadView() {
+    package override func loadView() {
         view = card
     }
 
     /// 内容相同时只补发缺失的取图；换视频或换图片地址时先取消旧请求、清掉旧图再配置。
-    public func configure(
+    package func configure(
         presentation: NativeVideoCardPresentation,
         imagePipeline: any NativeVideoImageLoading,
         hoverChanged: @escaping (NativeVideoCollectionItem, Bool) -> Void,
@@ -210,7 +210,7 @@ public final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHovera
         )
     }
 
-    public override func prepareForReuse() {
+    package override func prepareForReuse() {
         super.prepareForReuse()
         invalidate()
     }
@@ -220,7 +220,7 @@ public final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHovera
         avatarTask?.cancel()
     }
 
-    public func invalidateImageRequests() {
+    package func invalidateImageRequests() {
         coverTask?.cancel()
         avatarTask?.cancel()
         if case .loading = coverPhase { coverPhase = .idle }
@@ -231,7 +231,7 @@ public final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHovera
         avatarTask = nil
     }
 
-    public func invalidate() {
+    package func invalidate() {
         invalidateImageRequests()
         generation &+= 1
         currentPresentation = nil
@@ -244,8 +244,8 @@ public final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHovera
         hoverChanged = nil
     }
 
-    public func setHovered(_ isHovered: Bool) { card.setHovered(isHovered) }
-    public func clearHover() { card.setHovered(false) }
+    package func setHovered(_ isHovered: Bool) { card.setHovered(isHovered) }
+    package func clearHover() { card.setHovered(false) }
     func setKeyboardFocusVisible(_ isVisible: Bool) {
         card.setKeyboardFocusVisible(isVisible)
     }

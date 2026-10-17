@@ -1,16 +1,16 @@
 /// 自动分页的尾部状态；`tailIdentity` 标识当前最后一页，变化即视为新尾部。
-public struct NearEndTailState<Identity: Equatable>: Equatable {
-    public let canLoadMore: Bool
-    public let tailIdentity: Identity?
-    public let isLoading: Bool
+package struct NearEndTailState<Identity: Equatable>: Equatable {
+    package let canLoadMore: Bool
+    package let tailIdentity: Identity?
+    package let isLoading: Bool
 
-    public init(canLoadMore: Bool, tailIdentity: Identity?, isLoading: Bool) {
+    package init(canLoadMore: Bool, tailIdentity: Identity?, isLoading: Bool) {
         self.canLoadMore = canLoadMore
         self.tailIdentity = tailIdentity
         self.isLoading = isLoading
     }
 
-    public static var end: Self {
+    package static var end: Self {
         Self(canLoadMore: false, tailIdentity: nil, isLoading: false)
     }
 }
@@ -22,9 +22,9 @@ extension NearEndTailState: Sendable where Identity: Sendable {}
 /// 进入阈值时每个尾部只触发一次，加载中不触发；新尾部到来时视野仍在阈值内的处理由
 /// `TailChangeInsideThreshold` 决定。一次实时滚动手势最多自动加载一页。由网格 Coordinator 与侧栏控制器
 /// 各自持有，只回答“现在是否该请求下一页”，请求本身由调用方发出。
-public struct NearEndPagination<Identity: Equatable> {
+package struct NearEndPagination<Identity: Equatable> {
     /// 新尾部到来时视野仍在阈值内的处理。
-    public enum TailChangeInsideThreshold: Sendable {
+    package enum TailChangeInsideThreshold: Sendable {
         /// 先离开阈值再为新尾部布防：阈值比一页矮的调用方（评论侧栏）用它避免短页接连触发。
         case requiresExit
         /// 立即布防：网格的阈值是 1.5 屏，可能比一页还高，否则到底后不再翻页；仍受每尾部一次、
@@ -42,17 +42,17 @@ public struct NearEndPagination<Identity: Equatable> {
     /// 实时滚动中触发过一次后为 true，直到新手势开始或内容整体替换时 `releaseBackpressure()`。
     private var requiresNewGesture = false
 
-    public init(tailChangeInsideThreshold: TailChangeInsideThreshold) {
+    package init(tailChangeInsideThreshold: TailChangeInsideThreshold) {
         self.tailChangeInsideThreshold = tailChangeInsideThreshold
     }
 
     /// 新的实时滚动手势开始或内容整体替换时解除背压。
-    public mutating func releaseBackpressure() {
+    package mutating func releaseBackpressure() {
         requiresNewGesture = false
     }
 
     /// 返回 true 表示调用方应立即请求下一页。
-    public mutating func shouldLoadMore(
+    package mutating func shouldLoadMore(
         isInsideThreshold: Bool,
         state: NearEndTailState<Identity>,
         isLiveScrolling: Bool
@@ -67,7 +67,7 @@ public struct NearEndPagination<Identity: Equatable> {
         return true
     }
 
-    public mutating func reset() {
+    package mutating func reset() {
         tailIdentity = nil
         wasInsideThreshold = false
         triggeredTailIdentity = nil

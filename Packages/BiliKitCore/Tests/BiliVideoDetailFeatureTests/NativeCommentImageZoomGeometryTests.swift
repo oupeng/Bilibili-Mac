@@ -1,9 +1,9 @@
 import CoreGraphics
 import Testing
 
-@testable import BiliKit
 @testable import BiliVideoDetailFeature
 
+/// 评论图片预览按比例适配可视区，单击在适配与放大之间切换，超过阈值的移动算拖动而不算单击。
 struct NativeCommentImageZoomGeometryTests {
     /// 图片按比例缩进可视区；缩小图与原图只差取整误差（如 358×360 与 719×724 相差 1pt），换图后缩放位置基本不变。
     @Test(arguments: [

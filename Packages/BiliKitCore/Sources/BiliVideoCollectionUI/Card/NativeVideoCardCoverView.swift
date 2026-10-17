@@ -432,7 +432,7 @@ final class NativeVideoMergedCoverView: NSView {
 
 /// 卡片头像，以及 UP 主空间的头像与投稿封面：占位 SF Symbol 与图片两层，图片到达时可淡入。
 @MainActor
-public final class NativeVideoLayerImageView: NSView {
+package final class NativeVideoLayerImageView: NSView {
     private let placeholderSystemSymbolName: String
     private let placeholderTintColor: NSColor
     private let placeholderLayer = CALayer()
@@ -442,7 +442,7 @@ public final class NativeVideoLayerImageView: NSView {
         placeholderLayer: placeholderLayer
     )
 
-    public init(
+    package init(
         placeholderSystemSymbolName: String,
         placeholderTintColor: NSColor
     ) {
@@ -471,11 +471,11 @@ public final class NativeVideoLayerImageView: NSView {
         setImage(nil, animated: false)
     }
 
-    public required init?(coder: NSCoder) {
+    package required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    public override func layout() {
+    package override func layout() {
         super.layout()
         let size = bounds.size
         placeholderLayer.frame = NSRect(
@@ -489,17 +489,17 @@ public final class NativeVideoLayerImageView: NSView {
         imageLayer.contentsScale = window?.backingScaleFactor ?? 2
     }
 
-    public override func viewDidChangeEffectiveAppearance() {
+    package override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         refreshPlaceholderImage()
     }
 
-    public override func viewDidMoveToWindow() {
+    package override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         needsLayout = true
     }
 
-    public func setImage(_ image: CGImage?, animated: Bool) {
+    package func setImage(_ image: CGImage?, animated: Bool) {
         imageFade.setImage(image, animated: animated)
     }
 

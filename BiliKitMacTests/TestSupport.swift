@@ -1,19 +1,13 @@
 import AppKit
 import BiliApplication
+import BiliVideoDetailFeature
 import Foundation
 import Observation
 import Testing
 
 @testable import BiliKit
-@testable import BiliVideoDetailFeature
 
-/// App 测试 target 共用的等待、记录替身与视图遍历；各测试文件不再各自复制。
-
-/// 视图及其全部子孙视图，按深度优先顺序；只用来找可见控件，不依赖层级位置。
-@MainActor
-func descendants(of view: NSView) -> [NSView] {
-    view.subviews.flatMap { [$0] + descendants(of: $0) }
-}
+/// App 测试 target 共用的等待与记录替身；各测试文件不再各自复制。
 
 /// 在一次性的 UserDefaults suite 中执行；前后都清空，测试之间、测试与真实偏好互不影响。
 func withIsolatedDefaults(_ body: (UserDefaults) throws -> Void) rethrows {
@@ -130,13 +124,4 @@ actor RecordingSessionInvalidator: AuthenticatedSessionInvalidating {
     func invalidateAuthenticatedSession() {
         invalidationCount += 1
     }
-}
-
-/// 侧栏控制器的测试组装：不解析评论资源，图片管线不经窗口 owner、随测试释放。
-@MainActor
-func makeSidebarController() -> NativePlaybackSidebarController {
-    NativePlaybackSidebarController(
-        commentAssetURLResolver: { _, _ in nil },
-        imagePipeline: NativeVideoImagePipeline(cacheLimits: .window)
-    )
 }

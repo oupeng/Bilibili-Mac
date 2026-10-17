@@ -8,13 +8,13 @@ package typealias NativeVideoGridTailState = NearEndTailState<String>
 ///
 /// 网格与 App 的相关推荐横排共用这一份差异计算；横排只读 `identityChanged` 与 `changedExistingIDs`，
 /// 锚点与尾部追加判断只属于网格。
-public struct NativeVideoGridUpdatePlan: Equatable {
+package struct NativeVideoGridUpdatePlan: Equatable {
     /// ID 序列（含顺序）变了，需要应用新快照。
-    public let identityChanged: Bool
+    package let identityChanged: Bool
     let insertedIDs: [String]
     let removedIDs: [String]
     /// 前后都在、内容变了的卡片：ID 序列不变时只重配这些可见卡片。
-    public let changedExistingIDs: Set<String>
+    package let changedExistingIDs: Set<String>
     let isStrictTailAppend: Bool
 
     /// 严格尾部追加不改变已有卡片的位置，不需要锚点。
@@ -25,7 +25,7 @@ public struct NativeVideoGridUpdatePlan: Equatable {
         !removedIDs.contains(anchor.id)
     }
 
-    public init<Content: Equatable>(
+    package init<Content: Equatable>(
         previousIDs: [String],
         previousContents: [String: Content],
         updatedIDs: [String],

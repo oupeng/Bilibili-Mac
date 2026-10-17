@@ -3,26 +3,26 @@ import AppKit
 /// 网格与 shelf 共用的卡片内容：去重、按 ID 查找与 diffable 快照。
 ///
 /// 空 ID 与重复 ID 被丢弃，保留第一次出现的那张；值类型，由网格与 shelf 的 Coordinator 各自持有。
-public struct NativeVideoCardContents: Sendable {
+package struct NativeVideoCardContents: Sendable {
     static let section = 0
 
-    public private(set) var byID: [String: NativeVideoCardPresentation]
-    public private(set) var orderedIDs: [String]
+    package private(set) var byID: [String: NativeVideoCardPresentation]
+    package private(set) var orderedIDs: [String]
 
-    public init(_ items: [NativeVideoCardPresentation] = []) {
+    package init(_ items: [NativeVideoCardPresentation] = []) {
         var seen: Set<String> = []
         let uniqueItems = items.filter { !$0.id.isEmpty && seen.insert($0.id).inserted }
         byID = Dictionary(uniqueKeysWithValues: uniqueItems.map { ($0.id, $0) })
         orderedIDs = uniqueItems.map(\.id)
     }
 
-    public subscript(id: String) -> NativeVideoCardPresentation? { byID[id] }
+    package subscript(id: String) -> NativeVideoCardPresentation? { byID[id] }
 
-    public func indexPath(of id: String) -> IndexPath? {
+    package func indexPath(of id: String) -> IndexPath? {
         orderedIDs.firstIndex(of: id).map { IndexPath(item: $0, section: Self.section) }
     }
 
-    public func makeSnapshot() -> NSDiffableDataSourceSnapshot<Int, String> {
+    package func makeSnapshot() -> NSDiffableDataSourceSnapshot<Int, String> {
         var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
         snapshot.appendSections([Self.section])
         snapshot.appendItems(orderedIDs, toSection: Self.section)
@@ -31,7 +31,7 @@ public struct NativeVideoCardContents: Sendable {
 
     /// 可见卡片及其当前内容；`ids` 为空表示全部可见卡片。
     @MainActor
-    public func visibleCards(
+    package func visibleCards(
         in collectionView: NSCollectionView,
         ids: Set<String>? = nil
     ) -> [(NativeVideoCollectionItem, NativeVideoCardPresentation)] {
@@ -48,9 +48,9 @@ public struct NativeVideoCardContents: Sendable {
 
 /// 网格与 shelf 共用的 diffable 数据源：按 ID 取卡片内容、配置复用的卡片并同步键盘选择框。
 @MainActor
-public enum NativeVideoCardDataSource {
+package enum NativeVideoCardDataSource {
     /// 调用方以 `[weak self]` 捕获 Coordinator，工厂本身不持有任何 owner。
-    public static func make(
+    package static func make(
         collectionView: NSCollectionView,
         presentation: @escaping @MainActor (String) -> NativeVideoCardPresentation?,
         configure:
@@ -80,7 +80,7 @@ public enum NativeVideoCardDataSource {
 
 /// 可被 `NativeVideoHoverTracker` 管理悬停外观的集合项（网格卡片、UP 主空间投稿行）。
 @MainActor
-public protocol NativeHoverableCollectionItem: NSCollectionViewItem {
+package protocol NativeHoverableCollectionItem: NSCollectionViewItem {
     func setHovered(_ hovered: Bool)
     func clearHover()
     func invalidateImageRequests()
@@ -91,13 +91,13 @@ public protocol NativeHoverableCollectionItem: NSCollectionViewItem {
 /// 由使用悬停的集合视图 owner 持有（网格与 shelf 的 Coordinator、UP 主空间列表）；只弱引用悬停项，
 /// 不拥有集合项本身。
 @MainActor
-public final class NativeVideoHoverTracker {
+package final class NativeVideoHoverTracker {
     private(set) weak var hoveredItem: (any NativeHoverableCollectionItem)?
 
-    public init() {}
+    package init() {}
 
     /// 由 Coordinator 主动决定悬停目标（滚动、布局、窗口变化后）。
-    public func setHoveredItem(_ item: (any NativeHoverableCollectionItem)?) {
+    package func setHoveredItem(_ item: (any NativeHoverableCollectionItem)?) {
         guard hoveredItem !== item else { return }
         let previous = hoveredItem
         hoveredItem = item
@@ -106,7 +106,7 @@ public final class NativeVideoHoverTracker {
     }
 
     /// 卡片自身的 tracking area 报告的悬停变化；卡片已自行更新外观，这里只撤销前一张。
-    public func itemDidChangeHover(_ item: any NativeHoverableCollectionItem, isHovered: Bool) {
+    package func itemDidChangeHover(_ item: any NativeHoverableCollectionItem, isHovered: Bool) {
         if isHovered {
             guard hoveredItem !== item else { return }
             let previous = hoveredItem
@@ -118,17 +118,17 @@ public final class NativeVideoHoverTracker {
     }
 
     /// teardown 时只丢弃引用；卡片随后整体 invalidate，不需要单独撤销外观。
-    public func forgetHoveredItem() {
+    package func forgetHoveredItem() {
         hoveredItem = nil
     }
 
     /// 以窗口当前指针位置重新选择悬停卡片；滚动不会产生 mouseEntered/Exited。
-    public func updateForCurrentPointerLocation(in collectionView: NSCollectionView) {
+    package func updateForCurrentPointerLocation(in collectionView: NSCollectionView) {
         setHoveredItem(Self.itemUnderPointer(in: collectionView))
     }
 
     /// 离屏卡片可能立即被复用给其他视频，必须同时丢弃引用、图片请求与悬停外观。
-    public func itemDidEndDisplaying(_ item: any NativeHoverableCollectionItem) {
+    package func itemDidEndDisplaying(_ item: any NativeHoverableCollectionItem) {
         if hoveredItem === item { hoveredItem = nil }
         item.invalidateImageRequests()
         item.clearHover()
@@ -151,7 +151,7 @@ public final class NativeVideoHoverTracker {
 /// 集合键盘导航使用的物理键码。
 ///
 /// 保留 keyCode 判断而不改用 `specialKey`：后者会把小键盘 Enter 也当作激活键，改变现有行为。
-public enum NativeVideoCollectionKeys {
+package enum NativeVideoCollectionKeys {
     static let returnKey: UInt16 = 36
     static let leftArrow: UInt16 = 123
     static let rightArrow: UInt16 = 124
@@ -159,12 +159,12 @@ public enum NativeVideoCollectionKeys {
     static let upArrow: UInt16 = 126
     static let space = " "
 
-    public static func isActivation(_ event: NSEvent) -> Bool {
+    package static func isActivation(_ event: NSEvent) -> Bool {
         event.keyCode == returnKey || event.charactersIgnoringModifiers == space
     }
 
     /// 方向键对应的选择位移；`rowLength` 为 nil 时不处理上下键。
-    public static func selectionDelta(for event: NSEvent, rowLength: Int? = nil) -> Int? {
+    package static func selectionDelta(for event: NSEvent, rowLength: Int? = nil) -> Int? {
         switch event.keyCode {
         case leftArrow: -1
         case rightArrow: 1
@@ -180,16 +180,16 @@ public enum NativeVideoCollectionKeys {
 /// 用 AppKit 的理由见 ARCHITECTURE「原生 AppKit 集合视图」。
 @MainActor
 open class NativeVideoCardCollectionView: NSCollectionView {
-    public var onActivateSelection: ((String) -> Void)?
-    public private(set) var showsKeyboardSelection = false
+    package var onActivateSelection: ((String) -> Void)?
+    package private(set) var showsKeyboardSelection = false
 
-    public func setShowsKeyboardSelection(_ shows: Bool) {
+    package func setShowsKeyboardSelection(_ shows: Bool) {
         showsKeyboardSelection = shows
         updateVisibleKeyboardSelection(showsKeyboardSelection: shows)
     }
 
     /// 键盘导航：单选移动到 `index`（夹在有效范围内），显示选择框并滚动到可见。
-    public func selectWithKeyboard(
+    package func selectWithKeyboard(
         itemAt index: Int,
         scrollPosition: NSCollectionView.ScrollPosition
     ) {
@@ -273,7 +273,7 @@ extension NSCollectionView {
     }
 
     /// 系统辅助功能显示选项（提高对比度、降低透明度）变化后刷新可见卡片。
-    public func refreshVisibleCardAppearance() {
+    package func refreshVisibleCardAppearance() {
         for item in visibleVideoCards { item.refreshEnvironmentAppearance() }
     }
 }
