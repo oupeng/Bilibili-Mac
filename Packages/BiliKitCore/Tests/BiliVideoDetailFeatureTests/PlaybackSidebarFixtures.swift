@@ -63,25 +63,17 @@ extension PlaybackSidebarFixtures {
         )
     }
 
+    /// 已加载的评论区，经 ViewModel 的真实加载得到；`isLoadingNextPage` 时下一页请求挂起中。
     @MainActor
     func commentsPresentation(
         subject: CommentSubjectIdentity,
         threads: [CommentThread],
         isLoadingNextPage: Bool = false
-    ) -> NativePlaybackCommentsPresentation {
-        NativePlaybackCommentsPresentation(
+    ) async -> NativePlaybackCommentsPresentation {
+        await liveCommentsPresentation(
             subject: subject,
-            sort: .hot,
-            rootState: .loaded,
-            totalCount: threads.count,
-            threads: threads.map {
-                NativePlaybackCommentThreadPresentation(
-                    subject: subject,
-                    thread: $0,
-                    replyState: nil
-                )
-            },
-            isLoadingNextPage: isLoadingNextPage
+            threads: threads,
+            next: isLoadingNextPage ? .loading : .available
         )
     }
 

@@ -1653,34 +1653,6 @@
         }
       }
     },
-    "当前版本不会伪造评论内容。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This version does not fabricate comment content."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "現在のバージョンではコメント内容を生成しません。"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "当前版本不会伪造评论内容。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "目前版本不會偽造評論內容。"
-          }
-        }
-      }
-    },
     "当前视频不在合集目录中" : {
       "localizations" : {
         "en" : {
@@ -3665,34 +3637,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "評論圖片，第 %lld 張，共 %lld 張"
-          }
-        }
-      }
-    },
-    "评论尚未接入" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Comments not connected"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "コメントはまだ利用できません"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "评论尚未接入"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "評論尚未接入"
           }
         }
       }

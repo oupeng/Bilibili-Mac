@@ -286,11 +286,6 @@ struct NativePlaybackCommentRowGeometry {
     }
 }
 
-/// 评论头像、评论图片格子与预览共用的淡入时长；与卡片封面淡入相同，评论区与网格的观感一致。
-enum NativePlaybackCommentImageTransition {
-    static let duration: CFTimeInterval = 0.15
-}
-
 /// 评论图片在列表格子与预览中的共同外观。
 enum NativePlaybackCommentImageStyle {
     static let cornerRadius: CGFloat = 6

@@ -1,5 +1,6 @@
 import AppKit
 import BiliModels
+import BiliVideoCollectionUI
 import SwiftUI
 
 /// App 壳打开一次评论图片预览的请求：只在 `bvid` 仍是当前播放视频时显示，关闭后由 App 调用
@@ -478,7 +479,7 @@ private struct NativeCommentImagePreviewContent: View {
         }
         let animation: Animation? =
             placeholder == nil && result.fadesIn && !reduceMotion
-            ? .easeOut(duration: NativePlaybackCommentImageTransition.duration)
+            ? .easeOut(duration: NativeImageFadeAnimation.duration)
             : nil
         withAnimation(animation) {
             phase = .loaded(result.image, result.animation)

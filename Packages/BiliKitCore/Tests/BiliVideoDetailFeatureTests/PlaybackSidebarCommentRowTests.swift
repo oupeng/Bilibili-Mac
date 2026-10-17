@@ -38,19 +38,13 @@ struct PlaybackSidebarCommentRowTests: PlaybackSidebarFixtures {
     /// 评论区已关闭是终态说明，不提供重试；其余失败仍显示可重试的失败状态。
     @Test
     @MainActor
-    func closedCommentSectionShowsATerminalStateWithoutRetry() {
+    func closedCommentSectionShowsATerminalStateWithoutRetry() async {
         let subject = CommentSubjectIdentity.video(aid: 700_001)
         for (error, kind) in [
             (CommentReadError.closed, NativePlaybackCommentsStateKind.closed),
             (.transportFailure, .failed(.transportFailure))
         ] {
-            let comments = NativePlaybackCommentsPresentation(
-                subject: subject,
-                sort: .hot,
-                rootState: .failed(error),
-                totalCount: 0,
-                threads: []
-            )
+            let comments = await liveCommentsPresentation(subject: subject, rootFailure: error)
             #expect(
                 presentation(bvid: "BVCurrent", comments: comments).itemIDs.last
                     == .commentsState(subject: subject, kind: kind)
@@ -72,28 +66,18 @@ struct PlaybackSidebarCommentRowTests: PlaybackSidebarFixtures {
 
     @Test
     @MainActor
-    func commentLoadingAccessibilityDoesNotReuseStaleCountOrFooterState() throws {
+    func commentLoadingAccessibilityDoesNotReuseStaleCountOrFooterState() async throws {
         let subject = CommentSubjectIdentity.video(aid: 700_001)
         // 总数取不易与界面其他数字相撞的值，按可见计数文字定位时不会找错控件。
-        let loaded = NativePlaybackCommentsPresentation(
+        let loaded = await liveCommentsPresentation(
             subject: subject,
-            sort: .hot,
-            rootState: .loaded,
-            totalCount: 12_345,
-            threads: [
-                NativePlaybackCommentThreadPresentation(
-                    subject: subject,
-                    thread: commentThread(id: 1, message: "正文"),
-                    replyState: nil
-                )
-            ]
+            threads: [commentThread(id: 1, message: "正文")],
+            totalCount: 12_345
         )
-        let loading = NativePlaybackCommentsPresentation(
+        let loading = await liveCommentsPresentation(
             subject: subject,
             sort: .latest,
-            rootState: .loading,
-            totalCount: 0,
-            threads: []
+            rootIsLoading: true
         )
         let header = NativePlaybackCommentsHeaderItem()
         header.configure(presentation: loaded, onSelectSort: { _ in })
@@ -148,24 +132,20 @@ struct PlaybackSidebarCommentRowTests: PlaybackSidebarFixtures {
 
     @Test
     @MainActor
-    func commentsFooterOnlyClaimsAllCommentsForServerEnd() throws {
+    func commentsFooterOnlyClaimsAllCommentsForServerEnd() async throws {
         let subject = CommentSubjectIdentity.video(aid: 700_001)
-        let stopped = NativePlaybackCommentsPresentation(
+        let threads = [commentThread(id: 1, message: "正文")]
+        let stopped = await liveCommentsPresentation(
             subject: subject,
-            sort: .hot,
-            rootState: .loaded,
+            threads: threads,
             totalCount: 2,
-            threads: [],
-            paginationTermination: .duplicatePage
+            next: .duplicate
         )
-        let ended = NativePlaybackCommentsPresentation(
+        let ended = await liveCommentsPresentation(
             subject: subject,
-            sort: .hot,
-            rootState: .loaded,
+            threads: threads,
             totalCount: 2,
-            threads: [],
-            paginationTermination: .serverEnd,
-            reachedEnd: true
+            next: .serverEnd
         )
 
         #expect(stopped.footer == .stopped)

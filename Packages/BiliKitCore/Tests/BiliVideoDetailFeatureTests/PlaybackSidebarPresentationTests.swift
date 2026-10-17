@@ -181,23 +181,23 @@ struct PlaybackSidebarPresentationTests: PlaybackSidebarFixtures {
 
     @Test
     @MainActor
-    func collectionUpdatePolicySeparatesStableRowsFromCommentAppend() throws {
+    func collectionUpdatePolicySeparatesStableRowsFromCommentAppend() async throws {
         let subject = CommentSubjectIdentity.video(aid: 700_001)
         let first = commentThread(id: 1, message: "第一条评论")
         let original = presentation(
             bvid: "BVCurrent",
-            comments: commentsPresentation(subject: subject, threads: [first])
+            comments: await commentsPresentation(subject: subject, threads: [first])
         )
         let changed = presentation(
             bvid: "BVCurrent",
-            comments: commentsPresentation(
+            comments: await commentsPresentation(
                 subject: subject,
                 threads: [commentThread(id: 1, message: "修改后的正文")]
             )
         )
         let appended = presentation(
             bvid: "BVCurrent",
-            comments: commentsPresentation(
+            comments: await commentsPresentation(
                 subject: subject,
                 threads: [first, commentThread(id: 2, message: "第二条评论")]
             )
@@ -239,12 +239,12 @@ struct PlaybackSidebarPresentationTests: PlaybackSidebarFixtures {
 
     @Test
     @MainActor
-    func commentsUseStableSubjectAndRootIDsAcrossAppend() {
+    func commentsUseStableSubjectAndRootIDsAcrossAppend() async {
         let subject = CommentSubjectIdentity.video(aid: 700_001)
         let first = commentThread(id: 1, message: "第一条评论")
         let second = commentThread(id: 2, message: "第二条评论")
-        let initial = commentsPresentation(subject: subject, threads: [first])
-        let appended = commentsPresentation(subject: subject, threads: [first, second])
+        let initial = await commentsPresentation(subject: subject, threads: [first])
+        let appended = await commentsPresentation(subject: subject, threads: [first, second])
 
         #expect(
             commentItemIDs(initial)

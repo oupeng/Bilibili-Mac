@@ -244,10 +244,6 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
             forItemWithIdentifier: NativePlaybackSidebarSelectionItem.reuseIdentifier
         )
         collectionView.register(
-            NativePlaybackSidebarUnavailableItem.self,
-            forItemWithIdentifier: NativePlaybackSidebarUnavailableItem.reuseIdentifier
-        )
-        collectionView.register(
             NativePlaybackCommentsHeaderItem.self,
             forItemWithIdentifier: NativePlaybackCommentsHeaderItem.reuseIdentifier
         )

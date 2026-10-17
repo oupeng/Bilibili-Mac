@@ -124,30 +124,6 @@ struct NativePlaybackCommentsPresentation: Equatable {
         }
     }
 
-    init(
-        subject: CommentSubjectIdentity?,
-        sort: CommentSort,
-        rootState: PlaybackCommentsRootState,
-        totalCount: Int,
-        threads: [NativePlaybackCommentThreadPresentation],
-        isLoadingNextPage: Bool = false,
-        paginationError: CommentReadError? = nil,
-        paginationTermination: CommentPaginationTermination? = nil,
-        reachedEnd: Bool = false,
-        reachedMemoryLimit: Bool = false
-    ) {
-        self.subject = subject
-        self.sort = sort
-        self.rootState = rootState
-        self.totalCount = totalCount
-        self.threads = threads
-        self.isLoadingNextPage = isLoadingNextPage
-        self.paginationError = paginationError
-        self.paginationTermination = paginationTermination
-        self.reachedEnd = reachedEnd
-        self.reachedMemoryLimit = reachedMemoryLimit
-    }
-
     var sortIsEnabled: Bool {
         rootState == .loaded || rootState == .empty
     }

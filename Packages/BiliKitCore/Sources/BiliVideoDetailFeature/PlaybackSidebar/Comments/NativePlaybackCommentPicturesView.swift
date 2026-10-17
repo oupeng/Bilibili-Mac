@@ -1,5 +1,6 @@
 import AppKit
 import BiliModels
+import BiliVideoCollectionUI
 
 /// 评论图片的一个格子：图片引用与原始像素尺寸；接口给了数量却没给图片时引用为 nil，格子显示占位、不可点。
 struct NativePlaybackCommentPictureSlot: Equatable {
@@ -253,7 +254,7 @@ final class NativePlaybackCommentPicturesView: NSView {
 /// 一个图片格子：拥有取图 Task 与代次 `imageGeneration`、动图播放与 GIF 角标。
 ///
 /// 每次配置、释放或复位时递增代次并取消在途请求；到达的图片只在代次与引用都仍相同时显示。新到的图片按
-/// `fadesIn` 淡入，占位底色在淡入结束且代次未变时才撤下；动图只在格子真正可见时播放（见
+/// `fadesIn` 经共用的 `NativeImageFadeAnimation` 淡入；动图只在格子真正可见时播放（见
 /// `NativeAnimatedImagePlayback`）。用按钮是为了键盘焦点与 VoiceOver 的按下操作。
 @MainActor
 private final class NativePlaybackCommentPictureTileView: NSButton {
@@ -278,6 +279,7 @@ private final class NativePlaybackCommentPictureTileView: NSButton {
     private var position = 0
     private var imageGeneration: UInt64 = 0
     private var imageTask: Task<Void, Never>?
+    private let imageFade = NativeImageFadeAnimation(key: "native-playback-comment-picture.fade")
     private var isShowingPlaceholder = true
     private var onOpen: (() -> Void)?
 
@@ -444,10 +446,7 @@ private final class NativePlaybackCommentPictureTileView: NSButton {
         imageGeneration &+= 1
         imageTask?.cancel()
         imageTask = nil
-        imageView.layer?.removeAnimation(
-            forKey: "native-playback-comment-picture.fade"
-        )
-        imageView.layer?.opacity = 1
+        imageFade.cancel(on: imageView.layer)
     }
 
     private func updateAccessibilityLabel(isAnimated: Bool) {
@@ -476,8 +475,8 @@ private final class NativePlaybackCommentPictureTileView: NSButton {
         )
     }
 
+    /// 文字占位立即隐藏；自绘的占位底色留到淡入结束（其间没有新的配置或释放）才撤，不淡入时立即撤。
     private func apply(_ image: CGImage, animation: NativeAnimatedImage?, fadesIn: Bool) {
-        let generation = imageGeneration
         firstFrame = image
         imageView.image = NSImage(
             cgImage: image,
@@ -488,35 +487,13 @@ private final class NativePlaybackCommentPictureTileView: NSButton {
         animationBadge.isHidden = animation == nil
         updateAccessibilityLabel(isAnimated: animation != nil)
         playback.play(animation)
-        guard fadesIn,
-            !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
-            let imageLayer = imageView.layer
-        else {
-            isShowingPlaceholder = false
+        let fades = imageFade.fadeIn(imageView.layer, animated: fadesIn) { [weak self] in
+            self?.isShowingPlaceholder = false
+            self?.needsDisplay = true
+        }
+        if fades {
             needsDisplay = true
-            return
         }
-        imageLayer.removeAnimation(
-            forKey: "native-playback-comment-picture.fade"
-        )
-        imageLayer.opacity = 1
-        let animation = CABasicAnimation(keyPath: "opacity")
-        animation.fromValue = 0
-        animation.toValue = 1
-        animation.duration = NativePlaybackCommentImageTransition.duration
-        animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        CATransaction.begin()
-        CATransaction.setCompletionBlock { [weak self] in
-            guard let self, self.imageGeneration == generation else { return }
-            self.isShowingPlaceholder = false
-            self.needsDisplay = true
-        }
-        imageLayer.add(
-            animation,
-            forKey: "native-playback-comment-picture.fade"
-        )
-        CATransaction.commit()
-        needsDisplay = true
     }
 
     @objc private func openPicture() {

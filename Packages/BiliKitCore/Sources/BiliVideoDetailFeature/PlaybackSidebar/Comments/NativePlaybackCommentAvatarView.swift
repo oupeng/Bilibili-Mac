@@ -32,7 +32,7 @@ enum NativeCommentAvatarMark: Equatable {
 /// 评论作者头像：圆形头像、加载中与失败时的剪影占位，以及右下角的身份角标（遮罩在角标周围抠出缝隙）。
 ///
 /// 拥有头像加载 Task 与它的代次 `imageGeneration`：每次配置、释放或复位时递增并取消在途请求；到达的头像只在代次
-/// 与头像引用都仍相同时显示，否则丢弃。新到的头像按 `fadesIn` 淡入，淡入结束且代次未变才隐藏占位。
+/// 与头像引用都仍相同时显示，否则丢弃。新到的头像按 `fadesIn` 经共用的 `NativeImageFadeAnimation` 淡入。
 @MainActor
 final class NativePlaybackCommentAvatarView: NSView {
     override var isFlipped: Bool { true }
@@ -47,6 +47,7 @@ final class NativePlaybackCommentAvatarView: NSView {
     private var isReply = false
     private var imageGeneration: UInt64 = 0
     private var imageTask: Task<Void, Never>?
+    private let imageFade = NativeImageFadeAnimation(key: "native-playback-comment-avatar.fade")
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -164,45 +165,19 @@ final class NativePlaybackCommentAvatarView: NSView {
         imageGeneration &+= 1
         imageTask?.cancel()
         imageTask = nil
-        avatarImage.layer?.removeAnimation(
-            forKey: "native-playback-comment-avatar.fade"
-        )
-        avatarImage.layer?.opacity = 1
+        imageFade.cancel(on: avatarImage.layer)
     }
 
+    /// 剪影占位留在头像下面，淡入结束（其间没有新的配置或释放）才隐藏；不淡入时立即隐藏。
     private func apply(_ image: CGImage, animated: Bool) {
-        let generation = imageGeneration
         avatarImage.image = NSImage(
             cgImage: image,
             size: NSSize(width: image.width, height: image.height)
         )
         avatarImage.isHidden = false
-        guard animated,
-            !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
-            let imageLayer = avatarImage.layer
-        else {
-            placeholderImage.isHidden = true
-            return
+        imageFade.fadeIn(avatarImage.layer, animated: animated) { [weak self] in
+            self?.placeholderImage.isHidden = true
         }
-        imageLayer.removeAnimation(
-            forKey: "native-playback-comment-avatar.fade"
-        )
-        imageLayer.opacity = 1
-        let animation = CABasicAnimation(keyPath: "opacity")
-        animation.fromValue = 0
-        animation.toValue = 1
-        animation.duration = NativePlaybackCommentImageTransition.duration
-        animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        CATransaction.begin()
-        CATransaction.setCompletionBlock { [weak self] in
-            guard let self, self.imageGeneration == generation else { return }
-            self.placeholderImage.isHidden = true
-        }
-        imageLayer.add(
-            animation,
-            forKey: "native-playback-comment-avatar.fade"
-        )
-        CATransaction.commit()
     }
 }
 

@@ -28,9 +28,29 @@ struct PlaybackSidebarScrollAnchorTests: PlaybackSidebarFixtures {
             window.contentView = nil
         }
         let subject = CommentSubjectIdentity.video(aid: 700_001)
-        let initial = commentsPresentation(
+        // 呈现是值，先全部构造：构造要等 ViewModel 加载，中途让出主线程会让侧栏的精测 Task 先跑、改变测量基准。
+        let initial = await commentsPresentation(
             subject: subject,
             threads: (1...60).map {
+                commentThread(id: Int64($0), message: "第 \($0) 条评论")
+            }
+        )
+        let appended = await commentsPresentation(
+            subject: subject,
+            threads: (1...70).map {
+                commentThread(id: Int64($0), message: "第 \($0) 条评论")
+            }
+        )
+        let loadingAtBottom = await commentsPresentation(
+            subject: subject,
+            threads: (1...70).map {
+                commentThread(id: Int64($0), message: "第 \($0) 条评论")
+            },
+            isLoadingNextPage: true
+        )
+        let appendedAtBottom = await commentsPresentation(
+            subject: subject,
+            threads: (1...80).map {
                 commentThread(id: Int64($0), message: "第 \($0) 条评论")
             }
         )
@@ -61,12 +81,6 @@ struct PlaybackSidebarScrollAnchorTests: PlaybackSidebarFixtures {
             initialAnchor.frame.minY
             - controller.rootView.scrollView.documentVisibleRect.minY
 
-        let appended = commentsPresentation(
-            subject: subject,
-            threads: (1...70).map {
-                commentThread(id: Int64($0), message: "第 \($0) 条评论")
-            }
-        )
         controller.update(
             presentation: presentation(bvid: "BVAnchor", comments: appended),
             actions: actions
@@ -122,13 +136,6 @@ struct PlaybackSidebarScrollAnchorTests: PlaybackSidebarFixtures {
             bottomAnchor.frame.minY
             - controller.rootView.scrollView.documentVisibleRect.minY
 
-        let loadingAtBottom = commentsPresentation(
-            subject: subject,
-            threads: (1...70).map {
-                commentThread(id: Int64($0), message: "第 \($0) 条评论")
-            },
-            isLoadingNextPage: true
-        )
         controller.update(
             presentation: presentation(
                 bvid: "BVAnchor",
@@ -152,12 +159,6 @@ struct PlaybackSidebarScrollAnchorTests: PlaybackSidebarFixtures {
             }
         )
 
-        let appendedAtBottom = commentsPresentation(
-            subject: subject,
-            threads: (1...80).map {
-                commentThread(id: Int64($0), message: "第 \($0) 条评论")
-            }
-        )
         controller.update(
             presentation: presentation(
                 bvid: "BVAnchor",
@@ -224,14 +225,16 @@ struct PlaybackSidebarScrollAnchorTests: PlaybackSidebarFixtures {
         let initialThreads = (1...60).map {
             commentThread(id: Int64($0), message: "第 \($0) 条评论")
         }
+        var mutatedThreads = initialThreads
+        mutatedThreads[0] = commentThread(
+            id: 1,
+            message: String(repeating: "位于锚点上方的长评论正文", count: 20)
+        )
+        // 呈现是值，先全部构造：构造要等 ViewModel 加载，中途让出主线程会让侧栏的精测 Task 先跑、改变测量基准。
+        let initialComments = await commentsPresentation(subject: subject, threads: initialThreads)
+        let mutatedComments = await commentsPresentation(subject: subject, threads: mutatedThreads)
         controller.update(
-            presentation: presentation(
-                bvid: "BVResizeAnchor",
-                comments: commentsPresentation(
-                    subject: subject,
-                    threads: initialThreads
-                )
-            ),
+            presentation: presentation(bvid: "BVResizeAnchor", comments: initialComments),
             actions: actions
         )
         let collectionView = try #require(
@@ -257,19 +260,8 @@ struct PlaybackSidebarScrollAnchorTests: PlaybackSidebarFixtures {
             anchor.frame.minY
             - controller.rootView.scrollView.documentVisibleRect.minY
 
-        var mutatedThreads = initialThreads
-        mutatedThreads[0] = commentThread(
-            id: 1,
-            message: String(repeating: "位于锚点上方的长评论正文", count: 20)
-        )
         controller.update(
-            presentation: presentation(
-                bvid: "BVResizeAnchor",
-                comments: commentsPresentation(
-                    subject: subject,
-                    threads: mutatedThreads
-                )
-            ),
+            presentation: presentation(bvid: "BVResizeAnchor", comments: mutatedComments),
             actions: actions
         )
 
@@ -523,14 +515,8 @@ struct PlaybackSidebarScrollAnchorTests: PlaybackSidebarFixtures {
         controller.rootView.frame = NSRect(x: 0, y: 0, width: 440, height: 600)
         controller.rootView.layoutSubtreeIfNeeded()
         let subject = CommentSubjectIdentity.video(aid: 700_001)
-        let loading = NativePlaybackCommentsPresentation(
-            subject: subject,
-            sort: .hot,
-            rootState: .loading,
-            totalCount: 0,
-            threads: []
-        )
-        let loaded = commentsPresentation(
+        let loading = await liveCommentsPresentation(subject: subject, rootIsLoading: true)
+        let loaded = await commentsPresentation(
             subject: subject,
             threads: (1...40).map {
                 commentThread(id: Int64($0), message: "第 \($0) 条评论正文")
