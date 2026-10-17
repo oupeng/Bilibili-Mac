@@ -1,24 +1,20 @@
 import BiliApplication
 import BiliModels
 import BiliUI
+import BiliVideoCollectionUI
 import Foundation
 import SwiftUI
 
 /// 已有详情时的播放页主区：播放器、相关推荐横排，以及工具栏标题、副标题与弹幕按钮。
-struct VideoDetailView<PlayerContent: View, RelatedContent: View>: View {
+struct VideoDetailView<PlayerContent: View>: View {
     @Environment(\.locale) private var locale
     let context: VideoContext
     let danmakuModel: DanmakuControlsViewModel
     let relatedVideoState: RelatedVideoState
     let onSelectRelatedVideo: (String) -> Void
     let onRetryRelatedVideos: () -> Void
+    let relatedImageLoader: any NativeVideoImageLoading
     let playerContent: () -> PlayerContent
-    let makeRelatedContent:
-        (
-            String,
-            [RelatedVideoCardPresentation],
-            @escaping (String) -> Void
-        ) -> RelatedContent
 
     var body: some View {
         PlaybackDetailLayout {
@@ -26,10 +22,10 @@ struct VideoDetailView<PlayerContent: View, RelatedContent: View>: View {
         } related: {
             RelatedVideoShelf(
                 state: shelfState,
-                contentIdentity: context.detail.bvid,
                 onSelect: onSelectRelatedVideo,
                 onRetry: onRetryRelatedVideos,
-                makeLoadedContent: makeRelatedContent
+                contentIdentity: context.detail.bvid,
+                imageLoader: relatedImageLoader
             )
         }
         .navigationTitle(context.detail.title)

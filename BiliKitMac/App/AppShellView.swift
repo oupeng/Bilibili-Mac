@@ -417,17 +417,7 @@ private struct PlaybackDestinationView: View {
             danmakuModel: danmakuModel,
             onRetry: onRetry,
             onSelectRelatedVideo: onSelectRelatedVideo,
-            makeRelatedContent: {
-                contentIdentity,
-                presentations,
-                onSelect in
-                RelatedNativeShelfView(
-                    contentIdentity: contentIdentity,
-                    presentations: presentations,
-                    imagePipeline: imagePipeline,
-                    onSelect: onSelect
-                )
-            }
+            relatedImageLoader: imagePipeline
         ) {
             playerContent
         }

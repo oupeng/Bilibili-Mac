@@ -1,5 +1,6 @@
 import AppKit
 import BiliApplication
+import BiliVideoCollectionUI
 import BiliVideoDetailFeature
 import Foundation
 import Observation
@@ -124,4 +125,11 @@ actor RecordingSessionInvalidator: AuthenticatedSessionInvalidating {
     func invalidateAuthenticatedSession() {
         invalidationCount += 1
     }
+}
+
+/// 卡片取图 port 的最小替身：从不命中缓存，加载也不返回图；给只需要传入 port、不验证取图的视图用。
+struct NoImageCardLoader: NativeVideoImageLoading {
+    func cachedImage(for url: URL, kind: NativeVideoCardImageKind) -> CGImage? { nil }
+
+    func image(for url: URL, kind: NativeVideoCardImageKind) async -> NativeVideoCardImage? { nil }
 }

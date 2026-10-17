@@ -13,13 +13,9 @@ struct VideoDetailSkeleton: View {
                     PlayerLoadingIndicator()
                 }
         } related: {
-            RelatedVideoShelf<EmptyView>(
-                state: .loading,
-                contentIdentity: "loading",
-                onSelect: { _ in },
-                onRetry: {},
-                makeLoadedContent: { _, _, _ in EmptyView() }
-            )
+            RelatedVideoShelfFrame {
+                RelatedVideoShelfLoadingRow()
+            }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(loadingLabel)
