@@ -19,7 +19,7 @@ public enum DASHToHLSBridgeError: Error, Sendable, Equatable {
 /// 一次已启动的 loopback 播放会话；其生命周期就是底层 server 的生命周期。
 ///
 /// owner 必须在替换播放项或失败时调用 `stop`；`deinit` 只是最后一道幂等清理保障。
-public final class PreparedPlaybackAsset: @unchecked Sendable {
+public final class PreparedPlaybackAsset: Sendable {
     public let url: URL
     private let server: LoopbackPlaybackServer
 
