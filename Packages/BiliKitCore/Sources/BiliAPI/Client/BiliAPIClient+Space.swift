@@ -22,7 +22,7 @@ extension BiliAPIClient {
             "order": order.apiValue
         ]
         let payload: UploaderVideoSearchPayload = try await signedRequest(
-            path: "/x/space/wbi/arc/search",
+            path: BiliAccountReadPath.uploaderVideos,
             parameters: { parameters },
             send: { url in
                 try await get(

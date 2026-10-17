@@ -14,7 +14,7 @@ extension BiliAPIClient {
         }
         let payload: PopularPayload = try await get(
             url: try endpoint(
-                path: "/x/web-interface/popular",
+                path: BiliAccountReadPath.popular,
                 queryItems: [
                     URLQueryItem(name: "pn", value: String(page)),
                     URLQueryItem(name: "ps", value: String(pageSize))
@@ -85,7 +85,7 @@ extension BiliAPIClient {
             throw BiliAPIError.invalidRequest
         }
         let payload: RecommendationPayload = try await signedRequest(
-            path: "/x/web-interface/wbi/index/top/feed/rcmd",
+            path: BiliAccountReadPath.recommendations,
             parameters: {
                 [
                     "fresh_idx": String(freshIndex),
@@ -133,7 +133,7 @@ extension BiliAPIClient {
             parameters["pubtime_end_s"] = String(range.endTimestamp)
         }
         let payload: SearchPayload = try await signedRequest(
-            path: "/x/web-interface/wbi/search/type",
+            path: BiliAccountReadPath.videoSearch,
             parameters: { parameters },
             send: { url in
                 // 该接口要求 Cookie 含 buvid3；匿名与账户读取两条路径都在授权后附加。

@@ -20,7 +20,7 @@ extension BiliAPIClient {
         }
         let payload: WatchHistoryPayload = try await get(
             url: try endpoint(
-                path: "/x/web-interface/history/cursor",
+                path: BiliAccountReadPath.watchHistory,
                 queryItems: [
                     URLQueryItem(name: "max", value: String(cursor.maximum)),
                     URLQueryItem(name: "view_at", value: String(cursor.viewedAt)),

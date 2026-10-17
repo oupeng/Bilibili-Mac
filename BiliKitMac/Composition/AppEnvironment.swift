@@ -398,29 +398,32 @@ struct AppEnvironment {
         surfaceHeight: 0
     )
 
+    // 三组 allowlist 只引用 endpoint 导出的 path 常量（`BiliAccountReadPath`、会话校验的
+    // `BiliAuthenticationService.sessionValidationPath`），不另写字面量；哪组放行哪些 path 是这里的决定。
+    // 见 SECURITY-MODEL §3。
     static let accountSessionValidationAllowedPaths: Set<String> = [
-        "/x/web-interface/nav"
+        BiliAuthenticationService.sessionValidationPath
     ]
 
     static let mainAccountReadAllowedPaths: Set<String> = [
-        "/x/player/wbi/playurl",
-        "/x/player/wbi/v2",
-        "/x/space/wbi/arc/search",
-        "/x/v2/dm/wbi/web/seg.so",
-        "/x/v2/reply/reply",
-        "/x/v2/reply/wbi/main",
-        "/x/web-interface/archive/related",
-        "/x/web-interface/card",
-        "/x/web-interface/history/cursor",
-        "/x/web-interface/popular",
-        "/x/web-interface/wbi/index/top/feed/rcmd",
-        "/x/web-interface/wbi/search/type",
-        "/x/web-interface/wbi/view"
+        BiliAccountReadPath.playURL,
+        BiliAccountReadPath.subtitleCatalog,
+        BiliAccountReadPath.uploaderVideos,
+        BiliAccountReadPath.danmakuSegment,
+        BiliAccountReadPath.commentReplies,
+        BiliAccountReadPath.rootComments,
+        BiliAccountReadPath.relatedVideos,
+        BiliAccountReadPath.uploaderCard,
+        BiliAccountReadPath.watchHistory,
+        BiliAccountReadPath.popular,
+        BiliAccountReadPath.recommendations,
+        BiliAccountReadPath.videoSearch,
+        BiliAccountReadPath.videoDetail
     ]
 
     static let cdnBenchmarkAccountReadAllowedPaths: Set<String> = [
-        "/x/player/wbi/playurl",
-        "/x/web-interface/wbi/view"
+        BiliAccountReadPath.playURL,
+        BiliAccountReadPath.videoDetail
     ]
 
     static let watchProgressAccountReadAllowedPaths: Set<String>? = nil

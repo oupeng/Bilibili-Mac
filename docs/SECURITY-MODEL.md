@@ -56,12 +56,14 @@
 **账户读取**（`BiliCredentialRequestAuthorizer`）
 
 - 只允许 `https://api.bilibili.com`、端口缺省或 443、GET、无 userinfo／fragment、路径编码规范，
-  且 path 在 `AppEnvironment` 声明的 allowlist 内（主客户端、测速客户端、会话校验各一组）。
+  且 path 在 `AppEnvironment` 声明的 allowlist 内（主客户端、测速客户端、会话校验各一组）。allowlist 只引用
+  endpoint 导出的 path 常量：BiliAPI 的 `BiliAccountReadPath`（endpoint 扩展构造请求用的同一个常量），会话校验为
+  BiliAuth 的 `BiliAuthenticationService.sessionValidationPath`；WBI nav 与它同 path 但永远匿名，在 BiliAPI 另有一份。
 - 调用方已带 `Cookie`、`Authorization` 或 `X-CSRF-Token` 时拒绝；每次授权生成新请求，不缓存 header。
 - 授权器拒绝（`denied`：path 不在 allowlist、形状不合规）是客户端编程错误，`BiliAPIClient` 映射为
   `invalidRequest` 失败关闭：界面显示“无法加载内容／当前无法完成这次请求。”且不给重试，不是 Keychain
   类提示，也不触发复核；新增账户读取
-  endpoint 必须同时加入对应 allowlist，漏配就表现为该功能稳定失败。
+  endpoint 先在 `BiliAccountReadPath` 声明 path，再加入对应 allowlist，漏配就表现为该功能稳定失败。
 - `BiliAPIClient` 的 endpoint 扩展逐请求决定匿名或账户读取，并独占 path/query schema；请求 builder
   只在 `BiliAPI` 内部可见，adapter 不构造 `RequestAccess`；授权器不复制业务规则。
 - 账户读取响应的业务码 -101 只在请求实际带凭据发出时映射为凭据失效（`authenticationInvalid`），由

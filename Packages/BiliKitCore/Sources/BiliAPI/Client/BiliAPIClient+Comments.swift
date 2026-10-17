@@ -23,7 +23,7 @@ extension BiliAPIClient {
             throw BiliAPIError.invalidRequest
         }
         let payload: CommentMainPayload = try await signedRequest(
-            path: "/x/v2/reply/wbi/main",
+            path: BiliAccountReadPath.rootComments,
             parameters: {
                 [
                     "type": String(subject.type),
@@ -55,7 +55,7 @@ extension BiliAPIClient {
         else { throw BiliAPIError.invalidRequest }
         let payload: CommentReplyListPayload = try await get(
             url: try endpoint(
-                path: "/x/v2/reply/reply",
+                path: BiliAccountReadPath.commentReplies,
                 queryItems: [
                     URLQueryItem(name: "type", value: String(subject.type)),
                     URLQueryItem(name: "oid", value: String(subject.oid)),

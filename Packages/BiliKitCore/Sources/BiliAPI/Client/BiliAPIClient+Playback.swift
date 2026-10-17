@@ -7,7 +7,6 @@ import Foundation
 ///
 /// 三处调用共用同一个 WBI 签名管线；只有本地明确无凭据的播放请求才带游客参数。
 extension BiliAPIClient {
-    private static let playURLPath = "/x/player/wbi/playurl"
     /// 与 Web 播放页一致的固定参数；fnval 976 只请求本项目能消费的 DASH 形状。
     ///
     /// gaia 两项与 PiliPlus 一致，不分登录状态都带。
@@ -199,7 +198,7 @@ extension BiliAPIClient {
         signedParameters["qn"] = String(quality)
         signedParameters.merge(parameters) { $1 }
         return try await signedRequest(
-            path: Self.playURLPath,
+            path: BiliAccountReadPath.playURL,
             parameters: {
                 signedParameters.merging(Self.playURLRiskControlParameters()) { $1 }
             },

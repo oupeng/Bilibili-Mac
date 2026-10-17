@@ -16,7 +16,11 @@ enum AuthenticationHTTP {
     static let notLoggedInCode = -101
 
     private static let navigationValidationURL: URL = {
-        guard let url = URL(string: "https://api.bilibili.com/x/web-interface/nav") else {
+        guard
+            let url = URL(
+                string: "https://api.bilibili.com" + BiliAuthenticationService.sessionValidationPath
+            )
+        else {
             preconditionFailure("Static navigation validation URL must be valid")
         }
         return url

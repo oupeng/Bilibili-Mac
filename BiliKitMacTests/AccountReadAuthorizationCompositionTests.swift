@@ -1,3 +1,4 @@
+import BiliAPI
 import BiliApplication
 import BiliAuthFeature
 import BiliNetworking
@@ -70,6 +71,30 @@ struct AccountReadAuthorizationCompositionTests {
             ]
         )
         #expect(AppEnvironment.watchProgressAccountReadAllowedPaths == nil)
+    }
+
+    /// allowlist 由 endpoint 导出的常量组成：常量改了 path，上面的字面量集合与这里一起报警。
+    @Test
+    func exportedPathConstantsKeepTheirLiteralPaths() {
+        #expect(BiliAuthenticationService.sessionValidationPath == "/x/web-interface/nav")
+        let constants: [(String, String)] = [
+            (BiliAccountReadPath.playURL, "/x/player/wbi/playurl"),
+            (BiliAccountReadPath.subtitleCatalog, "/x/player/wbi/v2"),
+            (BiliAccountReadPath.danmakuSegment, "/x/v2/dm/wbi/web/seg.so"),
+            (BiliAccountReadPath.uploaderVideos, "/x/space/wbi/arc/search"),
+            (BiliAccountReadPath.rootComments, "/x/v2/reply/wbi/main"),
+            (BiliAccountReadPath.commentReplies, "/x/v2/reply/reply"),
+            (BiliAccountReadPath.videoDetail, "/x/web-interface/wbi/view"),
+            (BiliAccountReadPath.relatedVideos, "/x/web-interface/archive/related"),
+            (BiliAccountReadPath.uploaderCard, "/x/web-interface/card"),
+            (BiliAccountReadPath.watchHistory, "/x/web-interface/history/cursor"),
+            (BiliAccountReadPath.popular, "/x/web-interface/popular"),
+            (BiliAccountReadPath.recommendations, "/x/web-interface/wbi/index/top/feed/rcmd"),
+            (BiliAccountReadPath.videoSearch, "/x/web-interface/wbi/search/type")
+        ]
+        for (constant, literal) in constants {
+            #expect(constant == literal)
+        }
     }
 
     @Test

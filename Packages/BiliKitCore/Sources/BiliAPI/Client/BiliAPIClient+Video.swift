@@ -28,7 +28,7 @@ extension BiliAPIClient {
         access: RequestAccess
     ) async throws -> Payload {
         try await signedRequest(
-            path: "/x/web-interface/wbi/view",
+            path: BiliAccountReadPath.videoDetail,
             parameters: { ["bvid": bvid] },
             send: { url in
                 try await get(url: url, referer: Self.videoReferer(bvid), access: access)
@@ -43,7 +43,7 @@ extension BiliAPIClient {
         }
         let payload: [RelatedVideoPayload] = try await get(
             url: try endpoint(
-                path: "/x/web-interface/archive/related",
+                path: BiliAccountReadPath.relatedVideos,
                 queryItems: [URLQueryItem(name: "bvid", value: bvid)]
             ),
             referer: Self.videoReferer(bvid),
@@ -57,7 +57,7 @@ extension BiliAPIClient {
         guard ownerID > 0 else {
             throw BiliAPIError.invalidRequest
         }
-        let path = "/x/web-interface/card"
+        let path = BiliAccountReadPath.uploaderCard
         let queryItems = [
             URLQueryItem(name: "mid", value: String(ownerID)),
             URLQueryItem(name: "photo", value: "false")
@@ -97,7 +97,7 @@ extension BiliAPIClient {
             && components.port == nil
             && components.user == nil
             && components.password == nil
-            && components.path == "/x/web-interface/card"
+            && components.path == BiliAccountReadPath.uploaderCard
             && components.queryItems == [
                 URLQueryItem(name: "mid", value: String(ownerID)),
                 URLQueryItem(name: "photo", value: "false")
