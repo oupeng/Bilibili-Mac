@@ -2,13 +2,13 @@ import BiliVideoCollectionUI
 import SwiftUI
 
 /// 播放页主区下方的相关推荐横排：把相关推荐投影映射为共享卡片，经卡片取图 port 加载封面。
-public struct RelatedNativeShelfView: View {
+struct RelatedNativeShelfView: View {
     let contentIdentity: String
     let presentations: [RelatedVideoCardPresentation]
     let imagePipeline: any NativeVideoImageLoading
     let onSelect: (String) -> Void
 
-    public init(
+    init(
         contentIdentity: String,
         presentations: [RelatedVideoCardPresentation],
         imagePipeline: any NativeVideoImageLoading,
@@ -20,7 +20,7 @@ public struct RelatedNativeShelfView: View {
         self.onSelect = onSelect
     }
 
-    public var body: some View {
+    var body: some View {
         NativeVideoShelfView(
             contentIdentity: contentIdentity,
             items: Self.makePresentations(presentations),

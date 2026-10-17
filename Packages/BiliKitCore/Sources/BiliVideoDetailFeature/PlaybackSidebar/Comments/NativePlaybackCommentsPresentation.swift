@@ -2,6 +2,10 @@ import BiliApplication
 import BiliModels
 import Foundation
 
+/// 一条根评论在侧栏里的呈现：评论、楼中楼状态，以及由全部可见内容算出的 `revision`。
+///
+/// `revision` 在构造时按评论对象、根评论、预览回复与楼中楼状态（含已加载的回复）求哈希；它变化时这一行重载，
+/// 并作为行高缓存键与正文渲染作用域的一部分，旧作用域里记下的表情失败随之作废。
 struct NativePlaybackCommentThreadPresentation: Equatable {
     let subject: CommentSubjectIdentity
     let thread: CommentThread
@@ -81,6 +85,9 @@ struct NativePlaybackCommentThreadPresentation: Equatable {
     }
 }
 
+/// 评论区的呈现快照：从 `PlaybackCommentsViewModel` 读出的评论对象、排序、根状态、列表与分页状态。
+///
+/// 只是值；页脚、排序是否可用等派生状态都从这里计算。
 struct NativePlaybackCommentsPresentation: Equatable {
     let subject: CommentSubjectIdentity?
     let sort: CommentSort
@@ -115,30 +122,6 @@ struct NativePlaybackCommentsPresentation: Equatable {
                 replyState: model.replyStates[$0.id]
             )
         }
-    }
-
-    init(
-        subject: CommentSubjectIdentity?,
-        sort: CommentSort,
-        rootState: PlaybackCommentsRootState,
-        totalCount: Int,
-        threads: [NativePlaybackCommentThreadPresentation],
-        isLoadingNextPage: Bool = false,
-        paginationError: CommentReadError? = nil,
-        paginationTermination: CommentPaginationTermination? = nil,
-        reachedEnd: Bool = false,
-        reachedMemoryLimit: Bool = false
-    ) {
-        self.subject = subject
-        self.sort = sort
-        self.rootState = rootState
-        self.totalCount = totalCount
-        self.threads = threads
-        self.isLoadingNextPage = isLoadingNextPage
-        self.paginationError = paginationError
-        self.paginationTermination = paginationTermination
-        self.reachedEnd = reachedEnd
-        self.reachedMemoryLimit = reachedMemoryLimit
     }
 
     var sortIsEnabled: Bool {
@@ -179,6 +162,7 @@ extension CommentReadError {
     }
 }
 
+/// 评论列表末尾的页脚状态：加载中、失败、服务端给了空页或重复页而停止、到底（含达到条数上限）或可以加载更多。
 enum NativePlaybackCommentsFooter: Equatable, Hashable {
     case loading
     /// 是否给重试只由 `CommentReadError.isRetryable` 决定。
@@ -188,6 +172,9 @@ enum NativePlaybackCommentsFooter: Equatable, Hashable {
     case loadMore
 }
 
+/// 近尾分页的尾部身份：评论对象加最后一条根评论。
+///
+/// 尾部变化（新的一页到达）才允许再次请求。
 struct NativePlaybackCommentsPaginationIdentity: Equatable {
     let subject: CommentSubjectIdentity
     let lastRootID: CommentID?

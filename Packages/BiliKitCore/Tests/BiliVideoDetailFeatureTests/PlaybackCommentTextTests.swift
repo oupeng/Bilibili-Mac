@@ -208,7 +208,7 @@ struct PlaybackCommentTextTests: PlaybackSidebarFixtures {
     /// 正文修改相同。
     @Test
     @MainActor
-    func timestampLimitChangeReconfiguresOnlyThreadsWithTimestamps() throws {
+    func timestampLimitChangeReconfiguresOnlyThreadsWithTimestamps() async throws {
         let subject = CommentSubjectIdentity.video(aid: 700_001)
         let threads = [
             commentThread(
@@ -225,7 +225,7 @@ struct PlaybackCommentTextTests: PlaybackSidebarFixtures {
         ]
         let base = presentation(
             bvid: "BVCurrent",
-            comments: commentsPresentation(subject: subject, threads: threads)
+            comments: await commentsPresentation(subject: subject, threads: threads)
         )
         func limited(_ seconds: Int?) throws -> NativePlaybackSidebarPresentation {
             let content = try #require(base.content)

@@ -1,5 +1,6 @@
 import AppKit
 import BiliModels
+import BiliVideoCollectionUI
 import SwiftUI
 
 /// App 壳打开一次评论图片预览的请求：只在 `bvid` 仍是当前播放视频时显示，关闭后由 App 调用
@@ -80,6 +81,7 @@ public struct NativeCommentImagePreviewView: View {
     }
 }
 
+/// 预览当前是第几张：起始位置夹进有效范围，前后翻页到头即停，不循环。
 struct NativeCommentImagePreviewSelection: Equatable {
     let count: Int
     private(set) var index: Int
@@ -150,6 +152,10 @@ private struct NativeCommentImagePreviewHost<Content: View>: NSViewRepresentable
     }
 }
 
+/// 预览的内容：图片区、关闭与保存按钮、翻页与计数，以及加载阶段。
+///
+/// 持有选中位置、加载阶段与重试次数（`@State`），以及本次预览会话的原图持有者 `originals`（当前与前后各一张，
+/// 随预览关闭释放）。加载由 `.task(id:)` 按“第几张 + 第几次尝试”驱动：切换图片、重试或关闭都会取消上一次加载。
 private struct NativeCommentImagePreviewContent: View {
     private enum Focus: Hashable {
         case surface
@@ -473,7 +479,7 @@ private struct NativeCommentImagePreviewContent: View {
         }
         let animation: Animation? =
             placeholder == nil && result.fadesIn && !reduceMotion
-            ? .easeOut(duration: NativePlaybackCommentImageTransition.duration)
+            ? .easeOut(duration: NativeImageFadeAnimation.duration)
             : nil
         withAnimation(animation) {
             phase = .loaded(result.image, result.animation)

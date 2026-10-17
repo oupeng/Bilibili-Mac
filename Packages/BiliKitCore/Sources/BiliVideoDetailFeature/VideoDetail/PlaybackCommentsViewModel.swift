@@ -26,9 +26,9 @@ public struct PlaybackCommentReplyState: Sendable, Equatable {
     public init() {}
 }
 
+/// 独立拥有当前视频评论的 root 与楼中楼状态，不拥有或控制播放器。
 @MainActor
 @Observable
-/// 独立拥有当前视频评论的 root 与楼中楼状态，不拥有或控制播放器。
 public final class PlaybackCommentsViewModel {
     private struct PendingReplyRequest {
         let rootID: CommentID

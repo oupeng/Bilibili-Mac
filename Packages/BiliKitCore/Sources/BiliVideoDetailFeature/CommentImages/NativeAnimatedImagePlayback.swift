@@ -8,6 +8,10 @@ import ImageIO
 /// 没有开启「减少动态效果」。播放中每帧检查一次，不满足就停下并让宿主恢复第一帧；有动图期间监听滚动、
 /// 窗口遮挡与辅助功能设置的变化，条件恢复时从头重新播放。宿主进出窗口、隐藏或显示、布局完成时调用
 /// `hostVisibilityDidChange()`。
+///
+/// 由评论图片格子（`NativePlaybackCommentPictureTileView`）与预览的图片区（`NativeCommentImageZoomScrollView`）
+/// 持有，宿主分别是格子本身与图片文档视图；拥有当前播放会话与通知观察。换动图或停止时把旧会话标为
+/// 已停止，迟到的帧回调随之丢弃；释放时（`isolated deinit`）同样停止会话并移除观察。
 @MainActor
 final class NativeAnimatedImagePlayback {
     /// 一次 ImageIO 播放；停下后迟到的帧回调直接结束。

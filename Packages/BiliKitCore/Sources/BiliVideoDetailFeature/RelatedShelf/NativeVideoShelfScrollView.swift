@@ -1,6 +1,11 @@
 import AppKit
 import BiliVideoCollectionUI
 
+/// 相关推荐横排的滚动视图：隐藏的横向滚动条、指针悬停或键盘焦点在横排内时出现的左右翻页按钮。
+///
+/// 视口布局与焦点变化各自合并到下一轮主队列再通知（`DispatchQueue.main.async`），不在当前布局过程中改动
+/// 集合视图；两个“已安排”标志保证每轮最多一次，`reset()` 清掉视口那一个并断开回调。按钮隐藏前若持有焦点，先把焦点交给集合视图。
+/// 用 AppKit 的理由见 ARCHITECTURE「原生 AppKit 集合视图」。
 @MainActor
 final class NativeVideoShelfScrollView: NSScrollView {
     var onViewportLayout: (() -> Void)?
@@ -258,6 +263,7 @@ final class NativeVideoShelfScrollView: NSScrollView {
     }
 }
 
+/// 翻页按钮：焦点得失时通知滚动视图，按钮在焦点离开横排时随之隐藏。
 @MainActor
 final class NativeVideoShelfPageButton: NSButton {
     var onFocusChange: (() -> Void)?
@@ -275,6 +281,7 @@ final class NativeVideoShelfPageButton: NSButton {
     }
 }
 
+/// 宽度为 0、不绘制的滚动条：保留横向滚动与触控板手势，不在卡片下方占位。
 @MainActor
 final class NativeVideoShelfHiddenScroller: NSScroller {
     override class func scrollerWidth(
@@ -287,6 +294,7 @@ final class NativeVideoShelfHiddenScroller: NSScroller {
     override func draw(_ dirtyRect: NSRect) {}
 }
 
+/// 横排的集合视图：键盘获得焦点时选中第一张可见卡片，交互关闭（被遮挡）时不接受焦点。
 @MainActor
 final class NativeVideoShelfCollectionView: NativeVideoCardCollectionView {
     var itemIDAtIndex: ((Int) -> String?)?

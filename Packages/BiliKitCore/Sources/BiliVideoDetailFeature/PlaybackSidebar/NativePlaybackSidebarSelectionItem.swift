@@ -2,6 +2,7 @@ import AppKit
 import BiliModels
 import BiliUI
 
+/// 把选集身份放进 `NSMenuItem.representedObject`（要求对象类型）的包装。
 private final class NativePlaybackEpisodeIdentityBox: NSObject {
     let identity: VideoCollectionEpisodeIdentity
 
@@ -10,6 +11,7 @@ private final class NativePlaybackEpisodeIdentityBox: NSObject {
     }
 }
 
+/// 把分区身份放进 `NSMenuItem.representedObject` 的包装。
 private final class NativePlaybackSectionIdentityBox: NSObject {
     let identity: VideoCollectionSectionIdentity
 
@@ -18,6 +20,9 @@ private final class NativePlaybackSectionIdentityBox: NSObject {
     }
 }
 
+/// 合集与分 P 选择条目：合集标题与位置、分区与选集菜单、所选视频的分 P 菜单及其加载状态。
+///
+/// 只呈现 `PlaybackSelectionProjection` 与侧栏持有的浏览分区；选择意图经回调交给控制器，再到 `VideoViewModel`。
 @MainActor
 final class NativePlaybackSidebarSelectionItem: NSCollectionViewItem {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier(
@@ -56,6 +61,8 @@ final class NativePlaybackSidebarSelectionItem: NSCollectionViewItem {
     }
 }
 
+/// 选择条目的内容视图：持有当前投影、浏览分区与回调，按投影显示或隐藏各行；行高与
+/// `NativePlaybackSidebarItemMeasurement.selection` 一致。
 @MainActor
 private final class NativePlaybackSidebarSelectionView: NSView {
     override var isFlipped: Bool { true }

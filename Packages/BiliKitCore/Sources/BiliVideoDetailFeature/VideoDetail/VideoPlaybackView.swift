@@ -1,44 +1,36 @@
 import BiliApplication
 import BiliModels
 import BiliUI
+import BiliVideoCollectionUI
 import SwiftUI
 
 /// 把视频准备状态连接到弹幕的播放 identity 生命周期。
 ///
 /// 详情上下文一旦可用就选择同一 BVID/CID；状态回到 idle/loading/failed 时 identity 变为
 /// `nil`，由 `.task(id:)` 完整 reset 弹幕支线。原生字幕由 AVPlayerEngine 随媒体 load 拥有。
-public struct VideoPlaybackView<PlayerContent: View, RelatedContent: View>: View {
+/// 相关推荐横排由本 Feature 直接渲染，App 只注入窗口图片管线（经卡片取图 port）。
+public struct VideoPlaybackView<PlayerContent: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let model: VideoViewModel
     private let danmakuModel: DanmakuControlsViewModel
     private let onRetry: () -> Void
     private let onSelectRelatedVideo: (String) -> Void
+    private let relatedImageLoader: any NativeVideoImageLoading
     private let playerContent: () -> PlayerContent
-    private let makeRelatedContent:
-        (
-            String,
-            [RelatedVideoCardPresentation],
-            @escaping (String) -> Void
-        ) -> RelatedContent
 
     public init(
         model: VideoViewModel,
         danmakuModel: DanmakuControlsViewModel,
         onRetry: @escaping () -> Void,
         onSelectRelatedVideo: @escaping (String) -> Void = { _ in },
-        @ViewBuilder makeRelatedContent:
-            @escaping (
-                String,
-                [RelatedVideoCardPresentation],
-                @escaping (String) -> Void
-            ) -> RelatedContent,
+        relatedImageLoader: any NativeVideoImageLoading,
         @ViewBuilder playerContent: @escaping () -> PlayerContent
     ) {
         self.model = model
         self.danmakuModel = danmakuModel
         self.onRetry = onRetry
         self.onSelectRelatedVideo = onSelectRelatedVideo
-        self.makeRelatedContent = makeRelatedContent
+        self.relatedImageLoader = relatedImageLoader
         self.playerContent = playerContent
     }
 
@@ -94,8 +86,8 @@ public struct VideoPlaybackView<PlayerContent: View, RelatedContent: View>: View
                 relatedVideoState: model.relatedVideoState,
                 onSelectRelatedVideo: onSelectRelatedVideo,
                 onRetryRelatedVideos: model.retryRelatedVideos,
-                playerContent: playerContent,
-                makeRelatedContent: makeRelatedContent
+                relatedImageLoader: relatedImageLoader,
+                playerContent: playerContent
             )
             .disabled(blocksRetainedContext)
             .allowsHitTesting(!blocksRetainedContext)

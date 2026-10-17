@@ -2,6 +2,10 @@ import AppKit
 import BiliApplication
 import BiliModels
 
+/// 一条根评论及其楼中楼的条目；身份是评论对象加根评论 ID，追加评论时已有的行不重建。
+///
+/// 各行的图片与正文附件加载由内容视图里的行拥有；复用前复位，控制器在条目离开显示时调用
+/// `releaseOffscreenResources` 放下图片、取消在途加载。
 @MainActor
 final class NativePlaybackCommentThreadItem: NSCollectionViewItem {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier(
@@ -55,6 +59,7 @@ final class NativePlaybackCommentThreadItem: NSCollectionViewItem {
     }
 }
 
+/// 根评论行加楼中楼面板；两者的高度都取自 `NativePlaybackCommentsItemMeasurement`，与行高测量一致。
 @MainActor
 private final class NativePlaybackCommentThreadView: NSView {
     nonisolated override var isFlipped: Bool { true }
@@ -181,6 +186,9 @@ private final class NativePlaybackCommentThreadView: NSView {
     }
 }
 
+/// 一条评论（根评论或回复）：头像、作者与标记、正文、图片、时间与属地、点赞与来源标记；评论不可见时只显示说明。
+///
+/// 正文渲染器与作用域由条目传入，头像与图片的加载由各自的子视图拥有。
 @MainActor
 private final class NativePlaybackCommentRowView: NSView {
     nonisolated override var isFlipped: Bool { true }
@@ -448,6 +456,9 @@ private final class NativePlaybackCommentRowView: NSView {
     }
 }
 
+/// 楼中楼面板：未展开时显示最多两条预览回复与“共 N 条回复”，展开后显示当前页回复与翻页、加载与重试。
+///
+/// 每次配置都按回复重建行视图（`resetRows` 先移除旧行）；回复状态与动作回调由条目传入，分页请求归 ViewModel。
 @MainActor
 private final class NativePlaybackCommentRepliesPanelView: NSView {
     nonisolated override var isFlipped: Bool { true }

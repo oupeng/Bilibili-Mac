@@ -1,12 +1,15 @@
 import AppKit
 import BiliModels
+import BiliVideoCollectionUI
 
+/// 评论图片的一个格子：图片引用与原始像素尺寸；接口给了数量却没给图片时引用为 nil，格子显示占位、不可点。
 struct NativePlaybackCommentPictureSlot: Equatable {
     let reference: CommentAssetReference?
     let pixelWidth: Int?
     let pixelHeight: Int?
 }
 
+/// 按接口给的位置把图片放进格子，最多 9 格；没有位置的按出现顺序，同一位置只取第一张。
 struct NativePlaybackCommentPictureSlots {
     static func slots(
         images: [CommentImage],
@@ -36,7 +39,12 @@ struct NativePlaybackCommentPictureSlots {
     }
 }
 
+/// 评论图片的流式排版，是格子尺寸与行高测量的唯一来源：每张按原图一半（2x 素材）显示，再等比缩进可用宽度与最大高度，不放大；放不下时换行。
+///
+/// 没有尺寸的格子用固定边长的正方形。
 struct NativePlaybackCommentPictureLayout: Equatable {
+    /// 图片区的最大宽度与单张最大高度，按官方网页评论区的图片流取值；列表请求的缩小图框按它们的 2 倍
+    /// （`NativePlaybackCommentAssetSizing`）。
     static let maximumContentWidth: CGFloat = 364
     static let maximumImageHeight: CGFloat = 180
     static let gap: CGFloat = 4
@@ -136,6 +144,9 @@ public struct NativePlaybackCommentPictureGallery {
     let restoreFocus: () -> Void
 }
 
+/// 评论里的图片区：最多 9 个可点的格子，点开时把这条评论里有图片引用的格子交给 `onOpen`（App 打开预览），关闭预览后焦点只在格子仍显示同一张图时交还。
+///
+/// 各格子自己拥有取图 Task 与动图播放。
 @MainActor
 final class NativePlaybackCommentPicturesView: NSView {
     nonisolated override var isFlipped: Bool { true }
@@ -240,6 +251,11 @@ final class NativePlaybackCommentPicturesView: NSView {
     }
 }
 
+/// 一个图片格子：拥有取图 Task 与代次 `imageGeneration`、动图播放与 GIF 角标。
+///
+/// 每次配置、释放或复位时递增代次并取消在途请求；到达的图片只在代次与引用都仍相同时显示。新到的图片按
+/// `fadesIn` 经共用的 `NativeImageFadeAnimation` 淡入；动图只在格子真正可见时播放（见
+/// `NativeAnimatedImagePlayback`）。用按钮是为了键盘焦点与 VoiceOver 的按下操作。
 @MainActor
 private final class NativePlaybackCommentPictureTileView: NSButton {
     nonisolated override var isFlipped: Bool { true }
@@ -263,6 +279,7 @@ private final class NativePlaybackCommentPictureTileView: NSButton {
     private var position = 0
     private var imageGeneration: UInt64 = 0
     private var imageTask: Task<Void, Never>?
+    private let imageFade = NativeImageFadeAnimation(key: "native-playback-comment-picture.fade")
     private var isShowingPlaceholder = true
     private var onOpen: (() -> Void)?
 
@@ -429,10 +446,7 @@ private final class NativePlaybackCommentPictureTileView: NSButton {
         imageGeneration &+= 1
         imageTask?.cancel()
         imageTask = nil
-        imageView.layer?.removeAnimation(
-            forKey: "native-playback-comment-picture.fade"
-        )
-        imageView.layer?.opacity = 1
+        imageFade.cancel(on: imageView.layer)
     }
 
     private func updateAccessibilityLabel(isAnimated: Bool) {
@@ -461,8 +475,8 @@ private final class NativePlaybackCommentPictureTileView: NSButton {
         )
     }
 
+    /// 文字占位立即隐藏；自绘的占位底色留到淡入结束（其间没有新的配置或释放）才撤，不淡入时立即撤。
     private func apply(_ image: CGImage, animation: NativeAnimatedImage?, fadesIn: Bool) {
-        let generation = imageGeneration
         firstFrame = image
         imageView.image = NSImage(
             cgImage: image,
@@ -473,35 +487,13 @@ private final class NativePlaybackCommentPictureTileView: NSButton {
         animationBadge.isHidden = animation == nil
         updateAccessibilityLabel(isAnimated: animation != nil)
         playback.play(animation)
-        guard fadesIn,
-            !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
-            let imageLayer = imageView.layer
-        else {
-            isShowingPlaceholder = false
+        let fades = imageFade.fadeIn(imageView.layer, animated: fadesIn) { [weak self] in
+            self?.isShowingPlaceholder = false
+            self?.needsDisplay = true
+        }
+        if fades {
             needsDisplay = true
-            return
         }
-        imageLayer.removeAnimation(
-            forKey: "native-playback-comment-picture.fade"
-        )
-        imageLayer.opacity = 1
-        let animation = CABasicAnimation(keyPath: "opacity")
-        animation.fromValue = 0
-        animation.toValue = 1
-        animation.duration = NativePlaybackCommentImageTransition.duration
-        animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        CATransaction.begin()
-        CATransaction.setCompletionBlock { [weak self] in
-            guard let self, self.imageGeneration == generation else { return }
-            self.isShowingPlaceholder = false
-            self.needsDisplay = true
-        }
-        imageLayer.add(
-            animation,
-            forKey: "native-playback-comment-picture.fade"
-        )
-        CATransaction.commit()
-        needsDisplay = true
     }
 
     @objc private func openPicture() {

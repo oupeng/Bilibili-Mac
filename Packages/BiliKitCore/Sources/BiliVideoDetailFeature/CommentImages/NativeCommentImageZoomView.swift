@@ -67,6 +67,10 @@ struct NativeCommentImageZoomView: NSViewRepresentable {
     }
 }
 
+/// 图片区的 `NSScrollView`：持有图片文档视图与单击切换缩放的进行中目标，处理单击、拖动平移与点空白关闭。
+///
+/// 还拥有动图播放（`NativeAnimatedImagePlayback`，逐帧只换文档视图的图层内容）与对自己“双指缩放结束”通知的
+/// 观察（selector 方式，随视图释放由系统移除）。用 AppKit 的理由见 `NativeCommentImageZoomView`。
 @MainActor
 final class NativeCommentImageZoomScrollView: NSScrollView {
     let imageView = NativeCommentImageZoomDocumentView()

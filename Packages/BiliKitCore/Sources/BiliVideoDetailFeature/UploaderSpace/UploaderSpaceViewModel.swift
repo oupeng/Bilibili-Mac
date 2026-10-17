@@ -11,13 +11,13 @@ public enum UploaderSpaceState: Sendable, Equatable {
     case failed(page: Int, error: ContentApplicationError)
 }
 
-@MainActor
-@Observable
 /// 拥有侧栏 UP 主空间层的 UP 主、排序、页码与最新请求 Task。
 ///
 /// 按页替换，不追加；同一 UP 主再次打开保持当前页。总页数与投稿数取自最近一次成功的页，
 /// 翻页加载或失败期间保留，页码条不会消失。账户会话在请求途中切换时直接关闭空间，
 /// 不把上一个身份的状态带给下一个身份。
+@MainActor
+@Observable
 public final class UploaderSpaceViewModel {
     public private(set) var owner: VideoOwner?
     public private(set) var order: UploaderVideoOrder = .newest

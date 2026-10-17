@@ -3,7 +3,8 @@ import BiliVideoCollectionUI
 
 /// UP 主空间投稿列表的一行：左封面、右标题与数据。
 ///
-/// 整行可点，悬停高亮，正在播放的行常亮。
+/// 整行可点，悬停高亮，正在播放的行常亮。拥有封面加载 Task 与代次 `imageGeneration`：复用、离屏
+/// （`invalidateImageRequests`）或换封面时递增并取消；到达的封面只在代次未变时显示。
 @MainActor
 final class UploaderSpaceVideoRowItem: NSCollectionViewItem, NativeHoverableCollectionItem {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("UploaderSpaceVideoRowItem")
@@ -88,6 +89,8 @@ final class UploaderSpaceVideoRowItem: NSCollectionViewItem, NativeHoverableColl
     }
 }
 
+/// 投稿行的内容视图：封面、标题、数据与“正在播放”标记，整行可点、悬停高亮；高度固定为
+/// `UploaderSpaceGeometry.rowHeight`。
 @MainActor
 final class UploaderSpaceVideoRowView: NSView {
     override var isFlipped: Bool { true }

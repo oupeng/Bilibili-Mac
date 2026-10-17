@@ -2,6 +2,7 @@ import AppKit
 import BiliApplication
 import BiliModels
 
+/// 评论区标题条目：标题、评论总数与热门／最新排序；排序变化经回调交给 ViewModel。
 @MainActor
 final class NativePlaybackCommentsHeaderItem: NSCollectionViewItem {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier(
@@ -29,6 +30,7 @@ final class NativePlaybackCommentsHeaderItem: NSCollectionViewItem {
     }
 }
 
+/// 评论区标题的内容视图：持有排序回调，排序不可用时禁用分段控件。
 @MainActor
 private final class NativePlaybackCommentsHeaderView: NSView {
     override var isFlipped: Bool { true }
@@ -133,6 +135,7 @@ private final class NativePlaybackCommentsHeaderView: NSView {
     }
 }
 
+/// 评论区没有列表时的状态条目：加载中、暂无评论、已关闭、缺少评论标识或失败（可重试时带重试按钮）。
 @MainActor
 final class NativePlaybackCommentsStateItem: NSCollectionViewItem {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier(
@@ -157,6 +160,7 @@ final class NativePlaybackCommentsStateItem: NSCollectionViewItem {
     }
 }
 
+/// 状态条目的内容视图：按状态切换文字与重试按钮，加载中自绘四行骨架，并给出与显示一致的读屏标签。
 @MainActor
 private final class NativePlaybackCommentsStateView: NSView {
     override var isFlipped: Bool { true }
@@ -288,6 +292,8 @@ private final class NativePlaybackCommentsStateView: NSView {
     @objc private func retry() { onRetry?() }
 }
 
+/// 评论列表的页脚条目：加载更多、加载中、失败或停止（可重试时带按钮）与已显示全部；它进入视野时控制器判断
+/// 是否请求下一页。
 @MainActor
 final class NativePlaybackCommentsFooterItem: NSCollectionViewItem {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier(
@@ -327,6 +333,7 @@ extension NativePlaybackCommentsFooter {
     }
 }
 
+/// 页脚的内容视图：持有重试与加载更多回调，按页脚状态切换文字与按钮，加载中自绘两行骨架。
 @MainActor
 private final class NativePlaybackCommentsFooterView: NSView {
     override var isFlipped: Bool { true }

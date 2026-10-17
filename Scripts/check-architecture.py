@@ -129,8 +129,9 @@ EXTRA_ALLOWED = {
     # MemberImportVisibility 下成员只对直接 import 定义模块的文件可见，经 Feature 转出类型名不够用，
     # 在 Feature 镜像一份又违反“同一逻辑只写一处”。
     # AppShellView 持有各来源网格的滚动位置与回顶请求，并与图片管线一起构造 BiliVideoCollectionUI 的
-    # `NativeVideoGridHostContext`，AppSourceRootViews 把它转交给 Feature；网格本身在 Feature 里，
-    # App 壳其余文件不接触 AppKit 集合视图。
+    # `NativeVideoGridHostContext`，AppSourceRootViews 把它转交给 Feature；AppShellView 还把图片管线作为
+    # `NativeVideoImageLoading` 传给播放页的相关推荐横排。网格与横排本身在 Feature 里，App 壳其余文件不接触
+    # AppKit 集合视图。
     "BiliKitMac/App/AppRootView.swift": {"BiliApplication"},
     "BiliKitMac/App/AppShellView.swift": {"BiliApplication", "BiliVideoCollectionUI"},
     "BiliKitMac/App/AppSidebarViews.swift": {"BiliApplication"},

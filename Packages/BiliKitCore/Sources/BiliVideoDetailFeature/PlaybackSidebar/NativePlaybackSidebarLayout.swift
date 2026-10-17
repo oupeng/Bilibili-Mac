@@ -1,5 +1,13 @@
 import AppKit
 
+/// 侧栏的单列布局：按条目顺序纵向排列，行高由控制器经 `heightProvider` 提供（带缓存的精确测量）。
+///
+/// 能增量就增量：宽度不变时只重测被失效的行，或只排新追加的行（含插在稳定页脚之前的评论）；宽度变化时先按
+/// 宽度比例估算全部行高、立即可用，再由控制器分批精测（`refineNextBatch`）；其余变化整体重排。拥有已排好的
+/// 属性与待精测集合，不拥有条目数据与测量（交给控制器）。
+///
+/// 不用 flow／compositional layout：它们在追加或改宽度时按自己的规则重算各行，做不到“只重测失效的行”与“先估算、
+/// 再分批精测并在批间恢复语义锚点”，长评论列表改宽度时会一次重测全部行。
 @MainActor
 final class NativePlaybackSidebarLayout: NSCollectionViewLayout {
     static let contentInset: CGFloat = 16
@@ -7,6 +15,7 @@ final class NativePlaybackSidebarLayout: NSCollectionViewLayout {
     /// resize 后每批精测的行数；批间让出主线程并恢复语义 anchor。
     static let refinementBatchSize = 32
 
+    /// 一个条目在布局里的位置与身份；身份用来跨更新找到同一行（失效、优先精测）。
     struct Entry: Equatable {
         let indexPath: IndexPath
         let itemID: NativePlaybackSidebarItemID
@@ -338,14 +347,19 @@ final class NativePlaybackSidebarLayout: NSCollectionViewLayout {
     }
 }
 
+/// 行高缓存的键：条目身份、宽度桶（半点精度）与内容 revision，任一变化都重新测量。
 struct NativePlaybackSidebarHeightCacheKey: Hashable {
     let itemID: NativePlaybackSidebarItemID
     let widthBucket: Int
     let revision: Int
 }
 
+/// 行高的有界 LRU 缓存：双向链表维护最近使用顺序，超过容量时淘汰最久未用的一项。
+///
+/// 由侧栏控制器独占持有，只在主线程使用；换视频不清空（身份已不同），拆除时清空。
 @MainActor
 final class NativePlaybackSidebarHeightCache {
+    /// 链表节点：前驱用 weak，避免相邻节点互相强引用成环。
     private final class Node {
         let key: NativePlaybackSidebarHeightCacheKey
         var value: CGFloat
@@ -430,6 +444,8 @@ final class NativePlaybackSidebarHeightCache {
     }
 }
 
+/// 侧栏文字的测量与段落样式：测量与显示共用同一段落样式（按字符换行，限行时尾部截断），保证测出的高度与
+/// 显示一致。
 @MainActor
 enum NativePlaybackSidebarTextLayout {
     private static let measurer = NativePlaybackSidebarTextMeasurer()
@@ -470,6 +486,7 @@ enum NativePlaybackSidebarTextLayout {
     }
 }
 
+/// 复用同一套 TextKit 对象测量文字高度，不为每次测量新建；只在主线程使用。
 @MainActor
 private final class NativePlaybackSidebarTextMeasurer {
     private let storage = NSTextStorage()

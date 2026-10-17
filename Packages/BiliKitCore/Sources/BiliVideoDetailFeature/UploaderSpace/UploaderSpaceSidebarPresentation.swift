@@ -5,6 +5,7 @@ import BiliModels
 ///
 /// 纯逻辑，与界面分开测试；登录入口与空状态都是产品契约。
 struct UploaderSpaceSidebarPresentation: Equatable {
+    /// 头部下方叠加的提示；`.none` 时显示列表本身。
     enum Overlay: Equatable {
         case none
         case loading

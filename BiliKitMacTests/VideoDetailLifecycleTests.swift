@@ -33,7 +33,7 @@ struct VideoDetailLifecycleTests {
                     model: videoModel,
                     danmakuModel: danmakuModel,
                     onRetry: {},
-                    makeRelatedContent: { _, _, _ in EmptyView() }
+                    relatedImageLoader: NoImageCardLoader()
                 ) {
                     EmptyView()
                 }

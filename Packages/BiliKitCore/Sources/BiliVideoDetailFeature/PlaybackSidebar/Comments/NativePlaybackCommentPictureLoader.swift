@@ -33,6 +33,9 @@ enum NativePlaybackCommentAssetSizing {
     }
 }
 
+/// 评论图片的加载：按用途（列表格子或预览原图）解析地址并经取图 port 取图、取动图数据与原图数据。
+///
+/// 侧栏控制器持有列表用的一个；评论图片预览各持有原图与缩小图占位两个。不缓存，缓存在 port 的实现里。
 @MainActor
 final class NativePlaybackCommentPictureLoader {
     private let imagePipeline: any VideoDetailImageLoading

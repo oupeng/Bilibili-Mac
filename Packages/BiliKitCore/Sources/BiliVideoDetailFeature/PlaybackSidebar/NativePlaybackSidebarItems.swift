@@ -2,6 +2,7 @@ import AppKit
 import BiliModels
 import BiliUI
 
+/// 侧栏非评论条目的尺寸常量与高度测量；测量与各条目的 `layout()` 共用同一组几何，缓存的行高不会与实际布局漂移。
 @MainActor
 enum NativePlaybackSidebarItemMeasurement {
     static let avatarSize: CGFloat = 48
@@ -312,51 +313,4 @@ final class NativePlaybackSidebarReadOnlyTextView: NSTextView, NSTextViewDelegat
             )
         }
     }
-}
-
-@MainActor
-final class NativePlaybackSidebarUnavailableItem: NSCollectionViewItem {
-    static let reuseIdentifier = NSUserInterfaceItemIdentifier(
-        "NativePlaybackSidebarUnavailableItem"
-    )
-
-    private let titleLabel = NSTextField(
-        labelWithString: VideoDetailFeatureStrings.localized("评论尚未接入")
-    )
-    private let messageLabel = NSTextField(
-        wrappingLabelWithString: VideoDetailFeatureStrings.localized("当前版本不会伪造评论内容。")
-    )
-    private let separator = NSBox()
-
-    override func loadView() {
-        let root = NativePlaybackSidebarFlippedView()
-        titleLabel.font = .systemFont(
-            ofSize: NSFont.preferredFont(forTextStyle: .headline).pointSize,
-            weight: .semibold
-        )
-        messageLabel.font = .preferredFont(forTextStyle: .callout)
-        messageLabel.textColor = .secondaryLabelColor
-        separator.boxType = .separator
-        for subview in [separator, titleLabel, messageLabel] {
-            root.addSubview(subview)
-        }
-        view = root
-    }
-
-    override func viewDidLayout() {
-        super.viewDidLayout()
-        separator.frame = NSRect(
-            x: 0,
-            y: 0,
-            width: view.bounds.width,
-            height: 1
-        )
-        titleLabel.frame = NSRect(x: 0, y: 13, width: view.bounds.width, height: 20)
-        messageLabel.frame = NSRect(x: 0, y: 35, width: view.bounds.width, height: 18)
-    }
-}
-
-@MainActor
-final class NativePlaybackSidebarFlippedView: NSView {
-    override var isFlipped: Bool { true }
 }

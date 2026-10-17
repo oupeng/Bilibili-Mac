@@ -12,7 +12,7 @@ final class NativeScrollToTopScrollView: NSScrollView {
         static let edgeInset: CGFloat = 16
     }
 
-    /// 内容滚过这个距离后显示“返回顶部”。
+    /// 内容滚过这个距离后显示“返回顶部”：已经离开顶部一段才需要它，刚开始浏览时不出现按钮挡住内容。
     static let topButtonVisibilityOffset: CGFloat = 400
 
     let topButton: NSButton

@@ -28,18 +28,19 @@ struct NativePlaybackCommentsFailureTests {
 
     @Test(arguments: [CommentReadError.invalidRequest, .transportFailure])
     @MainActor
-    func paginationFailureOffersRetryOnlyWhenRetryCanHelp(error: CommentReadError) {
+    func paginationFailureOffersRetryOnlyWhenRetryCanHelp(error: CommentReadError) async {
         let text =
             error.isRetryable
             ? VideoDetailFeatureStrings.localized("后续评论加载失败")
             : VideoDetailFeatureStrings.localized("当前无法完成这次请求。")
-        let comments = NativePlaybackCommentsPresentation(
-            subject: .video(aid: 700_001),
-            sort: .hot,
-            rootState: .loaded,
+        let comments = await liveCommentsPresentation(
+            threads: [
+                CommentThread(
+                    root: Comment(id: CommentID(rawValue: 1), payload: .unavailable(.deleted))
+                )
+            ],
             totalCount: 2,
-            threads: [],
-            paginationError: error
+            next: .failed(error)
         )
         let item = NativePlaybackCommentsFooterItem()
         item.configure(footer: comments.footer, onRetry: {}, onLoadMore: {})

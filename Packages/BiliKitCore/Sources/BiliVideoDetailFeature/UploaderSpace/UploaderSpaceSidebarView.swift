@@ -37,6 +37,7 @@ public struct UploaderSpaceSidebarView: View {
     @State private var lastFrame = RetainedFrame()
 
     private struct Frame: Equatable {
+        /// 页码条需要的当前页与总页数。
         struct Pager: Equatable {
             let currentPage: Int
             let pageCount: Int
@@ -46,6 +47,7 @@ public struct UploaderSpaceSidebarView: View {
         let pager: Pager?
     }
 
+    /// 保存关闭前最后一帧的引用盒子；改它不触发 SwiftUI 重新渲染。
     private final class RetainedFrame {
         var frame: Frame?
     }

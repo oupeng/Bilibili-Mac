@@ -515,17 +515,14 @@ package final class NativeVideoLayerImageView: NSView {
 }
 
 /// 占位层与图片层之间的淡入，封面（`NativeVideoMergedCoverView`）与头像（`NativeVideoLayerImageView`）各持有
-/// 一个；不拥有这两个 layer，只改它们的内容、透明度动画与占位显隐。
+/// 一个；不拥有这两个 layer，只改图片层的内容与占位显隐，透明度动画交给 `NativeImageFadeAnimation`。
 ///
-/// 每次 `setImage` 递增 `generation`；淡入结束的回调只在仍是同一次设置时才隐藏占位，之后的换图或清空让
-/// 旧回调失效，否则旧动画结束会把新设置刚显示的占位藏掉。系统开了「减少动态效果」时直接显示。
+/// 清空图片时立即显示占位；新图淡入期间占位留在下面，淡入结束（且其间没有新的设置）才隐藏，不淡入时立即隐藏。
 @MainActor
 final class NativeVideoImageFade {
-    private static let animationKey = "native-video-image.fade"
-    private static let duration: CFTimeInterval = 0.15
     private let imageLayer: CALayer
     private let placeholderLayer: CALayer
-    private var generation: UInt64 = 0
+    private let fade = NativeImageFadeAnimation(key: "native-video-image.fade")
 
     init(imageLayer: CALayer, placeholderLayer: CALayer) {
         self.imageLayer = imageLayer
@@ -533,31 +530,17 @@ final class NativeVideoImageFade {
     }
 
     func setImage(_ image: CGImage?, animated: Bool) {
-        generation &+= 1
-        let currentGeneration = generation
-        imageLayer.removeAnimation(forKey: Self.animationKey)
         imageLayer.contents = image
-        imageLayer.opacity = 1
-        guard
-            image != nil,
-            animated,
-            !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        else {
-            placeholderLayer.isHidden = image != nil
+        guard image != nil else {
+            fade.cancel(on: imageLayer)
+            placeholderLayer.isHidden = false
             return
         }
-        placeholderLayer.isHidden = false
-        let animation = CABasicAnimation(keyPath: "opacity")
-        animation.fromValue = 0
-        animation.toValue = 1
-        animation.duration = Self.duration
-        animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        CATransaction.begin()
-        CATransaction.setCompletionBlock { [weak self] in
-            guard let self, generation == currentGeneration else { return }
+        let fades = fade.fadeIn(imageLayer, animated: animated) { [placeholderLayer] in
             placeholderLayer.isHidden = true
         }
-        imageLayer.add(animation, forKey: Self.animationKey)
-        CATransaction.commit()
+        if fades {
+            placeholderLayer.isHidden = false
+        }
     }
 }

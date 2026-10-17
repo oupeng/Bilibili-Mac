@@ -1,5 +1,6 @@
 import BiliModels
 import BiliUI
+import BiliVideoCollectionUI
 import Foundation
 import SwiftUI
 
@@ -71,40 +72,84 @@ enum RelatedVideoShelfState: Equatable, Sendable {
 
 /// 播放详情下方的横向相关推荐 shelf。
 ///
-/// 只接收稳定展示状态与 BVID 选择意图；滚动分页、hover 控件和 Reduce Motion
+/// 只接收稳定展示状态、卡片取图 port 与 BVID 选择意图；滚动分页、hover 控件和 Reduce Motion
 /// 封装在视图内，不拥有推荐请求、导航路径、播放器或认证生命周期。
 /// 加载、失败、空与已加载状态同高，播放页主区不随推荐状态改变视频尺寸。
-struct RelatedVideoShelf<LoadedContent: View>: View {
+struct RelatedVideoShelf: View {
     private typealias Shelf = VideoCardShelfGeometry
 
     let state: RelatedVideoShelfState
     let onSelect: (String) -> Void
     let onRetry: () -> Void
     let contentIdentity: String
-    let makeLoadedContent:
-        (
-            String,
-            [RelatedVideoCardPresentation],
-            @escaping (String) -> Void
-        ) -> LoadedContent
+    let imageLoader: any NativeVideoImageLoading
 
-    init(
-        state: RelatedVideoShelfState,
-        contentIdentity: String,
-        onSelect: @escaping (String) -> Void,
-        onRetry: @escaping () -> Void,
-        @ViewBuilder makeLoadedContent:
-            @escaping (
-                String,
-                [RelatedVideoCardPresentation],
-                @escaping (String) -> Void
-            ) -> LoadedContent
-    ) {
-        self.state = state
-        self.contentIdentity = contentIdentity
-        self.onSelect = onSelect
-        self.onRetry = onRetry
-        self.makeLoadedContent = makeLoadedContent
+    var body: some View {
+        RelatedVideoShelfFrame {
+            content
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch state {
+        case .loading:
+            RelatedVideoShelfLoadingRow()
+        case .loaded(let items) where items.isEmpty:
+            unavailableShelf
+        case .loaded(let items):
+            loadedShelf(items)
+        case .empty:
+            unavailableShelf
+        case .failure:
+            failureShelf
+        }
+    }
+
+    private func loadedShelf(
+        _ items: [RelatedVideoCardPresentation]
+    ) -> some View {
+        RelatedNativeShelfView(
+            contentIdentity: contentIdentity,
+            presentations: items,
+            imagePipeline: imageLoader,
+            onSelect: onSelect
+        )
+        .frame(height: Shelf.viewportHeight)
+    }
+
+    private var failureShelf: some View {
+        VStack(spacing: 10) {
+            Label(
+                VideoDetailFeatureStrings.localized("相关推荐加载失败"),
+                systemImage: "exclamationmark.triangle"
+            )
+            .font(.headline)
+            Button(VideoDetailFeatureStrings.localized("重试"), action: onRetry)
+                .buttonStyle(.borderedProminent)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: Shelf.viewportHeight)
+    }
+
+    private var unavailableShelf: some View {
+        ContentUnavailableView(
+            VideoDetailFeatureStrings.localized("暂无相关推荐"),
+            systemImage: "rectangle.stack"
+        )
+        .frame(maxWidth: .infinity)
+        .frame(height: Shelf.viewportHeight)
+    }
+}
+
+/// 横排的外框：标题行与下方内容区；真实横排与播放页加载骨架共用，两者的布局一致。
+struct RelatedVideoShelfFrame<Content: View>: View {
+    private typealias Shelf = VideoCardShelfGeometry
+
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
     }
 
     var body: some View {
@@ -131,31 +176,13 @@ struct RelatedVideoShelf<LoadedContent: View>: View {
             Spacer(minLength: 0)
         }
     }
+}
 
-    @ViewBuilder
-    private var content: some View {
-        switch state {
-        case .loading:
-            loadingShelf
-        case .loaded(let items) where items.isEmpty:
-            unavailableShelf
-        case .loaded(let items):
-            loadedShelf(items)
-        case .empty:
-            unavailableShelf
-        case .failure:
-            failureShelf
-        }
-    }
+/// 横排加载中的占位行：四张卡片形状的骨架，与已加载的横排同高；不需要取图。
+struct RelatedVideoShelfLoadingRow: View {
+    private typealias Shelf = VideoCardShelfGeometry
 
-    private func loadedShelf(
-        _ items: [RelatedVideoCardPresentation]
-    ) -> some View {
-        makeLoadedContent(contentIdentity, items, onSelect)
-            .frame(height: Shelf.viewportHeight)
-    }
-
-    private var loadingShelf: some View {
+    var body: some View {
         HStack(alignment: .top, spacing: Shelf.spacing) {
             ForEach(0..<4, id: \.self) { _ in
                 VStack(alignment: .leading, spacing: 10) {
@@ -178,28 +205,5 @@ struct RelatedVideoShelf<LoadedContent: View>: View {
         .frame(height: Shelf.viewportHeight, alignment: .topLeading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(VideoDetailFeatureStrings.localized("正在加载相关推荐"))
-    }
-
-    private var failureShelf: some View {
-        VStack(spacing: 10) {
-            Label(
-                VideoDetailFeatureStrings.localized("相关推荐加载失败"),
-                systemImage: "exclamationmark.triangle"
-            )
-            .font(.headline)
-            Button(VideoDetailFeatureStrings.localized("重试"), action: onRetry)
-                .buttonStyle(.borderedProminent)
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: Shelf.viewportHeight)
-    }
-
-    private var unavailableShelf: some View {
-        ContentUnavailableView(
-            VideoDetailFeatureStrings.localized("暂无相关推荐"),
-            systemImage: "rectangle.stack"
-        )
-        .frame(maxWidth: .infinity)
-        .frame(height: Shelf.viewportHeight)
     }
 }
