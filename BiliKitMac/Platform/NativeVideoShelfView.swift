@@ -31,34 +31,13 @@ enum NativeVideoShelfGeometry {
     }
 }
 
-struct NativeVideoShelfUpdatePlan: Equatable {
-    let identityChanged: Bool
-    let changedExistingIDs: Set<String>
-
-    init(
-        previousContentIdentity: String,
-        updatedContentIdentity: String,
-        previousIDs: [String],
-        previousContents: [String: NativeVideoCardPresentation],
-        updatedIDs: [String],
-        updatedContents: [String: NativeVideoCardPresentation]
-    ) {
-        identityChanged =
-            previousContentIdentity != updatedContentIdentity
-            || previousIDs != updatedIDs
-        changedExistingIDs = Set(previousIDs).intersection(updatedIDs).filter {
-            previousContents[$0] != updatedContents[$0]
-        }
-    }
-}
-
 struct NativeVideoShelfView: NSViewRepresentable {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.isEnabled) private var isEnabled
 
     let contentIdentity: String
     let items: [NativeVideoCardPresentation]
-    let imagePipeline: NativeVideoImagePipeline
+    let imagePipeline: any NativeVideoImageLoading
     let onSelect: (String) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -96,12 +75,16 @@ struct NativeVideoShelfView: NSViewRepresentable {
         coordinator.reset()
     }
 
+    /// 横排的唯一 owner：滚动视图、集合视图、diffable 数据源、通知观察、悬停与已配置卡片。
+    ///
+    /// 不拥有取图实现（窗口图片管线经 port 注入）。`operationGeneration` 在每次应用快照与 `reset()` 时递增，
+    /// 快照完成回调只在代次未变且未 reset 时调整文档尺寸、回到起点与重配卡片。
     @MainActor
     final class Coordinator: NSObject, NSCollectionViewDelegateFlowLayout {
         private let scrollView = NativeVideoShelfScrollView()
         private let collectionView = NativeVideoShelfCollectionView()
         private let layout = NSCollectionViewFlowLayout()
-        private let imagePipeline: NativeVideoImagePipeline
+        private let imagePipeline: any NativeVideoImageLoading
         private let configuredItems = NSHashTable<NativeVideoCollectionItem>.weakObjects()
         private var dataSource: NSCollectionViewDiffableDataSource<Int, String>?
         private var contentIdentity: String
@@ -119,7 +102,7 @@ struct NativeVideoShelfView: NSViewRepresentable {
         init(
             contentIdentity: String,
             items: [NativeVideoCardPresentation],
-            imagePipeline: NativeVideoImagePipeline,
+            imagePipeline: any NativeVideoImageLoading,
             reduceMotion: Bool,
             isInteractionEnabled: Bool,
             onSelect: @escaping (String) -> Void
@@ -224,9 +207,7 @@ struct NativeVideoShelfView: NSViewRepresentable {
             self.onSelect = onSelect
             applyInteractionState(isInteractionEnabled, reconfiguresCards: true)
             let updatedContents = NativeVideoCardContents(items)
-            let plan = NativeVideoShelfUpdatePlan(
-                previousContentIdentity: self.contentIdentity,
-                updatedContentIdentity: contentIdentity,
+            let plan = NativeVideoGridUpdatePlan(
                 previousIDs: contents.orderedIDs,
                 previousContents: contents.byID,
                 updatedIDs: updatedContents.orderedIDs,
@@ -236,7 +217,9 @@ struct NativeVideoShelfView: NSViewRepresentable {
             self.contentIdentity = contentIdentity
             contents = updatedContents
 
-            if plan.identityChanged {
+            // 换了父视频（内容身份变化）时即使 ID 序列相同也按替换处理：作废在途交互与图片请求、回到起点并重配
+            // 可见卡片。
+            if resetsToLeading || plan.identityChanged {
                 operationGeneration &+= 1
                 let generation = operationGeneration
                 if resetsToLeading {
