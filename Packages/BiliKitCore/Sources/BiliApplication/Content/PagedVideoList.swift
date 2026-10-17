@@ -69,6 +69,14 @@ package struct PagedVideoList<Item, Cursor: Equatable & Sendable> {
         return tailGeneration
     }
 
+    /// 是否给出显式继续入口：需要显式继续且不在原地刷新时为 true。
+    ///
+    /// 与尾标一样在刷新期间收起：刷新中 `beginLoadMore` 不会开始，入口留着只会点了无效；刷新失败或取消后
+    /// 随 `restoreAfterFailedRefresh` 恢复。
+    package var offersManualContinue: Bool {
+        requiresManualContinue && !isRefreshing
+    }
+
     /// 首次加载或刷新成功：整体替换条目，开始新的分页会话（清空已消费游标、失败与进行状态）。
     package mutating func replaceFirstPage(
         _ page: VideoListPage<Item, Cursor>,

@@ -127,9 +127,10 @@ struct WatchHistoryViewModelTests {
         #expect(error == .invalidResponse)
     }
 
+    /// 加载更多失败保留条目与 continuation，并暂停自动加载（没有尾标）；重试请求同一 continuation。
     @Test
     @MainActor
-    func loadMoreFailureKeepsExistingItemsAndTailAvailableForRetry() async {
+    func loadMoreFailureKeepsItemsPausesAutomaticLoadingAndRetriesSameContinuation() async {
         let continuation = token(100)
         let repository = HistoryRepositoryStub(
             results: [
@@ -139,7 +140,13 @@ struct WatchHistoryViewModelTests {
                         continuation: continuation
                     )
                 ),
-                .failure(ContentApplicationError.transportFailure)
+                .failure(ContentApplicationError.transportFailure),
+                .success(
+                    WatchHistoryPage(
+                        items: [item("BV1HistoryB2")],
+                        continuation: nil
+                    )
+                )
             ]
         )
         let model = WatchHistoryViewModel(
@@ -168,8 +175,23 @@ struct WatchHistoryViewModelTests {
                     loadMoreError: .transportFailure
                 )
         )
-        #expect(model.paginationTailIdentity == tailIdentity)
+        #expect(tailIdentity != nil)
+        #expect(model.paginationTailIdentity == nil)
+        #expect(!model.requiresManualLoadMore)
         #expect(!model.isBusy)
+
+        model.loadMore()
+        await model.waitForCurrentTask()
+
+        #expect(
+            model.state
+                == .loaded(
+                    items: [item("BV1HistoryA1"), item("BV1HistoryB2")],
+                    continuation: nil,
+                    loadMoreError: nil
+                )
+        )
+        #expect(await repository.observedContinuations() == [nil, continuation, continuation])
     }
 
     @Test
@@ -475,6 +497,39 @@ struct WatchHistoryViewModelTests {
             return
         }
         #expect(continuation == manual)
+    }
+
+    /// 原地刷新期间收起“加载更早的记录”（刷新中加载更多不会开始），刷新失败后显式继续门恢复。
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func refreshWithdrawsTheManualContinueEntryUntilItFails() async throws {
+        let manual = token(904)
+        let prefix: [Result<WatchHistoryPage, any Error>] =
+            [.success(WatchHistoryPage(items: [item("BV1HistoryA1")], continuation: token(1)))]
+            + emptyPagesEnding(at: manual)
+        let repository = HistoryRepositoryStub(
+            results: prefix + [.failure(ContentApplicationError.transportFailure)],
+            suspendedCalls: [prefix.count + 1]
+        )
+        let model = WatchHistoryViewModel(useCase: WatchHistoryUseCase(repository: repository))
+        model.reload()
+        await model.waitForCurrentTask()
+        model.loadMore()
+        await model.waitForCurrentTask()
+        #expect(model.requiresManualLoadMore)
+
+        model.reload()
+        try await repository.waitUntilCallCount(prefix.count + 1)
+        let offeredDuringRefresh = model.requiresManualLoadMore
+        let wasRefreshing = model.isRefreshing
+        await repository.releaseCall(prefix.count + 1)
+        await model.waitForCurrentTask()
+
+        #expect(wasRefreshing)
+        #expect(!offeredDuringRefresh)
+        #expect(model.refreshError == .transportFailure)
+        #expect(model.requiresManualLoadMore)
+        #expect(model.paginationTailIdentity == nil)
     }
 
     /// 离开页面会取消原地刷新，保留条目、恢复刷新前的分页状态，并清掉刷新错误。

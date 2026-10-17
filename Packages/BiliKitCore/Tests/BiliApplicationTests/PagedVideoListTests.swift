@@ -252,6 +252,22 @@ struct PagedVideoListTests {
         #expect(list.nextCursor == 3)
     }
 
+    /// 显式继续入口与尾标一样在原地刷新期间收起（刷新中加载更多不会开始），刷新失败后恢复。
+    @Test
+    func refreshWithdrawsTheManualContinueEntryUntilItSettles() {
+        var list = List(stallPolicy: .requireManualContinue)
+        list.replaceFirstPage(page([], next: 2), bvid: \.self)
+        #expect(list.offersManualContinue)
+
+        list.beginRefresh()
+        #expect(!list.offersManualContinue)
+        #expect(list.beginLoadMore() == nil)
+
+        list.restoreAfterFailedRefresh()
+        #expect(list.offersManualContinue)
+        #expect(list.nextCursor == 2)
+    }
+
     /// 尾标只在并入新条目时变化：失败、重试中、无新增的页与刷新失败都不改变它。
     @Test
     func tailChangesOnlyWhenItemsAreAppended() {
