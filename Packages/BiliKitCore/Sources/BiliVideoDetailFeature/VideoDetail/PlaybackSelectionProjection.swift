@@ -2,6 +2,10 @@ import BiliApplication
 import BiliModels
 import Foundation
 
+/// 在合集里找出当前播放对应的选集：显式选择优先，否则按 BVID 与 CID 唯一匹配，有歧义时返回 nil。
+///
+/// CID 依次对默认分 P、已知分 P 匹配；都没有命中时，只有该 BVID 唯一的候选且它既无默认 CID、
+/// 也无已知分 P（无法判断不匹配）才返回它。
 enum PlaybackCollectionEpisodeResolver {
     static func resolve(
         episodes: [VideoCollectionEpisode],
@@ -45,6 +49,7 @@ enum PlaybackCollectionEpisodeResolver {
     }
 }
 
+/// 选集菜单里的一项。
 public struct PlaybackEpisodeOption: Identifiable, Sendable, Equatable {
     public let id: VideoCollectionEpisodeIdentity
     public let sectionID: VideoCollectionSectionIdentity
@@ -54,12 +59,14 @@ public struct PlaybackEpisodeOption: Identifiable, Sendable, Equatable {
     public let isEnabled: Bool
 }
 
+/// 选集菜单里的一个分部。
 public struct PlaybackEpisodeSectionPresentation: Identifiable, Sendable, Equatable {
     public let id: VideoCollectionSectionIdentity
     public let title: String
     public let episodes: [PlaybackEpisodeOption]
 }
 
+/// 分 P 菜单里的一项。
 public struct PlaybackPageOption: Identifiable, Sendable, Equatable {
     public var id: Int64 { cid }
 
@@ -69,6 +76,7 @@ public struct PlaybackPageOption: Identifiable, Sendable, Equatable {
     public let durationSeconds: Int
 }
 
+/// 当前选集分 P 菜单的形态。
 public enum PlaybackSelectedEpisodePagesPresentation: Sendable, Equatable {
     case ready([PlaybackPageOption])
     case loading

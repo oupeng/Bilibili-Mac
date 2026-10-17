@@ -3,6 +3,7 @@ import BiliUI
 import Foundation
 import SwiftUI
 
+/// 相关推荐卡片的展示值（含读屏文案），横排 renderer 直接消费。
 public struct RelatedVideoCardPresentation: Identifiable, Equatable, Sendable {
     public let bvid: String
     public let title: String
@@ -60,6 +61,7 @@ public struct RelatedVideoCardPresentation: Identifiable, Equatable, Sendable {
     }
 }
 
+/// 横排只关心的四种形态；由 `VideoDetailView` 按当前 BVID 从 `RelatedVideoState` 投影。
 enum RelatedVideoShelfState: Equatable, Sendable {
     case loading
     case loaded([RelatedVideoCardPresentation])

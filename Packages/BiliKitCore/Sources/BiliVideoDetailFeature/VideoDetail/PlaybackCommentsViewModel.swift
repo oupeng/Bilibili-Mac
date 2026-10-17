@@ -3,6 +3,7 @@ import BiliModels
 import Foundation
 import Observation
 
+/// 评论 root 列表的整体状态；加载下一页的失败不改变它，单独记在 `paginationError`。
 public enum PlaybackCommentsRootState: Sendable, Equatable {
     case idle
     case loading
@@ -11,6 +12,7 @@ public enum PlaybackCommentsRootState: Sendable, Equatable {
     case failed(CommentReadError)
 }
 
+/// 单条 root 评论的楼中楼展开、分页与失败状态，由 `PlaybackCommentsViewModel` 按 root ID 持有。
 public struct PlaybackCommentReplyState: Sendable, Equatable {
     public var isExpanded = false
     public var replies: [BiliModels.Comment] = []

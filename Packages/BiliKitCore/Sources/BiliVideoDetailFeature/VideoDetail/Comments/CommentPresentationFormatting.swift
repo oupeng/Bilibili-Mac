@@ -1,6 +1,7 @@
 import BiliUI
 import Foundation
 
+/// 评论区的计数缩写与页数计算；计数缩写沿用 BiliUI 的视频元数据格式。
 public enum CommentPresentationFormatting {
     public static func compactCount(
         _ count: Int64,

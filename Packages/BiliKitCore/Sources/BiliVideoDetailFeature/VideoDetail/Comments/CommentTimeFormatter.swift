@@ -1,6 +1,7 @@
 import BiliUI
 import Foundation
 
+/// 评论时间的相对写法：一天内按刚刚／分钟／小时，昨天带时刻，三天内按天，更早按日期（跨年带年份）。
 public enum CommentTimeFormatter {
     public static func string(
         for date: Date,

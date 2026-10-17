@@ -2,11 +2,13 @@ import BiliApplication
 import BiliModels
 import Foundation
 
+/// UP 主名片的读取状态；失败按空名片处理，只隐藏增强信息。
 public enum VideoUploaderProfileState: Equatable, Sendable {
     case loading
     case loaded(UploaderProfile)
 }
 
+/// UP 主签名行的展示形态：加载中占位、没有签名时隐藏，或单行文字。
 public enum VideoUploaderSignatureContent: Equatable, Sendable {
     case loading
     case hidden

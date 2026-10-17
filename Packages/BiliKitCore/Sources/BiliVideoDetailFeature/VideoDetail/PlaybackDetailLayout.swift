@@ -34,6 +34,7 @@ struct PlaybackDetailLayout<Player: View, Related: View>: View {
     }
 }
 
+/// 播放页主区的几何常量，真实页面与骨架共用。
 enum PlaybackPageLayout {
     static let horizontalContentPadding: CGFloat = 40
     /// 工具栏到视频、推荐卡片到窗口底边的距离。

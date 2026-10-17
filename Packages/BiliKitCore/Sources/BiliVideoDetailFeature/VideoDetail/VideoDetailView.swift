@@ -4,6 +4,7 @@ import BiliUI
 import Foundation
 import SwiftUI
 
+/// 已有详情时的播放页主区：播放器、相关推荐横排，以及工具栏标题、副标题与弹幕按钮。
 struct VideoDetailView<PlayerContent: View, RelatedContent: View>: View {
     @Environment(\.locale) private var locale
     let context: VideoContext

@@ -2,11 +2,13 @@ import BiliApplication
 import BiliModels
 import Observation
 
+/// 播放页失败的来源：内容读取失败或播放准备失败；措辞与是否可重试见 VideoLoadFailurePresentation.swift。
 public enum VideoLoadFailure: Sendable, Equatable {
     case content(ContentApplicationError)
     case playback
 }
 
+/// 当前视频意图的阶段；`loadingPage`／`failedPage` 保留已呈现的视频，只针对目标分 P。
 public enum VideoLoadState: Sendable, Equatable {
     case idle
     case loading(bvid: String)
@@ -21,6 +23,7 @@ public enum VideoLoadState: Sendable, Equatable {
     )
 }
 
+/// 相关推荐按 BVID 标记的状态，呈现方只采用与当前视频一致的结果。
 public enum RelatedVideoState: Sendable, Equatable {
     case idle
     case loading(bvid: String)
@@ -29,6 +32,7 @@ public enum RelatedVideoState: Sendable, Equatable {
     case failed(bvid: String, error: ContentApplicationError)
 }
 
+/// 合集里单个选集的分 P 读取状态，由 `CollectionEpisodePagesController` 按选集持有。
 public enum CollectionEpisodePagesState: Sendable, Equatable {
     case idle
     case loading
@@ -36,6 +40,7 @@ public enum CollectionEpisodePagesState: Sendable, Equatable {
     case failed(ContentApplicationError)
 }
 
+/// 续播提示：开播位置与“从头播放”时用来确认仍是同一次续播的 token。
 public struct PlaybackResumeNotice: Sendable, Equatable {
     public let positionSeconds: Double
     public let token: PlaybackResumeToken

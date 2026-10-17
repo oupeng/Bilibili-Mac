@@ -3,6 +3,7 @@ import BiliModels
 import Foundation
 import Observation
 
+/// 空间层当前页的加载状态；`closed` 表示上下文层未打开。
 public enum UploaderSpaceState: Sendable, Equatable {
     case closed
     case loading(page: Int)

@@ -1,6 +1,7 @@
 import BiliUI
 import SwiftUI
 
+/// 详情尚未到达时的播放页骨架：与真实页面共用 `PlaybackDetailLayout`，读屏只读加载说明。
 struct VideoDetailSkeleton: View {
     let loadingLabel: String
 
