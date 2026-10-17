@@ -439,7 +439,7 @@ extension RelatedVideo {
 
 /// 唯一的 PlaybackControlling 替身，记录 load、开播、重播与停止。
 ///
-/// 可让指定 BVID 的 load 失败、让第 `heldLoad` 次 load 挂起到测试放行，
+/// 可让指定 BVID 的 load 失败、让第 `failingLoads` 次 load 失败（从 1 开始）、让第 `heldLoad` 次 load 挂起到测试放行，
 /// 或让首个 load 先发布失败再等到 stop 才返回。失败事件与生产 engine 一样经 `AsyncBroadcast`
 /// 发布：不回放、每个订阅独立，所以 ViewModel 必须在发起 load 前订阅；测试可等 ViewModel
 /// 回来请求下一个事件。
@@ -449,6 +449,7 @@ final class PlayerStub: PlaybackControlling {
     private let restartSucceeds: Bool
     private let holdsRestarts: Bool
     private let failingBVID: String?
+    private let failingLoads: Set<Int>
     private let heldLoad: Int?
     private let failsFirstLoadUntilStopped: Bool
     private let failures = AsyncBroadcast<PlaybackFailureEvent>()
@@ -473,6 +474,7 @@ final class PlayerStub: PlaybackControlling {
         restartSucceeds: Bool = false,
         holdsRestarts: Bool = false,
         failingBVID: String? = nil,
+        failingLoads: Set<Int> = [],
         heldLoad: Int? = nil,
         failsFirstLoadUntilStopped: Bool = false
     ) {
@@ -480,6 +482,7 @@ final class PlayerStub: PlaybackControlling {
         self.restartSucceeds = restartSucceeds
         self.holdsRestarts = holdsRestarts
         self.failingBVID = failingBVID
+        self.failingLoads = failingLoads
         self.heldLoad = heldLoad
         self.failsFirstLoadUntilStopped = failsFirstLoadUntilStopped
     }
@@ -509,7 +512,7 @@ final class PlayerStub: PlaybackControlling {
         loadedIdentities.append(identity)
         loadedIntents.append(intent)
         loadWaiters.resume(reaching: loadedIdentities.count)
-        if identity.bvid == failingBVID {
+        if identity.bvid == failingBVID || failingLoads.contains(loadedIdentities.count) {
             throw PlayerStubFailure()
         }
         if failsFirstLoadUntilStopped, loadedIdentities.count == 1 {

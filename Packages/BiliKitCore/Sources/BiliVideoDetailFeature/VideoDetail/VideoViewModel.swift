@@ -58,7 +58,7 @@ public struct PlaybackResumeNotice: Sendable, Equatable {
 @Observable
 public final class VideoViewModel: AccountRevalidationParticipant {
     public private(set) var state: VideoLoadState = .idle
-    public var failedPageCID: Int64? {
+    var failedPageCID: Int64? {
         guard case .failedPage(_, let targetPage, _) = state else { return nil }
         return targetPage.cid
     }
@@ -81,8 +81,8 @@ public final class VideoViewModel: AccountRevalidationParticipant {
     }
     /// 用户最新请求的媒体身份；在 playurl 或播放器准备失败时仍保留给 retry。
     public private(set) var requestedPlaybackIdentity: PlaybackItemIdentity?
-    /// App 层最新选择意图的 BVID；与已成功安装的媒体身份分离。
-    public private(set) var requestedSelectionBVID: String?
+    /// 最新选择意图的 BVID；与已成功安装的媒体身份分离。
+    private(set) var requestedSelectionBVID: String?
     /// 显式用户 CID；未知 pages 时可以先存在，绝不据此伪造已呈现媒体。
     public private(set) var requestedPreferredCID: Int64?
     /// 外部链接给出的分 P 序号；详情到达前只用于重试，到达后换算为 `requestedPreferredCID`。
@@ -222,7 +222,7 @@ public final class VideoViewModel: AccountRevalidationParticipant {
     ///
     /// `pageNumber` 为 nil 视为当前分 P，否则须与它相同；秒数按可跳转时长判断。还在加载、失败或没有
     /// 视频时为 false。
-    public func canSeekPresentedPage(number pageNumber: Int?, toSeconds seconds: Int) -> Bool {
+    func canSeekPresentedPage(number pageNumber: Int?, toSeconds seconds: Int) -> Bool {
         guard let context = presentedContext,
             presentedPlaybackIdentity?.cid == context.selectedPage.cid,
             pageNumber.map({ $0 == context.selectedPage.index }) ?? true
@@ -231,7 +231,7 @@ public final class VideoViewModel: AccountRevalidationParticipant {
     }
 
     /// 当前视频里分 P 序号（从 1 开始）对应的 CID；没有当前视频或序号超出范围时为 nil。
-    public func presentedPageCID(forNumber number: Int) -> Int64? {
+    func presentedPageCID(forNumber number: Int) -> Int64? {
         presentedContext?.pages.first(where: { $0.index == number })?.cid
     }
 

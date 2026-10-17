@@ -61,12 +61,7 @@ final class AppWindowOwner {
             videoModel: videoModel
         )
         let navigationCoordinator = AppNavigationCoordinator(
-            startPlayback: { intent in
-                AppWindowOwner.handlePlaybackSelection(
-                    intent,
-                    with: videoModel
-                )
-            },
+            startPlayback: { videoModel.select($0) },
             stopPlayback: {
                 videoModel.reset()
                 danmakuModel.reset()
@@ -103,75 +98,6 @@ final class AppWindowOwner {
             synchronizeEnvironmentSignedOutConfirmation:
                 environment.synchronizeSignedOutConfirmation
         )
-    }
-
-    /// 链接带 `t=` 且指向正在播放、播放器已装好的分 P（没给分 P 视为当前分 P）、秒数在可跳转范围内时，
-    /// 返回要原地跳到的秒数；其余情况交给导航打开或切换分 P。
-    static func inPlaceStartSeconds(
-        for intent: PlaybackSelectionIntent,
-        currentPlaybackBVID: String?,
-        videoModel: VideoViewModel
-    ) -> Int? {
-        guard let startSeconds = intent.preferredStartSeconds,
-            intent.preferredCID == nil,
-            intent.bvid == currentPlaybackBVID,
-            intent.bvid == videoModel.presentedBVID,
-            videoModel.canSeekPresentedPage(
-                number: intent.preferredPageNumber,
-                toSeconds: startSeconds
-            )
-        else { return nil }
-        return startSeconds
-    }
-
-    /// 播放失败后的重试交给视频模型。
-    ///
-    /// 它记得链接起播时间是否已经用过，开播后才失败的重试不会跳回链接时间。不在失败状态（例如已被
-    /// 重置）时重新发出当前导航意图。
-    static func retryPlayback(
-        coordinator: AppNavigationCoordinator,
-        videoModel: VideoViewModel
-    ) {
-        switch videoModel.state {
-        case .failed, .failedPage:
-            videoModel.retry()
-        case .idle, .loading, .loadingPage, .preparingPlayback, .ready:
-            coordinator.retryPlayback()
-        }
-    }
-
-    static func handlePlaybackSelection(
-        _ intent: PlaybackSelectionIntent,
-        with videoModel: VideoViewModel
-    ) {
-        // 只在已呈现且正在请求的就是这个视频、并且没有整体失败时就地处理。另一个视频加载中残留的
-        // 旧详情不算；整体失败（详情或播放器准备失败）重新加载，重试才不会被同一身份的去重吞掉。
-        var isFailed = false
-        if case .failed = videoModel.state { isFailed = true }
-        guard videoModel.presentedBVID == intent.bvid,
-            videoModel.requestedSelectionBVID == intent.bvid,
-            !isFailed
-        else {
-            videoModel.loadVideo(
-                intent.bvid,
-                preferredCID: intent.preferredCID,
-                preferredPageNumber: intent.preferredPageNumber,
-                startSeconds: intent.preferredStartSeconds
-            )
-            return
-        }
-        // 当前视频的分 P 序号直接换算为 CID，在现有 pages 内切换。没给分 P 或序号超出范围时
-        // 已经在看这个视频，保持当前播放。
-        let presentedPageCID = intent.preferredPageNumber.flatMap(
-            videoModel.presentedPageCID(forNumber:)
-        )
-        guard let preferredCID = intent.preferredCID ?? presentedPageCID else { return }
-        // 失败的分 P 收到带新起播秒数的链接时按新秒数重开，否则沿用重试。
-        if videoModel.failedPageCID == preferredCID, intent.preferredStartSeconds == nil {
-            videoModel.retry()
-        } else {
-            videoModel.selectPage(cid: preferredCID, startSeconds: intent.preferredStartSeconds)
-        }
     }
 
     init(

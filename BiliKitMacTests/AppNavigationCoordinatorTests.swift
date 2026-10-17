@@ -1,6 +1,7 @@
 import BiliApplication
 import BiliAuthFeature
 import BiliModels
+import BiliVideoDetailFeature
 import Foundation
 import Observation
 import Synchronization

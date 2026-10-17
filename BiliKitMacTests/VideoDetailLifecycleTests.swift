@@ -353,244 +353,6 @@ struct VideoDetailLifecycleTests {
         window.contentView = NSView()
     }
 
-    /// 评论链接的分 P 序号：打开时直接播放该分 P 并当作显式选择；当前视频的另一个序号换到对应分 P。
-    @Test
-    @MainActor
-    func linkPageNumbersSelectTheirParts() async {
-        let fixture = PageSelectionRoutingFixture()
-        let repository = LifecycleVideoRepository(
-            detail: { _ in fixture.detail },
-            playback: { _, _ in fixture.playback }
-        )
-        let videoModel = VideoViewModel(
-            useCase: VideoUseCase(repository: repository),
-            playback: LifecyclePlayback()
-        )
-
-        AppWindowOwner.handlePlaybackSelection(
-            PlaybackSelectionIntent(bvid: fixture.bvid, preferredPageNumber: 2),
-            with: videoModel
-        )
-        await waitUntilSettled(videoModel)
-
-        #expect(videoModel.presentedPlaybackIdentity?.cid == fixture.failingPage.cid)
-        #expect(videoModel.requestedPreferredCID == fixture.failingPage.cid)
-
-        AppWindowOwner.handlePlaybackSelection(
-            PlaybackSelectionIntent(bvid: fixture.bvid, preferredPageNumber: 3),
-            with: videoModel
-        )
-        await waitUntilSettled(videoModel)
-
-        #expect(videoModel.presentedPlaybackIdentity?.cid == fixture.replacementPage.cid)
-        #expect(
-            await repository.playbackCIDs == [
-                fixture.failingPage.cid,
-                fixture.replacementPage.cid
-            ]
-        )
-    }
-
-    /// 链接带 `t=`：指向正在播放、已装好的分 P（没给分 P 视为当前分 P）时原地跳转；指向别的分 P
-    /// 时换分 P 并从该时间起播。
-    @Test
-    @MainActor
-    func linkStartSecondsSeekInPlaceOrStartTheOtherPart() async {
-        let fixture = PageSelectionRoutingFixture()
-        let repository = LifecycleVideoRepository(
-            detail: { _ in fixture.detail },
-            playback: { _, _ in fixture.playback }
-        )
-        let playback = LifecyclePlayback()
-        let videoModel = VideoViewModel(
-            useCase: VideoUseCase(repository: repository),
-            playback: playback
-        )
-        AppWindowOwner.handlePlaybackSelection(
-            PlaybackSelectionIntent(bvid: fixture.bvid, preferredPageNumber: 2),
-            with: videoModel
-        )
-        await waitUntilSettled(videoModel)
-        func inPlace(_ intent: PlaybackSelectionIntent, current: String? = nil) -> Int? {
-            AppWindowOwner.inPlaceStartSeconds(
-                for: intent,
-                currentPlaybackBVID: current ?? fixture.bvid,
-                videoModel: videoModel
-            )
-        }
-
-        #expect(
-            inPlace(PlaybackSelectionIntent(bvid: fixture.bvid, preferredStartSeconds: 30)) == 30
-        )
-        #expect(
-            inPlace(
-                PlaybackSelectionIntent(
-                    bvid: fixture.bvid,
-                    preferredPageNumber: 2,
-                    preferredStartSeconds: 30
-                )
-            ) == 30
-        )
-        #expect(
-            inPlace(
-                PlaybackSelectionIntent(
-                    bvid: fixture.bvid,
-                    preferredPageNumber: 3,
-                    preferredStartSeconds: 30
-                )
-            ) == nil
-        )
-        #expect(inPlace(PlaybackSelectionIntent(bvid: fixture.bvid)) == nil)
-        // 分 P 时长 60 秒：等于时长的起播秒数不在可跳转范围内，不原地跳转。
-        #expect(
-            inPlace(PlaybackSelectionIntent(bvid: fixture.bvid, preferredStartSeconds: 60)) == nil
-        )
-        #expect(
-            inPlace(
-                PlaybackSelectionIntent(bvid: fixture.bvid, preferredStartSeconds: 30),
-                current: "BV1Other"
-            ) == nil
-        )
-
-        AppWindowOwner.handlePlaybackSelection(
-            PlaybackSelectionIntent(
-                bvid: fixture.bvid,
-                preferredPageNumber: 3,
-                preferredStartSeconds: 30
-            ),
-            with: videoModel
-        )
-        await waitUntilSettled(videoModel)
-
-        #expect(
-            playback.loadedIdentities.map(\.cid) == [
-                fixture.failingPage.cid, fixture.replacementPage.cid
-            ]
-        )
-        #expect(playback.loadedStartPositions == [nil, 30])
-    }
-
-    /// 已经在看这个视频时，不带分 P 或分 P 序号超出范围的链接保持当前播放，不重新加载。
-    @Test
-    @MainActor
-    func linksToThePlayingVideoWithoutAResolvablePageKeepPlayback() async {
-        let fixture = PageSelectionRoutingFixture()
-        let repository = LifecycleVideoRepository(
-            detail: { _ in fixture.detail },
-            playback: { _, _ in fixture.playback }
-        )
-        let playback = LifecyclePlayback()
-        let videoModel = VideoViewModel(
-            useCase: VideoUseCase(repository: repository),
-            playback: playback
-        )
-        AppWindowOwner.handlePlaybackSelection(
-            PlaybackSelectionIntent(bvid: fixture.bvid, preferredPageNumber: 2),
-            with: videoModel
-        )
-        await waitUntilSettled(videoModel)
-
-        AppWindowOwner.handlePlaybackSelection(
-            PlaybackSelectionIntent(bvid: fixture.bvid),
-            with: videoModel
-        )
-        AppWindowOwner.handlePlaybackSelection(
-            PlaybackSelectionIntent(bvid: fixture.bvid, preferredPageNumber: 99),
-            with: videoModel
-        )
-
-        #expect(playback.loadedIdentities.map(\.cid) == [fixture.failingPage.cid])
-        #expect(await repository.playbackCIDs == [fixture.failingPage.cid])
-    }
-
-    /// 从带分 P 的链接打开后播放器准备失败：重试（App 重发同一意图）重新加载同一分 P，不被同一
-    /// 播放身份的去重吞掉。
-    @Test
-    @MainActor
-    func retryAfterAPlayerFailureFromAPageLinkReloads() async {
-        let fixture = PageSelectionRoutingFixture()
-        let repository = LifecycleVideoRepository(
-            detail: { _ in fixture.detail },
-            playback: { _, _ in fixture.playback }
-        )
-        let playback = LifecyclePlayback(holdsLoads: true)
-        let videoModel = VideoViewModel(
-            useCase: VideoUseCase(repository: repository),
-            playback: playback
-        )
-        let intent = PlaybackSelectionIntent(bvid: fixture.bvid, preferredPageNumber: 2)
-
-        AppWindowOwner.handlePlaybackSelection(intent, with: videoModel)
-        await playback.waitForLoadCallCount(1)
-        playback.failPendingLoad()
-        await waitUntilSettled(videoModel)
-        guard case .failed = videoModel.state else {
-            Issue.record("播放器准备失败后应进入整体失败状态，实际为 \(videoModel.state)")
-            return
-        }
-
-        AppWindowOwner.handlePlaybackSelection(intent, with: videoModel)
-        await playback.waitForLoadCallCount(2)
-
-        #expect(
-            playback.loadedIdentities.map(\.cid) == [
-                fixture.failingPage.cid,
-                fixture.failingPage.cid
-            ]
-        )
-    }
-
-    @Test
-    @MainActor
-    func failedPageSelectionRoutesANewCIDInsteadOfRetryingTheOldTarget() async {
-        let fixture = PageSelectionRoutingFixture()
-        let repository = LifecycleVideoRepository(
-            detail: { _ in fixture.detail },
-            playback: { _, cid in
-                if cid == fixture.failingPage.cid {
-                    throw ContentApplicationError.transportFailure
-                }
-                return fixture.playback
-            }
-        )
-        let videoModel = VideoViewModel(
-            useCase: VideoUseCase(repository: repository),
-            playback: LifecyclePlayback()
-        )
-
-        videoModel.loadVideo(
-            fixture.bvid,
-            preferredCID: fixture.initialPage.cid
-        )
-        await waitUntilSettled(videoModel)
-        videoModel.selectPage(cid: fixture.failingPage.cid)
-        await waitUntilSettled(videoModel)
-        guard case .failedPage(_, let failedPage, _) = videoModel.state else {
-            Issue.record("切换失败后应保留失败的分 P 目标")
-            return
-        }
-        #expect(failedPage.cid == fixture.failingPage.cid)
-
-        AppWindowOwner.handlePlaybackSelection(
-            PlaybackSelectionIntent(
-                bvid: fixture.bvid,
-                preferredCID: fixture.replacementPage.cid
-            ),
-            with: videoModel
-        )
-        await waitUntilSettled(videoModel)
-
-        #expect(videoModel.requestedPreferredCID == fixture.replacementPage.cid)
-        #expect(videoModel.presentedPlaybackIdentity?.cid == fixture.replacementPage.cid)
-        #expect(
-            await repository.playbackCIDs == [
-                fixture.initialPage.cid,
-                fixture.failingPage.cid,
-                fixture.replacementPage.cid
-            ]
-        )
-    }
-
     @Test(.timeLimit(.minutes(1)))
     @MainActor
     func appRootActivatesCommentsByAIDAndClearsThemOnBack() async {
@@ -755,50 +517,33 @@ private struct VideoDetailLifecycleFixture: Sendable {
     }
 }
 
-/// 本文件共享的游客视频 port 替身：按闭包回答详情（含分 P）与播放，并记录播放 CID。
-private actor LifecycleVideoRepository: VideoRepository {
-    private let detailResponse: @Sendable (String) throws -> VideoDetail
-    private let playbackResponse: @Sendable (String, Int64) throws -> VideoPlayback
-    private(set) var playbackCIDs: [Int64] = []
+/// 本文件共享的游客视频 port 替身：按 BVID 选择 fixture 回答详情与播放；`playbackError` 让每次播放请求都失败。
+private struct LifecycleVideoRepository: VideoRepository {
+    private let fixturesByBVID: [String: VideoDetailLifecycleFixture]
+    private let playbackError: ContentApplicationError?
 
-    init(
-        detail: @escaping @Sendable (String) throws -> VideoDetail,
-        playback: @escaping @Sendable (String, Int64) throws -> VideoPlayback
-    ) {
-        detailResponse = detail
-        playbackResponse = playback
-    }
-
-    /// 按 BVID 选择 fixture；`playbackError` 让每次播放请求都失败。
     init(
         fixtures: [VideoDetailLifecycleFixture],
         playbackError: ContentApplicationError? = nil
     ) {
-        let fixturesByBVID = Dictionary(
-            uniqueKeysWithValues: fixtures.map { ($0.bvid, $0) }
-        )
-        let fixture: @Sendable (String) throws -> VideoDetailLifecycleFixture = {
-            guard let fixture = fixturesByBVID[$0] else {
-                throw ContentApplicationError.invalidRequest
-            }
-            return fixture
-        }
-        self.init(
-            detail: { try fixture($0).detail },
-            playback: { bvid, _ in
-                if let playbackError { throw playbackError }
-                return try fixture(bvid).playback
-            }
-        )
+        fixturesByBVID = Dictionary(uniqueKeysWithValues: fixtures.map { ($0.bvid, $0) })
+        self.playbackError = playbackError
     }
 
     func videoDetail(for bvid: String) async throws -> VideoDetail {
-        try detailResponse(bvid)
+        try fixture(bvid).detail
     }
 
     func playback(for bvid: String, cid: Int64) async throws -> VideoPlayback {
-        playbackCIDs.append(cid)
-        return try playbackResponse(bvid, cid)
+        if let playbackError { throw playbackError }
+        return try fixture(bvid).playback
+    }
+
+    private func fixture(_ bvid: String) throws -> VideoDetailLifecycleFixture {
+        guard let fixture = fixturesByBVID[bvid] else {
+            throw ContentApplicationError.invalidRequest
+        }
+        return fixture
     }
 }
 
@@ -855,60 +600,6 @@ private actor LifecycleCommentRepository: CommentRepository {
     }
 }
 
-private struct PageSelectionRoutingFixture: Sendable {
-    let bvid = "BV1PageRoute"
-    let initialPage = VideoPage(
-        cid: 910_001,
-        index: 1,
-        title: "P1",
-        durationSeconds: 60
-    )
-    let failingPage = VideoPage(
-        cid: 910_002,
-        index: 2,
-        title: "P2",
-        durationSeconds: 60
-    )
-    let replacementPage = VideoPage(
-        cid: 910_003,
-        index: 3,
-        title: "P3",
-        durationSeconds: 60
-    )
-
-    var pages: [VideoPage] {
-        [initialPage, failingPage, replacementPage]
-    }
-
-    var detail: VideoDetail {
-        VideoDetail(
-            bvid: bvid,
-            title: "分 P 路由测试",
-            summary: "手写测试数据",
-            coverURL: nil,
-            owner: VideoOwner(id: 10_001, name: "测试 UP 主"),
-            statistics: VideoStatistics(
-                viewCount: 10,
-                danmakuCount: 2,
-                likeCount: 3
-            ),
-            durationSeconds: 180,
-            publishedAt: Date(timeIntervalSince1970: 1_700_000_000),
-            pages: pages
-        )
-    }
-
-    var playback: VideoPlayback {
-        VideoPlayback(
-            manifest: PlaybackManifest(
-                videoRepresentations: [],
-                originalAudioRepresentations: []
-            ),
-            mediaHeaders: [:]
-        )
-    }
-}
-
 private actor PendingLifecycleUploaderProfileRepository:
     UploaderProfileRepository
 {
@@ -957,7 +648,6 @@ private final class LifecyclePlayback: PlaybackControlling {
 
     private let holdsLoads: Bool
     private(set) var loadedIdentities: [PlaybackItemIdentity] = []
-    private(set) var loadedStartPositions: [Double?] = []
     private(set) var startedIdentities: [PlaybackItemIdentity] = []
     private(set) var stopCallCount = 0
     private var pendingLoad: CheckedContinuation<Void, any Error>?
@@ -979,7 +669,6 @@ private final class LifecyclePlayback: PlaybackControlling {
         startPositionSeconds: Double?
     ) async throws {
         loadedIdentities.append(identity)
-        loadedStartPositions.append(startPositionSeconds)
         loadWaiters.resume(reaching: loadedIdentities.count)
         guard holdsLoads else { return }
         try await withCheckedThrowingContinuation { continuation in

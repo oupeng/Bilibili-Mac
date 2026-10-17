@@ -284,10 +284,9 @@ struct AppShellView: View {
     private func openCommentLink(_ route: CommentLinkRoute?) {
         switch route {
         case .playback(let intent):
-            if let seconds = AppWindowOwner.inPlaceStartSeconds(
+            if let seconds = videoModel.inPlaceStartSeconds(
                 for: intent,
-                currentPlaybackBVID: navigationCoordinator.currentPlaybackBVID,
-                videoModel: videoModel
+                currentPlaybackBVID: navigationCoordinator.currentPlaybackBVID
             ) {
                 seekPlayback(intent.bvid, seconds)
             } else {
@@ -314,8 +313,10 @@ struct AppShellView: View {
         }
     }
 
+    /// 播放失败后的重试交给视频模型；不在失败状态（例如已被重置）时重新发出当前导航意图。
     private func retryPlayback() {
-        AppWindowOwner.retryPlayback(coordinator: navigationCoordinator, videoModel: videoModel)
+        guard !videoModel.retryIfFailed() else { return }
+        navigationCoordinator.retryPlayback()
     }
 
     private func openCommentPictures(

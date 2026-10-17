@@ -1,5 +1,6 @@
 import BiliAPI
 import BiliModels
+import BiliVideoDetailFeature
 import Foundation
 
 /// 评论正文链接的去向，由 Composition 按链接目标翻译；App 外壳只执行，不接触评论模型。
