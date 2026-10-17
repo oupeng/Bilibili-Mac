@@ -322,14 +322,9 @@ struct AppShellView: View {
         _ gallery: NativePlaybackCommentPictureGallery
     ) {
         guard let bvid = navigationCoordinator.currentPlaybackBVID,
-            !gallery.references.isEmpty
+            let request = NativeCommentImagePreviewRequest(bvid: bvid, gallery: gallery)
         else { return }
-        commentImagePreview = NativeCommentImagePreviewRequest(
-            bvid: bvid,
-            references: gallery.references,
-            selectedIndex: gallery.selectedIndex,
-            restoreFocus: gallery.restoreFocus
-        )
+        commentImagePreview = request
     }
 
     private func dismissCommentImagePreview(restoringFocus: Bool) {

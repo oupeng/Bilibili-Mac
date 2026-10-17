@@ -3,6 +3,7 @@ import BiliModels
 import Testing
 
 @testable import BiliKit
+@testable import BiliVideoDetailFeature
 
 struct UploaderSpaceListLayoutTests {
     /// 空间层进场时列表可能先以很窄的中间宽度布局；变宽后头部必须跟着重新布局。

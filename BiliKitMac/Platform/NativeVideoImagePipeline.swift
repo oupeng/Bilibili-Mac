@@ -1,7 +1,9 @@
 import AppKit
 import BiliBrowseFeature
 import BiliNetworking
+import BiliUI
 import BiliVideoCollectionUI
+import BiliVideoDetailFeature
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -13,17 +15,6 @@ enum NativeVideoImageLoadOrigin: Equatable {
 
     /// 刚从网络到达的图片淡入；内存缓存命中直接显示。
     var shouldFadeIn: Bool { self == .network }
-}
-
-/// 动图的原始编码数据，由 `NativeAnimatedImagePlayback` 边解码边播放；不预先解出所有帧。
-///
-/// 用引用类型：缓存命中返回同一个实例，播放端按身份判断是不是同一张动图，不比较数据字节。
-final class NativeAnimatedImage: Sendable {
-    let data: Data
-
-    init(data: Data) {
-        self.data = data
-    }
 }
 
 struct NativeVideoImageLoadResult: Sendable {
@@ -79,7 +70,7 @@ enum NativeVideoImageVariant: Hashable, Sendable {
         case .cover:
             640
         case .avatar:
-            96
+            BiliAvatarImageSize.pixelSide
         case .commentEmote:
             128
         case .commentPicture:
@@ -700,7 +691,44 @@ extension NativeVideoImagePipeline: TrendingSearchIconLoading {
     }
 }
 
+/// 播放侧栏、评论、评论图片预览与 UP 主空间经 BiliVideoDetailFeature 的 `VideoDetailImageLoading` 取图；
+/// 用途映射到本管线的用途，请求地址、响应校验、解码上限与缓存仍只在这里（见 SECURITY-MODEL §4）。
+extension NativeVideoImagePipeline: VideoDetailImageLoading {
+    func cachedImage(for url: URL, purpose: VideoDetailImagePurpose) -> CGImage? {
+        cachedImage(for: url, variant: NativeVideoImageVariant(purpose))
+    }
+
+    func cachedAnimation(for url: URL, purpose: VideoDetailImagePurpose) -> NativeAnimatedImage? {
+        cachedAnimation(for: url, variant: NativeVideoImageVariant(purpose))
+    }
+
+    func image(for url: URL, purpose: VideoDetailImagePurpose) async -> VideoDetailImage? {
+        guard let result = await image(for: url, variant: NativeVideoImageVariant(purpose)) else {
+            return nil
+        }
+        return VideoDetailImage(
+            image: result.image,
+            animation: result.animation,
+            fadesIn: result.origin.shouldFadeIn
+        )
+    }
+
+    func originalData(for url: URL, purpose: VideoDetailImagePurpose) async -> Data? {
+        await originalData(for: url, variant: NativeVideoImageVariant(purpose))
+    }
+}
+
 extension NativeVideoImageVariant {
+    init(_ purpose: VideoDetailImagePurpose) {
+        switch purpose {
+        case .avatar: self = .avatar
+        case .cover: self = .cover
+        case .commentEmote: self = .commentEmote
+        case .commentPicture: self = .commentPicture
+        case .commentPicturePreview: self = .commentPicturePreview
+        }
+    }
+
     init(_ kind: NativeVideoCardImageKind) {
         switch kind {
         case .cover: self = .cover

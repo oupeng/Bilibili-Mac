@@ -4,6 +4,7 @@ import Foundation
 import Testing
 
 @testable import BiliKit
+@testable import BiliVideoDetailFeature
 
 struct NativeVideoShelfTests {
     @Test

@@ -14,14 +14,12 @@ import CoreGraphics
 import Foundation
 import SwiftUI
 
-/// 评论图片地址；带像素框时请求图床按框缩小的图，不带框为原图。
-typealias CommentAssetURLResolver = @Sendable (CommentAssetReference, CommentAssetPixelBox?) -> URL?
-@MainActor
 /// App 的 Composition Root：创建具体 adapter，并把它们收窄为 Feature 所需的 port。
 ///
 /// 这里刻意同时看见 API、认证、播放和弹幕实现。一个环境只创建一个 `AVPlayerEngine`，
 /// 原生字幕、弹幕、视频模型与 AppKit player host 必须共享它的播放 identity 和时间线。
 /// 弹幕 renderer 的系统内存压力监听也由环境持有，`close` 时先取消。
+@MainActor
 struct AppEnvironment {
     private let playerEngine: AVPlayerEngine
     /// 字幕目录发现的凭据失效；只转给本环境最新创建的视频模型。

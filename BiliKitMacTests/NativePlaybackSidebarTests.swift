@@ -2,11 +2,11 @@ import AppKit
 import BiliApplication
 import BiliModels
 import BiliUI
-import BiliVideoDetailFeature
 import Foundation
 import Testing
 
 @testable import BiliKit
+@testable import BiliVideoDetailFeature
 
 @Suite(.serialized, .timeLimit(.minutes(1)))
 struct NativePlaybackSidebarTests {
@@ -138,8 +138,8 @@ struct NativePlaybackSidebarTests {
         #expect(
             nameLabel.accessibilityLabel()
                 == (expectsVIP
-                    ? AppStrings.localized("UP 主，\(name)，大会员")
-                    : AppStrings.localized("UP 主，\(name)"))
+                    ? VideoDetailFeatureStrings.localized("UP 主，\(name)，大会员")
+                    : VideoDetailFeatureStrings.localized("UP 主，\(name)"))
         )
     }
 
@@ -812,7 +812,7 @@ struct NativePlaybackSidebarTests {
         try #require(spaceButtons.count == 1)
         let spaceButton = spaceButtons[0]
         #expect(!spaceButton.isHidden)
-        #expect(spaceButton.accessibilityLabel() == AppStrings.localized("查看空间"))
+        #expect(spaceButton.accessibilityLabel() == VideoDetailFeatureStrings.localized("查看空间"))
 
         spaceButton.performClick(nil)
 
@@ -1310,7 +1310,7 @@ struct NativePlaybackSidebarTests {
         #expect(countLabel.isAccessibilityElement())
         #expect(
             countLabel.accessibilityLabel()
-                == AppStrings.localized("共 \(loadedCount) 条评论")
+                == VideoDetailFeatureStrings.localized("共 \(loadedCount) 条评论")
         )
         header.configure(presentation: loading, onSelectSort: { _ in })
         #expect(countLabel.stringValue.isEmpty)
@@ -1323,7 +1323,7 @@ struct NativePlaybackSidebarTests {
         #expect(footer.view.accessibilityRole() == .staticText)
         #expect(
             footer.view.accessibilityLabel()
-                == AppStrings.localized("后续评论加载中")
+                == VideoDetailFeatureStrings.localized("后续评论加载中")
         )
         footer.configure(footer: .failed(.transportFailure), onRetry: {}, onLoadMore: {})
         #expect(!footer.view.isAccessibilityElement())
@@ -1336,7 +1336,7 @@ struct NativePlaybackSidebarTests {
         let loadMoreButton = try #require(
             descendants(of: footer.view).compactMap { $0 as? NSButton }
                 .first {
-                    !$0.isHidden && $0.title == AppStrings.localized("加载更多")
+                    !$0.isHidden && $0.title == VideoDetailFeatureStrings.localized("加载更多")
                 }
         )
         loadMoreButton.performClick(nil)
@@ -1551,7 +1551,7 @@ struct NativePlaybackSidebarTests {
         let thirdPictureButton = try #require(
             descendants(of: item.view).compactMap { $0 as? NSButton }.first {
                 $0.accessibilityLabel()
-                    == AppStrings.localized("查看第 \(3) 张评论图片")
+                    == VideoDetailFeatureStrings.localized("查看第 \(3) 张评论图片")
             }
         )
         thirdPictureButton.performClick(nil)
@@ -1842,10 +1842,9 @@ struct NativePlaybackSidebarTests {
             NativePlaybackCommentAuthorBadgesView.segments(for: author).map(\.text)
                 == ["♂", "LV6⚡︎", "UP"]
         )
-        #expect(
-            statusBadges.displayedTexts
-                == [AppStrings.localized("置顶"), AppStrings.localized("UP 主觉得很赞")]
-        )
+        let pinned = VideoDetailFeatureStrings.localized("置顶")
+        let uploaderLiked = VideoDetailFeatureStrings.localized("UP 主觉得很赞")
+        #expect(statusBadges.displayedTexts == [pinned, uploaderLiked])
         #expect(
             statusBadges.accessibilityLabel()
                 == ListFormatter.localizedString(byJoining: statusBadges.displayedTexts)
@@ -1967,7 +1966,7 @@ struct NativePlaybackSidebarTests {
         }
 
         let rootAction = try #require(try spaceAction(for: rootAuthor.name))
-        #expect(rootAction.name == AppStrings.localized("查看空间"))
+        #expect(rootAction.name == VideoDetailFeatureStrings.localized("查看空间"))
         #expect(rootAction.handler?() == true)
         #expect(try spaceAction(for: replyAuthor.name)?.handler?() == true)
         #expect(try spaceAction(for: invalidAuthor.name) == nil)
@@ -2076,7 +2075,7 @@ struct NativePlaybackSidebarTests {
         let summary = descendants(of: item.view).compactMap { $0 as? NSButton }
             .first {
                 $0.title
-                    == AppStrings.localized(
+                    == VideoDetailFeatureStrings.localized(
                         "共 \(CommentPresentationFormatting.compactCount(replyCount)) 条回复"
                     )
             }

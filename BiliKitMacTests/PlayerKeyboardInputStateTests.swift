@@ -1,5 +1,6 @@
 import AppKit
 import BiliPlayback
+import BiliVideoDetailFeature
 import Foundation
 import Testing
 

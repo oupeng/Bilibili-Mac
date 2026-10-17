@@ -74,7 +74,7 @@ let package = Package(
         ),
         .target(
             name: "BiliVideoDetailFeature",
-            dependencies: ["BiliApplication", "BiliModels", "BiliUI"],
+            dependencies: ["BiliApplication", "BiliModels", "BiliUI", "BiliVideoCollectionUI"],
             resources: [.process("Resources")]
         ),
         .target(

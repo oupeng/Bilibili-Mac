@@ -20,13 +20,19 @@ import swift_source
 
 # 任何范围都可以使用的标准库与并发基础设施。
 BASE = {"Foundation", "Synchronization", "os", "Darwin", "Dispatch"}
-# Feature 经 BiliVideoCollectionUI 渲染共享的 AppKit 卡片与网格，自己不直接 import AppKit 等界面框架。
+# Feature 经 BiliVideoCollectionUI 渲染共享的 AppKit 卡片与网格；只有 APPKIT_FEATURES 登记的 Feature
+# 直接 import AppKit 等界面框架。
 FEATURE_SHARED = {
     "BiliModels", "BiliApplication", "BiliUI", "BiliVideoCollectionUI", "SwiftUI", "Observation", "CoreGraphics",
 }
 FEATURES = {"BiliAuthFeature", "BiliBrowseFeature", "BiliLibraryFeature", "BiliVideoDetailFeature"}
-# 只有渲染共享卡片网格的 Feature 才依赖 BiliVideoCollectionUI。
-COLLECTION_FEATURES = {"BiliBrowseFeature", "BiliLibraryFeature"}
+# 只有渲染共享卡片网格或横排的 Feature 才依赖 BiliVideoCollectionUI。
+COLLECTION_FEATURES = {"BiliBrowseFeature", "BiliLibraryFeature", "BiliVideoDetailFeature"}
+# 自己拥有 AppKit 视图的 Feature 与它直接 import 的界面框架：播放页的侧栏、评论（正文排版用 CoreText）、
+# 评论图片预览（动图逐帧解码用 ImageIO）、相关推荐横排与 UP 主空间列表是本 Feature 的原生集合视图。
+# 播放、网络与 adapter 仍然禁止：下载、来源与响应校验、首帧解码、动图播放门槛和缓存只在 App 管线（经 port
+# 注入），本 Feature 只对管线按门槛放行的动图数据逐帧解码播放。
+APPKIT_FEATURES = {"BiliVideoDetailFeature": {"AppKit", "CoreText", "ImageIO"}}
 ADAPTERS = {"BiliAPI", "BiliAuth", "BiliNetworking", "BiliPlayback", "BiliDanmaku"}
 
 SOURCES = "Packages/BiliKitCore/Sources"
@@ -75,9 +81,11 @@ SCOPES = {
     ),
     **{
         f"{SOURCES}/{feature}": (
-            FEATURE_SHARED if feature in COLLECTION_FEATURES else FEATURE_SHARED - {"BiliVideoCollectionUI"},
-            "Feature 不能依赖 adapter、其他 Feature、AppKit 或播放与网络框架；共享的 AppKit 卡片与网格只经 "
-            "BiliVideoCollectionUI，且只有 COLLECTION_FEATURES 登记的 Feature 依赖它",
+            (FEATURE_SHARED if feature in COLLECTION_FEATURES else FEATURE_SHARED - {"BiliVideoCollectionUI"})
+            | APPKIT_FEATURES.get(feature, set()),
+            "Feature 不能依赖 adapter、其他 Feature 或播放与网络框架；共享的 AppKit 卡片与网格只经 "
+            "BiliVideoCollectionUI，且只有 COLLECTION_FEATURES 登记的 Feature 依赖它；只有 APPKIT_FEATURES "
+            "登记的 Feature 直接 import AppKit 与登记的界面框架",
         )
         for feature in sorted(FEATURES)
     },
@@ -93,10 +101,11 @@ SCOPES = {
     ),
     "BiliKitMac/Platform": (
         FEATURES | {
-            "BiliModels", "BiliApplication", "BiliUI", "BiliVideoCollectionUI", "SwiftUI", "Observation",
-            "Combine", "AppKit", "CoreFoundation", "CoreGraphics", "CoreText", "ImageIO", "QuartzCore",
+            "BiliModels", "BiliApplication", "BiliUI", "SwiftUI", "Combine", "AppKit", "CoreFoundation",
+            "CoreGraphics", "ImageIO",
         },
-        "Platform 不能依赖 BiliAPI/BiliAuth；播放、弹幕、网络、系统媒体与更新框架只允许在 EXTRA_ALLOWED 登记的宿主文件里",
+        "Platform 不能依赖 BiliAPI/BiliAuth；共享集合视图支撑、播放、弹幕、网络、系统媒体与更新框架只允许在 "
+        "EXTRA_ALLOWED 登记的宿主文件里",
     ),
     "BiliKitMac/Settings": (
         {"BiliApplication", "BiliAPI", "BiliPlayback", "SwiftUI", "Observation"},
@@ -128,13 +137,14 @@ EXTRA_ALLOWED = {
     "BiliKitMac/App/AppSourceRootViews.swift": {"BiliApplication", "BiliVideoCollectionUI"},
     "BiliKitMac/App/AppWindowOwner.swift": {"BiliApplication"},
     "BiliKitMac/App/SearchToolbarControls.swift": {"BiliApplication"},
-    # 观看进度连接与网格、侧栏共用同一份通知观察集合（NativeVideoNotificationObservers）。
+    # 观看进度连接、播放器宿主与网格、侧栏共用同一份通知观察集合（NativeVideoNotificationObservers）；
+    # 图片管线实现卡片取图 port（NativeVideoImageLoading）。
     "BiliKitMac/Composition/WatchProgressWindowConnection.swift": {"BiliVideoCollectionUI"},
     "BiliKitMac/Platform/AppUpdater.swift": {"Sparkle"},
     "BiliKitMac/Platform/DanmakuOverlayHostView.swift": {"BiliDanmaku"},
-    "BiliKitMac/Platform/NativeVideoImagePipeline.swift": {"BiliNetworking"},
+    "BiliKitMac/Platform/NativeVideoImagePipeline.swift": {"BiliNetworking", "BiliVideoCollectionUI"},
     "BiliKitMac/Platform/PlaybackPreferencesController.swift": {"AVFoundation"},
-    "BiliKitMac/Platform/PlayerHostView.swift": {"AVKit", "BiliDanmaku", "BiliPlayback"},
+    "BiliKitMac/Platform/PlayerHostView.swift": {"AVKit", "BiliDanmaku", "BiliPlayback", "BiliVideoCollectionUI"},
     "BiliKitMac/Platform/PlayerKeyboardShortcutController.swift": {"BiliPlayback"},
     "BiliKitMac/Platform/PlayerOverlay.swift": {"AVFoundation", "BiliPlayback"},
     "BiliKitMac/Platform/SystemNowPlayingController.swift": {"MediaPlayer"},

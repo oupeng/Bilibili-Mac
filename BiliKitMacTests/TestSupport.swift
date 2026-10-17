@@ -1,11 +1,11 @@
 import AppKit
 import BiliApplication
-import BiliVideoDetailFeature
 import Foundation
 import Observation
 import Testing
 
 @testable import BiliKit
+@testable import BiliVideoDetailFeature
 
 /// App 测试 target 共用的等待、记录替身与视图遍历；各测试文件不再各自复制。
 
