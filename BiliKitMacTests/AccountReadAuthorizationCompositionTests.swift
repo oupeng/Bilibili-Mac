@@ -43,12 +43,12 @@ struct AccountReadAuthorizationCompositionTests {
     @MainActor
     func productionCapabilitiesStayExactAndMinimal() {
         #expect(
-            AppEnvironment.accountSessionValidationAllowedPaths == [
+            LiveAPIClients.accountSessionValidationAllowedPaths == [
                 "/x/web-interface/nav"
             ]
         )
         #expect(
-            AppEnvironment.mainAccountReadAllowedPaths == [
+            LiveAPIClients.mainAccountReadAllowedPaths == [
                 "/x/player/wbi/playurl",
                 "/x/player/wbi/v2",
                 "/x/space/wbi/arc/search",
@@ -65,12 +65,12 @@ struct AccountReadAuthorizationCompositionTests {
             ]
         )
         #expect(
-            AppEnvironment.cdnBenchmarkAccountReadAllowedPaths == [
+            LiveAPIClients.cdnBenchmarkAccountReadAllowedPaths == [
                 "/x/player/wbi/playurl",
                 "/x/web-interface/wbi/view"
             ]
         )
-        #expect(AppEnvironment.watchProgressAccountReadAllowedPaths == nil)
+        #expect(LiveAPIClients.watchProgressAccountReadAllowedPaths == nil)
     }
 
     /// allowlist 由 endpoint 导出的常量组成：常量改了 path，上面的字面量集合与这里一起报警。
@@ -102,9 +102,9 @@ struct AccountReadAuthorizationCompositionTests {
     func everyProductionReadPathCanAuthorizeAnExactGet() async throws {
         let credential = try makeCompositionFixtureCredential()
         let configuredCapabilities = [
-            AppEnvironment.accountSessionValidationAllowedPaths,
-            AppEnvironment.mainAccountReadAllowedPaths,
-            AppEnvironment.cdnBenchmarkAccountReadAllowedPaths
+            LiveAPIClients.accountSessionValidationAllowedPaths,
+            LiveAPIClients.mainAccountReadAllowedPaths,
+            LiveAPIClients.cdnBenchmarkAccountReadAllowedPaths
         ]
 
         for allowedPaths in configuredCapabilities {

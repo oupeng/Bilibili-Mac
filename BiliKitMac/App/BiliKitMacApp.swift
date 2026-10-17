@@ -9,41 +9,20 @@ import SwiftUI
 
 @main
 struct BiliKitMacApp: App {
-    @StateObject private var updater = AppUpdater()
-    @State private var accountSessionCoordinator: AccountSessionCoordinator
-    @State private var systemNowPlayingController = SystemNowPlayingController()
-    @State private var appSettingsModel: AppSettingsModel
-    @State private var searchHistoryStore = SearchHistoryStore()
-
-    init() {
-        let accountSessionCoordinator = AccountSessionCoordinator()
-        AppEnvironment.prepareLiveWatchProgressRepository(
-            accountSessionCoordinator: accountSessionCoordinator
-        )
-        _accountSessionCoordinator = State(initialValue: accountSessionCoordinator)
-        _appSettingsModel = State(
-            initialValue: AppEnvironment.liveAppSettingsModel(
-                accountSessionCoordinator: accountSessionCoordinator
-            )
-        )
-    }
+    /// 进程级组装只构造一次；每个窗口由 `AppRootView` 从它组装自己的对象图。
+    @State private var process = ProcessComposition.live()
 
     var body: some Scene {
         WindowGroup {
-            AppRootView(
-                accountSessionCoordinator: accountSessionCoordinator,
-                systemNowPlayingController: systemNowPlayingController,
-                appSettingsModel: appSettingsModel,
-                searchHistoryStore: searchHistoryStore
-            )
+            AppRootView(process: process)
         }
         .defaultSize(width: 1_320, height: 820)
         .commands {
-            AppUpdateCommands(updater: updater)
+            AppUpdateCommands(updater: process.updater)
         }
 
         Settings {
-            PlaybackSourceSettingsView(model: appSettingsModel)
+            PlaybackSourceSettingsView(model: process.settings)
         }
     }
 }

@@ -24,26 +24,16 @@ struct AppRootView: View {
     private let appSettingsModel: AppSettingsModel?
     private let searchHistoryStore: SearchHistoryStore?
     @State private var isAuthenticationPresented = false
-    init(
-        environment: AppEnvironment? = nil,
-        accountSessionCoordinator: AccountSessionCoordinator = AccountSessionCoordinator(),
-        systemNowPlayingController: SystemNowPlayingController? = nil,
-        appSettingsModel: AppSettingsModel? = nil,
-        searchHistoryStore: SearchHistoryStore? = nil
-    ) {
-        self.accountSessionCoordinator = accountSessionCoordinator
-        self.appSettingsModel = appSettingsModel
-        self.searchHistoryStore = searchHistoryStore
+    init(process: ProcessComposition) {
+        accountSessionCoordinator = process.accountSession
+        appSettingsModel = process.settings
+        searchHistoryStore = process.searchHistory
         _windowOwnerHolder = StateObject(
             wrappedValue: AppWindowOwnerHolder(
                 AppWindowOwner(
-                    environment: environment
-                        ?? .live(
-                            accountSessionCoordinator: accountSessionCoordinator,
-                            appSettingsModel: appSettingsModel
-                        ),
-                    systemNowPlayingController: systemNowPlayingController,
-                    recordSearchHistory: { searchHistoryStore?.record($0) }
+                    environment: .live(process: process),
+                    systemNowPlayingController: process.nowPlaying,
+                    recordSearchHistory: process.searchHistory.record
                 )
             )
         )
@@ -347,8 +337,4 @@ private final class AppWindowOwnerHolder: ObservableObject {
     init(_ owner: AppWindowOwner) {
         self.owner = owner
     }
-}
-
-#Preview {
-    AppRootView()
 }

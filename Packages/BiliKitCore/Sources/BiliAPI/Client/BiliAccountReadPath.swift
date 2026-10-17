@@ -1,5 +1,5 @@
 /// 可能按账户读取的 endpoint path；`BiliAPIClient` 的 endpoint 扩展用它构造请求，App Composition 用它声明
-/// 授权器的 allowlist（`AppEnvironment` 的各组 path 集合）。
+/// 授权器的 allowlist（`LiveAPIClients` 的各组 path 集合）。
 ///
 /// 只收录会以 `RequestAccess.accountRead` 发出的读取：endpoint 与 allowlist 引用同一个常量，改 path 时两处一起
 /// 变，不会出现请求换了 path 而 allowlist 仍放行旧 path（或漏放新 path 而稳定失败）。哪些 path 进入哪组

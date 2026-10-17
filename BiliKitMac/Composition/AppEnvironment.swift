@@ -36,7 +36,7 @@ struct AppEnvironment {
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentLinkRouter: CommentLinkRouter
     private let historyRepository: any WatchHistoryRepository
-    private let watchProgressRepository: (any WatchProgressRepository)?
+    private let watchProgressRepository: any WatchProgressRepository
     private let danmakuSession: DanmakuSession
     private let danmakuController: DanmakuPresentationController
     private let danmakuRenderer: CoreAnimationDanmakuRenderer
@@ -60,7 +60,7 @@ struct AppEnvironment {
         commentAssetURLResolver: @escaping CommentAssetURLResolver,
         commentLinkRouter: @escaping CommentLinkRouter,
         historyRepository: any WatchHistoryRepository,
-        watchProgressRepository: (any WatchProgressRepository)?,
+        watchProgressRepository: any WatchProgressRepository,
         danmakuRepository: any DanmakuSegmentRepository,
         playerEngine: AVPlayerEngine,
         subtitleAuthenticationInvalidations: SubtitleAuthenticationInvalidationRelay,
@@ -255,60 +255,8 @@ struct AppEnvironment {
 
     func makeWatchProgressConnection(
         videoModel: VideoViewModel
-    ) -> WatchProgressWindowConnection? {
-        watchProgressRepository.map {
-            .live(repository: $0, timeline: playerEngine, videoModel: videoModel)
-        }
-    }
-
-    static func liveAppSettingsModel(
-        accountSessionCoordinator: AccountSessionCoordinator
-    ) -> AppSettingsModel {
-        let api = makeLiveAPIClient(
-            accountReadAllowedPaths: cdnBenchmarkAccountReadAllowedPaths
-        )
-        _ = accountSessionCoordinator.registerSessionInvalidator(api)
-        let discoverer = CDNBenchmarkSampleDiscoverer(client: api)
-        let benchmark = BilivideoRouteBenchmark()
-        return AppSettingsModel(
-            store: UserDefaultsPlaybackSourcePreferenceStore(),
-            benchmarkAccess: .resolving,
-            discover: { targetCount in
-                do {
-                    return try await discoverer.discover(targetCount: targetCount).map {
-                        PlaybackRouteBenchmarkSample(
-                            template: $0.videoRepresentation,
-                            headers: $0.mediaHeaders
-                        )
-                    }
-                } catch {
-                    throw PlaybackRouteBenchmarkOperationError.mappingDiscoveryError(error)
-                }
-            },
-            resetDiscovery: { await discoverer.resetSeenSamples() },
-            run: { samples, progress in
-                try await benchmark.benchmarkUnifiedPool(
-                    samples: samples,
-                    progress: progress
-                )
-            }
-        )
-    }
-
-    /// 在 App Composition 初始化期间安装唯一进程 writer；窗口 View 构造只读取结果。
-    static func prepareLiveWatchProgressRepository(
-        accountSessionCoordinator: AccountSessionCoordinator
-    ) {
-        _ = accountSessionCoordinator.resolveWatchProgressRepository {
-            let writeAPI = makeLiveAPIClient(
-                accountReadAllowedPaths: watchProgressAccountReadAllowedPaths,
-                historyWriteEnabled: true
-            )
-            return (
-                BiliWatchProgressRepository(client: writeAPI),
-                writeAPI
-            )
-        }
+    ) -> WatchProgressWindowConnection {
+        .live(repository: watchProgressRepository, timeline: playerEngine, videoModel: videoModel)
     }
 
     /// 创建生产对象图，并保持游客、媒体与字幕正文请求不自动继承登录 Cookie。
@@ -316,13 +264,11 @@ struct AppEnvironment {
     /// 只有 BiliAPI 私有标记的账户读取才经过 authorizer；公开 Browse、Search、评论、
     /// playurl 与 WBI 弹幕分段在明确无本地凭据时仍请求同一个 endpoint。登出还会替换 API 的
     /// ephemeral transport，使旧认证会话中的在途请求失效。
-    static func live(
-        accountSessionCoordinator: AccountSessionCoordinator,
-        appSettingsModel: AppSettingsModel? = nil
-    ) -> AppEnvironment {
+    static func live(process: ProcessComposition) -> AppEnvironment {
+        let accountSessionCoordinator = process.accountSession
+        let appSettingsModel = process.settings
         let signedOutConfirmation = AccountSignedOutConfirmation()
-        let api = makeLiveAPIClient(
-            accountReadAllowedPaths: mainAccountReadAllowedPaths,
+        let api = LiveAPIClients.main(
             isConfirmedSignedOut: { signedOutConfirmation.isConfirmed }
         )
         let sessionRegistration = AppEnvironmentSessionRegistration(
@@ -330,7 +276,7 @@ struct AppEnvironment {
             invalidator: api
         )
         let authenticationService = BiliAuthenticationService(
-            accountReadAllowedPaths: accountSessionValidationAllowedPaths,
+            accountReadAllowedPaths: LiveAPIClients.accountSessionValidationAllowedPaths,
             additionalSessionInvalidators: [accountSessionCoordinator]
         )
         let player = AVPlayer()
@@ -346,12 +292,12 @@ struct AppEnvironment {
                 reportAuthenticationInvalidation: subtitleAuthenticationInvalidations.report
             ),
             sourcePreferenceProvider: {
-                appSettingsModel?.playbackSourcePreference ?? .serverDefault
+                appSettingsModel.playbackSourcePreference
             },
             loudnessNormalizationEnabledProvider: {
                 // 与设置界面、播放侧同一门槛（macOS 27 起）；更早系统上旧偏好不生效。
                 LoudnessNormalizationPolicy.isSupported
-                    && (appSettingsModel?.loudnessNormalizationEnabled ?? false)
+                    && appSettingsModel.loudnessNormalizationEnabled
             }
         )
         let contentRepository = BiliContentRepository(client: api)
@@ -374,7 +320,7 @@ struct AppEnvironment {
             },
             commentLinkRouter: commentLinkRouting.route(for:),
             historyRepository: BiliWatchHistoryRepository(client: api),
-            watchProgressRepository: accountSessionCoordinator.watchProgressRepository,
+            watchProgressRepository: process.watchProgressRepository,
             danmakuRepository: BiliDanmakuRepository(client: api),
             playerEngine: playerEngine,
             subtitleAuthenticationInvalidations: subtitleAuthenticationInvalidations,
@@ -397,60 +343,6 @@ struct AppEnvironment {
         surfaceWidth: 0,
         surfaceHeight: 0
     )
-
-    // 三组 allowlist 只引用 endpoint 导出的 path 常量（`BiliAccountReadPath`、会话校验的
-    // `BiliAuthenticationService.sessionValidationPath`），不另写字面量；哪组放行哪些 path 是这里的决定。
-    // 见 SECURITY-MODEL §3。
-    static let accountSessionValidationAllowedPaths: Set<String> = [
-        BiliAuthenticationService.sessionValidationPath
-    ]
-
-    static let mainAccountReadAllowedPaths: Set<String> = [
-        BiliAccountReadPath.playURL,
-        BiliAccountReadPath.subtitleCatalog,
-        BiliAccountReadPath.uploaderVideos,
-        BiliAccountReadPath.danmakuSegment,
-        BiliAccountReadPath.commentReplies,
-        BiliAccountReadPath.rootComments,
-        BiliAccountReadPath.relatedVideos,
-        BiliAccountReadPath.uploaderCard,
-        BiliAccountReadPath.watchHistory,
-        BiliAccountReadPath.popular,
-        BiliAccountReadPath.recommendations,
-        BiliAccountReadPath.videoSearch,
-        BiliAccountReadPath.videoDetail
-    ]
-
-    static let cdnBenchmarkAccountReadAllowedPaths: Set<String> = [
-        BiliAccountReadPath.playURL,
-        BiliAccountReadPath.videoDetail
-    ]
-
-    static let watchProgressAccountReadAllowedPaths: Set<String>? = nil
-
-    /// `isConfirmedSignedOut` 只给窗口主 API：已确认未登录时 Keychain 不可用不影响游客浏览。
-    private static func makeLiveAPIClient(
-        accountReadAllowedPaths: Set<String>?,
-        historyWriteEnabled: Bool = false,
-        isConfirmedSignedOut: @escaping @Sendable () -> Bool = { false }
-    ) -> BiliAPIClient {
-        let requestAuthorizer = accountReadAllowedPaths.map {
-            BiliCredentialRequestAuthorizer(
-                allowedPaths: $0,
-                isConfirmedSignedOut: isConfirmedSignedOut
-            )
-        }
-        let historyWriteAuthorizer: (any HTTPRequestAuthorizing)? =
-            historyWriteEnabled ? BiliPlaybackHeartbeatRequestAuthorizer() : nil
-        let transportFactory: @Sendable () -> any HTTPTransport = {
-            URLSessionTransport(configuration: .credentialFreeEphemeral())
-        }
-        return BiliAPIClient(
-            requestAuthorizer: requestAuthorizer,
-            historyWriteAuthorizer: historyWriteAuthorizer,
-            transportFactory: transportFactory
-        )
-    }
 }
 
 private struct AuthenticationQRCodeProvider: AuthenticationQRCodeProviding {

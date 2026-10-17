@@ -4,7 +4,9 @@ import BiliModels
 import BiliVideoCollectionUI
 import BiliVideoDetailFeature
 import Foundation
+import MediaPlayer
 import Observation
+import Synchronization
 import Testing
 
 @testable import BiliKit
@@ -396,5 +398,131 @@ func makeUploaderSpace(
     UploaderSpaceViewModel(
         useCase: UploaderVideoUseCase(repository: UnavailableUploaderVideoRepository()),
         profileUseCase: UploaderProfileUseCase(repository: profiles)
+    )
+}
+
+/// 系统 Now Playing 信息中心的唯一测试替身：记录发布、状态与清除。
+@MainActor
+final class RecordingNowPlayingCenter: SystemNowPlayingCenterWriting {
+    private(set) var publications: [[String: Any]] = []
+    private(set) var states: [MPNowPlayingPlaybackState] = []
+    private(set) var clearCount = 0
+    var onPublish: (([String: Any]) -> Void)?
+
+    var latestTitle: String? {
+        publications.last?[MPMediaItemPropertyTitle] as? String
+    }
+
+    func publish(info: [String: Any], state: MPNowPlayingPlaybackState) {
+        publications.append(info)
+        states.append(state)
+        onPublish?(info)
+    }
+
+    func clear() {
+        clearCount += 1
+    }
+}
+
+/// 系统远程命令中心的唯一测试替身：记录安装与移除，可代系统触发命令。
+@MainActor
+final class RecordingRemoteCommands: SystemRemoteCommandManaging {
+    private(set) var installationCount = 0
+    private(set) var removalCount = 0
+    private var handler:
+        (
+            @Sendable (SystemNowPlayingCommand) ->
+                SystemNowPlayingCommandResult
+        )?
+
+    func install(
+        handler:
+            @escaping @Sendable (SystemNowPlayingCommand) ->
+            SystemNowPlayingCommandResult
+    ) {
+        guard self.handler == nil else { return }
+        installationCount += 1
+        self.handler = handler
+    }
+
+    func removeHandlers() {
+        guard handler != nil else { return }
+        removalCount += 1
+        handler = nil
+    }
+
+    func invoke(
+        _ command: SystemNowPlayingCommand
+    ) -> SystemNowPlayingCommandResult {
+        handler?(command) ?? .noSuchContent
+    }
+}
+
+/// 线路偏好存储的唯一测试替身：只在内存里保存。
+final class MemoryPlaybackSourcePreferenceStore: PlaybackSourcePreferenceStoring, Sendable {
+    private let record: Mutex<PlaybackSourcePreferenceRecord>
+    init(record: PlaybackSourcePreferenceRecord = .defaults) { self.record = Mutex(record) }
+    func load() -> PlaybackSourcePreferenceRecord { record.withLock { $0 } }
+    func save(_ record: PlaybackSourcePreferenceRecord) { self.record.withLock { $0 = record } }
+}
+
+/// 观看进度 port 的唯一测试替身：`holdsReports` 时上报挂起到 `release()` 为止，否则立即丢弃。
+actor WatchProgressRepositoryStub: WatchProgressRepository {
+    private let holdsReports: Bool
+    private var reportCount = 0
+    private var reportWaiters = CountWaiters()
+    private var held: [CheckedContinuation<Void, Never>] = []
+    private var isReleased = false
+
+    init(holdsReports: Bool) {
+        self.holdsReports = holdsReports
+    }
+
+    func report(_ progress: WatchProgressReport) async {
+        reportCount += 1
+        reportWaiters.resume(reaching: reportCount)
+        guard holdsReports, !isReleased else { return }
+        await withCheckedContinuation { held.append($0) }
+    }
+
+    func waitForReportCount(_ target: Int) async {
+        await withCheckedContinuation {
+            reportWaiters.add($0, until: target, current: reportCount)
+        }
+    }
+
+    func release() {
+        isReleased = true
+        held.resumeAll()
+    }
+}
+
+/// 测试用的进程级组装：与生产同一个类型，换成不碰网络、系统 Now Playing 与真实偏好的替身。
+///
+/// 搜索历史用一次性的 UserDefaults suite，按 `withIsolatedDefaults` 的约定在使用前后清空：构造前清一次，搜索历史
+/// 读完初值后再清一次。经它构造的窗口不写入搜索历史（测试的搜索会话各自注入写入闭包）。
+@MainActor
+func makeTestProcess() -> ProcessComposition {
+    let suiteName = "BiliKitMacTests.process.\(UUID().uuidString)"
+    guard let defaults = UserDefaults(suiteName: suiteName) else {
+        preconditionFailure("无法创建隔离的 UserDefaults suite")
+    }
+    defaults.removePersistentDomain(forName: suiteName)
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    return ProcessComposition(
+        accountSession: AccountSessionCoordinator(),
+        watchProgressRepository: WatchProgressRepositoryStub(holdsReports: false),
+        settings: AppSettingsModel(
+            store: MemoryPlaybackSourcePreferenceStore(),
+            discover: { _ in [] },
+            run: { _, _ in [] }
+        ),
+        nowPlaying: SystemNowPlayingController(
+            center: RecordingNowPlayingCenter(),
+            remoteCommands: RecordingRemoteCommands(),
+            artworkLoader: { _ in nil }
+        ),
+        searchHistory: SearchHistoryStore(defaults: defaults),
+        updater: AppUpdater(info: [:])
     )
 }

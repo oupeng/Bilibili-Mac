@@ -504,61 +504,6 @@ private final class WeakSystemNowPlayingControllerBox {
     }
 }
 
-@MainActor
-private final class RecordingNowPlayingCenter: SystemNowPlayingCenterWriting {
-    private(set) var publications: [[String: Any]] = []
-    private(set) var states: [MPNowPlayingPlaybackState] = []
-    private(set) var clearCount = 0
-    var onPublish: (([String: Any]) -> Void)?
-
-    var latestTitle: String? {
-        publications.last?[MPMediaItemPropertyTitle] as? String
-    }
-
-    func publish(info: [String: Any], state: MPNowPlayingPlaybackState) {
-        publications.append(info)
-        states.append(state)
-        onPublish?(info)
-    }
-
-    func clear() {
-        clearCount += 1
-    }
-}
-
-@MainActor
-private final class RecordingRemoteCommands: SystemRemoteCommandManaging {
-    private(set) var installationCount = 0
-    private(set) var removalCount = 0
-    private var handler:
-        (
-            @Sendable (SystemNowPlayingCommand) ->
-                SystemNowPlayingCommandResult
-        )?
-
-    func install(
-        handler:
-            @escaping @Sendable (SystemNowPlayingCommand) ->
-            SystemNowPlayingCommandResult
-    ) {
-        guard self.handler == nil else { return }
-        installationCount += 1
-        self.handler = handler
-    }
-
-    func removeHandlers() {
-        guard handler != nil else { return }
-        removalCount += 1
-        handler = nil
-    }
-
-    func invoke(
-        _ command: SystemNowPlayingCommand
-    ) -> SystemNowPlayingCommandResult {
-        handler?(command) ?? .noSuchContent
-    }
-}
-
 private actor ControlledArtworkLoader {
     private var continuations: [URL: CheckedContinuation<CGImage?, Never>] = [:]
     private var completed: [URL: CGImage] = [:]

@@ -401,13 +401,6 @@ enum SettingsBenchmarkFailureFixture: CaseIterable, Sendable {
     }
 }
 
-private final class MemoryPlaybackSourcePreferenceStore: PlaybackSourcePreferenceStoring, Sendable {
-    private let record: Mutex<PlaybackSourcePreferenceRecord>
-    init(record: PlaybackSourcePreferenceRecord = .defaults) { self.record = Mutex(record) }
-    func load() -> PlaybackSourcePreferenceRecord { record.withLock { $0 } }
-    func save(_ record: PlaybackSourcePreferenceRecord) { self.record.withLock { $0 = record } }
-}
-
 private actor ResetGate {
     let entered = TestEventCounter()
     private var continuation: CheckedContinuation<Void, Never>?

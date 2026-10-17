@@ -13,9 +13,7 @@ struct BiliKitMacTests {
         var owner: AppWindowOwner?
 
         do {
-            let environment = AppEnvironment.live(
-                accountSessionCoordinator: AccountSessionCoordinator()
-            )
+            let environment = AppEnvironment.live(process: makeTestProcess())
             weakController = environment.playbackPreferencesController
             owner = AppWindowOwner(environment: environment, recordSearchHistory: { _ in })
         }
@@ -31,9 +29,7 @@ struct BiliKitMacTests {
     @MainActor
     func windowOwnerClosureIsIrreversible() {
         let owner = AppWindowOwner(
-            environment: AppEnvironment.live(
-                accountSessionCoordinator: AccountSessionCoordinator()
-            ),
+            environment: AppEnvironment.live(process: makeTestProcess()),
             recordSearchHistory: { _ in }
         )
         #expect(!owner.isClosed)
@@ -109,27 +105,50 @@ struct BiliKitMacTests {
         )
     }
 
+    /// 进程唯一的观看进度 writer 与它的 transport 都登记进账户会话：登出、换号与凭据失效时，transport 失效，
+    /// writer 里属于旧会话的在途上报以取消结束，不算成功。
     @Test
     @MainActor
-    func accountCoordinatorOwnsOneProcessWatchProgressWriter() async {
-        let coordinator = AccountSessionCoordinator()
-        let base = EmptyWatchProgressRepository()
+    func processWatchProgressWriterIsInvalidatedWithTheAccountSession() async throws {
+        let accountSession = AccountSessionCoordinator()
+        let base = WatchProgressRepositoryStub(holdsReports: true)
         let transport = RecordingSessionInvalidator()
-        var factoryCount = 0
+        let writer = ProcessComposition.installWatchProgressWriter(
+            base: base,
+            transport: transport,
+            accountSession: accountSession
+        )
+        let report = try makeWatchProgressReport()
+        let reporting = Task { try await writer.report(report) }
+        await base.waitForReportCount(1)
 
-        for _ in 0..<2 {
-            _ = coordinator.resolveWatchProgressRepository {
-                factoryCount += 1
-                return (base, transport)
-            }
-        }
-        #expect(factoryCount == 1)
+        await accountSession.invalidateAuthenticatedSession()
+        await base.release()
 
-        await coordinator.invalidateAuthenticatedSession()
+        await #expect(throws: CancellationError.self) { try await reporting.value }
         #expect(await transport.invalidationCount == 1)
     }
 }
 
-private actor EmptyWatchProgressRepository: WatchProgressRepository {
-    func report(_ progress: WatchProgressReport) {}
+private func makeWatchProgressReport() throws -> WatchProgressReport {
+    let identity = PlaybackItemIdentity(bvid: "BV1WRITERFIXTURE", cid: 22)
+    let target = try #require(
+        WatchProgressTarget(aid: 11, identity: identity, loadIntent: PlaybackLoadIntent())
+    )
+    return try #require(
+        WatchProgressReport(
+            target: target,
+            event: .ended,
+            sessionStartTimestamp: 1_777_777_700,
+            sessionID: "0123456789abcdef0123456789abcdef",
+            generation: 1,
+            sequence: 1,
+            positionSeconds: 18,
+            maximumPositionSeconds: 18,
+            durationSeconds: 120,
+            elapsedSeconds: 18,
+            playedSeconds: 18,
+            completed: false
+        )
+    )
 }

@@ -94,6 +94,15 @@ BiliNetworking 不依赖任何 Bili 模块
 
 ## 关键决策
 
+### 组装分层
+
+- 进程级 `ProcessComposition`（`Composition/`，`BiliKitMacApp` 持有唯一一份，随进程存活、不关闭）：账户会话
+  协调器、进程唯一的观看进度 writer（构造时就登记进账户会话，与它的 transport 一起随登出、换号与凭据失效
+  失效）、设置与线路测速（测速用自己的 API client，同样登记进账户会话）、系统 Now Playing、本机搜索历史与更新器。
+  生产 `BiliAPIClient` 只由 `LiveAPIClients` 构造，账户读取 allowlist 也只在那里声明。
+- 窗口级：每个窗口由 `AppRootView` 从进程组装构造一次对象图（`AppEnvironment.live(process:)` 建窗口的
+  adapter，`AppWindowOwner` 持有模型与窗口生命周期），只引用进程级对象，不替它们创建或关闭。
+
 ### 播放：DASH→HLS loopback bridge
 
 `AVAssetResourceLoaderDelegate` 可以提供 playlist，但由它返回 fMP4 媒体分段时 `AVPlayerItem` 以
@@ -327,7 +336,7 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   搜索框后提交，历史在 `VideoSearchSession.submit()` 里统一写入。草稿、排序与筛选、已提交的条件都在每个窗口
   一份的 `VideoSearchSession`（Browse），清空草稿即撤回提交、回到起始页；工具栏搜索框与筛选控件的宿主在 App，
   只绑定会话状态。
-- 搜索历史由 App 的进程级 `SearchHistoryStore` 持有（`BiliKitMacApp` 创建，所有窗口共享），Feature
+- 搜索历史由 App 的进程级 `SearchHistoryStore` 持有（`ProcessComposition` 创建，所有窗口共享），Feature
   只经 `SearchStartPageContext` 接收读取闭包与删除、清除回调；读取闭包只在起始页里求值，历史变化不让搜索页
   其余部分与工具栏重算。写入经 `VideoSearchSession` 在每次提交时调用注入的写入闭包。持久化规则见
   `SECURITY-MODEL.md` §6。

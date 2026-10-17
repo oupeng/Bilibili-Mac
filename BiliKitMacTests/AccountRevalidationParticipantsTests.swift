@@ -64,9 +64,7 @@ struct AccountRevalidationParticipantsTests {
     @Test
     func windowOwnerRegistersEveryParticipant() throws {
         let owner = AppWindowOwner(
-            environment: AppEnvironment.live(
-                accountSessionCoordinator: AccountSessionCoordinator()
-            ),
+            environment: AppEnvironment.live(process: makeTestProcess()),
             recordSearchHistory: { _ in }
         )
         let expected: [(AnyObject, AppTab?)] = [

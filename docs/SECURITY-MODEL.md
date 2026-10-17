@@ -56,7 +56,7 @@
 **账户读取**（`BiliCredentialRequestAuthorizer`）
 
 - 只允许 `https://api.bilibili.com`、端口缺省或 443、GET、无 userinfo／fragment、路径编码规范，
-  且 path 在 `AppEnvironment` 声明的 allowlist 内（主客户端、测速客户端、会话校验各一组）。allowlist 只引用
+  且 path 在 `LiveAPIClients`（Composition）声明的 allowlist 内（主客户端、测速客户端、会话校验各一组）。allowlist 只引用
   endpoint 导出的 path 常量：BiliAPI 的 `BiliAccountReadPath`（endpoint 扩展构造请求用的同一个常量），会话校验为
   BiliAuth 的 `BiliAuthenticationService.sessionValidationPath`；WBI nav 与它同 path 但永远匿名，在 BiliAPI 另有一份。
 - 调用方已带 `Cookie`、`Authorization` 或 `X-CSRF-Token` 时拒绝；每次授权生成新请求，不缓存 header。
