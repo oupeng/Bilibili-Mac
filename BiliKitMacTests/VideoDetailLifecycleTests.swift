@@ -131,7 +131,7 @@ struct VideoDetailLifecycleTests {
         let repository = LifecycleVideoRepository(fixtures: [fixture])
         let playback = LifecyclePlayback()
         let browseModel = BrowseViewModel(
-            useCase: FeedUseCase(repository: EmptyLifecycleFeedRepository())
+            useCase: FeedUseCase(repository: EmptyFeedRepository())
         )
         let videoModel = VideoViewModel(
             useCase: VideoUseCase(repository: repository),
@@ -150,7 +150,7 @@ struct VideoDetailLifecycleTests {
         )
         let historyModel = WatchHistoryViewModel(
             useCase: WatchHistoryUseCase(
-                repository: EmptyLifecycleHistoryRepository()
+                repository: WatchHistoryRepositoryStub()
             )
         )
         let coordinator = AppNavigationCoordinator(
@@ -307,7 +307,7 @@ struct VideoDetailLifecycleTests {
             rootView: AppRootView(
                 navigationCoordinator: coordinator,
                 browseModel: BrowseViewModel(
-                    useCase: FeedUseCase(repository: EmptyLifecycleFeedRepository())
+                    useCase: FeedUseCase(repository: EmptyFeedRepository())
                 ),
                 videoModel: videoModel,
                 commentsModel: commentsModel,
@@ -315,7 +315,7 @@ struct VideoDetailLifecycleTests {
                 authenticationModel: authenticationModel,
                 historyModel: WatchHistoryViewModel(
                     useCase: WatchHistoryUseCase(
-                        repository: EmptyLifecycleHistoryRepository()
+                        repository: WatchHistoryRepositoryStub()
                     )
                 ),
                 playerContent: AnyView(EmptyView())
@@ -636,7 +636,7 @@ struct VideoDetailLifecycleTests {
             rootView: AppRootView(
                 navigationCoordinator: coordinator,
                 browseModel: BrowseViewModel(
-                    useCase: FeedUseCase(repository: EmptyLifecycleFeedRepository())
+                    useCase: FeedUseCase(repository: EmptyFeedRepository())
                 ),
                 videoModel: videoModel,
                 commentsModel: commentsModel,
@@ -647,7 +647,7 @@ struct VideoDetailLifecycleTests {
                 ),
                 historyModel: WatchHistoryViewModel(
                     useCase: WatchHistoryUseCase(
-                        repository: EmptyLifecycleHistoryRepository()
+                        repository: WatchHistoryRepositoryStub()
                     )
                 ),
                 playerContent: AnyView(EmptyView())
@@ -799,29 +799,6 @@ private actor LifecycleVideoRepository: VideoRepository {
     func playback(for bvid: String, cid: Int64) async throws -> VideoPlayback {
         playbackCIDs.append(cid)
         return try playbackResponse(bvid, cid)
-    }
-}
-
-/// App 根视图会激活浏览页；本文件只验证播放生命周期，因此 Feed 恒为空。
-private struct EmptyLifecycleFeedRepository: FeedRepository {
-    func recommendations(
-        after continuation: RecommendationContinuation?
-    ) async throws -> RecommendationPage {
-        throw ContentApplicationError.unavailable
-    }
-
-    func popular(page: Int, pageSize: Int) async throws -> PopularPage {
-        PopularPage(videos: [], pageNumber: page, pageSize: pageSize)
-    }
-
-    func searchVideos(request: VideoSearchRequest) async throws -> SearchPage {
-        SearchPage(
-            videos: [],
-            pageNumber: request.page,
-            pageSize: 20,
-            totalResults: 0,
-            totalPages: 0
-        )
     }
 }
 
@@ -1173,13 +1150,4 @@ private final class WatchProgressConnectionProbe {
 
 private struct LifecycleQRCodeProvider: AuthenticationQRCodeProviding {
     func makeQRCodeImage(scale: Int) async throws -> CGImage? { nil }
-}
-
-private struct EmptyLifecycleHistoryRepository: WatchHistoryRepository {
-    func watchHistory(
-        after continuation: WatchHistoryContinuation?,
-        pageSize: Int
-    ) async throws -> WatchHistoryPage {
-        WatchHistoryPage(items: [], continuation: nil)
-    }
 }

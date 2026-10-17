@@ -91,20 +91,7 @@ struct AppNavigationCoordinatorTests {
         #expect(AccountSessionScope.isResolvedChange(from: secondScope, to: signedOut))
     }
 
-    @Test
-    func onlyLeavingHistorySourceDeactivatesItsRequests() {
-        #expect(
-            !HistoryRouteOwnership.deactivatesHistory(from: .history, to: .history)
-        )
-        #expect(
-            HistoryRouteOwnership.deactivatesHistory(from: .history, to: .popular)
-        )
-        #expect(
-            !HistoryRouteOwnership.deactivatesHistory(from: .popular, to: .history)
-        )
-    }
-
-    @Test(arguments: [AppTab.search, .home, .popular, .history])
+    @Test(arguments: AppTab.allCases)
     @MainActor
     func nativeBackReturnsEachSourceInOnePop(source: AppTab) {
         var stopCount = 0

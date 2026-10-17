@@ -1,5 +1,6 @@
 import AppKit
 import BiliApplication
+import BiliModels
 import BiliVideoCollectionUI
 import BiliVideoDetailFeature
 import Foundation
@@ -132,4 +133,42 @@ struct NoImageCardLoader: NativeVideoImageLoading {
     func cachedImage(for url: URL, kind: NativeVideoCardImageKind) -> CGImage? { nil }
 
     func image(for url: URL, kind: NativeVideoCardImageKind) async -> NativeVideoCardImage? { nil }
+}
+
+/// Feed port 的唯一测试替身：推荐不可用，热门与搜索恒为空页。
+///
+/// App 根视图会激活浏览页，这里给不验证 Feed 的测试一个不依赖网络的来源。
+struct EmptyFeedRepository: FeedRepository {
+    func recommendations(
+        after continuation: RecommendationContinuation?
+    ) async throws -> RecommendationPage {
+        throw ContentApplicationError.unavailable
+    }
+
+    func popular(page: Int, pageSize: Int) async throws -> PopularPage {
+        PopularPage(videos: [], pageNumber: page, pageSize: pageSize)
+    }
+
+    func searchVideos(request: VideoSearchRequest) async throws -> SearchPage {
+        SearchPage(
+            videos: [],
+            pageNumber: request.page,
+            pageSize: 20,
+            totalResults: 0,
+            totalPages: 0
+        )
+    }
+}
+
+/// 观看历史 port 的唯一测试替身：给了 `error` 时每次读取都失败，否则返回空页。
+struct WatchHistoryRepositoryStub: WatchHistoryRepository {
+    var error: ContentApplicationError?
+
+    func watchHistory(
+        after continuation: WatchHistoryContinuation?,
+        pageSize: Int
+    ) async throws -> WatchHistoryPage {
+        if let error { throw error }
+        return WatchHistoryPage(items: [], continuation: nil)
+    }
 }

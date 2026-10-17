@@ -8,6 +8,7 @@ import SwiftUI
 /// 首页推荐来源的 App 接线：呈现与原生网格在 Browse 的 `RecommendedFeedView`，这里只转交窗口级网格依赖
 /// （`AppShellView` 构造的 `NativeVideoGridHostContext`）和标题。
 struct RecommendedTabRoot: View {
+    let title: LocalizedStringResource
     let model: BrowseViewModel
     let gridHost: NativeVideoGridHostContext
     let onSelect: (String) -> Void
@@ -18,12 +19,13 @@ struct RecommendedTabRoot: View {
             gridHost: gridHost,
             onSelect: onSelect
         )
-        .navigationTitle("首页")
+        .navigationTitle(Text(title))
     }
 }
 
 /// 热门来源的 App 接线：呈现与原生网格在 Browse 的 `PopularFeedView`，这里只转交窗口级网格依赖和标题。
 struct PopularTabRoot: View {
+    let title: LocalizedStringResource
     let model: BrowseViewModel
     let gridHost: NativeVideoGridHostContext
     let onSelect: (String) -> Void
@@ -34,13 +36,14 @@ struct PopularTabRoot: View {
             gridHost: gridHost,
             onSelect: onSelect
         )
-        .navigationTitle("热门")
+        .navigationTitle(Text(title))
     }
 }
 
 /// 搜索来源的 App 接线：起始页、结果呈现与原生网格在 Browse 的 `VideoSearchView`；这里转交窗口级网格依赖，
 /// 用热搜模型、窗口图片管线（实现热搜图标 port）与进程级搜索历史构造起始页输入，并拥有工具栏搜索框与筛选控件。
 struct SearchTabRoot: View {
+    let title: LocalizedStringResource
     @Binding var filterSelection: SearchFilterSelection
     let model: BrowseViewModel
     @Binding var searchDraft: String
@@ -67,7 +70,7 @@ struct SearchTabRoot: View {
             onSelect: onSelect,
             onClearFilters: onClearFilters
         )
-        .navigationTitle("搜索")
+        .navigationTitle(Text(title))
         .toolbar(removing: .title)
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -115,6 +118,7 @@ struct SearchTabRoot: View {
 /// 观看历史来源的 App 接线：登录门槛、刷新、加载语义与原生网格在 Library 的 `WatchHistoryView`，这里只转交
 /// 账户呈现状态、窗口级网格依赖、标题与打开登录页的动作。
 struct HistoryTabRoot: View {
+    let title: LocalizedStringResource
     let model: WatchHistoryViewModel
     let accountState: AccountPresentationState
     let gridHost: NativeVideoGridHostContext
@@ -129,6 +133,6 @@ struct HistoryTabRoot: View {
             onSelect: onSelect,
             onPresentAuthentication: onPresentAuthentication
         )
-        .navigationTitle("观看历史")
+        .navigationTitle(Text(title))
     }
 }

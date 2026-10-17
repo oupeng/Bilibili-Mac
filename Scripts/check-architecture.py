@@ -93,6 +93,10 @@ SCOPES = {
         FEATURES | {"SwiftUI", "Observation", "Combine"},
         "App 壳只组织 Feature 视图，不直接依赖 adapter 或平台框架；Application 只在 EXTRA_ALLOWED 登记的搜索条件或账户投影的使用点",
     ),
+    "BiliKitMac/Navigation": (
+        FEATURES | {"BiliApplication", "Observation"},
+        "Navigation 是窗口内的导航协调与来源描述，只组织 Feature 模型与账户投影，不依赖 adapter、界面或平台框架",
+    ),
     "BiliKitMac/Composition": (
         FEATURES | ADAPTERS | {
             "BiliModels", "BiliApplication", "SwiftUI", "Observation", "AppKit", "AVFoundation", "CoreGraphics",

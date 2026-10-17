@@ -2,9 +2,10 @@ import BiliApplication
 import BiliAuthFeature
 import SwiftUI
 
-/// 使用系统 Sidebar List 表达窗口内当前可用的平级来源。
+/// 使用系统 Sidebar List 表达窗口内当前可用的平级来源；行按 `AppSources` 的顺序与描述渲染。
 struct AppNavigationSidebar: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let sources: [AppSourceDescriptor]
     @Binding var selection: AppTab
     let accountState: AccountPresentationState
     let onPresentAuthentication: () -> Void
@@ -18,17 +19,14 @@ struct AppNavigationSidebar: View {
 
     private var navigationList: some View {
         List(selection: selectionBinding) {
-            Label("搜索", systemImage: "magnifyingglass")
-                .tag(AppTab.search)
-
-            Label("首页", systemImage: "house")
-                .tag(AppTab.home)
-
-            Label("热门", systemImage: "flame")
-                .tag(AppTab.popular)
-
-            Label("观看历史", systemImage: "clock.arrow.circlepath")
-                .tag(AppTab.history)
+            ForEach(sources) { source in
+                Label {
+                    Text(source.title)
+                } icon: {
+                    Image(systemName: source.systemImage)
+                }
+                .tag(source.id)
+            }
         }
         .listStyle(.sidebar)
     }

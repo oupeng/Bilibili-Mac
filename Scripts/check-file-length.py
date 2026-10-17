@@ -14,7 +14,7 @@ LIMIT = 800
 GENERATED_SUFFIX = ".pb.swift"
 
 OVERSIZED = {
-    "BiliKitMacTests/VideoDetailLifecycleTests.swift": 1185,
+    "BiliKitMacTests/VideoDetailLifecycleTests.swift": 1153,
     "Packages/BiliKitCore/Tests/BiliAPITests/BiliAPIClientTests.swift": 2166,
     "Packages/BiliKitCore/Tests/BiliAPITests/CommentAPIClientTests.swift": 946,
     "Packages/BiliKitCore/Tests/BiliDanmakuTests/DanmakuPresentationControllerTests.swift": 1023,

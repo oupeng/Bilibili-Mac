@@ -22,6 +22,8 @@ final class AppWindowOwner {
     let uploaderSpaceModel: UploaderSpaceViewModel?
     let trendingSearchModel: TrendingSearchViewModel?
     let searchSuggestionSource: SearchSuggestionSource?
+    /// 侧栏来源的描述，按侧栏顺序；与上面的模型同代构造一次。
+    let sources: AppSources
     let playerContent: AnyView
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentLinkRouter: CommentLinkRouter
@@ -206,6 +208,11 @@ final class AppWindowOwner {
         self.uploaderSpaceModel = uploaderSpaceModel
         self.trendingSearchModel = trendingSearchModel
         self.searchSuggestionSource = searchSuggestionSource
+        sources = AppSources(
+            browseModel: browseModel,
+            historyModel: historyModel,
+            trendingSearchModel: trendingSearchModel
+        )
         self.playerContent = playerContent
         self.commentAssetURLResolver = commentAssetURLResolver
         self.commentLinkRouter = commentLinkRouter

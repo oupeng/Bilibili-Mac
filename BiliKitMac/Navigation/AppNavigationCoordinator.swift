@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 
+/// 侧栏的平级来源，也是来源描述（`AppSourceDescriptor`）的 id；case 的声明顺序就是侧栏顺序。
 enum AppTab: Hashable, CaseIterable {
     case search
     case home

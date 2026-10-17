@@ -13,6 +13,7 @@ import SwiftUI
 struct AppShellView: View {
     @Environment(\.openURL) private var openURL
     let navigationCoordinator: AppNavigationCoordinator
+    let sources: AppSources
     let browseModel: BrowseViewModel
     let videoModel: VideoViewModel
     let commentsModel: PlaybackCommentsViewModel?
@@ -55,6 +56,7 @@ struct AppShellView: View {
                         playbackSidebar
                     } else {
                         AppNavigationSidebar(
+                            sources: sources.ordered,
                             selection: $navigationCoordinator.selectedTab,
                             accountState: authenticationModel.accountPresentationState,
                             onPresentAuthentication: {
@@ -189,14 +191,12 @@ struct AppShellView: View {
         authenticationModel.sessionScope
     }
 
-    /// 各来源最近一次刷新成功的代次；某来源前进时只把它自己的网格滚回顶部。
+    /// 各来源内容整体替换的代次（语义见 `AppSourceDescriptor.refreshGeneration`）；某来源前进时只把它自己的网格
+    /// 滚回顶部。
     private var successfulRefreshGenerations: [AppTab: UInt64] {
-        [
-            .home: browseModel.successfulRefreshGeneration(for: .recommendation),
-            .popular: browseModel.successfulRefreshGeneration(for: .popular),
-            .search: browseModel.successfulRefreshGeneration(for: .search),
-            .history: historyModel.successfulReloadGeneration
-        ]
+        Dictionary(
+            uniqueKeysWithValues: sources.ordered.map { ($0.id, $0.refreshGeneration()) }
+        )
     }
 
     /// 某个来源网格的窗口级依赖：本视图持有的滚动位置与回顶请求，加上窗口图片管线。
@@ -342,12 +342,14 @@ struct AppShellView: View {
         switch navigationCoordinator.selectedTab {
         case .home:
             RecommendedTabRoot(
+                title: sources[.home].title,
                 model: browseModel,
                 gridHost: gridHost(.home),
                 onSelect: navigationCoordinator.openPlayback
             )
         case .search:
             SearchTabRoot(
+                title: sources[.search].title,
                 filterSelection: $searchFilterSelection,
                 model: browseModel,
                 searchDraft: Binding(
@@ -369,12 +371,14 @@ struct AppShellView: View {
             )
         case .popular:
             PopularTabRoot(
+                title: sources[.popular].title,
                 model: browseModel,
                 gridHost: gridHost(.popular),
                 onSelect: navigationCoordinator.openPlayback
             )
         case .history:
             HistoryTabRoot(
+                title: sources[.history].title,
                 model: historyModel,
                 accountState: authenticationModel.accountPresentationState,
                 gridHost: gridHost(.history),

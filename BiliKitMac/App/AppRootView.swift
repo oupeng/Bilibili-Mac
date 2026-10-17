@@ -13,15 +13,9 @@ import BiliVideoDetailFeature
 import Combine
 import SwiftUI
 
-enum HistoryRouteOwnership {
-    static func deactivatesHistory(from previous: AppTab, to current: AppTab) -> Bool {
-        previous == .history && current != .history
-    }
-}
-
 /// 窗口级生命周期入口，连接导航激活、认证变化与最终资源清理。
 ///
-/// 页面 View 只表达局部意图；关窗时需要在这里清除 Browse/History 工作集、认证临时任务，
+/// 页面 View 只表达局部意图；关窗时需要在这里按来源描述清除各来源的内容、认证临时任务，
 /// 并借导航路径清空统一停止播放、原生字幕和弹幕资源。
 struct AppRootView: View {
     @Environment(\.appearsActive) private var appearsActive
@@ -96,6 +90,7 @@ struct AppRootView: View {
     var body: some View {
         AppShellView(
             navigationCoordinator: navigationCoordinator,
+            sources: windowOwner.sources,
             browseModel: browseModel,
             videoModel: videoModel,
             commentsModel: commentsModel,
@@ -185,10 +180,8 @@ struct AppRootView: View {
                 break
             }
         }
-        .onChange(of: navigationCoordinator.selectedTab) { previousTab, tab in
-            if HistoryRouteOwnership.deactivatesHistory(from: previousTab, to: tab) {
-                historyModel.deactivateRoute()
-            }
+        .onChange(of: navigationCoordinator.selectedTab) { previousTab, _ in
+            windowOwner.sources[previousTab].deactivate()
         }
         .onChange(of: authenticationRevalidationRequests) { previous, current in
             guard zip(previous, current).contains(where: { $1 > $0 }) else { return }
@@ -206,10 +199,8 @@ struct AppRootView: View {
                 windowOwner.benchmarkAuthenticationOwnerID
             )
             navigationCoordinator.resetForWindowClosure()
-            browseModel.reset()
+            windowOwner.sources.resetForWindowClosure()
             authenticationModel.cancelTransientWork()
-            historyModel.reset()
-            windowOwner.trendingSearchModel?.reset()
             commentsModel?.reset()
             windowOwner.close()
         }
@@ -407,7 +398,7 @@ struct AppRootView: View {
             return
         }
         navigationCoordinator.closePlaybackForAuthenticationChange()
-        historyModel.reset()
+        windowOwner.sources.resetAccountContent()
         authenticationModel.revalidateAfterExternalSessionChange()
         await authenticationModel.waitForCurrentTask()
         guard accountSessionCoordinator.generation == processGeneration else {
