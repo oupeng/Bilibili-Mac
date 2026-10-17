@@ -4,6 +4,7 @@ import BiliModels
 import BiliNetworking
 import Foundation
 @preconcurrency import Network
+import Synchronization
 import Testing
 
 @testable import BiliPlayback
@@ -631,19 +632,16 @@ actor FixtureSubtitleRepository: SubtitleRepository {
     }
 }
 
-final class LoopbackServerRegistry: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storage: [LoopbackPlaybackServer] = []
+final class LoopbackServerRegistry: Sendable {
+    private let storage = Mutex<[LoopbackPlaybackServer]>([])
 
     var servers: [LoopbackPlaybackServer] {
-        lock.withLock { storage }
+        storage.withLock { $0 }
     }
 
     func create() -> LoopbackPlaybackServer {
         let server = LoopbackPlaybackServer()
-        lock.withLock {
-            storage.append(server)
-        }
+        storage.withLock { $0.append(server) }
         return server
     }
 }

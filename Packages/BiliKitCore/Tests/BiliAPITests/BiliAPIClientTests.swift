@@ -2,6 +2,7 @@ import BiliApplication
 import BiliModels
 import BiliNetworking
 import Foundation
+import Synchronization
 import Testing
 
 @testable import BiliAPI
@@ -2149,16 +2150,15 @@ enum ProgressiveShape: Sendable {
     }
 }
 
-private final class SequentialTransportFactory: @unchecked Sendable {
-    private let lock = NSLock()
-    private var transports: [any HTTPTransport]
+private final class SequentialTransportFactory: Sendable {
+    private let transports: Mutex<[any HTTPTransport]>
 
     init(transports: [any HTTPTransport]) {
-        self.transports = transports
+        self.transports = Mutex(transports)
     }
 
     func makeTransport() -> any HTTPTransport {
-        lock.withLock {
+        transports.withLock { transports in
             precondition(!transports.isEmpty)
             return transports.removeFirst()
         }

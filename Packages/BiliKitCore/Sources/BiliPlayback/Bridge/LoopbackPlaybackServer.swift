@@ -5,297 +5,15 @@ import Synchronization
 
 private struct LoopbackResponseAlreadyStartedError: Error {}
 
-public struct LoopbackRemoteResource: Sendable, Equatable {
-    public let sourceURL: URL
-    public let contentLength: Int64
-    public let contentType: String
-    public let headers: [String: String]
-
-    public init(
-        sourceURL: URL,
-        contentLength: Int64,
-        contentType: String,
-        headers: [String: String] = [:]
-    ) throws {
-        guard BiliMediaCDNURLPolicy().allows(sourceURL) else {
-            throw LoopbackPlaybackServerError.invalidRemoteSource
-        }
-        guard contentLength > 0 else {
-            throw LoopbackPlaybackServerError.invalidContentLength(contentLength)
-        }
-
-        self.sourceURL = sourceURL
-        self.contentLength = contentLength
-        self.contentType = contentType
-        self.headers = headers
-    }
-}
-
-/// 单个 progressive item 的来源选择状态。
-///
-/// 首个通过响应头验证的完整 URL 会固定给后续 Range。
-public final class LoopbackProgressiveResource: @unchecked Sendable, Equatable {
-    public let candidateURLs: [URL]
-    public let contentLength: Int64
-    public let contentType: String
-    public let allowedUpstreamContentTypes: Set<String>
-    public let headers: [String: String]
-
-    private let lock = NSLock()
-    private var selectedSourceURL: URL?
-
-    public init(
-        candidateURLs: [URL],
-        contentLength: Int64,
-        contentType: String,
-        allowsOctetStreamWithContainerEvidence: Bool,
-        headers: [String: String] = [:]
-    ) throws {
-        let mediaURLPolicy = BiliMediaCDNURLPolicy()
-        guard !candidateURLs.isEmpty,
-            candidateURLs.allSatisfy(mediaURLPolicy.allows)
-        else {
-            throw LoopbackPlaybackServerError.invalidProgressiveSource
-        }
-        guard contentLength > 0 else {
-            throw LoopbackPlaybackServerError.invalidContentLength(contentLength)
-        }
-        guard contentType.caseInsensitiveCompare("video/mp4") == .orderedSame else {
-            throw LoopbackPlaybackServerError.invalidProgressiveSource
-        }
-        self.candidateURLs = candidateURLs
-        self.contentLength = contentLength
-        self.contentType = contentType.lowercased()
-        var allowed = Set([self.contentType])
-        if allowsOctetStreamWithContainerEvidence {
-            allowed.insert("application/octet-stream")
-        }
-        allowedUpstreamContentTypes = allowed
-        self.headers = headers.removingCredentialAndRangeHeaders()
-    }
-
-    public static func == (
-        lhs: LoopbackProgressiveResource,
-        rhs: LoopbackProgressiveResource
-    ) -> Bool {
-        lhs === rhs
-    }
-
-    fileprivate var eligibleSourceURLs: [URL] {
-        lock.withLock {
-            selectedSourceURL.map { [$0] } ?? candidateURLs
-        }
-    }
-
-    fileprivate func select(_ url: URL) -> Bool {
-        lock.withLock {
-            if let selectedSourceURL {
-                return selectedSourceURL == url
-            }
-            guard candidateURLs.contains(url) else { return false }
-            selectedSourceURL = url
-            return true
-        }
-    }
-}
-
-public enum LoopbackGeneratedResourceError: Error, Sendable, Equatable {
-    case invalidMaximumContentLength(Int)
-    case invalidMaximumLoadAttempts(Int)
-    case invalidGeneratedContentLength(Int)
-    case loadAttemptsExhausted
-}
-
-/// 首次请求时生成正文；成功后只缓存于当前 loopback 会话，失败可由后续请求重试。
-public final class LoopbackGeneratedResource: @unchecked Sendable, Equatable {
-    public let contentType: String
-
-    private let lock = NSLock()
-    private let maximumContentLength: Int
-    private let loader: @Sendable () async throws -> Data
-    private var generation: UInt64 = 0
-    private var remainingLoadAttempts: Int
-    private var invalidated = false
-    private var cachedBody: Data?
-    private var loadTask: Task<Data, any Error>?
-
-    public init(
-        contentType: String,
-        maximumContentLength: Int,
-        maximumLoadAttempts: Int = 2,
-        loader: @escaping @Sendable () async throws -> Data
-    ) throws {
-        guard maximumContentLength > 0 else {
-            throw LoopbackGeneratedResourceError.invalidMaximumContentLength(
-                maximumContentLength
-            )
-        }
-        guard maximumLoadAttempts > 0 else {
-            throw LoopbackGeneratedResourceError.invalidMaximumLoadAttempts(
-                maximumLoadAttempts
-            )
-        }
-        self.contentType = contentType
-        self.maximumContentLength = maximumContentLength
-        self.remainingLoadAttempts = maximumLoadAttempts
-        self.loader = loader
-    }
-
-    public static func == (
-        lhs: LoopbackGeneratedResource,
-        rhs: LoopbackGeneratedResource
-    ) -> Bool {
-        lhs === rhs
-    }
-
-    fileprivate func resolve() async throws -> Data {
-        let pending = lock.withLock { () -> (UInt64, Task<Data, any Error>, Data?) in
-            guard !invalidated else {
-                return (generation, Task { throw CancellationError() }, nil)
-            }
-            if let cachedBody {
-                let cached = cachedBody
-                return (generation, Task { cached }, cached)
-            }
-            if let loadTask {
-                return (generation, loadTask, nil)
-            }
-            guard remainingLoadAttempts > 0 else {
-                return (
-                    generation,
-                    Task {
-                        throw LoopbackGeneratedResourceError.loadAttemptsExhausted
-                    },
-                    nil
-                )
-            }
-            remainingLoadAttempts -= 1
-            generation &+= 1
-            let loadGeneration = generation
-            let task = Task {
-                try await generateAndCache(generation: loadGeneration)
-            }
-            loadTask = task
-            return (generation, task, nil)
-        }
-        if let cached = pending.2 {
-            return cached
-        }
-
-        let body = try await pending.1.value
-        try Task.checkCancellation()
-        return body
-    }
-
-    private func generateAndCache(generation loadGeneration: UInt64) async throws -> Data {
-        do {
-            let body = try await loader()
-            guard !body.isEmpty, body.count <= maximumContentLength else {
-                throw LoopbackGeneratedResourceError.invalidGeneratedContentLength(
-                    body.count
-                )
-            }
-            let accepted = lock.withLock { () -> Bool in
-                guard generation == loadGeneration, !invalidated else {
-                    return false
-                }
-                cachedBody = body
-                loadTask = nil
-                return true
-            }
-            guard accepted else { throw CancellationError() }
-            return body
-        } catch {
-            lock.withLock {
-                if generation == loadGeneration {
-                    loadTask = nil
-                }
-            }
-            throw error
-        }
-    }
-
-    fileprivate func cancel() {
-        let task = lock.withLock { () -> Task<Data, any Error>? in
-            generation &+= 1
-            invalidated = true
-            cachedBody = nil
-            let task = loadTask
-            loadTask = nil
-            return task
-        }
-        task?.cancel()
-    }
-}
-
-public enum LoopbackPlaybackResource: Sendable, Equatable {
-    case inMemory(data: Data, contentType: String)
-    case remote(LoopbackRemoteResource)
-    case generated(LoopbackGeneratedResource)
-    case progressive(LoopbackProgressiveResource)
-
-    fileprivate var contentLength: Int64 {
-        switch self {
-        case .inMemory(let data, _):
-            Int64(data.count)
-        case .remote(let resource):
-            resource.contentLength
-        case .generated:
-            preconditionFailure("Generated resources must be resolved before responding")
-        case .progressive(let resource):
-            resource.contentLength
-        }
-    }
-
-    fileprivate var contentType: String {
-        switch self {
-        case .inMemory(_, let contentType):
-            contentType
-        case .remote(let resource):
-            resource.contentType
-        case .generated(let resource):
-            resource.contentType
-        case .progressive(let resource):
-            resource.contentType
-        }
-    }
-}
-
-public struct LoopbackRouteRegistration: Sendable, Equatable {
-    public let relativePath: String
-    public let resource: LoopbackPlaybackResource
-
-    public init(
-        relativePath: String,
-        resource: LoopbackPlaybackResource
-    ) {
-        self.relativePath = relativePath
-        self.resource = resource
-    }
-}
-
-public enum LoopbackPlaybackServerError: Error, Sendable, Equatable {
-    case invalidContentLength(Int64)
-    case invalidRoute(String)
-    case duplicateRoute(String)
-    case notStarted
-    case listenerFailed(String)
-    case invalidHTTPRequest
-    case invalidProgressiveSource
-    case invalidRemoteSource
-}
-
-private enum LoopbackRangeRequest {
-    case ignored
-    case satisfiable(headerValue: String, resolved: HTTPByteRange)
-    case unsatisfiable
-}
-
 /// 向 AVPlayer 暴露最小、会话隔离的 HTTP/1.1 HLS/Range surface。
 ///
 /// Server 只绑定 `127.0.0.1`，要求随机 path 与精确 Host，并对远端媒体强制 Range。
-/// `stop` 会原子移除 listener、route、connection 与上游 Task，可安全重复调用。
-public final class LoopbackPlaybackServer: @unchecked Sendable {
+/// `stop` 会原子移除 listener、route、connection 与上游 Task，可安全重复调用；deinit 兜底调用它。
+///
+/// listener、端口、route、连接与在途 Task 都在 `Mutex` 持有的 `State` 里：登记与移除在锁内完成，
+/// Network 对象的 cancel 与 Task 的取消带出锁外执行。唯一例外是撤销未完成的启动（`cancelStart`）：
+/// 只在登记的仍是这个 listener 时移除并 cancel，两步在同一临界区完成。
+public final class LoopbackPlaybackServer: Sendable {
     private static let maximumHeaderBytes = 16 * 1_024
     /// 同时保持的连接上限；AVPlayer 的并发请求远低于此。
     static let maximumConcurrentConnections = 32
@@ -307,17 +25,29 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
     /// 从接受连接到收齐请求头的时限；超时关闭，空闲或慢速连接不能长期占住连接名额。
     private static let requestHeaderTimeout: DispatchTimeInterval = .seconds(10)
 
+    private struct State {
+        var listener: NWListener?
+        var port: NWEndpoint.Port?
+        var routes: [String: LoopbackPlaybackResource] = [:]
+        var connections: [ObjectIdentifier: NWConnection] = [:]
+        var connectionTasks: [ObjectIdentifier: Task<Void, Never>] = [:]
+        var pendingHeaders: [ObjectIdentifier: PendingHeader] = [:]
+        var nextPendingHeaderOrder: UInt64 = 0
+
+        /// 从登记表移除一条连接的全部资源并让出名额；返回值交给调用方在锁外收尾。
+        mutating func detach(_ id: ObjectIdentifier) -> DetachedConnection {
+            DetachedConnection(
+                connection: connections.removeValue(forKey: id),
+                task: connectionTasks.removeValue(forKey: id),
+                headerDeadline: pendingHeaders.removeValue(forKey: id)?.deadline
+            )
+        }
+    }
+
     private let queue: DispatchQueue
-    private let lock = NSLock()
+    private let state = Mutex(State())
     private let rangeStreamer: any HTTPRangeStreaming
     private let sessionToken: String
-    private var listener: NWListener?
-    private var port: NWEndpoint.Port?
-    private var routes: [String: LoopbackPlaybackResource] = [:]
-    private var connections: [ObjectIdentifier: NWConnection] = [:]
-    private var connectionTasks: [ObjectIdentifier: Task<Void, Never>] = [:]
-    private var pendingHeaders: [ObjectIdentifier: PendingHeader] = [:]
-    private var nextPendingHeaderOrder: UInt64 = 0
 
     public init(
         rangeStreamer: any HTTPRangeStreaming = HTTPRangeStreamingClient()
@@ -333,7 +63,7 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
 
     /// 启动并等待 listener 得到实际端口；调用方取消会同步撤销未完成的启动。
     public func start() async throws {
-        if lock.withLock({ self.listener != nil && self.port != nil }) {
+        if state.withLock({ $0.listener != nil && $0.port != nil }) {
             return
         }
 
@@ -365,8 +95,8 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
                     )
                     return
                 }
-                self.lock.withLock {
-                    self.port = boundPort
+                self.state.withLock {
+                    $0.port = boundPort
                 }
                 started.resolve(.success(()))
             case .failed(let error):
@@ -392,8 +122,8 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
         listener.newConnectionHandler = { [weak self] connection in
             self?.accept(connection)
         }
-        lock.withLock {
-            self.listener = listener
+        state.withLock {
+            $0.listener = listener
         }
 
         try await withTaskCancellationHandler {
@@ -434,12 +164,12 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
             }
             return (url, registration.resource)
         }
-        try lock.withLock {
-            for (url, _) in prepared where routes[url.path] != nil {
+        try state.withLock { state in
+            for (url, _) in prepared where state.routes[url.path] != nil {
                 throw LoopbackPlaybackServerError.duplicateRoute(url.path)
             }
             for (url, resource) in prepared {
-                routes[url.path] = resource
+                state.routes[url.path] = resource
             }
         }
         return prepared.map(\.0)
@@ -449,7 +179,7 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
         guard isValidRoute(relativePath) else {
             throw LoopbackPlaybackServerError.invalidRoute(relativePath)
         }
-        guard let port = lock.withLock({ self.port }) else {
+        guard let port = state.withLock({ $0.port }) else {
             throw LoopbackPlaybackServerError.notStarted
         }
 
@@ -461,72 +191,77 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
 
     /// 关闭 listener、所有活动连接与远端 Range Task，并清空内存 route。
     public func stop() {
-        let state = lock.withLock {
-            () -> (
+        let released = state.withLock {
+            state -> (
                 NWListener?,
                 [NWConnection],
                 [Task<Void, Never>],
                 [LoopbackPlaybackResource],
                 [DispatchWorkItem]
             ) in
-            let state = (
-                listener,
-                Array(connections.values),
-                Array(connectionTasks.values),
-                Array(routes.values),
-                pendingHeaders.values.map(\.deadline)
+            let released = (
+                state.listener,
+                Array(state.connections.values),
+                Array(state.connectionTasks.values),
+                Array(state.routes.values),
+                state.pendingHeaders.values.map(\.deadline)
             )
-            listener = nil
-            port = nil
-            routes.removeAll()
-            connections.removeAll()
-            connectionTasks.removeAll()
-            pendingHeaders.removeAll()
-            return state
+            state.listener = nil
+            state.port = nil
+            state.routes.removeAll()
+            state.connections.removeAll()
+            state.connectionTasks.removeAll()
+            state.pendingHeaders.removeAll()
+            return released
         }
 
-        state.0?.cancel()
-        for deadline in state.4 {
+        released.0?.cancel()
+        for deadline in released.4 {
             deadline.cancel()
         }
-        for connection in state.1 {
+        for connection in released.1 {
             connection.cancel()
         }
-        for task in state.2 {
+        for task in released.2 {
             task.cancel()
         }
-        cancelGeneratedResources(in: state.3)
+        cancelGeneratedResources(in: released.3)
     }
 
     private func accept(_ connection: NWConnection) {
         let id = ObjectIdentifier(connection)
-        let headerDeadline = DispatchWorkItem { [weak self] in
-            self?.closeConnection(id)
-        }
-        let admission = lock.withLock { () -> (accepted: Bool, evicted: DetachedConnection?) in
-            guard listener != nil else { return (false, nil) }
+        let admission = state.withLock {
+            state -> (headerDeadline: DispatchWorkItem?, evicted: DetachedConnection?) in
+            guard state.listener != nil else { return (nil, nil) }
             var evicted: DetachedConnection?
-            if pendingHeaders.count >= Self.maximumPendingHeaderConnections
-                || connections.count >= Self.maximumConcurrentConnections
+            if state.pendingHeaders.count >= Self.maximumPendingHeaderConnections
+                || state.connections.count >= Self.maximumConcurrentConnections
             {
                 guard
-                    let oldest = pendingHeaders.min(by: { $0.value.order < $1.value.order })?
-                        .key
+                    let oldest = state.pendingHeaders.min(by: {
+                        $0.value.order < $1.value.order
+                    })?.key
                 else {
-                    return (false, nil)
+                    return (nil, nil)
                 }
-                evicted = detachLocked(oldest)
+                evicted = state.detach(oldest)
             }
-            connections[id] = connection
-            pendingHeaders[id] = PendingHeader(
+            // 在临界区里创建：`DispatchWorkItem` 不是 Sendable，从锁外捕获进来再存入 `Mutex` 的状态
+            // 会被 region 检查拒绝。它到登记之后才在锁外排期，创建位置不影响时序。它同时被 State 与
+            // 锁外的排期持有，这部分安全靠 libdispatch 的 cancel／perform 线程安全，不由编译器检查。
+            let headerDeadline = DispatchWorkItem { [weak self] in
+                self?.closeConnection(id)
+            }
+            state.connections[id] = connection
+            state.pendingHeaders[id] = PendingHeader(
                 deadline: headerDeadline,
-                order: nextPendingHeaderOrder
+                order: state.nextPendingHeaderOrder
             )
-            nextPendingHeaderOrder &+= 1
-            return (true, evicted)
+            state.nextPendingHeaderOrder &+= 1
+            return (headerDeadline, evicted)
         }
         admission.evicted?.close()
-        guard admission.accepted else {
+        guard let headerDeadline = admission.headerDeadline else {
             connection.cancel()
             return
         }
@@ -547,10 +282,10 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
     }
 
     private func cancelStart(_ listener: NWListener) {
-        lock.withLock {
-            guard self.listener === listener else { return }
-            self.listener = nil
-            port = nil
+        state.withLock { state in
+            guard state.listener === listener else { return }
+            state.listener = nil
+            state.port = nil
             listener.cancel()
         }
     }
@@ -582,8 +317,8 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
             let delimiter = Data("\r\n\r\n".utf8)
             if let headerEnd = buffer.range(of: delimiter)?.upperBound {
                 let header = buffer.subdata(in: 0..<headerEnd)
-                self.lock.withLock {
-                    self.pendingHeaders.removeValue(forKey: id)
+                self.state.withLock {
+                    $0.pendingHeaders.removeValue(forKey: id)
                 }?.deadline.cancel()
                 self.beginResponse(for: header, on: connection, id: id)
             } else if isComplete {
@@ -640,18 +375,21 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
             )
             return
         }
+        // Host 必须与 `127.0.0.1:<端口>` 精确相等，挡住 DNS rebinding 把别的站点解析到本机端口，
+        // 见 SECURITY-MODEL §5。
         guard let expectedHostHeader,
             request.headers["host"] == expectedHostHeader
         else {
             sendStatus(400, reason: "Bad Request", on: connection)
             return
         }
+        // 目标必须在本实例的随机 session path 下，其他实例或猜测的路径一律 404，见 SECURITY-MODEL §5。
         guard request.target.hasPrefix("/\(sessionToken)/") else {
             sendStatus(404, reason: "Not Found", on: connection)
             return
         }
         guard
-            let resource = lock.withLock({ routes[request.target] })
+            let resource = state.withLock({ $0.routes[request.target] })
         else {
             sendStatus(404, reason: "Not Found", on: connection)
             return
@@ -673,13 +411,13 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
                 self.sendStatus(502, reason: "Bad Gateway", on: connection)
             }
         }
-        let accepted = lock.withLock { () -> Bool in
-            guard connections[id] != nil,
-                routes[request.target] == resource
+        let accepted = state.withLock { state -> Bool in
+            guard state.connections[id] != nil,
+                state.routes[request.target] == resource
             else {
                 return false
             }
-            connectionTasks[id] = task
+            state.connectionTasks[id] = task
             return true
         }
         if accepted {
@@ -885,19 +623,6 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
         throw lastError ?? LoopbackPlaybackServerError.invalidProgressiveSource
     }
 
-    private static func responseHead(
-        status: Int,
-        reason: String,
-        headers: [String: String]
-    ) -> Data {
-        let head =
-            (["HTTP/1.1 \(status) \(reason)"]
-            + headers.sorted { $0.key < $1.key }.map { "\($0.key): \($0.value)" }
-            + ["", ""])
-            .joined(separator: "\r\n")
-        return Data(head.utf8)
-    }
-
     /// 下游写入失败说明 AVPlayer 已断开，报告为 `CancellationError`。
     private static func sendChunk(
         _ data: Data,
@@ -918,99 +643,6 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
             )
         }
         try Task.checkCancellation()
-    }
-
-    private func responseHeaders(
-        for resource: LoopbackPlaybackResource,
-        bodyLength: Int,
-        range: HTTPByteRange?,
-        isHead: Bool
-    ) -> [String: String] {
-        var headers = [
-            "Accept-Ranges": "bytes",
-            "Cache-Control": "no-store",
-            "Content-Type": resource.contentType,
-            "Content-Length": isHead
-                ? "\(resource.contentLength)"
-                : "\(bodyLength)"
-        ]
-        if let range {
-            headers["Content-Range"] =
-                "bytes \(range.start)-\(range.endInclusive)/\(resource.contentLength)"
-        }
-        return headers
-    }
-
-    private func parseRange(
-        _ value: String?,
-        contentLength: Int64
-    ) -> LoopbackRangeRequest {
-        guard let value else { return .ignored }
-        let components = value.split(
-            separator: "=",
-            maxSplits: 1,
-            omittingEmptySubsequences: false
-        )
-        guard components.count == 2,
-            components[0].lowercased() == "bytes",
-            !components[1].contains(",")
-        else {
-            return .ignored
-        }
-
-        let bounds = components[1].split(
-            separator: "-",
-            maxSplits: 1,
-            omittingEmptySubsequences: false
-        )
-        guard bounds.count == 2 else {
-            return .ignored
-        }
-
-        if bounds[0].isEmpty {
-            guard let suffixLength = Int64(bounds[1]) else {
-                return .ignored
-            }
-            guard suffixLength > 0 else {
-                return suffixLength == 0 ? .unsatisfiable : .ignored
-            }
-            let boundedLength = min(suffixLength, contentLength)
-            guard
-                let range = try? HTTPByteRange(
-                    start: contentLength - boundedLength,
-                    endInclusive: contentLength - 1
-                )
-            else {
-                return .ignored
-            }
-            return .satisfiable(headerValue: value, resolved: range)
-        }
-
-        guard let start = Int64(bounds[0]), start >= 0 else {
-            return .ignored
-        }
-        guard start < contentLength else {
-            return .unsatisfiable
-        }
-
-        let endInclusive: Int64
-        if bounds[1].isEmpty {
-            endInclusive = contentLength - 1
-        } else {
-            guard let requestedEnd = Int64(bounds[1]), requestedEnd >= start else {
-                return .ignored
-            }
-            endInclusive = min(requestedEnd, contentLength - 1)
-        }
-        guard
-            let range = try? HTTPByteRange(
-                start: start,
-                endInclusive: endInclusive
-            )
-        else {
-            return .ignored
-        }
-        return .satisfiable(headerValue: value, resolved: range)
     }
 
     private func sendStatus(
@@ -1057,20 +689,11 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
 
     /// 先在锁内释放连接名额再关闭，客户端看到断开时 server 已可接受新连接。
     private func closeConnection(_ id: ObjectIdentifier) {
-        lock.withLock { detachLocked(id) }.close()
+        state.withLock { $0.detach(id) }.close()
     }
 
     private func detachConnection(_ id: ObjectIdentifier) {
-        lock.withLock { detachLocked(id) }.cancelPendingWork()
-    }
-
-    /// 调用方必须持有 `lock`。
-    private func detachLocked(_ id: ObjectIdentifier) -> DetachedConnection {
-        DetachedConnection(
-            connection: connections.removeValue(forKey: id),
-            task: connectionTasks.removeValue(forKey: id),
-            headerDeadline: pendingHeaders.removeValue(forKey: id)?.deadline
-        )
+        state.withLock { $0.detach(id) }.cancelPendingWork()
     }
 
     private func isValidRoute(_ route: String) -> Bool {
@@ -1096,8 +719,8 @@ public final class LoopbackPlaybackServer: @unchecked Sendable {
     }
 
     private var expectedHostHeader: String? {
-        lock.withLock {
-            port.map { "127.0.0.1:\($0.rawValue)" }
+        state.withLock { state in
+            state.port.map { "127.0.0.1:\($0.rawValue)" }
         }
     }
 }
@@ -1125,51 +748,9 @@ private struct DetachedConnection {
     }
 }
 
-struct LoopbackHTTPRequest: Sendable {
-    let method: String
-    let target: String
-    let headers: [String: String]
-
-    static func parse(_ data: Data) throws -> Self {
-        guard let text = String(data: data, encoding: .utf8) else {
-            throw LoopbackPlaybackServerError.invalidHTTPRequest
-        }
-        let lines = text.components(separatedBy: "\r\n")
-        let requestLine = lines[0].split(separator: " ")
-        guard requestLine.count == 3,
-            requestLine[2].hasPrefix("HTTP/1.")
-        else {
-            throw LoopbackPlaybackServerError.invalidHTTPRequest
-        }
-
-        // 只接受 origin-form；query 不参与路由。
-        let rawTarget = requestLine[1]
-        guard rawTarget.hasPrefix("/") else {
-            throw LoopbackPlaybackServerError.invalidHTTPRequest
-        }
-        let target = rawTarget[..<(rawTarget.firstIndex(of: "?") ?? rawTarget.endIndex)]
-        var headers: [String: String] = [:]
-        for line in lines.dropFirst() where !line.isEmpty {
-            guard let separator = line.firstIndex(of: ":") else {
-                throw LoopbackPlaybackServerError.invalidHTTPRequest
-            }
-            let name = line[..<separator].trimmingCharacters(in: .whitespaces)
-            let value = line[line.index(after: separator)...]
-                .trimmingCharacters(in: .whitespaces)
-            let normalizedName = name.lowercased()
-            guard normalizedName != "host" || headers[normalizedName] == nil else {
-                throw LoopbackPlaybackServerError.invalidHTTPRequest
-            }
-            headers[normalizedName] = value
-        }
-        return Self(
-            method: String(requestLine[0]),
-            target: String(target),
-            headers: headers
-        )
-    }
-}
-
+/// 记录当前候选是否已向下游发出 206 响应头：之后的失败只能断开连接，不能换来源。
+///
+/// 由上游响应回调写、`streamRange` 的错误分支读；回调可能在别的线程执行，所以用原子量。
 private final class LockedFlag: Sendable {
     private let storage = Atomic(false)
 
