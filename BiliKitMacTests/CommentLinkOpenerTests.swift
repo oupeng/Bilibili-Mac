@@ -50,7 +50,7 @@ struct CommentLinkOpenerTests {
 
     @Test
     func spaceLinksOpenTheSidebarSpaceOrFallBackToTheWeb() async throws {
-        let profiles = PendingUploaderProfileRepository()
+        let profiles = UploaderProfileRepositoryStub(holdsRequests: true)
         let withSpace = OpenerHarness(
             fixture: fixture,
             uploaderSpace: makeUploaderSpace(profiles: profiles)
@@ -108,7 +108,7 @@ private struct OpenerHarness {
     let opener: CommentLinkOpener
 
     init(fixture: VideoFixture, uploaderSpace: UploaderSpaceViewModel?) {
-        let videoModel = VideoViewModel(
+        let videoModel = makeVideoViewModel(
             useCase: VideoUseCase(repository: FixtureVideoRepository(fixtures: [fixture])),
             playback: RecordingPlayback()
         )

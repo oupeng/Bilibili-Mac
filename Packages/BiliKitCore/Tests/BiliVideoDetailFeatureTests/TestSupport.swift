@@ -396,12 +396,18 @@ actor ProfileRepositoryStub: UploaderProfileRepository {
 /// RelatedVideoRepository 的唯一替身：按序消费 `responses`，用尽后挂起到测试按序号放行。
 actor RelatedRepositoryStub: RelatedVideoRepository {
     private var responses: [Result<[RelatedVideo], ContentApplicationError>]
+    private let whenExhausted: [RelatedVideo]?
     private var held: [Int: CheckedContinuation<[RelatedVideo], Never>] = [:]
     private var requestWaiters = CountWaiters()
     private(set) var callCount = 0
 
-    init(responses: [Result<[RelatedVideo], ContentApplicationError>] = []) {
+    /// `whenExhausted` 不为 nil 时，`responses` 用尽后立即返回它而不挂起。
+    init(
+        responses: [Result<[RelatedVideo], ContentApplicationError>] = [],
+        whenExhausted: [RelatedVideo]? = nil
+    ) {
         self.responses = responses
+        self.whenExhausted = whenExhausted
     }
 
     func relatedVideos(to bvid: String) async throws -> [RelatedVideo] {
@@ -409,6 +415,7 @@ actor RelatedRepositoryStub: RelatedVideoRepository {
         let index = callCount - 1
         requestWaiters.resume(reaching: callCount)
         if !responses.isEmpty { return try responses.removeFirst().get() }
+        if let whenExhausted { return whenExhausted }
         return await withCheckedContinuation { held[index] = $0 }
     }
 
@@ -666,4 +673,27 @@ func waitUntil(
         await Task.yield()
     }
     return true
+}
+
+/// 本 target 构造 `VideoViewModel` 的唯一入口：相关推荐默认立即为空、UP 主名片默认立即为空名片、播放附带的凭据
+/// 失效流默认立即结束，测试只传自己关心的依赖。
+@MainActor
+func makeVideoViewModel(
+    useCase: VideoUseCase,
+    playback: any PlaybackControlling,
+    relatedVideoUseCase: RelatedVideoUseCase = RelatedVideoUseCase(
+        repository: RelatedRepositoryStub(whenExhausted: [])
+    ),
+    uploaderProfileUseCase: UploaderProfileUseCase = UploaderProfileUseCase(
+        repository: ProfileRepositoryStub(immediate: .success(UploaderProfile()))
+    ),
+    playbackAuthenticationInvalidations: AsyncStream<Void> = AsyncStream { $0.finish() }
+) -> VideoViewModel {
+    VideoViewModel(
+        useCase: useCase,
+        playback: playback,
+        relatedVideoUseCase: relatedVideoUseCase,
+        uploaderProfileUseCase: uploaderProfileUseCase,
+        playbackAuthenticationInvalidations: playbackAuthenticationInvalidations
+    )
 }

@@ -18,7 +18,7 @@ struct VideoViewModelPlaybackSelectionTests {
     @Test
     func linkPageNumbersSelectTheirParts() async {
         let repository = makeRepository()
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: PlayerStub()
         )
@@ -41,7 +41,7 @@ struct VideoViewModelPlaybackSelectionTests {
     @Test
     func linkStartSecondsSeekInPlaceOrStartTheOtherPart() async {
         let player = PlayerStub()
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: makeRepository()),
             playback: player
         )
@@ -102,7 +102,10 @@ struct VideoViewModelPlaybackSelectionTests {
     func linksToThePlayingVideoWithoutAResolvablePageKeepPlayback() async {
         let repository = makeRepository()
         let player = PlayerStub()
-        let model = VideoViewModel(useCase: VideoUseCase(repository: repository), playback: player)
+        let model = makeVideoViewModel(
+            useCase: VideoUseCase(repository: repository),
+            playback: player
+        )
         model.select(PlaybackSelectionIntent(bvid: fixture.bvid, preferredPageNumber: 2))
         await waitUntilSettled(model)
 
@@ -118,7 +121,7 @@ struct VideoViewModelPlaybackSelectionTests {
     @Test
     func selectingAgainAfterAPlayerFailureFromAPageLinkReloads() async {
         let player = PlayerStub(failingLoads: [1])
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: makeRepository()),
             playback: player
         )
@@ -151,7 +154,7 @@ struct VideoViewModelPlaybackSelectionTests {
             }
             return fixture.playback
         })
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: PlayerStub()
         )
@@ -182,7 +185,7 @@ struct VideoViewModelPlaybackSelectionTests {
     @Test
     func retryIfFailedRetriesOnlyFailures() async {
         let player = PlayerStub(failingBVID: fixture.bvid)
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: makeRepository()),
             playback: player
         )
@@ -210,7 +213,7 @@ struct VideoViewModelPlaybackSelectionTests {
             }
             return fixture.playback
         })
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: PlayerStub()
         )

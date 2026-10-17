@@ -13,7 +13,7 @@ struct VideoViewModelEnhancementTests {
     func relatedVideoABARejectsOldSameBVIDResult() async throws {
         let fixture = ContentFixtures()
         let relatedRepository = RelatedRepositoryStub()
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(
                 repository: VideoRepositoryStub(fixture)
             ),
@@ -60,7 +60,7 @@ struct VideoViewModelEnhancementTests {
             ]
         )
         let player = PlayerStub()
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(
                 repository: VideoRepositoryStub(fixture)
             ),
@@ -95,7 +95,7 @@ struct VideoViewModelEnhancementTests {
     func uploaderProfileLoadsWithoutBlockingReadyDetail() async throws {
         let fixture = ContentFixtures()
         let profileRepository = ProfileRepositoryStub()
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(
                 repository: VideoRepositoryStub(fixture)
             ),
@@ -126,7 +126,7 @@ struct VideoViewModelEnhancementTests {
     @MainActor
     func uploaderProfileFailureHidesOnlyEnhancement() async {
         let fixture = ContentFixtures()
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(
                 repository: VideoRepositoryStub(fixture)
             ),
@@ -159,7 +159,7 @@ struct VideoViewModelEnhancementTests {
     @MainActor
     func enhancementCredentialInvalidationRequestsRevalidation() async {
         let fixture = ContentFixtures()
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(
                 repository: VideoRepositoryStub(fixture)
             ),
@@ -190,7 +190,7 @@ struct VideoViewModelEnhancementTests {
         let profileRepository = ProfileRepositoryStub(
             immediate: .success(UploaderProfile(signature: "公开签名"))
         )
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(
                 repository: VideoRepositoryStub(fixture, pages: fixture.twoPages)
             ),
@@ -218,7 +218,7 @@ struct VideoViewModelEnhancementTests {
         let second = ContentFixtures(bvid: "BV1SameOwnerB", title: "视频 B")
         let profile = UploaderProfile(signature: "公开签名", isVIP: true)
         let profileRepository = ProfileRepositoryStub(immediate: .success(profile))
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(
                 repository: VideoRepositoryStub(fixtures: [first, second])
             ),
@@ -254,7 +254,7 @@ struct VideoViewModelEnhancementTests {
         let profileRepository = ProfileRepositoryStub(
             immediate: .failure(.transportFailure)
         )
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(
                 repository: VideoRepositoryStub(fixtures: [first, second])
             ),
@@ -281,7 +281,7 @@ struct VideoViewModelEnhancementTests {
         let first = ContentFixtures(bvid: "BV1SignatureA", title: "视频 A")
         let second = ContentFixtures(bvid: "BV1SignatureB", title: "视频 B")
         let profileRepository = ProfileRepositoryStub()
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(
                 repository: VideoRepositoryStub(fixtures: [first, second])
             ),
@@ -318,7 +318,7 @@ struct VideoViewModelEnhancementTests {
     func resetCancelsAndIsolatesLateUploaderProfile() async throws {
         let fixture = ContentFixtures()
         let profileRepository = ProfileRepositoryStub()
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(
                 repository: VideoRepositoryStub(fixture)
             ),

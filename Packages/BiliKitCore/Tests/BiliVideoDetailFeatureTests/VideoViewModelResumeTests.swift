@@ -28,7 +28,7 @@ struct VideoViewModelResumeTests {
         let player = PlayerStub(
             startOutcome: .resumed(positionSeconds: expectedStart, token: PlaybackResumeToken())
         )
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: player
         )
@@ -48,7 +48,7 @@ struct VideoViewModelResumeTests {
         let fixture = ContentFixtures()
         let repository = VideoRepositoryStub(fixture, pages: fixture.twoPages)
         let player = PlayerStub()
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: player
         )
@@ -70,7 +70,7 @@ struct VideoViewModelResumeTests {
         let fixture = ContentFixtures()
         let repository = VideoRepositoryStub(fixture, pages: fixture.twoPages)
         let player = PlayerStub()
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: player
         )
@@ -93,7 +93,7 @@ struct VideoViewModelResumeTests {
         let fixture = ContentFixtures()
         let repository = VideoRepositoryStub(fixture, pages: fixture.twoPages)
         let player = PlayerStub(heldLoad: 2)
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: player
         )
@@ -132,7 +132,7 @@ struct VideoViewModelResumeTests {
             startOutcome: .resumed(positionSeconds: 42.5, token: resumeToken),
             restartSucceeds: true
         )
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: player
         )
@@ -177,7 +177,7 @@ struct VideoViewModelResumeTests {
             restartSucceeds: true,
             holdsRestarts: true
         )
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: player
         )

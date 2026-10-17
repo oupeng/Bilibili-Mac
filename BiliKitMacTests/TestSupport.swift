@@ -263,19 +263,26 @@ struct FixtureVideoRepository: VideoRepository {
     }
 }
 
-/// UP 主名片 port 的唯一测试替身：请求挂起到 `releaseLateResult()` 为止，用于验证迟到结果与取消。
-actor PendingUploaderProfileRepository:
+/// UP 主名片 port 的唯一测试替身：`holdsRequests` 时请求挂起到 `releaseLateResult()` 为止（验证迟到结果与
+/// 取消），否则立即返回空名片。
+actor UploaderProfileRepositoryStub:
     UploaderProfileRepository
 {
+    private let holdsRequests: Bool
     private var requestStarted = false
     private var requestWaiters: [CheckedContinuation<Void, Never>] = []
     private var resultContinuation: CheckedContinuation<UploaderProfile, Never>?
     private var requestCompleted = false
     private var completionWaiters: [CheckedContinuation<Void, Never>] = []
 
+    init(holdsRequests: Bool) {
+        self.holdsRequests = holdsRequests
+    }
+
     func uploaderProfile(for ownerID: Int64) async throws -> UploaderProfile {
         requestStarted = true
         requestWaiters.resumeAll()
+        guard holdsRequests else { return UploaderProfile() }
         let result = await withCheckedContinuation { continuation in
             resultContinuation = continuation
         }
@@ -393,7 +400,7 @@ struct UnavailableUploaderVideoRepository: UploaderVideoRepository {
 /// 侧栏上下文层（UP 主空间）的真实模型；投稿读取恒失败，名片请求挂起到测试放行。
 @MainActor
 func makeUploaderSpace(
-    profiles: PendingUploaderProfileRepository = PendingUploaderProfileRepository()
+    profiles: UploaderProfileRepositoryStub = UploaderProfileRepositoryStub(holdsRequests: true)
 ) -> UploaderSpaceViewModel {
     UploaderSpaceViewModel(
         useCase: UploaderVideoUseCase(repository: UnavailableUploaderVideoRepository()),
@@ -524,5 +531,29 @@ func makeTestProcess() -> ProcessComposition {
         ),
         searchHistory: SearchHistoryStore(defaults: defaults),
         updater: AppUpdater(info: [:])
+    )
+}
+
+/// 相关推荐 port 的唯一测试替身：恒为空。
+struct EmptyRelatedVideoRepository: RelatedVideoRepository {
+    func relatedVideos(to bvid: String) async throws -> [RelatedVideo] { [] }
+}
+
+/// 本 target 构造 `VideoViewModel` 的唯一入口：相关推荐默认为空、UP 主名片默认立即为空名片、播放附带的凭据
+/// 失效流默认立即结束。
+@MainActor
+func makeVideoViewModel(
+    useCase: VideoUseCase,
+    playback: any PlaybackControlling,
+    uploaderProfileUseCase: UploaderProfileUseCase = UploaderProfileUseCase(
+        repository: UploaderProfileRepositoryStub(holdsRequests: false)
+    )
+) -> VideoViewModel {
+    VideoViewModel(
+        useCase: useCase,
+        playback: playback,
+        relatedVideoUseCase: RelatedVideoUseCase(repository: EmptyRelatedVideoRepository()),
+        uploaderProfileUseCase: uploaderProfileUseCase,
+        playbackAuthenticationInvalidations: AsyncStream { $0.finish() }
     )
 }

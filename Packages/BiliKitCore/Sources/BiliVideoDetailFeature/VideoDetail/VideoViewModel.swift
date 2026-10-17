@@ -108,8 +108,8 @@ public final class VideoViewModel: AccountRevalidationParticipant {
 
     @ObservationIgnored private let useCase: VideoUseCase
     @ObservationIgnored private let playback: any PlaybackControlling
-    @ObservationIgnored private let relatedVideoUseCase: RelatedVideoUseCase?
-    @ObservationIgnored private let uploaderProfileUseCase: UploaderProfileUseCase?
+    @ObservationIgnored private let relatedVideoUseCase: RelatedVideoUseCase
+    @ObservationIgnored private let uploaderProfileUseCase: UploaderProfileUseCase
     @ObservationIgnored private let loadTask = LatestTask()
     @ObservationIgnored private let relatedVideoTask = LatestTask()
     @ObservationIgnored private let uploaderProfileTask = LatestTask()
@@ -124,9 +124,9 @@ public final class VideoViewModel: AccountRevalidationParticipant {
     public init(
         useCase: VideoUseCase,
         playback: any PlaybackControlling,
-        relatedVideoUseCase: RelatedVideoUseCase? = nil,
-        uploaderProfileUseCase: UploaderProfileUseCase? = nil,
-        playbackAuthenticationInvalidations: AsyncStream<Void>? = nil
+        relatedVideoUseCase: RelatedVideoUseCase,
+        uploaderProfileUseCase: UploaderProfileUseCase,
+        playbackAuthenticationInvalidations: AsyncStream<Void>
     ) {
         self.useCase = useCase
         self.playback = playback
@@ -145,12 +145,10 @@ public final class VideoViewModel: AccountRevalidationParticipant {
             }
         }
         // 播放附带的账户读取（字幕目录）发现凭据失效：不影响播放，只请求窗口复核。
-        if let playbackAuthenticationInvalidations {
-            playbackAuthenticationTask = Task { [weak self] in
-                for await _ in playbackAuthenticationInvalidations {
-                    guard !Task.isCancelled else { return }
-                    self?.recordAuthenticationInvalidationIfNeeded(.authenticationInvalid)
-                }
+        playbackAuthenticationTask = Task { [weak self] in
+            for await _ in playbackAuthenticationInvalidations {
+                guard !Task.isCancelled else { return }
+                self?.recordAuthenticationInvalidationIfNeeded(.authenticationInvalid)
             }
         }
     }
@@ -343,11 +341,7 @@ public final class VideoViewModel: AccountRevalidationParticipant {
     }
 
     private func loadRelatedVideos(for bvid: String) {
-        guard let relatedVideoUseCase else {
-            relatedVideoTask.cancel()
-            relatedVideoState = .empty(bvid: bvid)
-            return
-        }
+        let relatedVideoUseCase = relatedVideoUseCase
         relatedVideoState = .loading(bvid: bvid)
         relatedVideoTask.replace { [weak self] isCurrent in
             let nextState: RelatedVideoState
@@ -582,10 +576,7 @@ public final class VideoViewModel: AccountRevalidationParticipant {
     }
 
     private func loadUploaderProfile(for ownerID: Int64) {
-        guard let uploaderProfileUseCase else {
-            cancelUploaderProfile()
-            return
-        }
+        let uploaderProfileUseCase = uploaderProfileUseCase
         // 连续看同一 UP 主（合集、空间投稿）时沿用上一次名片，不再经过加载中，名字也不会重新变色。
         if let lastUploaderProfile, lastUploaderProfile.ownerID == ownerID {
             uploaderProfileTask.cancel()

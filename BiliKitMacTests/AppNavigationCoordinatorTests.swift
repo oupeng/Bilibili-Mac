@@ -384,7 +384,7 @@ struct AppNavigationCoordinatorTests {
     @Test
     @MainActor
     func memberIDLinksOpenTheSpaceOnlyWhenTheWindowHasOne() async throws {
-        let profiles = PendingUploaderProfileRepository()
+        let profiles = UploaderProfileRepositoryStub(holdsRequests: true)
         let space = makeUploaderSpace(profiles: profiles)
         let withSpace = AppNavigationCoordinator(
             startPlayback: { _ in },

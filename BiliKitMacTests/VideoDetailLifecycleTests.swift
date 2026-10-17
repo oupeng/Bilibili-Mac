@@ -19,7 +19,7 @@ struct VideoDetailLifecycleTests {
     func playbackFailureStopsPresentationAndRetryStartsItAgain() async {
         let fixture = VideoFixture()
         let player = RecordingPlayback(holdsLoads: true)
-        let videoModel = VideoViewModel(
+        let videoModel = makeVideoViewModel(
             useCase: VideoUseCase(
                 repository: FixtureVideoRepository(fixtures: [fixture])
             ),
@@ -87,8 +87,8 @@ struct VideoDetailLifecycleTests {
         async throws
     {
         let fixture = VideoFixture()
-        let profileRepository = PendingUploaderProfileRepository()
-        let videoModel = VideoViewModel(
+        let profileRepository = UploaderProfileRepositoryStub(holdsRequests: true)
+        let videoModel = makeVideoViewModel(
             useCase: VideoUseCase(
                 repository: FixtureVideoRepository(fixtures: [fixture])
             ),
@@ -134,7 +134,7 @@ struct VideoDetailLifecycleTests {
         let browseModel = BrowseViewModel(
             useCase: FeedUseCase(repository: EmptyFeedRepository())
         )
-        let videoModel = VideoViewModel(
+        let videoModel = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: playback
         )
@@ -275,7 +275,7 @@ struct VideoDetailLifecycleTests {
             playbackError: source == .playback ? .authenticationInvalid : nil
         )
         let playback = RecordingPlayback()
-        let videoModel = VideoViewModel(
+        let videoModel = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: playback
         )
@@ -375,7 +375,7 @@ struct VideoDetailLifecycleTests {
             fixtures: [first, replacement]
         )
         let commentsRepository = LifecycleCommentRepository()
-        let videoModel = VideoViewModel(
+        let videoModel = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: RecordingPlayback()
         )
