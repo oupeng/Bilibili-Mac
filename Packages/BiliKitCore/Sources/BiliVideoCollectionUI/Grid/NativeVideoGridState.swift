@@ -2,14 +2,19 @@ import AppKit
 import BiliUI
 
 /// 网格的分页尾部状态；尾部身份由调用方给出（如最后一页的标识），变化即视为新尾部。
-public typealias NativeVideoGridTailState = NearEndTailState<String>
+package typealias NativeVideoGridTailState = NearEndTailState<String>
 
 /// 一次内容更新相对上一次的差异：决定是否应用新快照、只重配内容变了的可见卡片，以及是否保持视口锚点。
-struct NativeVideoGridUpdatePlan: Equatable {
-    let identityChanged: Bool
+///
+/// 网格与 App 的相关推荐横排共用这一份差异计算；横排只读 `identityChanged` 与 `changedExistingIDs`，
+/// 锚点与尾部追加判断只属于网格。
+public struct NativeVideoGridUpdatePlan: Equatable {
+    /// ID 序列（含顺序）变了，需要应用新快照。
+    public let identityChanged: Bool
     let insertedIDs: [String]
     let removedIDs: [String]
-    let changedExistingIDs: Set<String>
+    /// 前后都在、内容变了的卡片：ID 序列不变时只重配这些可见卡片。
+    public let changedExistingIDs: Set<String>
     let isStrictTailAppend: Bool
 
     /// 严格尾部追加不改变已有卡片的位置，不需要锚点。
@@ -20,7 +25,7 @@ struct NativeVideoGridUpdatePlan: Equatable {
         !removedIDs.contains(anchor.id)
     }
 
-    init<Content: Equatable>(
+    public init<Content: Equatable>(
         previousIDs: [String],
         previousContents: [String: Content],
         updatedIDs: [String],

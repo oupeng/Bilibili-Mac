@@ -1,4 +1,5 @@
 import AppKit
+import BiliBrowseFeature
 import BiliNetworking
 import BiliVideoCollectionUI
 import CoreGraphics
@@ -684,6 +685,18 @@ extension NativeVideoImagePipeline: NativeVideoImageLoading {
             return nil
         }
         return NativeVideoCardImage(image: result.image, fadesIn: result.origin.shouldFadeIn)
+    }
+}
+
+/// 搜索起始页经 Browse 的 `TrendingSearchIconLoading` 取热搜图标：固定用 `.trendingSearchIcon`，只给第一帧；
+/// 请求地址与响应仍走本管线的校验（见 SECURITY-MODEL §4、§6）。
+extension NativeVideoImagePipeline: TrendingSearchIconLoading {
+    func cachedTrendingSearchIcon(for url: URL) -> CGImage? {
+        cachedImage(for: url, variant: .trendingSearchIcon)
+    }
+
+    func trendingSearchIcon(for url: URL) async -> CGImage? {
+        await image(for: url, variant: .trendingSearchIcon)?.image
     }
 }
 

@@ -1,25 +1,22 @@
-import BiliLibraryFeature
 import BiliVideoCollectionUI
 import SwiftUI
 
+/// 观看历史的已加载网格：把历史卡片呈现映射为原生卡片，交给共享的 `NativeVideoGridView`；用 AppKit 网格的
+/// 理由见 ARCHITECTURE「原生 AppKit 集合视图」。
+///
+/// 只负责映射与接线：分页与选择意图回送 `WatchHistoryContentView` 给出的回调，滚动位置、回顶请求与取图
+/// port 来自 App 窗口的 `NativeVideoGridHostContext`。
 struct HistoryNativeGridView: View {
+    @Environment(\.locale) private var locale
     let content: LoadedHistoryContent
-    @Binding var scrollOffsetY: CGFloat
-    @Binding var scrollReset: NativeVideoGridScrollResetState
-    let imagePipeline: NativeVideoImagePipeline
+    let host: NativeVideoGridHostContext
 
     var body: some View {
         NativeVideoGridView(
             items: content.items.map(Self.makePresentation),
-            scrollOffsetY: $scrollOffsetY,
-            accessibilityLabel: AppStrings.localized("观看历史视频"),
-            tailState: NativeVideoGridTailState(
-                canLoadMore: content.canLoadMore,
-                tailIdentity: content.tailIdentity,
-                isLoading: content.isLoadingMore
-            ),
-            scrollReset: $scrollReset,
-            imagePipeline: imagePipeline,
+            accessibilityLabel: LibraryFeatureStrings.localized("观看历史视频", locale: locale),
+            tailState: content.tailState,
+            host: host,
             onNearEnd: content.loadMore,
             onSelect: content.select
         )

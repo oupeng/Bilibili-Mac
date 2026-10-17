@@ -156,8 +156,10 @@ final class NativeVideoMergedCoverView: NSView {
         alignmentMode: .right
     )
     private var trailingSize = NSSize.zero
-    /// 每次 `setImage` 递增；淡入结束的回调只在仍是同一次设置时才隐藏占位。
-    private var imageGeneration: UInt64 = 0
+    private lazy var imageFade = NativeVideoImageFade(
+        imageLayer: imageLayer,
+        placeholderLayer: placeholderLayer
+    )
 
     override var isFlipped: Bool { true }
 
@@ -254,32 +256,7 @@ final class NativeVideoMergedCoverView: NSView {
     }
 
     func setImage(_ image: CGImage?, animated: Bool) {
-        imageGeneration &+= 1
-        let generation = imageGeneration
-        imageLayer.removeAnimation(forKey: "native-video-image.fade")
-        imageLayer.contents = image
-        imageLayer.opacity = 1
-        guard
-            image != nil,
-            animated,
-            !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        else {
-            placeholderLayer.isHidden = image != nil
-            return
-        }
-        placeholderLayer.isHidden = false
-        let animation = CABasicAnimation(keyPath: "opacity")
-        animation.fromValue = 0
-        animation.toValue = 1
-        animation.duration = 0.15
-        animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        CATransaction.begin()
-        CATransaction.setCompletionBlock { [weak self] in
-            guard let self, imageGeneration == generation else { return }
-            placeholderLayer.isHidden = true
-        }
-        imageLayer.add(animation, forKey: "native-video-image.fade")
-        CATransaction.commit()
+        imageFade.setImage(image, animated: animated)
     }
 
     override func viewDidMoveToWindow() {
@@ -460,8 +437,10 @@ public final class NativeVideoLayerImageView: NSView {
     private let placeholderTintColor: NSColor
     private let placeholderLayer = CALayer()
     private let imageLayer = CALayer()
-    /// 每次 `setImage` 递增；淡入结束的回调只在仍是同一次设置时才隐藏占位。
-    private var imageGeneration: UInt64 = 0
+    private lazy var imageFade = NativeVideoImageFade(
+        imageLayer: imageLayer,
+        placeholderLayer: placeholderLayer
+    )
 
     public init(
         placeholderSystemSymbolName: String,
@@ -521,9 +500,42 @@ public final class NativeVideoLayerImageView: NSView {
     }
 
     public func setImage(_ image: CGImage?, animated: Bool) {
-        imageGeneration &+= 1
-        let generation = imageGeneration
-        imageLayer.removeAnimation(forKey: "native-video-image.fade")
+        imageFade.setImage(image, animated: animated)
+    }
+
+    private func refreshPlaceholderImage() {
+        let colorConfiguration = NSImage.SymbolConfiguration(
+            paletteColors: [placeholderTintColor]
+        )
+        placeholderLayer.contents = NSImage(
+            systemSymbolName: placeholderSystemSymbolName,
+            accessibilityDescription: nil
+        )?.withSymbolConfiguration(colorConfiguration)
+    }
+}
+
+/// 占位层与图片层之间的淡入，封面（`NativeVideoMergedCoverView`）与头像（`NativeVideoLayerImageView`）各持有
+/// 一个；不拥有这两个 layer，只改它们的内容、透明度动画与占位显隐。
+///
+/// 每次 `setImage` 递增 `generation`；淡入结束的回调只在仍是同一次设置时才隐藏占位，之后的换图或清空让
+/// 旧回调失效，否则旧动画结束会把新设置刚显示的占位藏掉。系统开了「减少动态效果」时直接显示。
+@MainActor
+final class NativeVideoImageFade {
+    private static let animationKey = "native-video-image.fade"
+    private static let duration: CFTimeInterval = 0.15
+    private let imageLayer: CALayer
+    private let placeholderLayer: CALayer
+    private var generation: UInt64 = 0
+
+    init(imageLayer: CALayer, placeholderLayer: CALayer) {
+        self.imageLayer = imageLayer
+        self.placeholderLayer = placeholderLayer
+    }
+
+    func setImage(_ image: CGImage?, animated: Bool) {
+        generation &+= 1
+        let currentGeneration = generation
+        imageLayer.removeAnimation(forKey: Self.animationKey)
         imageLayer.contents = image
         imageLayer.opacity = 1
         guard
@@ -538,24 +550,14 @@ public final class NativeVideoLayerImageView: NSView {
         let animation = CABasicAnimation(keyPath: "opacity")
         animation.fromValue = 0
         animation.toValue = 1
-        animation.duration = 0.15
+        animation.duration = Self.duration
         animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
         CATransaction.begin()
         CATransaction.setCompletionBlock { [weak self] in
-            guard let self, imageGeneration == generation else { return }
+            guard let self, generation == currentGeneration else { return }
             placeholderLayer.isHidden = true
         }
-        imageLayer.add(animation, forKey: "native-video-image.fade")
+        imageLayer.add(animation, forKey: Self.animationKey)
         CATransaction.commit()
-    }
-
-    private func refreshPlaceholderImage() {
-        let colorConfiguration = NSImage.SymbolConfiguration(
-            paletteColors: [placeholderTintColor]
-        )
-        placeholderLayer.contents = NSImage(
-            systemSymbolName: placeholderSystemSymbolName,
-            accessibilityDescription: nil
-        )?.withSymbolConfiguration(colorConfiguration)
     }
 }

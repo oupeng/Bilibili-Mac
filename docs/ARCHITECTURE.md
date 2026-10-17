@@ -30,6 +30,7 @@ BiliKit App（Composition Root、AppKit/AVKit 宿主、Sparkle）
  ├─ BiliLibraryFeature ┼─> BiliApplication ─> BiliModels
  ├─ BiliAuthFeature ───┘         ^ ports
  │    (Browse/Library ─> BiliUI ─> BiliApplication / SwiftUI)
+ │    (Browse/Library ─> BiliVideoCollectionUI)
  ├─ BiliVideoCollectionUI ─> BiliUI / AppKit
  ├─ BiliAPI ──────┐
  ├─ BiliAuth ─────┼─> BiliApplication / BiliModels / BiliNetworking
@@ -47,10 +48,10 @@ BiliNetworking 不依赖任何 Bili 模块
 | `BiliAuth` | Web QR 状态机、Cookie envelope、Keychain store、请求授权器，实现 `AuthenticationServicing` | `BiliAPI`、`BiliPlayback`、`BiliDanmaku`、Feature、UI 框架 |
 | `BiliPlayback` | DASH→HLS bridge、loopback server、SIDX、`AVPlayerEngine`、线路偏好与测速、响度 tap | `BiliAPI`、`BiliAuth` |
 | `BiliDanmaku` | 弹幕会话、按媒体时间调度、lane 分配、Core Animation renderer | `BiliAPI`、`BiliAuth`、`BiliNetworking`、`BiliPlayback`、Feature、SwiftUI |
-| `Bili*Feature` | SwiftUI View 与 `@MainActor` ViewModel；Browse（Feed/Search/VideoDetail/UploaderSpace）、Library（History，含按账户呈现状态渲染的登录门槛与刷新）、Auth（扫码登录、登出与账户投影的来源） | adapter target、其他 Feature、AppKit/AVKit/AVFoundation |
+| `Bili*Feature` | SwiftUI View 与 `@MainActor` ViewModel；Browse（Feed/Search/VideoDetail/UploaderSpace，含推荐、热门、搜索的原生网格与热搜图标的取图 port `TrendingSearchIconLoading`）、Library（History，含按账户呈现状态渲染的登录门槛、刷新与原生网格）、Auth（扫码登录、登出与账户投影的来源）。共享的 AppKit 卡片与网格经 `BiliVideoCollectionUI` 渲染 | adapter target、其他 Feature、直接 import AppKit/AVKit/AVFoundation |
 | `BiliUI` | Feature 共享的 SwiftUI 呈现层：卡片几何、网格、骨架、加载过渡、刷新与分页状态胶囊、整页失败视图，只按账户读取的来源共用的登录门槛（`AccountGateView`，形态映射为 `AccountGatePhase`），`ContentApplicationError` 的失败文案（`ContentFailureText`），计数、时长与日期格式化，视频卡片的 B 站图片缩略地址；拥有自己的字符串目录。默认 `package` 访问级别，App 直接使用的卡片几何、时长格式化、播放器加载转圈与单行失败说明（`ContentFailureText.message`）为 `public`；AppKit target `BiliVideoCollectionUI` 也经 `package` 接口取用它的文案（卡片选中的读屏值 `VideoCardAccessibilityText`）。无 library product | 除 Foundation、SwiftUI、BiliApplication 外的任何模块（含 BiliModels、AppKit 与其他 Feature） |
-| `BiliVideoCollectionUI` | 浏览网格与横排共用的 AppKit 卡片（`NativeVideoCollectionItem`、封面与文字层）、原生网格 `NativeVideoGridView` 及其状态（回顶握手、锚点、预备区域），集合视图的悬停、键盘与通知观察，近尾部分页 `NearEndPagination`，滚动坐标换算，取图 port `NativeVideoImageLoading`（只分封面与头像，结果只含图与是否淡入）。App 用到的类型为 `public`，其余为 `internal`，有 library product | 除 BiliUI 外的 Bili 模块（含 BiliNetworking、adapter 与 Feature）；图片下载与缓存只经 port 注入 |
-| App `BiliKitMac` | composition root、导航协调、窗口 owner、`AVPlayerView` 宿主、各来源的网格包装与相关推荐横排、播放侧栏、图片管线、Settings、Now Playing、Sparkle | `App/` 目录不直接 import adapter 或平台框架，具体实现只在 `Composition/`、`Platform/`、`Settings/` 出现；Application 只在搜索条件或账户投影的使用点 import（`AppRootView`、`AppShellView`、`AppSidebarViews`、`AppSourceRootViews`、`AppWindowOwner`、`SearchToolbarControls`；成员可见性要求直接 import 定义模块，Feature 不转出 Application）；BiliVideoCollectionUI 由 `Platform/` 里用到共享卡片、网格或集合视图支撑的宿主 import（各来源网格包装、相关推荐横排、返回顶部滚动视图、播放侧栏与评论头像、UP 主空间、播放器宿主、动图播放、图片管线），`Composition/` 只有 `WatchProgressWindowConnection`，`App/` 只有持有网格回顶请求的 `AppShellView`、`AppSourceRootViews`；只按账户读取的来源由 Feature 渲染登录门槛，App 只注入账户呈现状态与打开登录页的动作 |
+| `BiliVideoCollectionUI` | 浏览网格与横排共用的 AppKit 卡片（`NativeVideoCollectionItem`、封面与文字层）、原生网格 `NativeVideoGridView` 及其状态（回顶握手、锚点、预备区域），集合视图的悬停、键盘与通知观察，近尾部分页 `NearEndPagination`，滚动坐标换算，取图 port `NativeVideoImageLoading`（只分封面与头像，结果只含图与是否淡入），来源网格从 App 窗口拿到的依赖 `NativeVideoGridHostContext`（滚动位置、回顶请求、取图 port），以及网格与横排共用的内容差异 `NativeVideoGridUpdatePlan`。App 用到的类型为 `public`（卡片、集合视图支撑、滚动换算、取图 port、回顶请求与网格依赖的构造、内容差异），只有 Feature 用到的网格 `NativeVideoGridView` 与尾部状态为 `package`，其余为 `internal`，有 library product | 除 BiliUI 外的 Bili 模块（含 BiliNetworking、adapter 与 Feature）；图片下载与缓存只经 port 注入 |
+| App `BiliKitMac` | composition root、导航协调、窗口 owner、`AVPlayerView` 宿主、各来源网格的滚动位置与回顶请求、相关推荐横排、播放侧栏、图片管线（实现卡片与热搜图标两个取图 port）、Settings、Now Playing、Sparkle | `App/` 目录不直接 import adapter 或平台框架，具体实现只在 `Composition/`、`Platform/`、`Settings/` 出现；Application 只在搜索条件或账户投影的使用点 import（`AppRootView`、`AppShellView`、`AppSidebarViews`、`AppSourceRootViews`、`AppWindowOwner`、`SearchToolbarControls`；成员可见性要求直接 import 定义模块，Feature 不转出 Application）；BiliVideoCollectionUI 由 `Platform/` 里用到共享卡片或集合视图支撑的宿主 import（相关推荐横排、返回顶部滚动视图、播放侧栏与评论头像、UP 主空间、播放器宿主、动图播放、图片管线），`Composition/` 只有 `WatchProgressWindowConnection`，`App/` 只有构造并转交 `NativeVideoGridHostContext` 的 `AppShellView`、`AppSourceRootViews`；只按账户读取的来源由 Feature 渲染登录门槛，App 只注入账户呈现状态与打开登录页的动作 |
 
 补充规则：
 
@@ -74,12 +75,17 @@ BiliNetworking 不依赖任何 Bili 模块
   一份：凭据类失败的说明按页面所知的账户复核进度（不跟踪／进行中／已结束）区分，没有专属标题的失败用来源
   自己的标题。视频卡片封面与头像的缩略参数只由 `BiliImageThumbnail` 追加；评论资源是不透明引用，其图片
   地址与缩略参数只由 BiliAPI 的 resolver 生成。
-- 网格与横排共用的 AppKit 卡片、网格与集合视图支撑放在 `BiliVideoCollectionUI`，只有一个调用方的 AppKit 视图
-  （横排、播放侧栏、UP 主空间）留在 App。卡片与网格只经 `NativeVideoImageLoading` 取图：先同步查缓存（复用的
-  卡片在配置当帧显示已缓存的图，不闪占位），未命中再异步加载；实现是 App 的 `NativeVideoImagePipeline`，
-  无凭据 session、来源与响应校验、缓存上界都只在那里（见 `SECURITY-MODEL.md` §4、§6）。port 只分封面与头像、
-  结果只带图与是否淡入；管线完整的用途枚举（评论图片、表情、热搜图标等）、动图数据与来源类型留在 App，
-  实现 port 时映射。
+- 网格与横排共用的 AppKit 卡片、网格与集合视图支撑放在 `BiliVideoCollectionUI`。各来源把条目映射为卡片的
+  网格包装放在拥有该来源的 Feature（推荐、热门、搜索在 Browse，历史在 Library），Feature 视图直接渲染它们，
+  不经 App 填充的泛型内容插槽；相关推荐横排、播放侧栏与 UP 主空间的 AppKit 视图在 App。
+  Feature 视图拥有 loading／empty／failure 与网格的呈现，App 只注入窗口级依赖：每个来源一个
+  `NativeVideoGridHostContext`（图片管线经取图 port，以及 `AppShellView` 持有的滚动位置与回顶请求，回顶在刷新
+  成功与账户变化时由它发出），Feature 原样交给网格。Feature 不直接 import AppKit。卡片与网格只经 `NativeVideoImageLoading` 取图：先同步查缓存（复用的卡片在配置当帧显示已缓存的图，
+  不闪占位），未命中再异步加载；实现是 App 的 `NativeVideoImagePipeline`，无凭据 session、来源与响应校验、
+  缓存上界都只在那里（见 `SECURITY-MODEL.md` §4、§6）。port 只分封面与头像、结果只带图与是否淡入；某个
+  Feature 自己的图片用途另设该 Feature 的窄 port（搜索起始页的热搜图标是 Browse 的
+  `TrendingSearchIconLoading`），不放宽卡片 port。管线完整的用途枚举（评论图片、表情、热搜图标等）、动图
+  数据与来源类型留在 App，实现 port 时映射。
 
 ## 关键决策
 
@@ -158,9 +164,10 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   高度缓存按 identity、宽度桶、内容 revision 做有界 LRU，resize 分批精测并恢复语义 anchor。
   `PlaybackCommentsViewModel` 仍唯一拥有 subject、排序、分页、并发上限与 generation。
 - **浏览网格与 shelf**：首页推荐、热门、搜索、历史的网格和相关推荐 shelf 使用
-  `NSCollectionView` + 复用的原生卡片；卡片与网格在 `BiliVideoCollectionUI`，各来源的网格包装与 shelf
-  在 App。热门 50 卡 A/B 表明 SwiftUI `LazyVGrid`/AttributeGraph 是主要滚动成本；卡片 overlay 与文字
-  改为持久 `CALayer`／`CATextLayer` 后，同样约 20 秒滚动 cycles 下降约 39%，0 hitch。SwiftUI Feature 保留 loading／empty／failure 等状态所有权。
+  `NSCollectionView` + 复用的原生卡片；卡片与网格在 `BiliVideoCollectionUI`，各来源的网格包装在拥有它的
+  Feature，shelf 在 App。热门 50 卡 A/B 表明 SwiftUI `LazyVGrid`/AttributeGraph 是主要滚动成本；卡片 overlay
+  与文字改为持久 `CALayer`／`CATextLayer` 后，同样约 20 秒滚动 cycles 下降约 39%，0 hitch。来源的
+  loading／empty／failure 等状态与网格在同一个 Feature 视图里渲染，网格只是已加载状态的呈现。
 - 网格提前准备：AppKit 默认只为视野内创建卡片，封面要等卡片露出来才开始加载。网格的集合视图把准备区域
   设为视野上下各一屏（`prepareContent(in:)`），并在滚动、布局与内容更新时检查余量，不足半屏就主动刷新，
   同时存在的卡片约为三屏；离开准备区域的卡片照常复用并取消封面等待。键盘选择的起点与滚动锚点只取与
@@ -296,10 +303,12 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
 - 未提交搜索时，搜索页主区显示 `SearchStartView`：本机搜索历史与 B 站热搜。点选任一词等同于填入
   搜索框后提交，历史在 `performSearch()` 里统一写入。
 - 搜索历史由 App 的进程级 `SearchHistoryStore` 持有（`BiliKitMacApp` 创建，所有窗口共享），Feature
-  只接收词列表与删除、清除回调；持久化规则见 `SECURITY-MODEL.md` §6。
+  只经 `SearchStartPageContext` 接收读取闭包与删除、清除回调，闭包只在起始页里求值，历史变化不让搜索页其余
+  部分与工具栏重算；持久化规则见 `SECURITY-MODEL.md` §6。
 - 热搜由每个窗口一个 `TrendingSearchViewModel` 持有，起始页每次出现时刷新；port 独立于
-  `FeedRepository`。首次加载失败只在热搜区显示错误与重试，刷新失败保留已显示的结果。图标地址在 BiliAPI 映射时经 `BiliBFSImageURLPolicy` 校验，由 App 注入的视图走
-  窗口图片管线加载，Feature 不接触图片管线。
+  `FeedRepository`。首次加载失败只在热搜区显示错误与重试，刷新失败保留已显示的结果。图标地址在 BiliAPI 映射时经 `BiliBFSImageURLPolicy` 校验，Feature 经自己的
+  `TrendingSearchIconLoading` port 取图，实现是窗口图片管线（请求与响应校验仍只在管线里），Feature 不接触
+  图片管线本身。
 - 工具栏正中的搜索框是 AppKit `NSSearchField`（`ToolbarSearchField`），挂系统联想菜单
   （`NSTextSuggestionsDelegate`，macOS 15 起）。SwiftUI `.searchable` 放在工具栏正中时不显示
   `.searchSuggestions`，系统联想菜单只能挂在 AppKit 文本框上；Apple Music 的居中搜索框也是这一做法。

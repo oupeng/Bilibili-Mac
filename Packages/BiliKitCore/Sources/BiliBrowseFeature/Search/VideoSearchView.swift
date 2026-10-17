@@ -1,37 +1,43 @@
 import BiliApplication
 import BiliModels
 import BiliUI
+import BiliVideoCollectionUI
 import SwiftUI
 
-public struct VideoSearchView<LoadedContent: View, StartContent: View>: View {
+/// 搜索来源的主区：未提交搜索时显示起始页（本机搜索历史与 B 站热搜），提交后按 `BrowseViewModel` 的状态
+/// 显示骨架、空结果、失败页或原生网格，叠加刷新与分页状态胶囊。
+///
+/// 拥有呈现与网格渲染；不拥有请求、分页与 generation（`BrowseViewModel`）、起始页的输入（App 经
+/// `SearchStartPageContext` 给出）。滚动位置、回顶请求与图片管线属于 App 窗口，经 `NativeVideoGridHostContext`
+/// 原样交给网格。工具栏搜索框与筛选也在 App。
+public struct VideoSearchView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.locale) private var locale
     private let model: BrowseViewModel
     private let submittedSearchCriteria: VideoSearchCriteria?
     private let hasActiveFilters: Bool
-    private let makeLoadedContent: (LoadedFeedContent<SearchVideoCardPresentation>) -> LoadedContent
+    private let gridHost: NativeVideoGridHostContext
+    private let startPageContext: SearchStartPageContext?
     private let onSelect: (String) -> Void
     private let onClearFilters: () -> Void
-    private let startContent: () -> StartContent
 
-    /// `startContent` 在尚未提交搜索时显示（搜索历史与热搜）。
+    /// `startPageContext` 为 nil 时起始页留空。
     public init(
         model: BrowseViewModel,
         submittedSearchCriteria: VideoSearchCriteria?,
         hasActiveFilters: Bool,
-        makeLoadedContent:
-            @escaping (LoadedFeedContent<SearchVideoCardPresentation>) -> LoadedContent,
+        gridHost: NativeVideoGridHostContext,
+        startPageContext: SearchStartPageContext?,
         onSelect: @escaping (String) -> Void,
-        onClearFilters: @escaping () -> Void,
-        @ViewBuilder startContent: @escaping () -> StartContent
+        onClearFilters: @escaping () -> Void
     ) {
         self.model = model
         self.submittedSearchCriteria = submittedSearchCriteria
         self.hasActiveFilters = hasActiveFilters
-        self.makeLoadedContent = makeLoadedContent
+        self.gridHost = gridHost
+        self.startPageContext = startPageContext
         self.onSelect = onSelect
         self.onClearFilters = onClearFilters
-        self.startContent = startContent
     }
 
     public var body: some View {
@@ -72,7 +78,14 @@ public struct VideoSearchView<LoadedContent: View, StartContent: View>: View {
             )
             searchResults(for: request)
         } else {
-            startContent()
+            startPage
+        }
+    }
+
+    @ViewBuilder
+    private var startPage: some View {
+        if let startPageContext {
+            SearchStartView(context: startPageContext)
         }
     }
 
@@ -108,7 +121,7 @@ public struct VideoSearchView<LoadedContent: View, StartContent: View>: View {
                 retry: { model.retry(request) }
             )
         default:
-            startContent()
+            startPage
         }
     }
 
@@ -134,16 +147,16 @@ public struct VideoSearchView<LoadedContent: View, StartContent: View>: View {
             criteria.map {
                 model.pagination(for: .search(VideoSearchRequest(criteria: $0, page: 1)))
             } ?? .unavailable
-        return makeLoadedContent(
-            LoadedFeedContent(
+        return SearchNativeGridView(
+            content: LoadedFeedContent(
                 items: page.videos.map { SearchVideoCardPresentation(video: $0, locale: locale) },
-                canLoadMore: pagination.canLoadMore,
-                tailIdentity: pagination.tailIdentity,
-                isLoadingMore: pagination.isLoadingMore,
+                tailState: pagination.gridTailState,
                 loadMore: { model.loadMore(.search) },
                 select: onSelect
-            )
+            ),
+            host: gridHost
         )
+        .ignoresSafeArea(.container, edges: .top)
         .overlay(alignment: .bottom) {
             PaginationStatusOverlay(
                 pagination.overlayStatus(
