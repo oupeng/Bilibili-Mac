@@ -151,6 +151,15 @@ public final class CoreAnimationDanmakuRenderer:
         preparationOwner.cancelAllPreparations()
     }
 
+    /// 系统内存压力的响应：清空纹理缓存与已准备未上屏的纹理，在途准备以 `.capacity` 拒绝；
+    /// 已上屏的 layer 不受影响。
+    ///
+    /// 由 App 组装层持有的内存压力监听在主线程调用。renderer 刻意不自己安装进程级
+    /// DispatchSource：系统事件会同时打到进程内每个实例，监听的取消点应跟随 App 的窗口生命周期。
+    public func handleMemoryPressure() {
+        preparationOwner.handleMemoryPressure()
+    }
+
     public func remove(eventID: String) {
         removeEntry(eventID: eventID)
     }

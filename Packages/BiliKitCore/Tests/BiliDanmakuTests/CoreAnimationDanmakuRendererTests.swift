@@ -72,6 +72,36 @@ struct CoreAnimationDanmakuRendererTests {
         #expect(counter.count == 2)
     }
 
+    /// 内存压力只拒绝当时在途的准备；之后重新准备同一事件仍能上屏。
+    @Test
+    func memoryPressureRejectsInflightPreparationWithoutBlockingLaterRender() async throws {
+        let renderer = CoreAnimationDanmakuRenderer(contentsScale: 2)
+        renderer.updateSurfaceSize(width: 800, height: 240)
+        let fixture = fixtureEvent(id: "pressure", mode: .scrolling)
+
+        let rejected = await withCheckedContinuation { continuation in
+            renderer.prepare(
+                fixture,
+                preparationID: 1,
+                generation: 0,
+                backingScale: 2
+            ) { result in
+                continuation.resume(returning: result)
+            }
+            // 栅格化结果要回到 MainActor 才能完成，这里同步处理内存压力，请求一定仍在途。
+            renderer.handleMemoryPressure()
+        }
+        #expect(rejected == .rejected(.capacity))
+
+        _ = try await prepareAndRender(
+            renderer: renderer,
+            event: fixture,
+            preparationID: 2,
+            originY: 20
+        )
+        #expect(renderer.rootLayer.sublayers?.count == 1)
+    }
+
     @Test
     func preparationOwnerRejectsWorkBeyondItsHardOutstandingLimit() {
         let owner = DanmakuTexturePreparationOwner(

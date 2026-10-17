@@ -20,6 +20,7 @@ typealias CommentAssetURLResolver = @Sendable (CommentAssetReference, CommentAss
 ///
 /// 这里刻意同时看见 API、认证、播放和弹幕实现。一个环境只创建一个 `AVPlayerEngine`，
 /// 原生字幕、弹幕、视频模型与 AppKit player host 必须共享它的播放 identity 和时间线。
+/// 弹幕 renderer 的系统内存压力监听也由环境持有，`close` 时先取消。
 struct AppEnvironment {
     private let playerEngine: AVPlayerEngine
     /// 字幕目录发现的凭据失效；只转给本环境最新创建的视频模型。
@@ -40,6 +41,7 @@ struct AppEnvironment {
     private let danmakuSession: DanmakuSession
     private let danmakuController: DanmakuPresentationController
     private let danmakuRenderer: CoreAnimationDanmakuRenderer
+    private let danmakuMemoryPressure: SystemMemoryPressureObserver
     private let danmakuPreferencesStore: any DanmakuPreferencesStoring
     private let authenticationService: any AuthenticationServicing
     private let authenticationQRCodeProvider: any AuthenticationQRCodeProviding
@@ -93,6 +95,14 @@ struct AppEnvironment {
             configuration: Self.emptyDanmakuConfiguration
         )
         self.danmakuRenderer = renderer
+        // 主队列投递，处理在 MainActor 上清空 renderer 的纹理缓存与在途准备。
+        let danmakuMemoryPressure = SystemMemoryPressureObserver(queue: .main) {
+            [weak renderer] in
+            MainActor.assumeIsolated {
+                renderer?.handleMemoryPressure()
+            }
+        }
+        self.danmakuMemoryPressure = danmakuMemoryPressure
         self.danmakuController = controller
         self.danmakuSession = DanmakuSession(
             useCase: DanmakuSegmentUseCase(repository: danmakuRepository),
@@ -102,7 +112,10 @@ struct AppEnvironment {
         self.authenticationService = authenticationService
         self.authenticationQRCodeProvider = authenticationQRCodeProvider
         self.open = open
-        self.close = close
+        self.close = {
+            danmakuMemoryPressure.cancel()
+            close()
+        }
         self.synchronizeSignedOutConfirmation = synchronizeSignedOutConfirmation
     }
 

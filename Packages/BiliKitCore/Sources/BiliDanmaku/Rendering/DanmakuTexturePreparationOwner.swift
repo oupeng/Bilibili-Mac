@@ -1,6 +1,11 @@
 import BiliModels
 import Foundation
 
+/// 弹幕纹理的有界准备 owner：拥有后台栅格化队列、在途请求、已准备待消费的记录与 LRU 纹理缓存。
+///
+/// 不拥有 layer 与上屏（交给 `CoreAnimationDanmakuRenderer`），也不自己监听系统内存压力：
+/// 进程级 DispatchSource 由 App 组装层持有，经 renderer 转到 `handleMemoryPressure()`。
+/// 释放时只取消队列中的 operation，不等待后台栅格化结束。
 @MainActor
 final class DanmakuTexturePreparationOwner {
     typealias Rasterize =
@@ -47,7 +52,6 @@ final class DanmakuTexturePreparationOwner {
     private let configuration: Configuration
     private let queue: OperationQueue
     private let rasterize: Rasterize
-    private var memoryPressureSource: DispatchSourceMemoryPressure?
 
     init(
         configuration: Configuration = .production,
@@ -65,12 +69,9 @@ final class DanmakuTexturePreparationOwner {
         queue.qualityOfService = .userInitiated
         queue.maxConcurrentOperationCount =
             configuration.maximumConcurrentOperations
-        installMemoryPressureSource()
     }
 
     deinit {
-        memoryPressureSource?.setEventHandler {}
-        memoryPressureSource?.cancel()
         queue.cancelAllOperations()
     }
 
@@ -196,20 +197,6 @@ final class DanmakuTexturePreparationOwner {
             )
             request.completion(.ready(acceptedPayload.metrics))
         }
-    }
-
-    private func installMemoryPressureSource() {
-        let source = DispatchSource.makeMemoryPressureSource(
-            eventMask: [.warning, .critical],
-            queue: .main
-        )
-        source.setEventHandler { [weak self] in
-            MainActor.assumeIsolated {
-                self?.handleMemoryPressure()
-            }
-        }
-        source.resume()
-        memoryPressureSource = source
     }
 
     /// 系统内存压力时丢弃缓存与未完成请求；等待中的调用方收到 `.capacity` 拒绝。
