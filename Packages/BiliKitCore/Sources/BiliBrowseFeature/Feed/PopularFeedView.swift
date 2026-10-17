@@ -65,10 +65,10 @@ public struct PopularFeedView: View {
         switch presentation.state {
         case .idle, .loading:
             VideoCardGridSkeleton(loadingLabel: BrowseFeatureStrings.localized("正在加载热门视频"))
-        case .loaded(.popular(let page)) where page.videos.isEmpty:
+        case .loaded(.popular(let list)) where list.items.isEmpty:
             emptyResults(presentation: presentation)
-        case .loaded(.popular(let page)):
-            loadedResults(page: page, presentation: presentation)
+        case .loaded(.popular(let list)):
+            loadedResults(videos: list.items, presentation: presentation)
         case .failed(request: .popular(_, _), let error):
             BrowseFailureView(
                 error: error,
@@ -93,13 +93,13 @@ public struct PopularFeedView: View {
     }
 
     private func loadedResults(
-        page: PopularPage,
+        videos: [PopularVideo],
         presentation: FeedPresentation
     ) -> some View {
         let pagination = model.pagination(for: request)
         return PopularNativeGridView(
             content: LoadedFeedContent(
-                items: page.videos,
+                items: videos,
                 tailState: pagination.gridTailState,
                 loadMore: { model.loadMore(.popular) },
                 select: onSelect
@@ -115,7 +115,7 @@ public struct PopularFeedView: View {
                 pagination.overlayStatus(
                     loadingMoreLabel: BrowseFeatureStrings.localized("正在加载更多热门视频", locale: locale),
                     locale: locale,
-                    retry: { model.retryLoadMore(.popular) }
+                    retry: { model.loadMore(.popular) }
                 )
             )
         }
@@ -145,7 +145,7 @@ public struct PopularFeedView: View {
         switch state {
         case .idle, .loading:
             .loading
-        case .loaded(.popular(let page)) where page.videos.isEmpty:
+        case .loaded(.popular(let list)) where list.items.isEmpty:
             .empty
         case .loaded(.popular(_)):
             .content

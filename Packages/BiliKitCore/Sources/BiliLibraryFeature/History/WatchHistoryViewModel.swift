@@ -31,8 +31,8 @@ public final class WatchHistoryViewModel {
     public private(set) var isRefreshing = false
     /// 最近一次原地刷新失败的原因，条目仍是刷新前的内容；下一次刷新开始时清除。
     public private(set) var refreshError: ContentApplicationError?
-    /// 仅供 renderer 对 near-end 事件去重；不包含或编码远端 continuation。
-    public private(set) var paginationTailIdentity: String?
+    /// 仅供 renderer 对 near-end 事件去重的尾标计数；不包含或编码远端 continuation。
+    public private(set) var paginationTailIdentity: UInt64?
     /// 空页或全重复页保留 continuation 时，必须由用户显式继续，避免 near-end 连续扫描。
     public private(set) var requiresManualLoadMore = false
     /// 历史读取发现凭据失效时递增，由 App 层汇总后复核账户（与其他内容页同一契约）。
@@ -75,7 +75,7 @@ public final class WatchHistoryViewModel {
     @ObservationIgnored private var hasReloadedAfterRevalidation = false
 
     private struct PaginationRestorePoint {
-        let tailIdentity: String?
+        let tailIdentity: UInt64?
         let requiresManualLoadMore: Bool
         let consumedContinuations: [WatchHistoryContinuation]
     }
@@ -331,7 +331,7 @@ public final class WatchHistoryViewModel {
             paginationTailIdentity = nil
         } else if rearmAutomaticTail {
             tailIdentityGeneration &+= 1
-            paginationTailIdentity = "history-tail-\(tailIdentityGeneration)"
+            paginationTailIdentity = tailIdentityGeneration
         }
         state = .loaded(
             items: items,

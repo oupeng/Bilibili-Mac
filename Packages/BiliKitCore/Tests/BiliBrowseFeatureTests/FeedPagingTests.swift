@@ -5,7 +5,8 @@ import Testing
 
 @testable import BiliBrowseFeature
 
-/// 推荐、热门与搜索的分页：按 BVID 去重追加，无进展或达到保留上限即停止，追加失败保留卡片、只重试下一页。
+/// 推荐、热门与搜索的来源分页：各来源怎样构造下一页请求、校验响应衔接，以及无新增即停止；去重、上限、
+/// 回环与尾标的通用规则由 `PagedVideoListTests` 固定。
 @Suite(.timeLimit(.minutes(1)))
 struct FeedPagingTests {
     @Test
@@ -31,30 +32,31 @@ struct FeedPagingTests {
         let model = BrowseViewModel(
             useCase: FeedUseCase(repository: repository)
         )
+        let request = FeedRequest.recommendation(continuation: nil)
 
         model.activateRecommendation()
         await model.waitForCurrentTask()
-        #expect(model.pagination(for: .recommendation(continuation: nil)).canLoadMore)
+        #expect(model.pagination(for: request).canLoadMore)
 
         model.loadMore(.recommendation)
         await model.waitForCurrentTask()
-        guard case .loaded(.recommendation(let secondBatch)) = model.state else {
-            Issue.record("推荐追加后应保持 loaded")
-            return
-        }
-        #expect(secondBatch.videos.map(\.bvid) == [first.bvid, second.bvid])
-        #expect(secondBatch.nextContinuation == RecommendationContinuation(freshIndex: 3))
+        #expect(BrowseFeed.recommendation.loadedBVIDs(model) == [first.bvid, second.bvid])
+        #expect(model.pagination(for: request).canLoadMore)
 
         model.loadMore(.recommendation)
         await model.waitForCurrentTask()
-        guard case .loaded(.recommendation(let finalBatch)) = model.state else {
-            Issue.record("全重复推荐批次后应保持 loaded")
-            return
-        }
-        #expect(finalBatch.videos.map(\.bvid) == [first.bvid, second.bvid])
-        #expect(finalBatch.nextContinuation == nil)
-        #expect(!model.pagination(for: .recommendation(continuation: nil)).canLoadMore)
-        #expect(await repository.recommendationRequests.count == 3)
+        #expect(BrowseFeed.recommendation.loadedBVIDs(model) == [first.bvid, second.bvid])
+        #expect(!model.pagination(for: request).canLoadMore)
+
+        model.loadMore(.recommendation)
+        await model.waitForCurrentTask()
+        #expect(
+            await repository.recommendationRequests == [
+                nil,
+                RecommendationContinuation(freshIndex: 2),
+                RecommendationContinuation(freshIndex: 3)
+            ]
+        )
     }
 
     @Test
@@ -83,111 +85,45 @@ struct FeedPagingTests {
         model.loadMore(.recommendation)
         await model.waitForCurrentTask()
 
-        guard case .loaded(.recommendation(let page)) = model.state else {
-            Issue.record("推荐达到容量后应保持 loaded")
-            return
-        }
         #expect(
-            page.videos.count
+            BrowseFeed.recommendation.loadedBVIDs(model).count
                 == VideoListRetention.maximumItemCount
         )
-        #expect(page.nextContinuation == nil)
         #expect(!model.pagination(for: .recommendation(continuation: nil)).canLoadMore)
     }
 
-    /// 热门与搜索与推荐共用上限：达到后不再给出分页尾标，也不再请求下一页。
-    @Test
+    /// 热门与搜索的下一页没有新条目时停止翻页，不再请求。
+    @Test(arguments: [BrowseFeed.popular, .search])
     @MainActor
-    func popularAndSearchStopPaginatingAtTheSharedCapacity() async {
-        let videosPerPage = 300
-        let pageVideos: @Sendable (String, Int) -> [ContentFixtures] = { prefix, page in
-            ((page - 1) * videosPerPage..<page * videosPerPage).map { index in
-                ContentFixtures(bvid: "BV-\(prefix)-\(index)", title: "\(prefix) \(index)")
-            }
-        }
+    func nonProgressingPageStopsPagination(_ feed: BrowseFeed) async {
+        let fixture = ContentFixtures(bvid: "BV1PopularE5", title: "重复卡片")
         let repository = FeedRepositoryStub(
-            popular: { request, _ in
-                PopularPage(
-                    videos: pageVideos("popular", request.page).map(\.popularVideo),
-                    pageNumber: request.page,
-                    pageSize: request.pageSize,
-                    hasMore: true
-                )
-            },
+            popular: { request, _ in fixture.popularPage(request, hasMore: true) },
             search: { request, _ in
                 SearchPage(
-                    videos: pageVideos("search", request.page).map(\.searchVideo),
+                    videos: [fixture.searchVideo],
                     pageNumber: request.page,
                     pageSize: request.criteria.pageSize,
-                    totalResults: 100 * videosPerPage,
-                    totalPages: 100
+                    totalResults: 60,
+                    totalPages: 3
                 )
             }
         )
-        let model = BrowseViewModel(useCase: FeedUseCase(repository: repository))
-        let popularRequest = FeedRequest.popular(page: 1, pageSize: 50)
-        let searchCriteria = VideoSearchCriteria(query: "上限")
-        let searchRequest = FeedRequest.search(
-            VideoSearchRequest(criteria: searchCriteria, page: 1)
-        )
-
-        model.activatePopular(pageSize: 50)
-        await model.waitForCurrentTask()
-        for _ in 0..<5 {
-            model.loadMore(.popular)
-            await model.waitForCurrentTask()
-        }
-        guard case .loaded(.popular(let popularPage)) = model.state else {
-            Issue.record("热门达到上限后应保持 loaded")
-            return
-        }
-        #expect(popularPage.videos.count == VideoListRetention.maximumItemCount)
-        #expect(model.pagination(for: popularRequest).tailIdentity == nil)
-        #expect(!model.pagination(for: popularRequest).canLoadMore)
-        #expect(await repository.popularPages == [1, 2, 3, 4])
-
-        model.activateSearch(searchCriteria)
-        await model.waitForCurrentTask()
-        for _ in 0..<5 {
-            model.loadMore(.search)
-            await model.waitForCurrentTask()
-        }
-        guard case .loaded(.search(_, let searchPage)) = model.state else {
-            Issue.record("搜索达到上限后应保持 loaded")
-            return
-        }
-        #expect(searchPage.videos.count == VideoListRetention.maximumItemCount)
-        #expect(model.pagination(for: searchRequest).tailIdentity == nil)
-        #expect(!model.pagination(for: searchRequest).canLoadMore)
-        #expect(await repository.searchRequests.map(\.page) == [1, 2, 3, 4])
-    }
-
-    @Test
-    @MainActor
-    func duplicateOnlyPopularPageStopsNonProgressingPagination() async {
-        let fixture = ContentFixtures(bvid: "BV1PopularE5", title: "重复热门卡片")
-        let repository = FeedRepositoryStub(popular: { request, _ in
-            fixture.popularPage(request, hasMore: true)
-        })
         let model = BrowseViewModel(
             useCase: FeedUseCase(repository: repository)
         )
-        let request = FeedRequest.popular(page: 1, pageSize: 50)
 
-        model.activatePopular(pageSize: 50)
+        feed.activate(model)
         await model.waitForCurrentTask()
-        model.loadMore(.popular)
+        feed.loadMore(model)
+        await model.waitForCurrentTask()
+        feed.loadMore(model)
         await model.waitForCurrentTask()
 
-        guard case .loaded(.popular(let page)) = model.state else {
-            Issue.record("全重复分页后应保持 loaded")
-            return
-        }
-        #expect(page.videos.map(\.bvid) == [fixture.bvid])
-        #expect(page.pageNumber == 2)
-        #expect(!page.hasMore)
-        #expect(!model.pagination(for: request).canLoadMore)
-        #expect(await repository.popularPages.count == 2)
+        #expect(feed.loadedBVIDs(model) == [fixture.bvid])
+        #expect(!feed.pagination(model).canLoadMore)
+        #expect(feed.pagination(model).loadMoreError == nil)
+        #expect(await repository.requestedPages(feed) == [1, 2])
     }
 
     /// 搜索首页没有可显示条目时与推荐、热门一样停止翻页，即使接口报告还有更多页。
@@ -231,7 +167,7 @@ struct FeedPagingTests {
         await model.waitForCurrentTask()
         let firstTail = feed.pagination(model)
         #expect(firstTail.canLoadMore)
-        #expect(firstTail.tailIdentity?.contains("|1|") == true)
+        #expect(firstTail.tailIdentity != nil)
 
         feed.loadMore(model)
         feed.loadMore(model)
@@ -242,6 +178,7 @@ struct FeedPagingTests {
         #expect(!feed.pagination(model).canLoadMore)
     }
 
+    /// 加载更多失败保留卡片并暂停自动加载（没有尾标）；底部重试走同一入口，只重新请求失败的那一页。
     @Test(arguments: [BrowseFeed.popular, .search])
     @MainActor
     func failedAppendKeepsCardsAndRetriesOnlyNextPage(_ feed: BrowseFeed) async {
@@ -259,17 +196,16 @@ struct FeedPagingTests {
 
         feed.activate(model)
         await model.waitForCurrentTask()
-        let loadedState = model.state
 
         feed.loadMore(model)
         await model.waitForCurrentTask()
         let failed = feed.pagination(model)
-        #expect(model.state == loadedState)
+        #expect(feed.loadedBVIDs(model) == [first.bvid])
         #expect(failed.loadMoreError == .transportFailure)
         #expect(!failed.canLoadMore)
         #expect(failed.tailIdentity == nil)
 
-        feed.retryLoadMore(model)
+        feed.loadMore(model)
         await model.waitForCurrentTask()
 
         #expect(feed.loadedBVIDs(model) == [first.bvid, second.bvid])
@@ -277,5 +213,77 @@ struct FeedPagingTests {
         #expect(
             await repository.searchRequests.allSatisfy { $0.criteria == BrowseFeed.searchCriteria }
         )
+    }
+
+    /// 下一页的页码与请求不符时按无效响应记为加载失败，已显示卡片不变，重试仍请求同一页。
+    @Test(arguments: [BrowseFeed.popular, .search])
+    @MainActor
+    func appendedPageThatDoesNotMatchTheRequestIsInvalid(_ feed: BrowseFeed) async {
+        let fixture = ContentFixtures(bvid: "BV1PagedE5", title: "第一页")
+        let stray = ContentFixtures(bvid: "BV1PagedF6", title: "错位页")
+        let repository = FeedRepositoryStub(
+            popular: { request, _ in
+                PopularPage(
+                    videos: [(request.page == 1 ? fixture : stray).popularVideo],
+                    pageNumber: request.page == 1 ? 1 : 3,
+                    pageSize: request.pageSize,
+                    hasMore: true
+                )
+            },
+            search: { request, _ in
+                SearchPage(
+                    videos: [(request.page == 1 ? fixture : stray).searchVideo],
+                    pageNumber: request.page == 1 ? 1 : 3,
+                    pageSize: request.criteria.pageSize,
+                    totalResults: 60,
+                    totalPages: 3
+                )
+            }
+        )
+        let model = BrowseViewModel(useCase: FeedUseCase(repository: repository))
+
+        feed.activate(model)
+        await model.waitForCurrentTask()
+        feed.loadMore(model)
+        await model.waitForCurrentTask()
+
+        #expect(feed.loadedBVIDs(model) == [fixture.bvid])
+        #expect(feed.pagination(model).loadMoreError == .invalidResponse)
+        #expect(!feed.pagination(model).canLoadMore)
+
+        feed.loadMore(model)
+        await model.waitForCurrentTask()
+        #expect(await repository.requestedPages(feed) == [1, 2, 2])
+    }
+
+    /// 经 ViewModel 的条目上限：热门每页 300 条，请求到第 4 页达到 1000 条后停止翻页，没有尾标。
+    @Test
+    @MainActor
+    func popularStopsPaginatingAtTheSharedCapacity() async {
+        let repository = FeedRepositoryStub(popular: { request, _ in
+            PopularPage(
+                videos: ((request.page - 1) * 300..<request.page * 300).map {
+                    ContentFixtures(bvid: "BV-popular-\($0)", title: "热门 \($0)").popularVideo
+                },
+                pageNumber: request.page,
+                pageSize: request.pageSize,
+                hasMore: true
+            )
+        })
+        let model = BrowseViewModel(useCase: FeedUseCase(repository: repository))
+        let request = FeedRequest.popular(page: 1, pageSize: 50)
+
+        model.activatePopular(pageSize: 50)
+        await model.waitForCurrentTask()
+        for _ in 0..<5 {
+            model.loadMore(.popular)
+            await model.waitForCurrentTask()
+        }
+
+        #expect(BrowseFeed.popular.loadedBVIDs(model).count == VideoListRetention.maximumItemCount)
+        #expect(model.pagination(for: request).tailIdentity == nil)
+        #expect(!model.pagination(for: request).canLoadMore)
+        #expect(model.pagination(for: request).loadMoreError == nil)
+        #expect(await repository.popularPages == [1, 2, 3, 4])
     }
 }

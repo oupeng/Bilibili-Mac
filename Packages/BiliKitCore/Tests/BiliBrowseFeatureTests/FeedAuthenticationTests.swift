@@ -50,11 +50,7 @@ struct FeedAuthenticationTests {
         model.loadMore(.recommendation)
         await model.waitForCurrentTask()
 
-        guard case .loaded(.recommendation(let page)) = model.state else {
-            Issue.record("认证失效的推荐追加应保留已有卡片")
-            return
-        }
-        #expect(page.videos.count == 1)
+        #expect(BrowseFeed.recommendation.loadedBVIDs(model) == [fixture.bvid])
         #expect(model.authenticationRevalidationGeneration == 1)
         #expect(
             model.pagination(for: .recommendation(continuation: nil)).loadMoreError

@@ -59,7 +59,7 @@ public struct VideoSearchView: View {
         switch model.presentation(for: request).state {
         case .idle, .loading:
             return .loading
-        case .loaded(.search(_, let page)) where page.videos.isEmpty:
+        case .loaded(.search(_, let list)) where list.items.isEmpty:
             return .empty
         case .loaded(.search(_, _)):
             return .content
@@ -96,7 +96,7 @@ public struct VideoSearchView: View {
         case .idle, .loading:
             let query = request.searchQuery ?? ""
             SearchResultsSkeleton(query: query)
-        case .loaded(.search(let query, let page)) where page.videos.isEmpty:
+        case .loaded(.search(let query, let list)) where list.items.isEmpty:
             VStack(spacing: 12) {
                 ContentUnavailableView.search(text: query)
                 if hasActiveFilters {
@@ -110,8 +110,8 @@ public struct VideoSearchView: View {
             .overlay(alignment: .top) {
                 refreshStatus(presentation)
             }
-        case .loaded(.search(_, let page)):
-            loadedResults(criteria: request.searchCriteria, page: page)
+        case .loaded(.search(_, let list)):
+            loadedResults(criteria: request.searchCriteria, videos: list.items)
                 .overlay(alignment: .top) {
                     refreshStatus(presentation)
                 }
@@ -141,7 +141,7 @@ public struct VideoSearchView: View {
 
     private func loadedResults(
         criteria: VideoSearchCriteria?,
-        page: SearchPage
+        videos: [SearchVideo]
     ) -> some View {
         let pagination =
             criteria.map {
@@ -149,7 +149,7 @@ public struct VideoSearchView: View {
             } ?? .unavailable
         return SearchNativeGridView(
             content: LoadedFeedContent(
-                items: page.videos.map { SearchVideoCardPresentation(video: $0, locale: locale) },
+                items: videos.map { SearchVideoCardPresentation(video: $0, locale: locale) },
                 tailState: pagination.gridTailState,
                 loadMore: { model.loadMore(.search) },
                 select: onSelect
@@ -162,7 +162,7 @@ public struct VideoSearchView: View {
                 pagination.overlayStatus(
                     loadingMoreLabel: BrowseFeatureStrings.localized("正在加载更多搜索结果", locale: locale),
                     locale: locale,
-                    retry: { model.retryLoadMore(.search) }
+                    retry: { model.loadMore(.search) }
                 )
             )
         }

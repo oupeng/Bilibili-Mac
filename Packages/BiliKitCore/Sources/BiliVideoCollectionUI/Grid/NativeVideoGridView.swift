@@ -97,7 +97,7 @@ package struct NativeVideoGridView: NSViewRepresentable {
         private var tailState: NativeVideoGridTailState
         /// 以已确认的回顶 ID 起步，每个新的 `requestID` 只消费一次：网格重建后仍会执行未确认的请求。
         private var scrollResetGate: NativeVideoGridScrollResetGate
-        private var nearEndPagination = NearEndPagination<String>(
+        private var nearEndPagination = NearEndPagination<UInt64>(
             tailChangeInsideThreshold: .rearms
         )
         private var onScroll: (CGFloat) -> Void

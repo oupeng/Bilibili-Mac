@@ -372,24 +372,24 @@ enum BrowseFeed: Sendable {
     }
 
     @MainActor
-    func retryLoadMore(_ model: BrowseViewModel) {
-        model.retryLoadMore(source)
-    }
-
-    @MainActor
     func pagination(
         _ model: BrowseViewModel
-    ) -> (canLoadMore: Bool, tailIdentity: String?, loadMoreError: ContentApplicationError?) {
+    ) -> (canLoadMore: Bool, tailIdentity: UInt64?, loadMoreError: ContentApplicationError?) {
         let pagination = model.pagination(for: firstPageRequest)
         return (pagination.canLoadMore, pagination.tailIdentity, pagination.loadMoreError)
     }
 
     @MainActor
     func loadedBVIDs(_ model: BrowseViewModel) -> [String] {
-        switch (self, model.state) {
-        case (.recommendation, .loaded(.recommendation(let page))): page.videos.map(\.bvid)
-        case (.popular, .loaded(.popular(let page))): page.videos.map(\.bvid)
-        case (.search, .loaded(.search(_, let page))): page.videos.map(\.bvid)
+        loadedBVIDs(in: model.state)
+    }
+
+    /// 本来源已加载的卡片 BVID；状态不是本来源的已加载内容时为空。
+    func loadedBVIDs(in state: FeedState) -> [String] {
+        switch (self, state) {
+        case (.recommendation, .loaded(.recommendation(let listing))): listing.items.map(\.bvid)
+        case (.popular, .loaded(.popular(let list))): list.items.map(\.bvid)
+        case (.search, .loaded(.search(_, let list))): list.items.map(\.bvid)
         default: []
         }
     }

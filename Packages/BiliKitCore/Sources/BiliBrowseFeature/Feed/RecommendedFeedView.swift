@@ -55,10 +55,10 @@ public struct RecommendedFeedView: View {
         switch presentation.state {
         case .idle, .loading:
             VideoCardGridSkeleton(loadingLabel: BrowseFeatureStrings.localized("正在加载首页推荐"))
-        case .loaded(.recommendation(let page)) where page.videos.isEmpty:
+        case .loaded(.recommendation(let listing)) where listing.items.isEmpty:
             emptyResults(presentation: presentation)
-        case .loaded(.recommendation(let page)):
-            loadedResults(page: page, presentation: presentation)
+        case .loaded(.recommendation(let listing)):
+            loadedResults(videos: listing.items, presentation: presentation)
         case .failed(request: .recommendation, let error):
             BrowseFailureView(
                 error: error,
@@ -83,13 +83,13 @@ public struct RecommendedFeedView: View {
     }
 
     private func loadedResults(
-        page: RecommendationPage,
+        videos: [RecommendedVideo],
         presentation: FeedPresentation
     ) -> some View {
         let pagination = model.pagination(for: .recommendation(continuation: nil))
         return RecommendedNativeGridView(
             content: LoadedFeedContent(
-                items: page.videos,
+                items: videos,
                 tailState: pagination.gridTailState,
                 loadMore: { model.loadMore(.recommendation) },
                 select: onSelect
@@ -105,7 +105,7 @@ public struct RecommendedFeedView: View {
                 pagination.overlayStatus(
                     loadingMoreLabel: BrowseFeatureStrings.localized("正在加载更多首页推荐", locale: locale),
                     locale: locale,
-                    retry: { model.retryLoadMore(.recommendation) }
+                    retry: { model.loadMore(.recommendation) }
                 )
             )
         }
@@ -135,7 +135,7 @@ public struct RecommendedFeedView: View {
         switch state {
         case .idle, .loading:
             .loading
-        case .loaded(.recommendation(let page)) where page.videos.isEmpty:
+        case .loaded(.recommendation(let listing)) where listing.items.isEmpty:
             .empty
         case .loaded(.recommendation):
             .content
