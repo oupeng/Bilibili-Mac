@@ -43,7 +43,7 @@ BiliNetworking 不依赖任何 Bili 模块
 | target | 拥有 | 不得依赖 |
 | --- | --- | --- |
 | `BiliModels` | 跨层稳定实体与值类型（视频、播放清单、字幕、弹幕、评论、账户投影） | 任何 Bili 模块、SwiftUI、AppKit、AVFoundation、Network |
-| `BiliApplication` | Use Case、port（Feed、视频详情与播放地址、相关推荐、热搜、搜索联想、UP 主资料与投稿、播放控制与时间轴、字幕、弹幕分段与呈现、评论、认证与会话失效、观看历史、观看进度）、应用级错误、界面可用的账户投影（`AccountSessionScope`、`AccountPresentationState`，由窗口的账户会话状态得出），以及 `package` 并发原语（Feature 共用的 `LatestTask`、时间线与播放失败事件共用的多订阅广播 `AsyncBroadcast`）与列表来源共用的分页状态机 `PagedVideoList` | 除 `BiliModels` 外的 Bili 模块、UI/播放/网络框架、DTO、Keychain、Cookie |
+| `BiliApplication` | Use Case、port（Feed、视频详情与播放地址、相关推荐、热搜、搜索联想、UP 主资料与投稿、播放控制与时间轴、字幕、弹幕分段与呈现、评论、认证与会话失效、观看历史、观看进度）、窗口账户复核的参与者契约 `AccountRevalidationParticipant`（由 Feature ViewModel 实现、App 窗口汇总，不是 adapter 实现的 port）、应用级错误、界面可用的账户投影（`AccountSessionScope`、`AccountPresentationState`，由窗口的账户会话状态得出），以及 `package` 并发原语（Feature 共用的 `LatestTask`、时间线与播放失败事件共用的多订阅广播 `AsyncBroadcast`）与列表来源共用的分页状态机 `PagedVideoList` | 除 `BiliModels` 外的 Bili 模块、UI/播放/网络框架、DTO、Keychain、Cookie |
 | `BiliNetworking` | 无业务语义的 HTTP client、Range client、`HTTPRequestAuthorizing`、URL 形状策略与 JSON 响应判定 | Bili 模块、`Security`、UI/播放框架 |
 | `BiliAPI` | endpoint DTO、WBI、解码、protobuf wire、远端错误映射，并实现 Application 仓库 port | `BiliAuth`（只接受注入的授权器） |
 | `BiliAuth` | Web QR 状态机、Cookie envelope、Keychain store、请求授权器，实现 `AuthenticationServicing` | `BiliAPI`、`BiliPlayback`、`BiliDanmaku`、Feature、UI 框架 |
@@ -266,9 +266,9 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
 ### 动线与侧栏上下文层
 
 - 平级来源（搜索、首页、热门、观看历史）以 `AppTab` 为 id，各由一份 `AppSourceDescriptor` 描述：标题、SF Symbol、
-  是否要求账户、内容整体替换的代次（推荐、热门与搜索只计原地刷新，历史含首次加载）、离开来源时的停用与
-  丢弃内容的 reset。`AppSources` 由窗口 owner 对 `AppTab.allCases` 穷尽构造一次，case 顺序即侧栏顺序；侧栏行、
-  刷新回顶、离开停用、关窗清理与其他窗口换号时的提前清理（只对要求账户的来源）都遍历它。来源描述的 reset 只丢弃
+  是否要求账户、内容整体替换的代次（推荐、热门与搜索只计原地刷新，历史含首次加载）、离开来源时的停用、
+  账户变化的通知、绑定本来源的复核参与者与丢弃内容的 reset。`AppSources` 由窗口 owner 对 `AppTab.allCases` 穷尽构造一次，case 顺序即侧栏顺序；侧栏行、
+  刷新回顶、离开停用、账户变化、关窗清理与其他窗口换号时的提前清理（只对要求账户的来源）都遍历它。来源描述的 reset 只丢弃
   本来源自己的内容，推荐、热门与搜索共用的 Browse 工作集关窗时由 `AppSources` 整体丢弃一次。根视图构造与 Browse
   激活依赖各来源自己的类型，仍是 `AppTab` 上的穷尽 switch。
 - 右侧栈深最多 1：来源页之上最多一层播放页，换视频只替换当前视频。新页面先判断属于哪一类：与首页、
@@ -351,14 +351,22 @@ Repository adapter 只调用 endpoint 方法，不自行构造 `RequestAccess`�
 唯一写能力是观看进度 heartbeat。具体边界见
 [`SECURITY-MODEL.md`](SECURITY-MODEL.md)。
 
-窗口复核契约：凭据失效只由 ViewModel 记录——各自递增 `authenticationRevalidationGeneration`（推荐／热门／
-搜索、视频、弹幕、评论、UP 主空间、观看历史；字幕目录由 `SubtitleUseCase` 报告给视频模型，播放侧仍把
-失败的目录当作没有字幕），`AppRootView` 汇总这些计数，任一增加就调用一次 `revalidate()`；Feature 不直接
-调用认证服务，也不经单独回调。heartbeat 写请求例外，不触发复核。
+窗口复核契约：凭据失效只由 ViewModel 记录。参与者实现 BiliApplication 的 `@MainActor` 协议
+`AccountRevalidationParticipant`（推荐／热门／搜索、视频、弹幕、评论、UP 主空间、观看历史；字幕目录由
+`SubtitleUseCase` 报告给视频模型，播放侧仍把失败的目录当作没有字幕）：发现需要复核的失败时以 `&+=` 递增
+`authenticationRevalidationGeneration`，复核结束的 `authenticationRevalidationSucceeded`／`Failed` 默认不动作。
+参与者集合 `AccountRevalidationParticipants` 由窗口 owner 构造一次，`AppRootView` 只读取各参与者的代次，前后
+不等（不比大小，回绕仍算）就调用一次 `revalidate()`；复核离开 restoring 时把结果交给参与者，绑定来源的参与者
+只在该来源是当前来源时收到（绑定关系只来自来源描述）（观看历史：复核成功后自动重载至多一次、失败时给可重试说明）。Feature 不直接调用
+认证服务，也不经单独回调。heartbeat 写请求例外，不触发复核。
 
 多窗口共享一个 App 级账户 session coordinator：窗口出现后注册其 API transport，登出／换号／凭据
 失效时先全局推进 authentication epoch，其他窗口再复核 Keychain 并按新 generation 重启依赖账户的
-内容；窗口关闭时注销。
+内容；窗口关闭时注销。账户变化由来源自己处理，App 只经来源描述通知（进程代次、窗口账户范围、是否当前来源）：
+Browse 按代次去重，丢弃三份工作集并重启当前路由；关闭播放之后再通知观看历史：丢弃条目，已登录且是当前
+来源时立即重载。其他窗口
+换号时，本窗口先丢弃要求账户的来源的内容再复核，复核结束后只通知不要求账户的来源，历史由复核得出的范围变化
+重新加载。
 
 ### 播放线路偏好与测速
 

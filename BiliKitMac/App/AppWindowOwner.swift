@@ -24,6 +24,8 @@ final class AppWindowOwner {
     let searchSuggestionSource: SearchSuggestionSource?
     /// 侧栏来源的描述，按侧栏顺序；与上面的模型同代构造一次。
     let sources: AppSources
+    /// 本窗口全部账户复核参与者；与上面的模型同代构造一次，`AppRootView` 只读取与转交结果。
+    let revalidationParticipants: AccountRevalidationParticipants
     let playerContent: AnyView
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentLinkRouter: CommentLinkRouter
@@ -212,6 +214,15 @@ final class AppWindowOwner {
             browseModel: browseModel,
             historyModel: historyModel,
             trendingSearchModel: trendingSearchModel
+        )
+        let windowWide: [(any AccountRevalidationParticipant)?] = [
+            videoModel, browseModel, danmakuModel, commentsModel, uploaderSpaceModel
+        ]
+        revalidationParticipants = AccountRevalidationParticipants(
+            entries: windowWide.compactMap { $0 }.map { .init(participant: $0, route: nil) }
+                + sources.ordered.compactMap { source in
+                    source.revalidationParticipant.map { .init(participant: $0, route: source.id) }
+                }
         )
         self.playerContent = playerContent
         self.commentAssetURLResolver = commentAssetURLResolver

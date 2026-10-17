@@ -5,7 +5,8 @@ import Testing
 
 @testable import BiliLibraryFeature
 
-/// 观看历史的凭据失败与账户复核：何时请求复核、复核后何时自动重载、复核结束与离开页面时的状态。
+/// 观看历史的凭据失败与账户复核：何时请求复核、复核后何时自动重载、复核结束与离开页面时的状态，以及账户范围
+/// 变化时丢弃上一账户的条目、只在已登录且历史是当前来源时立即重载。
 @Suite(.timeLimit(.minutes(1)))
 struct WatchHistoryRevalidationTests {
     /// 历史页只在已登录时显示：凭据失效与本地无凭据都说明窗口登录状态过期，请求复核。
@@ -63,11 +64,11 @@ struct WatchHistoryRevalidationTests {
 
         model.loadIfNeeded()
         await model.waitForCurrentTask()
-        model.resumeAfterAuthenticationRevalidation()
+        model.authenticationRevalidationSucceeded()
         await model.waitForCurrentTask()
         #expect(model.authenticationRevalidationGeneration == 2)
 
-        model.resumeAfterAuthenticationRevalidation()
+        model.authenticationRevalidationSucceeded()
         await model.waitForCurrentTask()
 
         #expect(model.state == .failed(.authenticationInvalid))
@@ -118,7 +119,7 @@ struct WatchHistoryRevalidationTests {
         await model.waitForCurrentTask()
         #expect(!model.isAwaitingAuthenticationRevalidation)
 
-        model.resumeAfterAuthenticationRevalidation()
+        model.authenticationRevalidationSucceeded()
         await model.waitForCurrentTask()
 
         #expect(model.state == .loaded(items: page.items, continuation: nil, loadMoreError: nil))
@@ -164,13 +165,13 @@ struct WatchHistoryRevalidationTests {
         )
         model.loadIfNeeded()
         await model.waitForCurrentTask()
-        model.resumeAfterAuthenticationRevalidation()
+        model.authenticationRevalidationSucceeded()
         await model.waitForCurrentTask()
 
         model.reset()
         model.loadIfNeeded()
         await model.waitForCurrentTask()
-        model.resumeAfterAuthenticationRevalidation()
+        model.authenticationRevalidationSucceeded()
         await model.waitForCurrentTask()
 
         #expect(model.state == .loaded(items: page.items, continuation: nil, loadMoreError: nil))
@@ -210,9 +211,49 @@ struct WatchHistoryRevalidationTests {
         model.loadIfNeeded()
         await model.waitForCurrentTask()
 
-        model.reportAuthenticationRevalidationFailure()
+        model.authenticationRevalidationFailed()
 
         #expect(model.state == .failed(.authenticationUnavailable))
         #expect(!model.isBusy)
+    }
+
+    /// 账户范围变化：先丢弃上一账户的条目；新范围已登录且历史是当前来源时立即加载新账户的历史。
+    @Test(arguments: [
+        (AccountSessionScope.signedIn(accountID: 2), true, true),
+        (AccountSessionScope.signedIn(accountID: 2), false, false),
+        (AccountSessionScope.signedOut, true, false)
+    ])
+    @MainActor
+    func accountChangeDropsItemsAndReloadsOnlyWhenSignedInAndCurrent(
+        scope: AccountSessionScope,
+        isCurrentRoute: Bool,
+        reloads: Bool
+    ) async {
+        let repository = HistoryRepositoryStub(
+            results: [
+                .success(WatchHistoryPage(items: [item("BV1PreviousAccount")], continuation: nil)),
+                .success(WatchHistoryPage(items: [item("BV1NextAccount")], continuation: nil))
+            ]
+        )
+        let model = WatchHistoryViewModel(
+            useCase: WatchHistoryUseCase(repository: repository)
+        )
+        model.loadIfNeeded()
+        await model.waitForCurrentTask()
+
+        model.synchronizeAuthenticationSession(scope: scope, isCurrentRoute: isCurrentRoute)
+        await model.waitForCurrentTask()
+
+        if reloads {
+            guard case .loaded(let items, _, _) = model.state else {
+                Issue.record("已登录且历史是当前来源时应重新加载，实际为 \(model.state)")
+                return
+            }
+            #expect(items.map(\.bvid) == ["BV1NextAccount"])
+            #expect(await repository.observedContinuations().count == 2)
+        } else {
+            #expect(model.state == .idle)
+            #expect(await repository.observedContinuations().count == 1)
+        }
     }
 }

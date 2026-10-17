@@ -153,38 +153,36 @@ struct AppRootView: View {
                 return
             }
             accountSessionCoordinator.publish(scope)
-            browseModel.synchronizeAuthenticationSession(
-                generation: accountSessionCoordinator.generation
+            // 先通知不要求账户的来源（Browse 重启当前路由），关闭播放，再通知要求账户的来源（观看历史清空并
+            // 按需重载）。
+            notifyAccountSessionChange(
+                generation: accountSessionCoordinator.generation,
+                scope: scope,
+                requiringAccount: false
             )
             navigationCoordinator.closePlaybackForAuthenticationChange()
-            historyModel.reset()
-            if case .signedIn = scope,
-                navigationCoordinator.selectedTab == .history
-            {
-                historyModel.loadIfNeeded()
-            }
+            notifyAccountSessionChange(
+                generation: accountSessionCoordinator.generation,
+                scope: scope,
+                requiringAccount: true
+            )
         }
         .task(id: accountSessionCoordinator.generation) {
             await synchronizeProcessAccountSession()
         }
         .onChange(of: authenticationModel.resolutionPhase) { previousPhase, phase in
-            guard previousPhase == .restoring,
-                navigationCoordinator.selectedTab == .history
-            else { return }
-            switch phase {
-            case .signedIn:
-                historyModel.resumeAfterAuthenticationRevalidation()
-            case .failed:
-                historyModel.reportAuthenticationRevalidationFailure()
-            default:
-                break
-            }
+            guard previousPhase == .restoring else { return }
+            windowOwner.revalidationParticipants.finishRevalidation(
+                phase,
+                currentRoute: navigationCoordinator.selectedTab
+            )
         }
         .onChange(of: navigationCoordinator.selectedTab) { previousTab, _ in
             windowOwner.sources[previousTab].deactivate()
         }
-        .onChange(of: authenticationRevalidationRequests) { previous, current in
-            guard zip(previous, current).contains(where: { $1 > $0 }) else { return }
+        .onChange(of: windowOwner.revalidationParticipants.generations) { previous, current in
+            guard AccountRevalidationParticipants.requestsRevalidation(from: previous, to: current)
+            else { return }
             authenticationModel.revalidate()
         }
         .onChange(of: navigationCoordinator.searchDraft) { _, query in
@@ -286,18 +284,6 @@ struct AppRootView: View {
         return videoIdentity.aid
     }
 
-    /// 各 ViewModel 发现凭据失效时递增自己的计数；任一计数增加都触发一次认证复核。
-    private var authenticationRevalidationRequests: [Int] {
-        [
-            videoModel.authenticationRevalidationGeneration,
-            browseModel.authenticationRevalidationGeneration,
-            danmakuModel.authenticationRevalidationGeneration,
-            commentsModel?.authenticationRevalidationGeneration ?? 0,
-            windowOwner.uploaderSpaceModel?.authenticationRevalidationGeneration ?? 0,
-            historyModel.authenticationRevalidationGeneration
-        ]
-    }
-
     private var normalizedSearchDraft: String {
         navigationCoordinator.searchDraft
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -391,7 +377,10 @@ struct AppRootView: View {
         await commentsModel.waitForCurrentRootTask()
     }
 
-    /// 先让本窗口认证 owner 完成凭据复核和 transport 失效，再重启账户化 Browse 请求。
+    /// 其他窗口换号后，让本窗口先复核再按进程代次通知来源。
+    ///
+    /// 先丢弃要求账户的来源的内容，让本窗口认证 owner 完成凭据复核和 transport 失效，再按进程代次通知不要求
+    /// 账户的来源。要求账户的来源由复核得出的范围变化（`historyAccountScope` 的 onChange）重新加载。
     private func synchronizeProcessAccountSession() async {
         let processGeneration = accountSessionCoordinator.generation
         guard accountSessionCoordinator.scope != historyAccountScope else {
@@ -404,9 +393,28 @@ struct AppRootView: View {
         guard accountSessionCoordinator.generation == processGeneration else {
             return
         }
-        browseModel.synchronizeAuthenticationSession(
-            generation: processGeneration
+        notifyAccountSessionChange(
+            generation: processGeneration,
+            scope: historyAccountScope,
+            requiringAccount: false
         )
+    }
+
+    /// 把账户会话变化交给要求账户（或不要求账户）的来源，由来源自己处理。
+    private func notifyAccountSessionChange(
+        generation: UInt64,
+        scope: AccountSessionScope,
+        requiringAccount: Bool
+    ) {
+        for source in windowOwner.sources.ordered where source.requiresAccount == requiringAccount {
+            source.synchronizeAccountSession(
+                AccountSessionChange(
+                    generation: generation,
+                    scope: scope,
+                    isCurrentRoute: source.id == navigationCoordinator.selectedTab
+                )
+            )
+        }
     }
 }
 

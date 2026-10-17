@@ -57,7 +57,7 @@ struct FeedPaginationPresentation: Sendable, Equatable {
 /// 工作集是唯一的状态来源，路由级的 `state` 等只是当前路由工作集的投影。`LatestTask` 与
 /// `activeRequestIdentity` 共同阻止已取消或已切路由的结果写回；进入播放页时普通 deactivate 会保留三份
 /// 工作集，`reset` 则清空它们；不同请求会替换对应工作集。分页规则由各工作集的 `FeedListing` 承担。
-public final class BrowseViewModel {
+public final class BrowseViewModel: AccountRevalidationParticipant {
     public private(set) var authenticationRevalidationGeneration = 0
     private var successfulRefreshGenerations: [FeedSource: UInt64] = [:]
     private(set) var activeRequestIdentity: FeedRequest?

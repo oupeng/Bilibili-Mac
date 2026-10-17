@@ -56,7 +56,7 @@ public struct PlaybackResumeNotice: Sendable, Equatable {
 /// 新视频、重试或 reset 都使旧任务失效；旧任务即使忽略取消，也不能覆盖当前状态。
 @MainActor
 @Observable
-public final class VideoViewModel {
+public final class VideoViewModel: AccountRevalidationParticipant {
     public private(set) var state: VideoLoadState = .idle
     public var failedPageCID: Int64? {
         guard case .failedPage(_, let targetPage, _) = state else { return nil }
@@ -561,7 +561,7 @@ public final class VideoViewModel {
         _ error: ContentApplicationError
     ) {
         guard error.requiresAccountRevalidation else { return }
-        authenticationRevalidationGeneration += 1
+        authenticationRevalidationGeneration &+= 1
     }
 
     private func applyResumeNotice(from outcome: PlaybackStartOutcome) {
