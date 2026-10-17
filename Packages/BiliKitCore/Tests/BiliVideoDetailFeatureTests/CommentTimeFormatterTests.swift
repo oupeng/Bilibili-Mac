@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import BiliBrowseFeature
+@testable import BiliVideoDetailFeature
 
 /// 东京时间 2026-08-11 12:00 为参照；显式 zh-Hans 区域与日历时区。
 struct CommentTimeFormatterTests {
@@ -70,5 +70,5 @@ private let tokyoCalendar: Calendar = {
 }()
 
 private func localized(_ key: String.LocalizationValue) -> String {
-    String(localized: key, bundle: BrowseFeatureStrings.bundle)
+    String(localized: key, bundle: VideoDetailFeatureStrings.bundle)
 }

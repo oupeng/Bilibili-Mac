@@ -73,7 +73,7 @@ struct VideoDetailView<PlayerContent: View, RelatedContent: View>: View {
         case .none:
             return nil
         case .upowerExclusive:
-            return BrowseFeatureStrings.localized("充电专属", locale: locale)
+            return VideoDetailFeatureStrings.localized("充电专属", locale: locale)
         case .upowerPreview(let previewDurationSeconds, let fullDurationSeconds):
             let preview = VideoDurationFormatting.string(
                 seconds: previewDurationSeconds,
@@ -84,7 +84,7 @@ struct VideoDetailView<PlayerContent: View, RelatedContent: View>: View {
                 locale: locale
             )
             let durationNotice = String(
-                format: BrowseFeatureStrings.localized(
+                format: VideoDetailFeatureStrings.localized(
                     "可试看至 %@ / 完整视频 %@",
                     locale: locale
                 ),
@@ -93,7 +93,7 @@ struct VideoDetailView<PlayerContent: View, RelatedContent: View>: View {
                 full
             )
             return [
-                BrowseFeatureStrings.localized("充电专属", locale: locale),
+                VideoDetailFeatureStrings.localized("充电专属", locale: locale),
                 durationNotice
             ].joined(separator: " · ")
         }

@@ -1,5 +1,5 @@
 import BiliApplication
-import BiliBrowseFeature
+import BiliVideoDetailFeature
 import Testing
 
 @MainActor

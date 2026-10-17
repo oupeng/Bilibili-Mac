@@ -12,12 +12,12 @@ struct DanmakuControlsView: View {
             showsSettings.toggle()
         } label: {
             Label(
-                BrowseFeatureStrings.localized("弹幕"),
+                VideoDetailFeatureStrings.localized("弹幕"),
                 systemImage: model.isEnabled ? "text.bubble.fill" : "text.bubble"
             )
             .labelStyle(.titleAndIcon)
         }
-        .help(BrowseFeatureStrings.localized("弹幕设置"))
+        .help(VideoDetailFeatureStrings.localized("弹幕设置"))
         .popover(isPresented: $showsSettings, arrowEdge: .bottom) {
             DanmakuSettingsPopover(model: model)
         }
@@ -41,7 +41,7 @@ private struct DanmakuSettingsPopover: View {
                     set: { model.setEnabled($0) }
                 )
             ) {
-                Text(BrowseFeatureStrings.localized("弹幕"))
+                Text(VideoDetailFeatureStrings.localized("弹幕"))
                     .font(.headline)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -76,7 +76,7 @@ private struct DanmakuSettingsPopover: View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text(BrowseFeatureStrings.localized("显示区域"))
+                    Text(VideoDetailFeatureStrings.localized("显示区域"))
                         .font(.subheadline.weight(.semibold))
 
                     Spacer()
@@ -108,7 +108,7 @@ private struct DanmakuSettingsPopover: View {
                     in: 0...Double(DanmakuDisplayArea.allCases.count - 1),
                     step: 1
                 ) {
-                    Text(BrowseFeatureStrings.localized("显示区域"))
+                    Text(VideoDetailFeatureStrings.localized("显示区域"))
                 }
                 .labelsHidden()
                 .accessibilityValue(Text(model.displayArea.displayName))
@@ -122,11 +122,11 @@ private struct DanmakuSettingsPopover: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Text(BrowseFeatureStrings.localized("同屏密度"))
+                Text(VideoDetailFeatureStrings.localized("同屏密度"))
                     .font(.subheadline.weight(.semibold))
 
                 Picker(
-                    BrowseFeatureStrings.localized("同屏密度"),
+                    VideoDetailFeatureStrings.localized("同屏密度"),
                     selection: Binding(
                         get: { model.density },
                         set: { model.setDensity($0) }
@@ -142,7 +142,7 @@ private struct DanmakuSettingsPopover: View {
                 .accessibilityValue(Text(model.density.displayName))
 
                 if !model.canAdjustDensity {
-                    Text(BrowseFeatureStrings.localized("同屏密度仅在显示区域为 100% 时生效"))
+                    Text(VideoDetailFeatureStrings.localized("同屏密度仅在显示区域为 100% 时生效"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -152,12 +152,12 @@ private struct DanmakuSettingsPopover: View {
 
     private var modeSettings: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(BrowseFeatureStrings.localized("显示类型"))
+            Text(VideoDetailFeatureStrings.localized("显示类型"))
                 .font(.subheadline.weight(.semibold))
 
             HStack(spacing: 18) {
                 modeToggle(
-                    BrowseFeatureStrings.localized("滚动"),
+                    VideoDetailFeatureStrings.localized("滚动"),
                     isOn: model.showsScrolling,
                     isLastVisibleMode: model.showsScrolling
                         && !model.showsTop
@@ -165,7 +165,7 @@ private struct DanmakuSettingsPopover: View {
                     mode: .scrolling
                 )
                 modeToggle(
-                    BrowseFeatureStrings.localized("顶部"),
+                    VideoDetailFeatureStrings.localized("顶部"),
                     isOn: model.showsTop,
                     isLastVisibleMode: model.showsTop
                         && !model.showsScrolling
@@ -173,7 +173,7 @@ private struct DanmakuSettingsPopover: View {
                     mode: .top
                 )
                 modeToggle(
-                    BrowseFeatureStrings.localized("底部"),
+                    VideoDetailFeatureStrings.localized("底部"),
                     isOn: model.showsBottom,
                     isLastVisibleMode: model.showsBottom
                         && !model.showsScrolling
@@ -182,7 +182,7 @@ private struct DanmakuSettingsPopover: View {
                 )
             }
 
-            Text(BrowseFeatureStrings.localized("至少保留一种显示类型"))
+            Text(VideoDetailFeatureStrings.localized("至少保留一种显示类型"))
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -191,7 +191,7 @@ private struct DanmakuSettingsPopover: View {
     private var speedSettings: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(BrowseFeatureStrings.localized("滚动速度"))
+                Text(VideoDetailFeatureStrings.localized("滚动速度"))
                     .font(.subheadline.weight(.semibold))
 
                 Spacer()
@@ -222,7 +222,7 @@ private struct DanmakuSettingsPopover: View {
                 ),
                 step: 1
             ) {
-                Text(BrowseFeatureStrings.localized("滚动速度"))
+                Text(VideoDetailFeatureStrings.localized("滚动速度"))
             }
             .labelsHidden()
             .accessibilityValue(Text(model.speedLevel.displayName))
@@ -240,7 +240,7 @@ private struct DanmakuSettingsPopover: View {
     private var opacitySettings: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(BrowseFeatureStrings.localized("透明度"))
+                Text(VideoDetailFeatureStrings.localized("透明度"))
                     .font(.subheadline.weight(.semibold))
 
                 Spacer()
@@ -261,7 +261,7 @@ private struct DanmakuSettingsPopover: View {
                 in: DanmakuOpacity.allowedRange,
                 step: 0.05
             ) {
-                Text(BrowseFeatureStrings.localized("透明度"))
+                Text(VideoDetailFeatureStrings.localized("透明度"))
             }
             .labelsHidden()
             .accessibilityValue(
@@ -362,15 +362,15 @@ extension DanmakuSpeedLevel {
     fileprivate var displayName: String {
         switch self {
         case .one:
-            BrowseFeatureStrings.localized("极慢")
+            VideoDetailFeatureStrings.localized("极慢")
         case .two:
-            BrowseFeatureStrings.localized("较慢")
+            VideoDetailFeatureStrings.localized("较慢")
         case .three:
-            BrowseFeatureStrings.localized("适中")
+            VideoDetailFeatureStrings.localized("适中")
         case .four:
-            BrowseFeatureStrings.localized("较快")
+            VideoDetailFeatureStrings.localized("较快")
         case .five:
-            BrowseFeatureStrings.localized("极快")
+            VideoDetailFeatureStrings.localized("极快")
         }
     }
 }
@@ -385,11 +385,11 @@ extension DanmakuDensity {
     fileprivate var displayName: String {
         switch self {
         case .normal:
-            BrowseFeatureStrings.localized("正常")
+            VideoDetailFeatureStrings.localized("正常")
         case .increased:
-            BrowseFeatureStrings.localized("较多")
+            VideoDetailFeatureStrings.localized("较多")
         case .overlapping:
-            BrowseFeatureStrings.localized("重叠")
+            VideoDetailFeatureStrings.localized("重叠")
         }
     }
 }

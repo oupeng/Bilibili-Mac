@@ -2,13 +2,13 @@ import BiliModels
 import Foundation
 import Testing
 
-@testable import BiliBrowseFeature
+@testable import BiliVideoDetailFeature
 
 struct RelatedVideoShelfTests {
     @Test
     func presentationMapsStableBVIDAndEveryVisibleSlot() {
         let locale = Locale(
-            identifier: BrowseFeatureStrings.bundle.preferredLocalizations.first ?? "en"
+            identifier: VideoDetailFeatureStrings.bundle.preferredLocalizations.first ?? "en"
         )
         let presentation = RelatedVideoCardPresentation(
             video: RelatedVideo(
@@ -48,7 +48,7 @@ struct RelatedVideoShelfTests {
     @Test
     func presentationHidesMissingDurationWithoutInventingATrailingSlot() {
         let locale = Locale(
-            identifier: BrowseFeatureStrings.bundle.preferredLocalizations.first ?? "en"
+            identifier: VideoDetailFeatureStrings.bundle.preferredLocalizations.first ?? "en"
         )
         let presentation = RelatedVideoCardPresentation(
             video: RelatedVideo(

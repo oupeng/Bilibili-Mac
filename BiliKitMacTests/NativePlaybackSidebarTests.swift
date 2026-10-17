@@ -1,8 +1,8 @@
 import AppKit
 import BiliApplication
-import BiliBrowseFeature
 import BiliModels
 import BiliUI
+import BiliVideoDetailFeature
 import Foundation
 import Testing
 

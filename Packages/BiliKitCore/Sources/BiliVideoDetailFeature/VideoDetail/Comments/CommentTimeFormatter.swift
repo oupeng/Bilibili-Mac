@@ -10,15 +10,15 @@ public enum CommentTimeFormatter {
     ) -> String {
         let elapsed = max(0, referenceDate.timeIntervalSince(date))
         if elapsed < 60 {
-            return BrowseFeatureStrings.localized("刚刚", locale: locale)
+            return VideoDetailFeatureStrings.localized("刚刚", locale: locale)
         }
         if elapsed < 3_600 {
             let minutes = Int(elapsed / 60)
-            return BrowseFeatureStrings.localized("\(minutes)分钟前", locale: locale)
+            return VideoDetailFeatureStrings.localized("\(minutes)分钟前", locale: locale)
         }
         if elapsed < 86_400 {
             let hours = Int(elapsed / 3_600)
-            return BrowseFeatureStrings.localized("\(hours)小时前", locale: locale)
+            return VideoDetailFeatureStrings.localized("\(hours)小时前", locale: locale)
         }
 
         let referenceDay = calendar.startOfDay(for: referenceDate)
@@ -37,10 +37,10 @@ public enum CommentTimeFormatter {
                 calendar: calendar,
                 locale: locale
             )
-            return BrowseFeatureStrings.localized("昨天\(time)", locale: locale)
+            return VideoDetailFeatureStrings.localized("昨天\(time)", locale: locale)
         }
         if dayDifference == 2 || dayDifference == 3 {
-            return BrowseFeatureStrings.localized("\(dayDifference)天前", locale: locale)
+            return VideoDetailFeatureStrings.localized("\(dayDifference)天前", locale: locale)
         }
         let sameYear =
             calendar.component(.year, from: date)
@@ -48,7 +48,7 @@ public enum CommentTimeFormatter {
         if sameYear {
             let month = calendar.component(.month, from: date)
             let day = calendar.component(.day, from: date)
-            return BrowseFeatureStrings.localized("\(month)月\(day)日", locale: locale)
+            return VideoDetailFeatureStrings.localized("\(month)月\(day)日", locale: locale)
         }
         return DateDisplayFormatting.formatted(
             date,

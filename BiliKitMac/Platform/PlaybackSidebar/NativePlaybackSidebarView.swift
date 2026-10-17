@@ -1,7 +1,7 @@
 import AppKit
 import BiliApplication
-import BiliBrowseFeature
 import BiliModels
+import BiliVideoDetailFeature
 import SwiftUI
 
 struct NativePlaybackSidebarView: View {

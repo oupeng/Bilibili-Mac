@@ -52,7 +52,9 @@ public struct RelatedVideoCardPresentation: Identifiable, Equatable, Sendable {
             VideoMetadataFormatting.danmakuCountText(compactText: danmakuCountText, locale: locale)
         ]
         if let durationText {
-            components.append(BrowseFeatureStrings.localized("时长\(durationText)", locale: locale))
+            components.append(
+                VideoDetailFeatureStrings.localized("时长\(durationText)", locale: locale)
+            )
         }
         accessibilityLabel = ListFormatter.localizedString(byJoining: components)
     }
@@ -117,10 +119,10 @@ struct RelatedVideoShelf<LoadedContent: View>: View {
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(BrowseFeatureStrings.localized("相关推荐"))
+            Text(VideoDetailFeatureStrings.localized("相关推荐"))
                 .font(.title3.weight(.semibold))
 
-            Text(BrowseFeatureStrings.localized("继续观看"))
+            Text(VideoDetailFeatureStrings.localized("继续观看"))
                 .font(.caption)
                 .foregroundStyle(.tertiary)
 
@@ -173,17 +175,17 @@ struct RelatedVideoShelf<LoadedContent: View>: View {
         .clipped()
         .frame(height: Shelf.viewportHeight, alignment: .topLeading)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(BrowseFeatureStrings.localized("正在加载相关推荐"))
+        .accessibilityLabel(VideoDetailFeatureStrings.localized("正在加载相关推荐"))
     }
 
     private var failureShelf: some View {
         VStack(spacing: 10) {
             Label(
-                BrowseFeatureStrings.localized("相关推荐加载失败"),
+                VideoDetailFeatureStrings.localized("相关推荐加载失败"),
                 systemImage: "exclamationmark.triangle"
             )
             .font(.headline)
-            Button(BrowseFeatureStrings.localized("重试"), action: onRetry)
+            Button(VideoDetailFeatureStrings.localized("重试"), action: onRetry)
                 .buttonStyle(.borderedProminent)
         }
         .frame(maxWidth: .infinity)
@@ -192,7 +194,7 @@ struct RelatedVideoShelf<LoadedContent: View>: View {
 
     private var unavailableShelf: some View {
         ContentUnavailableView(
-            BrowseFeatureStrings.localized("暂无相关推荐"),
+            VideoDetailFeatureStrings.localized("暂无相关推荐"),
             systemImage: "rectangle.stack"
         )
         .frame(maxWidth: .infinity)

@@ -1,6 +1,6 @@
 import AppKit
-import BiliBrowseFeature
 import BiliModels
+import BiliVideoDetailFeature
 
 @MainActor
 enum NativePlaybackCommentsItemMeasurement {

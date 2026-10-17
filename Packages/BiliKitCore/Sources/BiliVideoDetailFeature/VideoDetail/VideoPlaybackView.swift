@@ -107,9 +107,9 @@ public struct VideoPlaybackView<PlayerContent: View, RelatedContent: View>: View
 
     private var initialLoadingLabel: String {
         if case .loadingPage = model.state {
-            return BrowseFeatureStrings.localized("正在加载所选分 P")
+            return VideoDetailFeatureStrings.localized("正在加载所选分 P")
         }
-        return BrowseFeatureStrings.localized("正在加载视频详情")
+        return VideoDetailFeatureStrings.localized("正在加载视频详情")
     }
 
     private var currentContext: VideoContext? {
@@ -154,19 +154,18 @@ public struct VideoPlaybackView<PlayerContent: View, RelatedContent: View>: View
         switch model.state {
         case .idle:
             ContentUnavailableView(
-                BrowseFeatureStrings.localized("选择一个视频"),
+                VideoDetailFeatureStrings.localized("选择一个视频"),
                 systemImage: "play.rectangle",
-                description: Text(BrowseFeatureStrings.localized("从热门或搜索结果中选择视频后，这里会显示详情与播放器。"))
+                description: Text(
+                    VideoDetailFeatureStrings.localized("从热门或搜索结果中选择视频后，这里会显示详情与播放器。")
+                )
             )
         case .loading:
             EmptyView()
         case .loadingPage:
             EmptyView()
         case .failed(_, let failure), .failedPage(_, _, let failure):
-            BrowseFailureView(
-                failure: failure,
-                retry: retryAction
-            )
+            failureView(failure)
         case .preparingPlayback, .ready:
             EmptyView()
         }
@@ -177,18 +176,15 @@ public struct VideoPlaybackView<PlayerContent: View, RelatedContent: View>: View
         if currentContext != nil {
             switch model.state {
             case .failed(_, let failure), .failedPage(_, _, let failure):
-                BrowseFailureView(
-                    failure: failure,
-                    retry: retryAction
-                )
-                .frame(maxWidth: 420)
-                .padding(24)
-                .background(
-                    .ultraThinMaterial,
-                    in: RoundedRectangle(cornerRadius: 16)
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .transition(.opacity)
+                failureView(failure)
+                    .frame(maxWidth: 420)
+                    .padding(24)
+                    .background(
+                        .ultraThinMaterial,
+                        in: RoundedRectangle(cornerRadius: 16)
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .transition(.opacity)
             case .idle, .loading, .loadingPage, .preparingPlayback, .ready:
                 EmptyView()
             }
@@ -205,6 +201,15 @@ public struct VideoPlaybackView<PlayerContent: View, RelatedContent: View>: View
         case .idle, .loading, .loadingPage, .failed, .failedPage:
             nil
         }
+    }
+
+    private func failureView(_ failure: VideoLoadFailure) -> ContentFailureView {
+        let retry: () -> Void = retryAction
+        return ContentFailureView(
+            title: failure.title,
+            message: failure.message,
+            retry: failure.isRetryable ? retry : nil
+        )
     }
 
     private func retryAction() {

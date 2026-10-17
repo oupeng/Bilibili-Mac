@@ -1,7 +1,7 @@
 import AppKit
-import BiliBrowseFeature
 import BiliModels
 import BiliUI
+import BiliVideoDetailFeature
 
 @MainActor
 enum NativePlaybackSidebarItemMeasurement {

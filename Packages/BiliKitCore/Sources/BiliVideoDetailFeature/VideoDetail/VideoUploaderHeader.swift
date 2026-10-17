@@ -28,7 +28,7 @@ public struct VideoUploaderHeaderContent: Equatable, Sendable {
         profileState: VideoUploaderProfileState? = nil
     ) {
         let normalizedName = UploaderProfileUseCase.singleLine(owner.name)
-        name = normalizedName ?? BrowseFeatureStrings.localized("未知 UP 主")
+        name = normalizedName ?? VideoDetailFeatureStrings.localized("未知 UP 主")
         avatarURL = owner.avatarURL
         switch profileState ?? .loaded(UploaderProfile(signature: owner.signature)) {
         case .loading:

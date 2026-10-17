@@ -2,7 +2,7 @@ import BiliApplication
 import BiliModels
 import Testing
 
-@testable import BiliBrowseFeature
+@testable import BiliVideoDetailFeature
 
 @Suite(.timeLimit(.minutes(1)))
 struct PlaybackCommentsViewModelTests {

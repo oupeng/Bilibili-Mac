@@ -5,6 +5,7 @@ import BiliBrowseFeature
 import BiliDanmaku
 import BiliLibraryFeature
 import BiliModels
+import BiliVideoDetailFeature
 import CoreGraphics
 import SwiftUI
 import Testing
@@ -25,9 +26,7 @@ struct VideoDetailLifecycleTests {
             playback: player
         )
         let presentation = RecordingPresentation()
-        let danmakuModel = DanmakuControlsViewModel(
-            presentation: presentation
-        )
+        let danmakuModel = DanmakuControlsViewModel(presentation: presentation)
         let hostingView = NSHostingView(
             rootView: AnyView(
                 VideoPlaybackView(

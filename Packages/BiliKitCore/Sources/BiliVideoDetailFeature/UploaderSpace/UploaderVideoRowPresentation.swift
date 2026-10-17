@@ -34,7 +34,7 @@ public struct UploaderVideoRowPresentation: Identifiable, Equatable, Sendable {
             .compactMap { $0 }
             .joined(separator: " · ")
         isCollaboration = video.isCollaboration
-        collaborationText = BrowseFeatureStrings.localized("合作", locale: locale)
+        collaborationText = VideoDetailFeatureStrings.localized("合作", locale: locale)
 
         var components = [video.title]
         if video.isCollaboration {
@@ -42,7 +42,9 @@ public struct UploaderVideoRowPresentation: Identifiable, Equatable, Sendable {
         }
         components += [viewCountText, danmakuCountText].compactMap { $0 }
         if let durationText {
-            components.append(BrowseFeatureStrings.localized("时长\(durationText)", locale: locale))
+            components.append(
+                VideoDetailFeatureStrings.localized("时长\(durationText)", locale: locale)
+            )
         }
         components.append(publishedText)
         accessibilityLabel = ListFormatter.localizedString(byJoining: components)

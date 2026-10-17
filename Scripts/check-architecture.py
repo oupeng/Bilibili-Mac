@@ -24,7 +24,9 @@ BASE = {"Foundation", "Synchronization", "os", "Darwin", "Dispatch"}
 FEATURE_SHARED = {
     "BiliModels", "BiliApplication", "BiliUI", "BiliVideoCollectionUI", "SwiftUI", "Observation", "CoreGraphics",
 }
-FEATURES = {"BiliAuthFeature", "BiliBrowseFeature", "BiliLibraryFeature"}
+FEATURES = {"BiliAuthFeature", "BiliBrowseFeature", "BiliLibraryFeature", "BiliVideoDetailFeature"}
+# 只有渲染共享卡片网格的 Feature 才依赖 BiliVideoCollectionUI。
+COLLECTION_FEATURES = {"BiliBrowseFeature", "BiliLibraryFeature"}
 ADAPTERS = {"BiliAPI", "BiliAuth", "BiliNetworking", "BiliPlayback", "BiliDanmaku"}
 
 SOURCES = "Packages/BiliKitCore/Sources"
@@ -73,8 +75,9 @@ SCOPES = {
     ),
     **{
         f"{SOURCES}/{feature}": (
-            FEATURE_SHARED,
-            "Feature 不能依赖 adapter、其他 Feature、AppKit 或播放与网络框架；共享的 AppKit 卡片与网格只经 BiliVideoCollectionUI",
+            FEATURE_SHARED if feature in COLLECTION_FEATURES else FEATURE_SHARED - {"BiliVideoCollectionUI"},
+            "Feature 不能依赖 adapter、其他 Feature、AppKit 或播放与网络框架；共享的 AppKit 卡片与网格只经 "
+            "BiliVideoCollectionUI，且只有 COLLECTION_FEATURES 登记的 Feature 依赖它",
         )
         for feature in sorted(FEATURES)
     },

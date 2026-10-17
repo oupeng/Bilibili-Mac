@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import BiliBrowseFeature
+@testable import BiliVideoDetailFeature
 
 struct CommentPresentationFormattingTests {
     @Test

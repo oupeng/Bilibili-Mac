@@ -9,6 +9,7 @@ import BiliApplication
 import BiliAuthFeature
 import BiliBrowseFeature
 import BiliLibraryFeature
+import BiliVideoDetailFeature
 import Combine
 import SwiftUI
 

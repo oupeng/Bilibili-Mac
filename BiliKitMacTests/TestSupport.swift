@@ -1,6 +1,6 @@
 import AppKit
 import BiliApplication
-import BiliBrowseFeature
+import BiliVideoDetailFeature
 import Foundation
 import Observation
 import Testing

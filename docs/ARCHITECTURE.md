@@ -26,10 +26,11 @@
 
 ```text
 BiliKit App（Composition Root、AppKit/AVKit 宿主、Sparkle）
- ├─ BiliBrowseFeature ─┐
- ├─ BiliLibraryFeature ┼─> BiliApplication ─> BiliModels
- ├─ BiliAuthFeature ───┘         ^ ports
- │    (Browse/Library ─> BiliUI ─> BiliApplication / SwiftUI)
+ ├─ BiliBrowseFeature ──────┐
+ ├─ BiliVideoDetailFeature ─┤
+ ├─ BiliLibraryFeature ─────┼─> BiliApplication ─> BiliModels
+ ├─ BiliAuthFeature ────────┘         ^ ports
+ │    (Browse/VideoDetail/Library ─> BiliUI ─> BiliApplication / SwiftUI)
  │    (Browse/Library ─> BiliVideoCollectionUI)
  ├─ BiliVideoCollectionUI ─> BiliUI / AppKit
  ├─ BiliAPI ──────┐
@@ -48,7 +49,8 @@ BiliNetworking 不依赖任何 Bili 模块
 | `BiliAuth` | Web QR 状态机、Cookie envelope、Keychain store、请求授权器，实现 `AuthenticationServicing` | `BiliAPI`、`BiliPlayback`、`BiliDanmaku`、Feature、UI 框架 |
 | `BiliPlayback` | DASH→HLS bridge、loopback server、SIDX、`AVPlayerEngine`、线路偏好与测速、响度 tap | `BiliAPI`、`BiliAuth` |
 | `BiliDanmaku` | 弹幕会话、按媒体时间调度、lane 分配、Core Animation renderer | `BiliAPI`、`BiliAuth`、`BiliNetworking`、`BiliPlayback`、Feature、SwiftUI |
-| `Bili*Feature` | SwiftUI View 与 `@MainActor` ViewModel；Browse（Feed/Search/VideoDetail/UploaderSpace，含推荐、热门、搜索的原生网格与热搜图标的取图 port `TrendingSearchIconLoading`）、Library（History，含按账户呈现状态渲染的登录门槛、刷新与原生网格）、Auth（扫码登录、登出与账户投影的来源）。共享的 AppKit 卡片与网格经 `BiliVideoCollectionUI` 渲染 | adapter target、其他 Feature、直接 import AppKit/AVKit/AVFoundation |
+| `Bili*Feature` | SwiftUI View 与 `@MainActor` ViewModel；Browse（Feed/Search，含推荐、热门、搜索的原生网格与热搜图标的取图 port `TrendingSearchIconLoading`）、Library（History，含按账户呈现状态渲染的登录门槛、刷新与原生网格）、Auth（扫码登录、登出与账户投影的来源），播放页见下一行。共享的 AppKit 卡片与网格经 `BiliVideoCollectionUI` 渲染 | adapter target、其他 Feature、直接 import AppKit/AVKit/AVFoundation |
+| `BiliVideoDetailFeature` | 播放页（VideoDetail）与侧栏上下文层 UP 主空间（UploaderSpace）：视频与分 P 意图、续播与链接起播、相关推荐与 UP 主名片（`VideoViewModel`），合集选集的分 P（`CollectionEpisodePagesController`），评论（`PlaybackCommentsViewModel`），弹幕设置，空间投稿列表（`UploaderSpaceViewModel`），以及主区布局、骨架、相关推荐横排与选集、评论、投稿行的呈现投影；播放页失败（`VideoLoadFailure`）的标题、说明与是否可重试只在这里。拥有自己的字符串目录；App 用到的类型为 `public`，有 library product | 同其他 Feature；不依赖 `BiliVideoCollectionUI`，侧栏、横排与空间列表的 AppKit 视图在 App |
 | `BiliUI` | Feature 共享的 SwiftUI 呈现层：卡片几何、网格、骨架、加载过渡、刷新与分页状态胶囊、整页失败视图，只按账户读取的来源共用的登录门槛（`AccountGateView`，形态映射为 `AccountGatePhase`），`ContentApplicationError` 的失败文案（`ContentFailureText`），计数、时长与日期格式化，视频卡片的 B 站图片缩略地址；拥有自己的字符串目录。默认 `package` 访问级别，App 直接使用的卡片几何、时长格式化、播放器加载转圈与单行失败说明（`ContentFailureText.message`）为 `public`；AppKit target `BiliVideoCollectionUI` 也经 `package` 接口取用它的文案（卡片选中的读屏值 `VideoCardAccessibilityText`）。无 library product | 除 Foundation、SwiftUI、BiliApplication 外的任何模块（含 BiliModels、AppKit 与其他 Feature） |
 | `BiliVideoCollectionUI` | 浏览网格与横排共用的 AppKit 卡片（`NativeVideoCollectionItem`、封面与文字层）、原生网格 `NativeVideoGridView` 及其状态（回顶握手、锚点、预备区域），集合视图的悬停、键盘与通知观察，近尾部分页 `NearEndPagination`，滚动坐标换算，取图 port `NativeVideoImageLoading`（只分封面与头像，结果只含图与是否淡入），来源网格从 App 窗口拿到的依赖 `NativeVideoGridHostContext`（滚动位置、回顶请求、取图 port），以及网格与横排共用的内容差异 `NativeVideoGridUpdatePlan`。App 用到的类型为 `public`（卡片、集合视图支撑、滚动换算、取图 port、回顶请求与网格依赖的构造、内容差异），只有 Feature 用到的网格 `NativeVideoGridView` 与尾部状态为 `package`，其余为 `internal`，有 library product | 除 BiliUI 外的 Bili 模块（含 BiliNetworking、adapter 与 Feature）；图片下载与缓存只经 port 注入 |
 | App `BiliKitMac` | composition root、导航协调、窗口 owner、`AVPlayerView` 宿主、各来源网格的滚动位置与回顶请求、相关推荐横排、播放侧栏、图片管线（实现卡片与热搜图标两个取图 port）、Settings、Now Playing、Sparkle | `App/` 目录不直接 import adapter 或平台框架，具体实现只在 `Composition/`、`Platform/`、`Settings/` 出现；Application 只在搜索条件或账户投影的使用点 import（`AppRootView`、`AppShellView`、`AppSidebarViews`、`AppSourceRootViews`、`AppWindowOwner`、`SearchToolbarControls`；成员可见性要求直接 import 定义模块，Feature 不转出 Application）；BiliVideoCollectionUI 由 `Platform/` 里用到共享卡片或集合视图支撑的宿主 import（相关推荐横排、返回顶部滚动视图、播放侧栏与评论头像、UP 主空间、播放器宿主、动图播放、图片管线），`Composition/` 只有 `WatchProgressWindowConnection`，`App/` 只有构造并转交 `NativeVideoGridHostContext` 的 `AppShellView`、`AppSourceRootViews`；只按账户读取的来源由 Feature 渲染登录门槛，App 只注入账户呈现状态与打开登录页的动作 |
@@ -77,7 +79,8 @@ BiliNetworking 不依赖任何 Bili 模块
   地址与缩略参数只由 BiliAPI 的 resolver 生成。
 - 网格与横排共用的 AppKit 卡片、网格与集合视图支撑放在 `BiliVideoCollectionUI`。各来源把条目映射为卡片的
   网格包装放在拥有该来源的 Feature（推荐、热门、搜索在 Browse，历史在 Library），Feature 视图直接渲染它们，
-  不经 App 填充的泛型内容插槽；相关推荐横排、播放侧栏与 UP 主空间的 AppKit 视图在 App。
+  不经 App 填充的泛型内容插槽；相关推荐横排、播放侧栏与 UP 主空间的 AppKit 视图在 App，它们读取的 ViewModel
+  与呈现投影在 `BiliVideoDetailFeature`。Browse 与播放页之间的跳转（选卡片进入播放、返回来源）由 App 协调。
   Feature 视图拥有 loading／empty／failure 与网格的呈现，App 只注入窗口级依赖：每个来源一个
   `NativeVideoGridHostContext`（图片管线经取图 port，以及 `AppShellView` 持有的滚动位置与回顶请求，回顶在刷新
   成功与账户变化时由它发出），Feature 原样交给网格。Feature 不直接 import AppKit。卡片与网格只经 `NativeVideoImageLoading` 取图：先同步查缓存（复用的卡片在配置当帧显示已缓存的图，

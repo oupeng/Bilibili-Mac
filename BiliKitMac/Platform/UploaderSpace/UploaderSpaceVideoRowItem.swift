@@ -1,6 +1,6 @@
 import AppKit
-import BiliBrowseFeature
 import BiliVideoCollectionUI
+import BiliVideoDetailFeature
 
 /// UP 主空间投稿列表的一行：左封面、右标题与数据。
 ///

@@ -3,7 +3,7 @@ import BiliUI
 import Foundation
 import Testing
 
-@testable import BiliBrowseFeature
+@testable import BiliVideoDetailFeature
 
 /// 文字随测试机的资源语言变化；这里固定的是组合与省略规则，具体文案由各格式化工具的测试固定。
 struct UploaderVideoRowPresentationTests {
@@ -52,14 +52,17 @@ struct UploaderVideoRowPresentationTests {
 
         #expect(row.isCollaboration)
         #expect(
-            row.collaborationText == String(localized: "合作", bundle: BrowseFeatureStrings.bundle)
+            row.collaborationText
+                == String(localized: "合作", bundle: VideoDetailFeatureStrings.bundle)
         )
         #expect(row.accessibilityLabel.hasPrefix("标题"))
         #expect(row.accessibilityLabel.contains(row.collaborationText))
     }
 
     private func resourceLocale() throws -> Locale {
-        Locale(identifier: try #require(BrowseFeatureStrings.bundle.preferredLocalizations.first))
+        Locale(
+            identifier: try #require(VideoDetailFeatureStrings.bundle.preferredLocalizations.first)
+        )
     }
 
     private func video(
