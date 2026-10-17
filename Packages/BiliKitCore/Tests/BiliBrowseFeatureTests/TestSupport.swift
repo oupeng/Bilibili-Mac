@@ -5,7 +5,7 @@ import Observation
 
 @testable import BiliBrowseFeature
 
-/// 本 target 共用的等待与闸门替身；各测试文件不再各自复制。
+/// 本 target 共用的等待、闸门与 Feed 替身；各测试文件不再各自复制。
 
 /// 等待 `@Observable` 状态满足条件：每次被追踪属性变化后才重新判断，超时由测试的 time limit 兜底。
 @MainActor
@@ -17,19 +17,6 @@ func waitForObservedState(_ condition: @escaping @MainActor () -> Bool) async {
             } onChange: {
                 continuation.resume()
             }
-        }
-    }
-}
-
-/// 等到当前视频意图写回终态；内容准备与播放器安装期间的状态都不算完成。
-@MainActor
-func waitUntilSettled(_ model: VideoViewModel) async {
-    await waitForObservedState {
-        switch model.state {
-        case .idle, .ready, .failed, .failedPage:
-            true
-        case .loading, .loadingPage, .preparingPlayback:
-            false
         }
     }
 }
@@ -130,34 +117,6 @@ actor TestEventCounter {
     }
 }
 
-// MARK: - 挂起与计数等待
-
-/// 由持有者在自己的隔离域内同步使用的计数等待表；计数本身由持有者保存与推进。
-struct CountWaiters {
-    private var pending: [(target: Int, continuation: CheckedContinuation<Void, Never>)] = []
-
-    /// `current` 已达到 `target` 时立即恢复，否则登记到 `resume(reaching:)`。
-    mutating func add(
-        _ continuation: CheckedContinuation<Void, Never>,
-        until target: Int,
-        current: Int
-    ) {
-        if current >= target {
-            continuation.resume()
-        } else {
-            pending.append((target, continuation))
-        }
-    }
-
-    mutating func resume(reaching count: Int) {
-        let ready = pending.filter { $0.target <= count }
-        pending.removeAll { $0.target <= count }
-        for waiter in ready {
-            waiter.continuation.resume()
-        }
-    }
-}
-
 extension Array where Element == CheckedContinuation<Void, Never> {
     /// 放行并清空全部挂起者。
     mutating func resumeAll() {
@@ -169,58 +128,280 @@ extension Array where Element == CheckedContinuation<Void, Never> {
     }
 }
 
-// MARK: - 仓库替身
-
 /// 由闭包回答的仓库请求；`attempt` 是同一请求第几次到达（从 1 开始），用于表达“首次失败、重试成功”。
 typealias ScriptedResponse<Request, Value> =
     @Sendable (Request, _ attempt: Int) async throws -> Value
 
-/// 本 target 唯一的 `VideoRepository` 替身：详情、分 P 与播放各由闭包回答，并按到达顺序记录请求。
-///
-/// 需要挂起时在闭包里经过 `TestGate`；需要失败时按 `attempt` 或放行后抛错。
-actor VideoRepositoryStub: VideoRepository {
-    private let detailResponse: ScriptedResponse<String, VideoDetail>
-    private let pagesResponse: ScriptedResponse<String, [VideoPage]>
-    private let playbackResponse: ScriptedResponse<PlaybackItemIdentity, VideoPlayback>
-    private(set) var detailRequests: [String] = []
-    private(set) var playbackRequests: [PlaybackItemIdentity] = []
+/// 单个视频在推荐、热门与搜索里的合成条目，以及据此拼出的各来源分页。
+struct ContentFixtures: Sendable {
+    let bvid: String
+    let title: String
+    let owner = VideoOwner(id: 10_001, name: "测试 UP 主")
 
     init(
-        detail: @escaping ScriptedResponse<String, VideoDetail>,
-        pages: @escaping ScriptedResponse<String, [VideoPage]>,
-        playback: @escaping ScriptedResponse<PlaybackItemIdentity, VideoPlayback>
+        bvid: String = "BV1FixtureA1",
+        title: String = "测试视频"
     ) {
-        detailResponse = detail
-        pagesResponse = pages
-        playbackResponse = playback
+        self.bvid = bvid
+        self.title = title
     }
 
-    /// `/view` 响应自带分 P：详情脚本给出其余字段，分 P 脚本给出 `pages`。
-    func videoDetail(for bvid: String) async throws -> VideoDetail {
-        detailRequests.append(bvid)
-        let attempt = detailRequests.filter { $0 == bvid }.count
-        let detail = try await detailResponse(bvid, attempt)
-        return VideoDetail(
-            bvid: detail.bvid,
-            title: detail.title,
-            summary: detail.summary,
-            coverURL: detail.coverURL,
-            owner: detail.owner,
-            statistics: detail.statistics,
-            durationSeconds: detail.durationSeconds,
-            publishedAt: detail.publishedAt,
-            dimension: detail.dimension,
-            aid: detail.aid,
-            pages: try await pagesResponse(bvid, attempt),
-            collection: detail.collection,
-            access: detail.access
+    var popularVideo: PopularVideo {
+        PopularVideo(
+            bvid: bvid,
+            title: title,
+            coverURL: nil,
+            owner: owner,
+            statistics: VideoStatistics(viewCount: 10, danmakuCount: 2, likeCount: 3),
+            durationSeconds: 120,
+            publishedAt: Date(timeIntervalSince1970: 1_700_000_000)
         )
     }
 
-    func playback(for bvid: String, cid: Int64) async throws -> VideoPlayback {
-        let identity = PlaybackItemIdentity(bvid: bvid, cid: cid)
-        playbackRequests.append(identity)
-        let attempt = playbackRequests.filter { $0 == identity }.count
-        return try await playbackResponse(identity, attempt)
+    var recommendedVideo: RecommendedVideo {
+        RecommendedVideo(
+            bvid: bvid,
+            title: title,
+            coverURL: nil,
+            owner: owner,
+            statistics: popularVideo.statistics,
+            durationSeconds: popularVideo.durationSeconds,
+            publishedAt: popularVideo.publishedAt,
+            recommendationReason: "正在流行"
+        )
+    }
+
+    var searchVideo: SearchVideo {
+        SearchVideo(
+            bvid: bvid,
+            title: title,
+            coverURL: nil,
+            owner: owner,
+            statistics: popularVideo.statistics,
+            durationSeconds: popularVideo.durationSeconds,
+            publishedAt: popularVideo.publishedAt
+        )
+    }
+
+    func popularPage(
+        _ request: FeedRepositoryStub.PopularRequest,
+        hasMore: Bool = false
+    ) -> PopularPage {
+        PopularPage(
+            videos: [popularVideo],
+            pageNumber: request.page,
+            pageSize: request.pageSize,
+            hasMore: hasMore
+        )
+    }
+
+    func searchPage(page: Int = 1) -> SearchPage {
+        SearchPage(
+            videos: [searchVideo],
+            pageNumber: page,
+            pageSize: 20,
+            totalResults: 1,
+            totalPages: 1
+        )
+    }
+
+    var recommendationPage: RecommendationPage {
+        RecommendationPage(
+            videos: [recommendedVideo],
+            continuation: RecommendationContinuation(freshIndex: 1),
+            nextContinuation: RecommendationContinuation(freshIndex: 2)
+        )
+    }
+}
+
+/// 游客 Feed port 的共享替身：每个方法由闭包回答，并按到达顺序记录请求。
+///
+/// 闭包的 `attempt` 是同一请求第几次到达（从 1 开始），用于表达“首次失败、重试成功”。
+actor FeedRepositoryStub: FeedRepository {
+    typealias Response<Request, Value> = ScriptedResponse<Request, Value>
+    typealias PopularRequest = (page: Int, pageSize: Int)
+
+    private let recommendationResponse: Response<RecommendationContinuation?, RecommendationPage>
+    private let popularResponse: Response<PopularRequest, PopularPage>
+    private let searchResponse: Response<VideoSearchRequest, SearchPage>
+    private(set) var recommendationRequests: [RecommendationContinuation?] = []
+    private(set) var popularPages: [Int] = []
+    private(set) var searchRequests: [VideoSearchRequest] = []
+
+    /// 未配置的推荐请求视为不可用，热门与搜索返回空页。
+    init(
+        recommendations: Response<RecommendationContinuation?, RecommendationPage>? = nil,
+        popular: Response<PopularRequest, PopularPage>? = nil,
+        search: Response<VideoSearchRequest, SearchPage>? = nil
+    ) {
+        recommendationResponse =
+            recommendations ?? { _, _ in throw ContentApplicationError.unavailable }
+        popularResponse =
+            popular ?? { request, _ in
+                PopularPage(videos: [], pageNumber: request.page, pageSize: request.pageSize)
+            }
+        searchResponse =
+            search ?? { request, _ in
+                SearchPage(
+                    videos: [],
+                    pageNumber: request.page,
+                    pageSize: 20,
+                    totalResults: 0,
+                    totalPages: 0
+                )
+            }
+    }
+
+    func recommendations(
+        after continuation: RecommendationContinuation?
+    ) async throws -> RecommendationPage {
+        recommendationRequests.append(continuation)
+        let attempt = recommendationRequests.filter { $0 == continuation }.count
+        return try await recommendationResponse(continuation, attempt)
+    }
+
+    func popular(page: Int, pageSize: Int) async throws -> PopularPage {
+        popularPages.append(page)
+        let attempt = popularPages.filter { $0 == page }.count
+        return try await popularResponse((page, pageSize), attempt)
+    }
+
+    func searchVideos(request: VideoSearchRequest) async throws -> SearchPage {
+        searchRequests.append(request)
+        let attempt = searchRequests.filter { $0 == request }.count
+        return try await searchResponse(request, attempt)
+    }
+}
+
+extension FeedRepositoryStub {
+    /// 两页热门或搜索：第 1 页含重复卡片，第 2 页补上 `second`，可让第 2 页首次失败。
+    static func pagination(
+        _ feed: BrowseFeed,
+        first: ContentFixtures,
+        second: ContentFixtures,
+        failsFirstSecondPage: Bool = false
+    ) -> FeedRepositoryStub {
+        let pageVideos: @Sendable (Int, Int) throws -> [ContentFixtures] = { page, attempt in
+            switch page {
+            case 1: return [first, first]
+            case 2:
+                if failsFirstSecondPage, attempt == 1 {
+                    throw ContentApplicationError.transportFailure
+                }
+                return [first, second]
+            default: throw ContentApplicationError.invalidRequest
+            }
+        }
+        switch feed {
+        case .recommendation:
+            preconditionFailure("推荐使用 continuation 分页")
+        case .popular:
+            return FeedRepositoryStub(popular: { request, attempt in
+                PopularPage(
+                    videos: try pageVideos(request.page, attempt).map(\.popularVideo),
+                    pageNumber: request.page,
+                    pageSize: request.pageSize,
+                    hasMore: request.page == 1
+                )
+            })
+        case .search:
+            return FeedRepositoryStub(search: { request, attempt in
+                SearchPage(
+                    videos: try pageVideos(request.page, attempt).map(\.searchVideo),
+                    pageNumber: request.page,
+                    pageSize: 20,
+                    totalResults: 2,
+                    totalPages: 2
+                )
+            })
+        }
+    }
+}
+
+/// 把推荐、热门与搜索三条 feed 的相同操作映射到各自 API，供结构相同的参数化测试共用。
+enum BrowseFeed: Sendable {
+    case recommendation
+    case popular
+    case search
+
+    static let searchCriteria = VideoSearchCriteria(
+        query: "Swift",
+        order: .mostFavorited,
+        duration: .thirtyToSixtyMinutes,
+        publicationRange: VideoPublicationTimeRange(beginTimestamp: 100, endTimestamp: 200)
+    )
+    private static let popularRequest = FeedRequest.popular(page: 1, pageSize: 50)
+
+    @MainActor
+    func activate(_ model: BrowseViewModel) {
+        switch self {
+        case .recommendation: model.activateRecommendation()
+        case .popular: model.activatePopular(pageSize: 50)
+        case .search: model.activateSearch(Self.searchCriteria)
+        }
+    }
+
+    var source: FeedSource {
+        switch self {
+        case .recommendation: .recommendation
+        case .popular: .popular
+        case .search: .search
+        }
+    }
+
+    private var firstPageRequest: FeedRequest {
+        switch self {
+        case .recommendation: .recommendation(continuation: nil)
+        case .popular: Self.popularRequest
+        case .search: .search(VideoSearchRequest(criteria: Self.searchCriteria, page: 1))
+        }
+    }
+
+    @MainActor
+    func refresh(_ model: BrowseViewModel) {
+        switch self {
+        case .recommendation: model.refreshRecommendation()
+        case .popular: model.refreshPopular(pageSize: 50)
+        case .search: model.search(Self.searchCriteria)
+        }
+    }
+
+    @MainActor
+    func loadMore(_ model: BrowseViewModel) {
+        model.loadMore(source)
+    }
+
+    @MainActor
+    func retryLoadMore(_ model: BrowseViewModel) {
+        model.retryLoadMore(source)
+    }
+
+    @MainActor
+    func pagination(
+        _ model: BrowseViewModel
+    ) -> (canLoadMore: Bool, tailIdentity: String?, loadMoreError: ContentApplicationError?) {
+        let pagination = model.pagination(for: firstPageRequest)
+        return (pagination.canLoadMore, pagination.tailIdentity, pagination.loadMoreError)
+    }
+
+    @MainActor
+    func loadedBVIDs(_ model: BrowseViewModel) -> [String] {
+        switch (self, model.state) {
+        case (.recommendation, .loaded(.recommendation(let page))): page.videos.map(\.bvid)
+        case (.popular, .loaded(.popular(let page))): page.videos.map(\.bvid)
+        case (.search, .loaded(.search(_, let page))): page.videos.map(\.bvid)
+        default: []
+        }
+    }
+}
+
+extension FeedRepositoryStub {
+    /// 推荐没有页码，按请求序号计数。
+    func requestedPages(_ feed: BrowseFeed) -> [Int] {
+        switch feed {
+        case .recommendation: recommendationRequests.indices.map { $0 + 1 }
+        case .popular: popularPages
+        case .search: searchRequests.map(\.page)
+        }
     }
 }

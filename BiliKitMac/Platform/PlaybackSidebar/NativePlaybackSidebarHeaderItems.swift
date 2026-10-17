@@ -1,8 +1,8 @@
 import AppKit
-import BiliBrowseFeature
 import BiliModels
 import BiliUI
 import BiliVideoCollectionUI
+import BiliVideoDetailFeature
 
 @MainActor
 final class NativePlaybackSidebarUploaderItem: NSCollectionViewItem {

@@ -1,7 +1,7 @@
 import AVFoundation
 import AppKit
 import BiliApplication
-import BiliBrowseFeature
+import BiliVideoDetailFeature
 import SwiftUI
 import Testing
 

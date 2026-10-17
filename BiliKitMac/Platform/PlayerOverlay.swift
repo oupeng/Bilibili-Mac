@@ -1,8 +1,8 @@
 import AVFoundation
 import BiliApplication
-import BiliBrowseFeature
 import BiliPlayback
 import BiliUI
+import BiliVideoDetailFeature
 import SwiftUI
 
 enum PlayerMomentaryRate: Float, Equatable, Sendable {

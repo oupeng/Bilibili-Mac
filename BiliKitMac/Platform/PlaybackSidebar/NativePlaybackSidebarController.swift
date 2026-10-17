@@ -1,8 +1,8 @@
 import AppKit
 import BiliApplication
-import BiliBrowseFeature
 import BiliModels
 import BiliVideoCollectionUI
+import BiliVideoDetailFeature
 
 /// 播放页侧栏的 `NSCollectionView` 协调器：拥有 diffable 数据源、行高缓存、评论分页与滚动状态。
 ///

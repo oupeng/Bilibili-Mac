@@ -1,8 +1,8 @@
 import AppKit
 import BiliApplication
-import BiliBrowseFeature
 import BiliModels
 import BiliVideoCollectionUI
+import BiliVideoDetailFeature
 import Foundation
 
 @MainActor

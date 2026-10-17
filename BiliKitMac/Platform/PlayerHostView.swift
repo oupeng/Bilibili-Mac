@@ -1,10 +1,10 @@
 import AVKit
 import BiliApplication
-import BiliBrowseFeature
 import BiliDanmaku
 import BiliModels
 import BiliPlayback
 import BiliVideoCollectionUI
+import BiliVideoDetailFeature
 import SwiftUI
 
 /// 把唯一 `AVPlayer` 宿主与弹幕 overlay 组合为稳定的播放 surface。

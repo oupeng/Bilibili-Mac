@@ -18,6 +18,7 @@
 		A1000000000000000000000B /* BiliLibraryFeature in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000019 /* BiliLibraryFeature */; };
 		A1000000000000000000000C /* BiliDanmaku in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000001A /* BiliDanmaku */; };
 		A1000000000000000000000D /* BiliVideoCollectionUI in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000001B /* BiliVideoCollectionUI */; };
+		A1000000000000000000000E /* BiliVideoDetailFeature in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000001C /* BiliVideoDetailFeature */; };
 		A20000000000000000000001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A20000000000000000000002 /* Sparkle */; };
 /* End PBXBuildFile section */
 
@@ -86,6 +87,7 @@
 				A10000000000000000000003 /* BiliPlayback in Frameworks */,
 				A1000000000000000000000C /* BiliDanmaku in Frameworks */,
 				A1000000000000000000000D /* BiliVideoCollectionUI in Frameworks */,
+				A1000000000000000000000E /* BiliVideoDetailFeature in Frameworks */,
 				A20000000000000000000001 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -160,6 +162,7 @@
 				A10000000000000000000014 /* BiliAPI */,
 				A1000000000000000000001A /* BiliDanmaku */,
 				A1000000000000000000001B /* BiliVideoCollectionUI */,
+				A1000000000000000000001C /* BiliVideoDetailFeature */,
 				A20000000000000000000002 /* Sparkle */,
 			);
 			productName = BiliKitMac;
@@ -625,6 +628,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A10000000000000000000020 /* XCLocalSwiftPackageReference "Packages/BiliKitCore" */;
 			productName = BiliVideoCollectionUI;
+		};
+		A1000000000000000000001C /* BiliVideoDetailFeature */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A10000000000000000000020 /* XCLocalSwiftPackageReference "Packages/BiliKitCore" */;
+			productName = BiliVideoDetailFeature;
 		};
 		A20000000000000000000002 /* Sparkle */ = {
 			isa = XCSwiftPackageProductDependency;

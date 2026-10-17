@@ -1,7 +1,7 @@
 import AppKit
-import BiliBrowseFeature
 import BiliModels
 import BiliUI
+import BiliVideoDetailFeature
 
 private final class NativePlaybackEpisodeIdentityBox: NSObject {
     let identity: VideoCollectionEpisodeIdentity

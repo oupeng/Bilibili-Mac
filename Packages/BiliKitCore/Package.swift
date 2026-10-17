@@ -19,6 +19,7 @@ let package = Package(
         .library(name: "BiliBrowseFeature", targets: ["BiliBrowseFeature"]),
         .library(name: "BiliAuthFeature", targets: ["BiliAuthFeature"]),
         .library(name: "BiliLibraryFeature", targets: ["BiliLibraryFeature"]),
+        .library(name: "BiliVideoDetailFeature", targets: ["BiliVideoDetailFeature"]),
         .library(name: "BiliVideoCollectionUI", targets: ["BiliVideoCollectionUI"])
     ],
     dependencies: [
@@ -69,6 +70,11 @@ let package = Package(
         .target(
             name: "BiliLibraryFeature",
             dependencies: ["BiliApplication", "BiliModels", "BiliUI", "BiliVideoCollectionUI"],
+            resources: [.process("Resources")]
+        ),
+        .target(
+            name: "BiliVideoDetailFeature",
+            dependencies: ["BiliApplication", "BiliModels", "BiliUI"],
             resources: [.process("Resources")]
         ),
         .target(
@@ -145,6 +151,15 @@ let package = Package(
         .testTarget(
             name: "BiliLibraryFeatureTests",
             dependencies: ["BiliApplication", "BiliLibraryFeature", "BiliModels"]
+        ),
+        .testTarget(
+            name: "BiliVideoDetailFeatureTests",
+            dependencies: [
+                "BiliApplication",
+                "BiliModels",
+                "BiliUI",
+                "BiliVideoDetailFeature"
+            ]
         ),
         .testTarget(
             name: "BiliUITests",

@@ -14,7 +14,8 @@ struct LocalizationCatalogTests {
             "BiliKitCore_BiliAuthFeature",
             "BiliKitCore_BiliBrowseFeature",
             "BiliKitCore_BiliLibraryFeature",
-            "BiliKitCore_BiliUI"
+            "BiliKitCore_BiliUI",
+            "BiliKitCore_BiliVideoDetailFeature"
         ]
         for name in featureBundleNames {
             let url = try #require(

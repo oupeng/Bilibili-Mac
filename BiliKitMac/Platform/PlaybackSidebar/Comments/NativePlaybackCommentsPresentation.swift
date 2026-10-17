@@ -1,6 +1,6 @@
 import BiliApplication
-import BiliBrowseFeature
 import BiliModels
+import BiliVideoDetailFeature
 import Foundation
 
 struct NativePlaybackCommentThreadPresentation: Equatable {

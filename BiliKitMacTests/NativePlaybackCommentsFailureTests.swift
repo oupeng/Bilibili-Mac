@@ -1,7 +1,7 @@
 import AppKit
 import BiliApplication
-import BiliBrowseFeature
 import BiliModels
+import BiliVideoDetailFeature
 import Testing
 
 @testable import BiliKit

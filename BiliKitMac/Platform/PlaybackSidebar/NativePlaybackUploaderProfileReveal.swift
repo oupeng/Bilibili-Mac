@@ -1,5 +1,5 @@
 import AppKit
-import BiliBrowseFeature
+import BiliVideoDetailFeature
 
 /// UP 主名片晚于详情到达时的过渡。
 ///

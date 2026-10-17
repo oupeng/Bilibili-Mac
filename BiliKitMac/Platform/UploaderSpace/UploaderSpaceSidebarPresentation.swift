@@ -1,6 +1,6 @@
 import BiliApplication
-import BiliBrowseFeature
 import BiliModels
+import BiliVideoDetailFeature
 
 /// 空间层的显示规则：头部下方叠什么提示、页码条是否出现、头部是否显示投稿数。
 ///

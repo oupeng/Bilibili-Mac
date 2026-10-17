@@ -9,6 +9,7 @@ import BiliLibraryFeature
 import BiliModels
 import BiliNetworking
 import BiliPlayback
+import BiliVideoDetailFeature
 import CoreGraphics
 import Foundation
 import SwiftUI

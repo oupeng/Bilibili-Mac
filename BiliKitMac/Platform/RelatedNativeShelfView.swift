@@ -1,5 +1,5 @@
-import BiliBrowseFeature
 import BiliVideoCollectionUI
+import BiliVideoDetailFeature
 import SwiftUI
 
 struct RelatedNativeShelfView: View {
