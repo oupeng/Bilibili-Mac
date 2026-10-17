@@ -19,9 +19,10 @@ final class AppWindowOwner {
     let danmakuModel: DanmakuControlsViewModel
     let authenticationModel: AuthenticationViewModel
     let historyModel: WatchHistoryViewModel
-    let uploaderSpaceModel: UploaderSpaceViewModel?
     let trendingSearchModel: TrendingSearchViewModel?
     let searchSuggestionSource: SearchSuggestionSource?
+    /// 搜索来源的草稿、筛选与已提交的条件；关窗时由搜索来源的描述 reset。
+    let searchSession: VideoSearchSession
     /// 侧栏来源的描述，按侧栏顺序；与上面的模型同代构造一次。
     let sources: AppSources
     /// 本窗口全部账户复核参与者；与上面的模型同代构造一次，`AppRootView` 只读取与转交结果。
@@ -50,7 +51,8 @@ final class AppWindowOwner {
 
     convenience init(
         environment: AppEnvironment,
-        systemNowPlayingController: SystemNowPlayingController? = nil
+        systemNowPlayingController: SystemNowPlayingController? = nil,
+        recordSearchHistory: @escaping @MainActor (String) -> Void
     ) {
         let browseModel = environment.makeBrowseViewModel()
         let videoModel = environment.makeVideoViewModel()
@@ -66,9 +68,7 @@ final class AppWindowOwner {
                 videoModel.reset()
                 danmakuModel.reset()
             },
-            closeSidebarContext: {
-                uploaderSpaceModel.close()
-            }
+            uploaderSpace: uploaderSpaceModel
         )
         self.init(
             navigationCoordinator: navigationCoordinator,
@@ -78,9 +78,9 @@ final class AppWindowOwner {
             danmakuModel: danmakuModel,
             authenticationModel: environment.makeAuthenticationViewModel(),
             historyModel: environment.makeWatchHistoryViewModel(),
-            uploaderSpaceModel: uploaderSpaceModel,
             trendingSearchModel: environment.makeTrendingSearchViewModel(),
             searchSuggestionSource: environment.makeSearchSuggestionSource(),
+            recordSearchHistory: recordSearchHistory,
             playerContent: environment.makePlayerView(
                 videoModel: videoModel,
                 danmakuModel: danmakuModel
@@ -108,9 +108,9 @@ final class AppWindowOwner {
         danmakuModel: DanmakuControlsViewModel,
         authenticationModel: AuthenticationViewModel,
         historyModel: WatchHistoryViewModel,
-        uploaderSpaceModel: UploaderSpaceViewModel? = nil,
         trendingSearchModel: TrendingSearchViewModel? = nil,
         searchSuggestionSource: SearchSuggestionSource? = nil,
+        recordSearchHistory: @escaping @MainActor (String) -> Void,
         playerContent: AnyView,
         commentAssetURLResolver: @escaping CommentAssetURLResolver = { _, _ in nil },
         commentLinkRouter: @escaping CommentLinkRouter = { _ in nil },
@@ -133,16 +133,21 @@ final class AppWindowOwner {
         self.danmakuModel = danmakuModel
         self.authenticationModel = authenticationModel
         self.historyModel = historyModel
-        self.uploaderSpaceModel = uploaderSpaceModel
         self.trendingSearchModel = trendingSearchModel
         self.searchSuggestionSource = searchSuggestionSource
+        searchSession = VideoSearchSession(
+            browseModel: browseModel,
+            recordHistory: recordSearchHistory
+        )
         sources = AppSources(
             browseModel: browseModel,
             historyModel: historyModel,
+            searchSession: searchSession,
             trendingSearchModel: trendingSearchModel
         )
         let windowWide: [(any AccountRevalidationParticipant)?] = [
-            videoModel, browseModel, danmakuModel, commentsModel, uploaderSpaceModel
+            videoModel, browseModel, danmakuModel, commentsModel,
+            navigationCoordinator.uploaderSpace
         ]
         revalidationParticipants = AccountRevalidationParticipants(
             entries: windowWide.compactMap { $0 }.map { .init(participant: $0, route: nil) }

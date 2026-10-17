@@ -40,47 +40,41 @@ struct PopularTabRoot: View {
     }
 }
 
-/// 搜索来源的 App 接线：起始页、结果呈现与原生网格在 Browse 的 `VideoSearchView`；这里转交窗口级网格依赖，
-/// 用热搜模型、窗口图片管线（实现热搜图标 port）与进程级搜索历史构造起始页输入，并拥有工具栏搜索框与筛选控件。
+/// 搜索来源的 App 接线：起始页、结果呈现与原生网格在 Browse 的 `VideoSearchView`，草稿、筛选与提交在 Browse 的
+/// `VideoSearchSession`；这里转交窗口级网格依赖，用热搜模型、窗口图片管线（实现热搜图标 port）与进程级搜索历史
+/// 构造起始页输入，并宿主绑定会话的工具栏搜索框（AppKit）与排序、筛选控件。
 struct SearchTabRoot: View {
     let title: LocalizedStringResource
-    @Binding var filterSelection: SearchFilterSelection
+    @Bindable var session: VideoSearchSession
     let model: BrowseViewModel
-    @Binding var searchDraft: String
-    let submittedSearchCriteria: VideoSearchCriteria?
     let gridHost: NativeVideoGridHostContext
     let imagePipeline: NativeVideoImagePipeline
     let trendingSearchModel: TrendingSearchViewModel?
     let searchHistory: SearchHistoryStore?
     let searchSuggestionSource: SearchSuggestionSource?
     let onSelect: (String) -> Void
-    let onSubmit: () -> Void
-    let onSearchKeyword: (String) -> Void
-    let onSelectOrder: (VideoSearchOrder) -> Void
-    let onApplyFilters: (SearchFilterSelection) -> Void
-    let onClearFilters: () -> Void
 
     var body: some View {
         VideoSearchView(
             model: model,
-            submittedSearchCriteria: submittedSearchCriteria,
-            hasActiveFilters: filterSelection.activeFilterCount > 0,
+            submittedSearchCriteria: session.submittedCriteria,
+            hasActiveFilters: session.filterSelection.activeFilterCount > 0,
             gridHost: gridHost,
             startPageContext: startPageContext,
             onSelect: onSelect,
-            onClearFilters: onClearFilters
+            onClearFilters: session.clearFilters
         )
         .navigationTitle(Text(title))
         .toolbar(removing: .title)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 ToolbarSearchField(
-                    text: $searchDraft,
+                    text: $session.draft,
                     prompt: AppStrings.localized("搜索 B 站视频"),
                     history: { searchHistory?.entries ?? [] },
                     suggestionSource: searchSuggestionSource,
-                    onSubmit: onSubmit,
-                    onSelectSuggestion: onSearchKeyword
+                    onSubmit: session.submit,
+                    onSelectSuggestion: session.search(keyword:)
                 )
                 .frame(
                     minWidth: ToolbarSearchFieldLayout.minimumWidth,
@@ -90,9 +84,9 @@ struct SearchTabRoot: View {
             }
             ToolbarItemGroup(placement: .primaryAction) {
                 SearchToolbarControls(
-                    selection: $filterSelection,
-                    onSelectOrder: onSelectOrder,
-                    onApplyFilters: onApplyFilters
+                    selection: $session.filterSelection,
+                    onSelectOrder: session.selectOrder,
+                    onApplyFilters: session.applyFilters
                 )
             }
         }
@@ -107,7 +101,7 @@ struct SearchTabRoot: View {
                 trendingModel: trendingModel,
                 iconLoader: imagePipeline,
                 history: { searchHistory?.entries ?? [] },
-                onSearch: onSearchKeyword,
+                onSearch: session.search(keyword:),
                 onRemoveHistory: { searchHistory?.remove($0) },
                 onClearHistory: { searchHistory?.clear() }
             )

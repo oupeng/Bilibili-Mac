@@ -66,14 +66,15 @@ struct AccountRevalidationParticipantsTests {
         let owner = AppWindowOwner(
             environment: AppEnvironment.live(
                 accountSessionCoordinator: AccountSessionCoordinator()
-            )
+            ),
+            recordSearchHistory: { _ in }
         )
         let expected: [(AnyObject, AppTab?)] = [
             (owner.videoModel, nil),
             (owner.browseModel, nil),
             (owner.danmakuModel, nil),
             (try #require(owner.commentsModel), nil),
-            (try #require(owner.uploaderSpaceModel), nil),
+            (try #require(owner.navigationCoordinator.uploaderSpace), nil),
             (owner.historyModel, .history)
         ]
         let entries = owner.revalidationParticipants.entries

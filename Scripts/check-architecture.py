@@ -94,8 +94,8 @@ SCOPES = {
         "App 壳只组织 Feature 视图，不直接依赖 adapter 或平台框架；Application 只在 EXTRA_ALLOWED 登记的搜索条件或账户投影的使用点",
     ),
     "BiliKitMac/Navigation": (
-        FEATURES | {"BiliApplication", "Observation"},
-        "Navigation 是窗口内的导航协调与来源描述，只组织 Feature 模型与账户投影，不依赖 adapter、界面或平台框架",
+        FEATURES | {"BiliModels", "BiliApplication", "Observation"},
+        "Navigation 是窗口内的导航协调、来源描述、复核汇总与链接执行，只组织 Feature 模型、实体与账户投影，不依赖 adapter、界面或平台框架",
     ),
     "BiliKitMac/Composition": (
         FEATURES | ADAPTERS | {
@@ -127,9 +127,10 @@ SCOPES = {
 
 # 单个文件额外允许的模块：每一项都是有明确理由的宿主或适配点。
 EXTRA_ALLOWED = {
-    # App 壳里搜索条件或账户投影（会话 scope、账户呈现状态）的使用点：搜索工具栏与搜索路由
-    # （AppRootView、AppShellView、AppSourceRootViews、SearchToolbarControls），侧栏账号行
-    # （AppSidebarViews）与窗口 owner（AppWindowOwner；AppRootView、AppShellView 也读取账户 scope）。
+    # App 壳里搜索条件或账户投影（会话 scope、账户呈现状态）的使用点：搜索工具栏的排序与筛选
+    # （SearchToolbarControls）、搜索提交后的回顶（AppShellView），侧栏账号行（AppSidebarViews）、历史来源
+    # 的登录门槛（AppSourceRootViews）与窗口 owner（AppWindowOwner 组装复核参与者；AppRootView、AppShellView
+    # 读取账户 scope）。
     # MemberImportVisibility 下成员只对直接 import 定义模块的文件可见，经 Feature 转出类型名不够用，
     # 在 Feature 镜像一份又违反“同一逻辑只写一处”。
     # AppShellView 持有各来源网格的滚动位置与回顶请求，并与图片管线一起构造 BiliVideoCollectionUI 的

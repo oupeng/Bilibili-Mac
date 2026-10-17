@@ -172,3 +172,229 @@ struct WatchHistoryRepositoryStub: WatchHistoryRepository {
         return WatchHistoryPage(items: [], continuation: nil)
     }
 }
+
+/// 单个视频的手写详情、分 P 与播放地址；`FixtureVideoRepository` 按它回答。
+struct VideoFixture: Sendable {
+    let aid: Int64
+    let bvid: String
+    let page: VideoPage
+    let title: String
+
+    init(
+        aid: Int64 = 700_000,
+        bvid: String = "BV1LifecycleFixture",
+        cid: Int64 = 900_001,
+        title: String = "生命周期测试视频"
+    ) {
+        self.aid = aid
+        self.bvid = bvid
+        page = VideoPage(
+            cid: cid,
+            index: 1,
+            title: "P1",
+            durationSeconds: 120
+        )
+        self.title = title
+    }
+
+    var identity: PlaybackItemIdentity {
+        PlaybackItemIdentity(bvid: bvid, cid: page.cid)
+    }
+
+    var detail: VideoDetail {
+        VideoDetail(
+            bvid: bvid,
+            title: title,
+            summary: "手写测试数据",
+            coverURL: nil,
+            owner: VideoOwner(id: 10_001, name: "测试 UP 主"),
+            statistics: VideoStatistics(
+                viewCount: 10,
+                danmakuCount: 2,
+                likeCount: 3
+            ),
+            durationSeconds: 120,
+            publishedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            aid: aid,
+            pages: [page]
+        )
+    }
+
+    var playback: VideoPlayback {
+        VideoPlayback(
+            manifest: PlaybackManifest(
+                videoRepresentations: [],
+                originalAudioRepresentations: []
+            ),
+            mediaHeaders: [:]
+        )
+    }
+}
+
+/// 视频 port 的唯一测试替身：按 BVID 选择 fixture 回答详情与播放；`playbackError` 让每次播放请求都失败。
+struct FixtureVideoRepository: VideoRepository {
+    private let fixturesByBVID: [String: VideoFixture]
+    private let playbackError: ContentApplicationError?
+
+    init(
+        fixtures: [VideoFixture],
+        playbackError: ContentApplicationError? = nil
+    ) {
+        fixturesByBVID = Dictionary(uniqueKeysWithValues: fixtures.map { ($0.bvid, $0) })
+        self.playbackError = playbackError
+    }
+
+    func videoDetail(for bvid: String) async throws -> VideoDetail {
+        try fixture(bvid).detail
+    }
+
+    func playback(for bvid: String, cid: Int64) async throws -> VideoPlayback {
+        if let playbackError { throw playbackError }
+        return try fixture(bvid).playback
+    }
+
+    private func fixture(_ bvid: String) throws -> VideoFixture {
+        guard let fixture = fixturesByBVID[bvid] else {
+            throw ContentApplicationError.invalidRequest
+        }
+        return fixture
+    }
+}
+
+/// UP 主名片 port 的唯一测试替身：请求挂起到 `releaseLateResult()` 为止，用于验证迟到结果与取消。
+actor PendingUploaderProfileRepository:
+    UploaderProfileRepository
+{
+    private var requestStarted = false
+    private var requestWaiters: [CheckedContinuation<Void, Never>] = []
+    private var resultContinuation: CheckedContinuation<UploaderProfile, Never>?
+    private var requestCompleted = false
+    private var completionWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func uploaderProfile(for ownerID: Int64) async throws -> UploaderProfile {
+        requestStarted = true
+        requestWaiters.resumeAll()
+        let result = await withCheckedContinuation { continuation in
+            resultContinuation = continuation
+        }
+        requestCompleted = true
+        completionWaiters.resumeAll()
+        return result
+    }
+
+    func waitForRequest() async throws {
+        guard !requestStarted else { return }
+        await withCheckedContinuation { continuation in
+            requestWaiters.append(continuation)
+        }
+    }
+
+    func releaseLateResult() {
+        resultContinuation?.resume(returning: UploaderProfile(signature: "迟到签名", isVIP: true))
+        resultContinuation = nil
+    }
+
+    func waitForCompletion() async throws {
+        guard !requestCompleted else { return }
+        await withCheckedContinuation { continuation in
+            completionWaiters.append(continuation)
+        }
+    }
+}
+
+/// 播放 port 的唯一测试替身：记录 load/begin/stop；`holdsLoads` 时 load 挂起到
+/// `failPendingLoad()` 为止，用于驱动加载失败路径。
+@MainActor
+final class RecordingPlayback: PlaybackControlling {
+    private struct ControlledFailure: Error {}
+
+    private let holdsLoads: Bool
+    private(set) var loadedIdentities: [PlaybackItemIdentity] = []
+    private(set) var startedIdentities: [PlaybackItemIdentity] = []
+    private(set) var stopCallCount = 0
+    private var pendingLoad: CheckedContinuation<Void, any Error>?
+    private var loadWaiters = CountWaiters()
+    private var stopWaiters = CountWaiters()
+
+    init(holdsLoads: Bool = false) {
+        self.holdsLoads = holdsLoads
+    }
+
+    func playbackFailureEvents() -> AsyncStream<PlaybackFailureEvent> {
+        AsyncStream { $0.finish() }
+    }
+
+    func load(
+        _ playback: VideoPlayback,
+        identity: PlaybackItemIdentity,
+        intent: PlaybackLoadIntent,
+        startPositionSeconds: Double?
+    ) async throws {
+        loadedIdentities.append(identity)
+        loadWaiters.resume(reaching: loadedIdentities.count)
+        guard holdsLoads else { return }
+        try await withCheckedThrowingContinuation { continuation in
+            pendingLoad = continuation
+        }
+    }
+
+    func beginPlayback(
+        identity: PlaybackItemIdentity,
+        intent: PlaybackLoadIntent
+    ) async -> PlaybackStartOutcome {
+        startedIdentities.append(identity)
+        return .startedAtBeginning
+    }
+
+    func restartFromBeginning(
+        identity: PlaybackItemIdentity,
+        intent: PlaybackLoadIntent,
+        resumeToken: PlaybackResumeToken
+    ) async -> Bool { false }
+
+    func pause() {}
+
+    func stop() {
+        stopCallCount += 1
+        stopWaiters.resume(reaching: stopCallCount)
+    }
+
+    func failPendingLoad() {
+        pendingLoad?.resume(throwing: ControlledFailure())
+        pendingLoad = nil
+    }
+
+    func waitForLoadCallCount(_ target: Int) async {
+        await withCheckedContinuation {
+            loadWaiters.add($0, until: target, current: loadedIdentities.count)
+        }
+    }
+
+    func waitForStopCallCount(_ target: Int) async {
+        await withCheckedContinuation {
+            stopWaiters.add($0, until: target, current: stopCallCount)
+        }
+    }
+}
+
+/// UP 主空间投稿 port 的唯一测试替身：每次读取都失败（不可用），只用于让空间层打开而不依赖网络。
+struct UnavailableUploaderVideoRepository: UploaderVideoRepository {
+    func uploaderVideos(
+        ownerID: Int64,
+        order: UploaderVideoOrder,
+        page: Int
+    ) async throws -> UploaderVideoPage {
+        throw ContentApplicationError.unavailable
+    }
+}
+
+/// 侧栏上下文层（UP 主空间）的真实模型；投稿读取恒失败，名片请求挂起到测试放行。
+@MainActor
+func makeUploaderSpace(
+    profiles: PendingUploaderProfileRepository = PendingUploaderProfileRepository()
+) -> UploaderSpaceViewModel {
+    UploaderSpaceViewModel(
+        useCase: UploaderVideoUseCase(repository: UnavailableUploaderVideoRepository()),
+        profileUseCase: UploaderProfileUseCase(repository: profiles)
+    )
+}

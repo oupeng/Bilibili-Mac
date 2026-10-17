@@ -9,7 +9,7 @@ import SwiftUI
 ///
 /// 拥有呈现与网格渲染；不拥有请求、分页与 generation（`BrowseViewModel`）、起始页的输入（App 经
 /// `SearchStartPageContext` 给出）。滚动位置、回顶请求与图片管线属于 App 窗口，经 `NativeVideoGridHostContext`
-/// 原样交给网格。工具栏搜索框与筛选也在 App。
+/// 原样交给网格。草稿、筛选与提交在 `VideoSearchSession`，工具栏搜索框与筛选控件的宿主在 App。
 public struct VideoSearchView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.locale) private var locale

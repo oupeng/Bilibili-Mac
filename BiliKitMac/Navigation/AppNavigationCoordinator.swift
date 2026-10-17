@@ -1,3 +1,4 @@
+import BiliModels
 import BiliVideoDetailFeature
 import Foundation
 import Observation
@@ -21,10 +22,12 @@ private struct ActivePlayback: Equatable {
 
 @MainActor
 @Observable
-/// 协调窗口内的顶层 Tab、原生导航路径与播放生命周期副作用。
+/// 协调窗口内的顶层 Tab、原生导航路径、播放生命周期副作用与侧栏上下文层。
 ///
 /// Coordinator 不拥有播放器；typed path 只表达是否位于播放层级，当前 BVID 则表达该
 /// 层级内的媒体 identity。系统返回、切换来源与关窗都通过同一条播放副作用边界收口。
+/// 侧栏上下文层（UP 主空间）的打开与关闭入口都在这里，是否打开从空间模型的 `owner` 派生；空间模型自己在
+/// 返回按钮或账户会话切换时关闭，同样反映到 `isSidebarContextOpen`。
 final class AppNavigationCoordinator {
     var selectedTab: AppTab = .home {
         didSet {
@@ -48,26 +51,42 @@ final class AppNavigationCoordinator {
     var currentPlaybackIntent: PlaybackSelectionIntent? {
         activePlayback?.intent
     }
-    var searchDraft = ""
+    /// 侧栏上下文层的内容模型；为 nil 时窗口没有空间功能，空间入口不出现，空间链接交给浏览器。
+    @ObservationIgnored let uploaderSpace: UploaderSpaceViewModel?
+    /// 上下文层是否打开：底层要隐藏、侧栏要叠上空间列表。
+    var isSidebarContextOpen: Bool {
+        uploaderSpace?.owner != nil
+    }
 
     private var activePlayback: ActivePlayback?
     @ObservationIgnored private let startPlayback: (PlaybackSelectionIntent) -> Void
     @ObservationIgnored private let stopPlayback: () -> Void
-    @ObservationIgnored private let closeSidebarContext: () -> Void
 
     /// - Parameters:
     ///   - startPlayback: 开始或替换当前视频。
     ///   - stopPlayback: 关闭播放后停止播放器与弹幕。
-    ///   - closeSidebarContext: 关闭压在侧栏上的上下文层（UP 主空间）。上下文层只在播放时存在，
-    ///     关闭播放、或从上下文层以外的入口换视频时都会调用。
+    ///   - uploaderSpace: 侧栏上下文层（UP 主空间）的模型。上下文层只在播放时存在，关闭播放、或从
+    ///     上下文层以外的入口换视频时关闭它。
     init(
         startPlayback: @escaping (PlaybackSelectionIntent) -> Void,
         stopPlayback: @escaping () -> Void,
-        closeSidebarContext: @escaping () -> Void = {}
+        uploaderSpace: UploaderSpaceViewModel?
     ) {
         self.startPlayback = startPlayback
         self.stopPlayback = stopPlayback
-        self.closeSidebarContext = closeSidebarContext
+        self.uploaderSpace = uploaderSpace
+    }
+
+    /// 在侧栏上下文层打开某位 UP 主的空间（播放侧栏的 UP 主行、评论作者与 @ 提及）。
+    func openUploaderSpace(owner: VideoOwner) {
+        uploaderSpace?.open(owner: owner)
+    }
+
+    /// 只有 MID 的入口（评论正文里的空间链接）；窗口没有空间功能时返回 false，由调用方回退到网页。
+    func openUploaderSpace(ownerID: Int64) -> Bool {
+        guard let uploaderSpace else { return false }
+        uploaderSpace.open(ownerID: ownerID)
+        return true
     }
 
     /// 首次打开建立播放 surface；连续打开其他视频只替换媒体 identity。
@@ -115,16 +134,15 @@ final class AppNavigationCoordinator {
         startPlayback(intent)
     }
 
-    /// 登出只关闭当前播放，不改变来源 Tab 或尚未提交的搜索草稿。
+    /// 登出只关闭当前播放，不改变来源 Tab。
     func closePlaybackForAuthenticationChange() {
         closePlayback()
     }
 
-    /// 关闭当前播放，并恢复一个新窗口应有的来源与搜索草稿。
+    /// 关闭当前播放，并恢复一个新窗口应有的来源。
     func resetForWindowClosure() {
         closePlayback()
         selectedTab = .home
-        searchDraft = ""
     }
 
     private func closePlayback() {
@@ -132,5 +150,9 @@ final class AppNavigationCoordinator {
         activePlayback = nil
         closeSidebarContext()
         stopPlayback()
+    }
+
+    private func closeSidebarContext() {
+        uploaderSpace?.close()
     }
 }

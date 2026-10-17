@@ -24,9 +24,6 @@ struct AppRootView: View {
     private let appSettingsModel: AppSettingsModel?
     private let searchHistoryStore: SearchHistoryStore?
     @State private var isAuthenticationPresented = false
-    @State private var searchFilterSelection = SearchFilterSelection()
-    @State private var appliedSearchFilters = AppliedVideoSearchFilters()
-    @State private var submittedSearchCriteria: VideoSearchCriteria?
     init(
         environment: AppEnvironment? = nil,
         accountSessionCoordinator: AccountSessionCoordinator = AccountSessionCoordinator(),
@@ -45,7 +42,8 @@ struct AppRootView: View {
                             accountSessionCoordinator: accountSessionCoordinator,
                             appSettingsModel: appSettingsModel
                         ),
-                    systemNowPlayingController: systemNowPlayingController
+                    systemNowPlayingController: systemNowPlayingController,
+                    recordSearchHistory: { searchHistoryStore?.record($0) }
                 )
             )
         )
@@ -78,6 +76,7 @@ struct AppRootView: View {
                     danmakuModel: danmakuModel,
                     authenticationModel: authenticationModel,
                     historyModel: historyModel,
+                    recordSearchHistory: { _ in },
                     playerContent: playerContent,
                     commentAssetURLResolver: commentAssetURLResolver,
                     commentLinkRouter: commentLinkRouter,
@@ -97,8 +96,8 @@ struct AppRootView: View {
             danmakuModel: danmakuModel,
             authenticationModel: authenticationModel,
             historyModel: historyModel,
-            uploaderSpaceModel: windowOwner.uploaderSpaceModel,
             trendingSearchModel: windowOwner.trendingSearchModel,
+            searchSession: windowOwner.searchSession,
             searchHistory: searchHistoryStore,
             searchSuggestionSource: windowOwner.searchSuggestionSource,
             playerContent: playerContent,
@@ -108,17 +107,10 @@ struct AppRootView: View {
             commentImageSaver: windowOwner.commentImageSaver,
             seekPlayback: windowOwner.seekPlayback,
             imagePipeline: windowOwner.imagePipeline,
-            isAuthenticationPresented: $isAuthenticationPresented,
-            searchFilterSelection: $searchFilterSelection,
-            submittedSearchCriteria: submittedSearchCriteria,
-            onSubmitSearch: performSearch,
-            onSearchKeyword: search(keyword:),
-            onSelectSearchOrder: selectSearchOrder,
-            onApplySearchFilters: applySearchFilters,
-            onClearSearchFilters: clearSearchFilters
+            isAuthenticationPresented: $isAuthenticationPresented
         )
         .task(id: browseActivation) {
-            await applyBrowseActivation(for: browseActivation)
+            await browseModel.activate(browseActivation)
         }
         .task(id: commentActivationAID) {
             await applyCommentActivation(aid: commentActivationAID)
@@ -184,13 +176,6 @@ struct AppRootView: View {
             guard AccountRevalidationParticipants.requestsRevalidation(from: previous, to: current)
             else { return }
             authenticationModel.revalidate()
-        }
-        .onChange(of: navigationCoordinator.searchDraft) { _, query in
-            guard query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            else {
-                return
-            }
-            submittedSearchCriteria = nil
         }
         .onDisappear {
             appSettingsModel?.removeAuthenticationOwner(
@@ -284,84 +269,17 @@ struct AppRootView: View {
         return videoIdentity.aid
     }
 
-    private var normalizedSearchDraft: String {
-        navigationCoordinator.searchDraft
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// 提交规范化搜索意图；编辑中的 draft 只经搜索框联想匿名请求联想词，不触发搜索请求。
-    private func performSearch() {
-        guard !normalizedSearchDraft.isEmpty else { return }
-        navigationCoordinator.searchDraft = normalizedSearchDraft
-        let criteria = appliedSearchFilters.criteria(query: normalizedSearchDraft)
-        searchHistoryStore?.record(criteria.query)
-        if submittedSearchCriteria == criteria {
-            browseModel.search(criteria)
-        } else {
-            submittedSearchCriteria = criteria
-        }
-    }
-
-    /// 点选历史或热搜词：与在搜索框输入后提交走同一条路径。
-    private func search(keyword: String) {
-        navigationCoordinator.searchDraft = keyword
-        performSearch()
-    }
-
-    private func selectSearchOrder(_ order: VideoSearchOrder) {
-        appliedSearchFilters.order = order
-        updateSubmittedSearchCriteriaIfNeeded()
-    }
-
-    private func applySearchFilters(_ selection: SearchFilterSelection) {
-        guard let filters = try? selection.resolvedFilters() else { return }
-        appliedSearchFilters = filters
-        updateSubmittedSearchCriteriaIfNeeded()
-    }
-
-    private func clearSearchFilters() {
-        searchFilterSelection.resetFilters()
-        appliedSearchFilters.duration = .all
-        appliedSearchFilters.publicationRange = nil
-        updateSubmittedSearchCriteriaIfNeeded()
-    }
-
-    private func updateSubmittedSearchCriteriaIfNeeded() {
-        guard let submittedSearchCriteria else { return }
-        self.submittedSearchCriteria = appliedSearchFilters.criteria(
-            query: submittedSearchCriteria.query
-        )
-    }
-
+    /// 当前来源要求的 Browse 工作集；穷尽 switch，新增来源时由编译器要求给出映射。
     private var browseActivation: BrowseActivation {
         switch navigationCoordinator.selectedTab {
         case .home:
-            return .recommendation
+            .recommendation
         case .popular:
-            return .popular
+            .popular
         case .search:
-            return .search(criteria: submittedSearchCriteria)
+            windowOwner.searchSession.browseActivation
         case .history:
-            return .inactive
-        }
-    }
-
-    /// 激活当前 Tab 对应的 Browse 工作集并等待当前模型任务；任务所有权与取消仍由 ViewModel 管理。
-    private func applyBrowseActivation(
-        for activation: BrowseActivation
-    ) async {
-        switch activation {
-        case .recommendation:
-            browseModel.activateRecommendation()
-            await browseModel.waitForCurrentTask()
-        case .popular:
-            browseModel.activatePopular(pageSize: BrowseViewModel.popularPageSize)
-            await browseModel.waitForCurrentTask()
-        case .search(nil), .inactive:
-            browseModel.deactivateRoute()
-        case .search(.some(let criteria)):
-            browseModel.activateSearch(criteria)
-            await browseModel.waitForCurrentTask()
+            .inactive
         }
     }
 
@@ -429,13 +347,6 @@ private final class AppWindowOwnerHolder: ObservableObject {
     init(_ owner: AppWindowOwner) {
         self.owner = owner
     }
-}
-
-private enum BrowseActivation: Hashable {
-    case recommendation
-    case popular
-    case search(criteria: VideoSearchCriteria?)
-    case inactive
 }
 
 #Preview {

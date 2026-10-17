@@ -84,18 +84,18 @@ public final class BrowseViewModel: AccountRevalidationParticipant {
         activeWorkset?.refreshError
     }
 
-    public func activateRecommendation() {
+    func activateRecommendation() {
         activateWorkset(.recommendation(continuation: nil))
     }
 
-    /// App 热门 Tab 使用的分页大小；`PopularFeedView` 按同一请求匹配 presentation。
+    /// 热门来源的分页大小；激活（`activate(_:)`）与 `PopularFeedView` 按同一请求匹配 presentation。
     public static let popularPageSize = 50
 
-    public func activatePopular(page: Int = 1, pageSize: Int = 20) {
+    func activatePopular(page: Int = 1, pageSize: Int = 20) {
         activateWorkset(.popular(page: page, pageSize: pageSize))
     }
 
-    public func activateSearch(_ criteria: VideoSearchCriteria) {
+    func activateSearch(_ criteria: VideoSearchCriteria) {
         let request = FeedRequest.search(
             VideoSearchRequest(criteria: criteria, page: 1)
         )
@@ -142,7 +142,7 @@ public final class BrowseViewModel: AccountRevalidationParticipant {
         }
     }
 
-    public func search(_ criteria: VideoSearchCriteria) {
+    func search(_ criteria: VideoSearchCriteria) {
         let request = FeedRequest.search(
             VideoSearchRequest(criteria: criteria, page: 1)
         )
@@ -186,7 +186,7 @@ public final class BrowseViewModel: AccountRevalidationParticipant {
     }
 
     /// 停止当前路由工作，把工作集规范化（结束刷新与加载更多）后保留，供返回时恢复。
-    public func deactivateRoute() {
+    func deactivateRoute() {
         loadTask.cancel()
         normalizeInterruptedLoad()
         activeRequestIdentity = nil

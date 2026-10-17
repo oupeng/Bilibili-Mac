@@ -17,7 +17,7 @@ struct BiliKitMacTests {
                 accountSessionCoordinator: AccountSessionCoordinator()
             )
             weakController = environment.playbackPreferencesController
-            owner = AppWindowOwner(environment: environment)
+            owner = AppWindowOwner(environment: environment, recordSearchHistory: { _ in })
         }
 
         #expect(weakController != nil)
@@ -31,7 +31,10 @@ struct BiliKitMacTests {
     @MainActor
     func windowOwnerClosureIsIrreversible() {
         let owner = AppWindowOwner(
-            environment: AppEnvironment.live(accountSessionCoordinator: AccountSessionCoordinator())
+            environment: AppEnvironment.live(
+                accountSessionCoordinator: AccountSessionCoordinator()
+            ),
+            recordSearchHistory: { _ in }
         )
         #expect(!owner.isClosed)
 

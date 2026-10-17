@@ -67,6 +67,7 @@ struct AppSources {
     init(
         browseModel: BrowseViewModel,
         historyModel: WatchHistoryViewModel,
+        searchSession: VideoSearchSession,
         trendingSearchModel: TrendingSearchViewModel?
     ) {
         // 推荐、热门与搜索共用一个模型：Browse 按代次去重，丢弃三份工作集并只重启当前路由。
@@ -87,6 +88,7 @@ struct AppSources {
                     synchronizeAccountSession: synchronizeBrowse,
                     revalidationParticipant: nil,
                     reset: {
+                        searchSession.reset()
                         trendingSearchModel?.reset()
                     }
                 )

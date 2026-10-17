@@ -98,7 +98,8 @@ struct AppNavigationCoordinatorTests {
         var stopCount = 0
         let coordinator = AppNavigationCoordinator(
             startPlayback: { _ in },
-            stopPlayback: { stopCount += 1 }
+            stopPlayback: { stopCount += 1 },
+            uploaderSpace: nil
         )
         coordinator.selectedTab = source
 
@@ -115,14 +116,14 @@ struct AppNavigationCoordinatorTests {
 
     @Test
     @MainActor
-    func replacementKeepsSurfaceSourceAndDraftWhileOrderingSideEffects() {
+    func replacementKeepsSurfaceAndSourceWhileOrderingSideEffects() {
         var events: [String] = []
         let coordinator = AppNavigationCoordinator(
             startPlayback: { events.append("start:\($0.bvid)") },
-            stopPlayback: { events.append("stop") }
+            stopPlayback: { events.append("stop") },
+            uploaderSpace: nil
         )
         coordinator.selectedTab = .search
-        coordinator.searchDraft = "手写搜索词"
 
         coordinator.openPlayback("BV1RouteA")
         let surfaceID = coordinator.playbackPath.first?.surfaceID
@@ -133,7 +134,6 @@ struct AppNavigationCoordinatorTests {
         #expect(coordinator.playbackPath.first?.surfaceID == surfaceID)
         #expect(coordinator.currentPlaybackBVID == "BV1RouteC")
         #expect(coordinator.selectedTab == .search)
-        #expect(coordinator.searchDraft == "手写搜索词")
         #expect(
             events == [
                 "start:BV1RouteA",
@@ -149,7 +149,8 @@ struct AppNavigationCoordinatorTests {
         var events: [String] = []
         let coordinator = AppNavigationCoordinator(
             startPlayback: { events.append("start:\($0.bvid)") },
-            stopPlayback: { events.append("stop") }
+            stopPlayback: { events.append("stop") },
+            uploaderSpace: nil
         )
         let forgedDestination = PlaybackDestination(surfaceID: UUID())
 
@@ -173,7 +174,8 @@ struct AppNavigationCoordinatorTests {
         var startCount = 0
         let coordinator = AppNavigationCoordinator(
             startPlayback: { _ in startCount += 1 },
-            stopPlayback: {}
+            stopPlayback: {},
+            uploaderSpace: nil
         )
 
         coordinator.openPlayback("BV1SameA")
@@ -189,7 +191,8 @@ struct AppNavigationCoordinatorTests {
         var intents: [PlaybackSelectionIntent] = []
         let coordinator = AppNavigationCoordinator(
             startPlayback: { intents.append($0) },
-            stopPlayback: {}
+            stopPlayback: {},
+            uploaderSpace: nil
         )
 
         coordinator.openPlayback(
@@ -210,7 +213,8 @@ struct AppNavigationCoordinatorTests {
         var intents: [PlaybackSelectionIntent] = []
         let coordinator = AppNavigationCoordinator(
             startPlayback: { intents.append($0) },
-            stopPlayback: {}
+            stopPlayback: {},
+            uploaderSpace: nil
         )
 
         coordinator.openPlayback(
@@ -230,7 +234,8 @@ struct AppNavigationCoordinatorTests {
         var stopCount = 0
         let coordinator = AppNavigationCoordinator(
             startPlayback: { _ in },
-            stopPlayback: { stopCount += 1 }
+            stopPlayback: { stopCount += 1 },
+            uploaderSpace: nil
         )
 
         coordinator.openPlayback("BV1SidebarA")
@@ -249,10 +254,10 @@ struct AppNavigationCoordinatorTests {
         var stopCount = 0
         let coordinator = AppNavigationCoordinator(
             startPlayback: { _ in },
-            stopPlayback: { stopCount += 1 }
+            stopPlayback: { stopCount += 1 },
+            uploaderSpace: nil
         )
         coordinator.selectedTab = .history
-        coordinator.searchDraft = "待清理草稿"
         coordinator.openPlayback("BV1CloseA")
 
         coordinator.resetForWindowClosure()
@@ -260,7 +265,6 @@ struct AppNavigationCoordinatorTests {
 
         #expect(stopCount == 1)
         #expect(coordinator.selectedTab == .home)
-        #expect(coordinator.searchDraft.isEmpty)
         #expect(coordinator.playbackPath.isEmpty)
         #expect(coordinator.currentPlaybackBVID == nil)
     }
@@ -271,10 +275,10 @@ struct AppNavigationCoordinatorTests {
         var stopCount = 0
         let coordinator = AppNavigationCoordinator(
             startPlayback: { _ in },
-            stopPlayback: { stopCount += 1 }
+            stopPlayback: { stopCount += 1 },
+            uploaderSpace: nil
         )
         coordinator.selectedTab = .search
-        coordinator.searchDraft = "保留的来源草稿"
         coordinator.openPlayback("BV1Logout")
 
         coordinator.closePlaybackForAuthenticationChange()
@@ -282,7 +286,6 @@ struct AppNavigationCoordinatorTests {
 
         #expect(stopCount == 1)
         #expect(coordinator.selectedTab == .search)
-        #expect(coordinator.searchDraft == "保留的来源草稿")
         #expect(coordinator.playbackPath.isEmpty)
         #expect(coordinator.currentPlaybackBVID == nil)
     }
@@ -290,51 +293,77 @@ struct AppNavigationCoordinatorTests {
     @Test
     @MainActor
     func choosingFromTheSidebarContextKeepsIt() {
-        var events: [String] = []
+        let space = makeUploaderSpace()
+        var contextOpenAtStart: [Bool] = []
         let coordinator = AppNavigationCoordinator(
-            startPlayback: { events.append("start:\($0.bvid)") },
-            stopPlayback: { events.append("stop") },
-            closeSidebarContext: { events.append("close-context") }
+            startPlayback: { _ in contextOpenAtStart.append(space.owner != nil) },
+            stopPlayback: {},
+            uploaderSpace: space
         )
         coordinator.openPlayback("BV1Source")
-        events.removeAll()
+        coordinator.openUploaderSpace(owner: VideoOwner(id: 42, name: "UP"))
 
         coordinator.openPlaybackFromSidebarContext("BV1FromSpace")
 
-        #expect(events == ["start:BV1FromSpace"])
+        #expect(contextOpenAtStart == [false, true])
+        #expect(coordinator.isSidebarContextOpen)
         #expect(coordinator.currentPlaybackBVID == "BV1FromSpace")
     }
 
+    /// 其他入口换视频先关闭上下文层再开始播放；重新打开正在播放的视频也关闭它。
     @Test
     @MainActor
     func otherEntriesCloseTheSidebarContextEvenForTheCurrentVideo() {
+        let space = makeUploaderSpace()
         var events: [String] = []
         let coordinator = AppNavigationCoordinator(
-            startPlayback: { events.append("start:\($0.bvid)") },
+            startPlayback: { events.append("start:\($0.bvid) context:\(space.owner != nil)") },
             stopPlayback: { events.append("stop") },
-            closeSidebarContext: { events.append("close-context") }
+            uploaderSpace: space
         )
         coordinator.openPlayback("BV1Source")
         events.removeAll()
 
+        coordinator.openUploaderSpace(owner: VideoOwner(id: 42, name: "UP"))
         coordinator.openPlayback("BV1Related")
+        #expect(!coordinator.isSidebarContextOpen)
+
+        coordinator.openUploaderSpace(owner: VideoOwner(id: 42, name: "UP"))
         coordinator.openPlayback("BV1Related")
 
-        #expect(events == ["close-context", "start:BV1Related", "close-context"])
+        #expect(!coordinator.isSidebarContextOpen)
+        #expect(events == ["start:BV1Related context:false"])
     }
 
+    /// 关闭播放时上下文层只关一次：之后重复的关闭播放不再动它。
     @Test(arguments: ["tab", "authentication", "back"])
     @MainActor
-    func closingPlaybackClosesTheSidebarContextOnce(trigger: String) {
+    func closingPlaybackClosesTheSidebarContextOnce(trigger: String) async {
+        let space = makeUploaderSpace()
         var events: [String] = []
         let coordinator = AppNavigationCoordinator(
             startPlayback: { _ in },
-            stopPlayback: { events.append("stop") },
-            closeSidebarContext: { events.append("close-context") }
+            stopPlayback: { events.append("stop context:\(space.owner != nil)") },
+            uploaderSpace: space
         )
+        coordinator.openPlayback("BV1Source")
+        coordinator.openUploaderSpace(owner: VideoOwner(id: 42, name: "UP"))
         coordinator.openPlaybackFromSidebarContext("BV1FromSpace")
-        events.removeAll()
+        // 空间投稿读取恒失败；等它落定，之后空间模型的变化只来自关闭。
+        await waitForObservedState {
+            if case .failed = space.state { return true }
+            return false
+        }
+        let closeCount = Mutex(0)
+        func countNextClose() {
+            withObservationTracking {
+                _ = space.owner
+            } onChange: {
+                closeCount.withLock { $0 += 1 }
+            }
+        }
 
+        countNextClose()
         switch trigger {
         case "tab":
             coordinator.selectedTab = .popular
@@ -343,9 +372,39 @@ struct AppNavigationCoordinatorTests {
         default:
             coordinator.playbackPath.removeAll()
         }
+        countNextClose()
         coordinator.closePlaybackForAuthenticationChange()
 
-        #expect(events == ["close-context", "stop"])
+        #expect(!coordinator.isSidebarContextOpen)
+        #expect(closeCount.withLock { $0 } == 1)
+        #expect(events == ["stop context:false"])
+    }
+
+    /// 空间链接只有 MID：有空间功能时在侧栏打开，没有时告诉调用方回退到网页。
+    @Test
+    @MainActor
+    func memberIDLinksOpenTheSpaceOnlyWhenTheWindowHasOne() async throws {
+        let profiles = PendingUploaderProfileRepository()
+        let space = makeUploaderSpace(profiles: profiles)
+        let withSpace = AppNavigationCoordinator(
+            startPlayback: { _ in },
+            stopPlayback: {},
+            uploaderSpace: space
+        )
+        let withoutSpace = AppNavigationCoordinator(
+            startPlayback: { _ in },
+            stopPlayback: {},
+            uploaderSpace: nil
+        )
+
+        #expect(withSpace.openUploaderSpace(ownerID: 42))
+        #expect(space.owner?.id == 42)
+        #expect(withSpace.isSidebarContextOpen)
+        #expect(!withoutSpace.openUploaderSpace(ownerID: 42))
+        #expect(!withoutSpace.isSidebarContextOpen)
+        // 只有 MID 的入口会补取名片：放行它，不留下挂起的请求。
+        try await profiles.waitForRequest()
+        await profiles.releaseLateResult()
     }
 
     @Test
@@ -354,7 +413,8 @@ struct AppNavigationCoordinatorTests {
         var events: [String] = []
         let coordinator = AppNavigationCoordinator(
             startPlayback: { events.append("start:\($0.bvid)") },
-            stopPlayback: { events.append("stop") }
+            stopPlayback: { events.append("stop") },
+            uploaderSpace: nil
         )
 
         coordinator.openPlayback("")
