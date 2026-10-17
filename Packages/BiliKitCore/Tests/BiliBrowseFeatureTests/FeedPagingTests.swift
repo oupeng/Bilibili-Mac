@@ -190,6 +190,33 @@ struct FeedPagingTests {
         #expect(await repository.popularPages.count == 2)
     }
 
+    /// 搜索首页没有可显示条目时与推荐、热门一样停止翻页，即使接口报告还有更多页。
+    @Test
+    @MainActor
+    func emptySearchFirstPageStopsPaginationDespiteRemainingPages() async {
+        let repository = FeedRepositoryStub(search: { request, _ in
+            SearchPage(
+                videos: [],
+                pageNumber: request.page,
+                pageSize: request.criteria.pageSize,
+                totalResults: 40,
+                totalPages: 2
+            )
+        })
+        let model = BrowseViewModel(useCase: FeedUseCase(repository: repository))
+        let criteria = VideoSearchCriteria(query: "空首页")
+        let request = FeedRequest.search(VideoSearchRequest(criteria: criteria, page: 1))
+
+        model.activateSearch(criteria)
+        await model.waitForCurrentTask()
+        model.loadMore(.search)
+        await model.waitForCurrentTask()
+
+        #expect(BrowseFeed.search.loadedBVIDs(model).isEmpty)
+        #expect(!model.pagination(for: request).canLoadMore)
+        #expect(await repository.searchRequests.map(\.page) == [1])
+    }
+
     @Test(arguments: [BrowseFeed.popular, .search])
     @MainActor
     func nearEndAppendsDeduplicatesAndBackpressuresSameTail(_ feed: BrowseFeed) async {

@@ -601,7 +601,7 @@ public final class BrowseViewModel {
                     pageNumber: page.pageNumber,
                     pageSize: page.pageSize,
                     totalResults: page.totalResults,
-                    totalPages: first.isAtCapacity ? page.pageNumber : page.totalPages
+                    totalPages: first.continuesPagination ? page.totalPages : page.pageNumber
                 )
             )
         }
