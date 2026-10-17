@@ -13,90 +13,41 @@ import BiliVideoDetailFeature
 import Combine
 import SwiftUI
 
-/// 窗口级生命周期入口，连接导航激活、认证变化与最终资源清理。
+/// 窗口级生命周期入口，连接导航激活、认证变化与窗口的打开与关闭。
 ///
-/// 页面 View 只表达局部意图；关窗时需要在这里按来源描述清除各来源的内容、认证临时任务，
-/// 并借导航路径清空统一停止播放、原生字幕和弹幕资源。
+/// 页面 View 只表达局部意图；窗口对象图（`WindowComposition`）在视图身份首次出现时构造一次，窗口出现时打开、
+/// 消失时关闭（关闭顺序见 `WindowComposition.close()`）。
 struct AppRootView: View {
     @Environment(\.appearsActive) private var appearsActive
-    @StateObject private var windowOwnerHolder: AppWindowOwnerHolder
-    private let accountSessionCoordinator: AccountSessionCoordinator
-    private let appSettingsModel: AppSettingsModel?
-    private let searchHistoryStore: SearchHistoryStore?
+    @StateObject private var windowHolder: WindowCompositionHolder
     @State private var isAuthenticationPresented = false
-    init(process: ProcessComposition) {
-        accountSessionCoordinator = process.accountSession
-        appSettingsModel = process.settings
-        searchHistoryStore = process.searchHistory
-        _windowOwnerHolder = StateObject(
-            wrappedValue: AppWindowOwnerHolder(
-                AppWindowOwner(
-                    environment: .live(process: process),
-                    systemNowPlayingController: process.nowPlaying,
-                    recordSearchHistory: process.searchHistory.record
-                )
-            )
-        )
-    }
 
-    init(
-        navigationCoordinator: AppNavigationCoordinator,
-        browseModel: BrowseViewModel,
-        videoModel: VideoViewModel,
-        commentsModel: PlaybackCommentsViewModel? = nil,
-        danmakuModel: DanmakuControlsViewModel,
-        authenticationModel: AuthenticationViewModel,
-        historyModel: WatchHistoryViewModel,
-        playerContent: AnyView,
-        commentAssetURLResolver: @escaping CommentAssetURLResolver = { _, _ in nil },
-        commentLinkRouter: @escaping CommentLinkRouter = { _ in nil },
-        accountSessionCoordinator: AccountSessionCoordinator = AccountSessionCoordinator(),
-        watchProgressConnection: WatchProgressWindowConnection? = nil
-    ) {
-        self.accountSessionCoordinator = accountSessionCoordinator
-        appSettingsModel = nil
-        searchHistoryStore = nil
-        _windowOwnerHolder = StateObject(
-            wrappedValue: AppWindowOwnerHolder(
-                AppWindowOwner(
-                    navigationCoordinator: navigationCoordinator,
-                    browseModel: browseModel,
-                    videoModel: videoModel,
-                    commentsModel: commentsModel,
-                    danmakuModel: danmakuModel,
-                    authenticationModel: authenticationModel,
-                    historyModel: historyModel,
-                    recordSearchHistory: { _ in },
-                    playerContent: playerContent,
-                    commentAssetURLResolver: commentAssetURLResolver,
-                    commentLinkRouter: commentLinkRouter,
-                    watchProgressConnection: watchProgressConnection
-                )
-            )
-        )
+    /// `window`（`ProcessComposition.makeWindow()` 组装的窗口）只在视图身份首次出现时求值一次。
+    init(window: @autoclosure @escaping @MainActor () -> WindowComposition) {
+        _windowHolder = StateObject(wrappedValue: WindowCompositionHolder(window()))
     }
 
     var body: some View {
         AppShellView(
             navigationCoordinator: navigationCoordinator,
-            sources: windowOwner.sources,
+            sources: window.sources,
             browseModel: browseModel,
             videoModel: videoModel,
             commentsModel: commentsModel,
             danmakuModel: danmakuModel,
             authenticationModel: authenticationModel,
             historyModel: historyModel,
-            trendingSearchModel: windowOwner.trendingSearchModel,
-            searchSession: windowOwner.searchSession,
-            searchHistory: searchHistoryStore,
-            searchSuggestionSource: windowOwner.searchSuggestionSource,
+            trendingSearchModel: window.trendingSearchModel,
+            searchSession: window.searchSession,
+            searchHistory: window.process.searchHistory,
+            searchSuggestionSource: window.searchSuggestionSource,
             playerContent: playerContent,
-            commentAssetURLResolver: windowOwner.commentAssetURLResolver,
-            commentLinkRouter: windowOwner.commentLinkRouter,
-            commentShortLinks: windowOwner.commentShortLinks,
-            commentImageSaver: windowOwner.commentImageSaver,
-            seekPlayback: windowOwner.seekPlayback,
-            imagePipeline: windowOwner.imagePipeline,
+            commentAssetURLResolver: window.commentAssetURLResolver,
+            commentLinkRouter: window.commentLinkRouter,
+            commentShortLinks: window.commentShortLinks,
+            commentImageSaver: window.commentImageSaver,
+            seekPlayback: window.seekPlayback,
+            imagePipeline: window.imagePipeline,
             isAuthenticationPresented: $isAuthenticationPresented
         )
         .task(id: browseActivation) {
@@ -106,12 +57,12 @@ struct AppRootView: View {
             await applyCommentActivation(aid: commentActivationAID)
         }
         .onAppear {
-            windowOwner.synchronizeWatchProgressAccess(historyAccountScope)
-            windowOwner.open()
+            window.synchronizeWatchProgressAccess(historyAccountScope)
+            window.open()
         }
         .onChange(of: appearsActive, initial: true) { _, isActive in
             if isActive {
-                windowOwner.markWindowActive()
+                window.markWindowActive()
             }
         }
         .task {
@@ -126,10 +77,10 @@ struct AppRootView: View {
             synchronizeBenchmarkAuthentication()
         }
         .onChange(of: isAccountSignedOutConfirmed, initial: true) { _, isConfirmed in
-            windowOwner.synchronizeSignedOutConfirmation(isConfirmed)
+            window.synchronizeSignedOutConfirmation(isConfirmed)
         }
         .onChange(of: historyAccountScope) { previousScope, scope in
-            windowOwner.synchronizeWatchProgressAccess(scope)
+            window.synchronizeWatchProgressAccess(scope)
             guard AccountSessionScope.isResolvedChange(from: previousScope, to: scope)
             else {
                 return
@@ -154,61 +105,58 @@ struct AppRootView: View {
         }
         .onChange(of: authenticationModel.resolutionPhase) { previousPhase, phase in
             guard previousPhase == .restoring else { return }
-            windowOwner.revalidationParticipants.finishRevalidation(
+            window.revalidationParticipants.finishRevalidation(
                 phase,
                 currentRoute: navigationCoordinator.selectedTab
             )
         }
         .onChange(of: navigationCoordinator.selectedTab) { previousTab, _ in
-            windowOwner.sources[previousTab].deactivate()
+            window.sources[previousTab].deactivate()
         }
-        .onChange(of: windowOwner.revalidationParticipants.generations) { previous, current in
+        .onChange(of: window.revalidationParticipants.generations) { previous, current in
             guard AccountRevalidationParticipants.requestsRevalidation(from: previous, to: current)
             else { return }
             authenticationModel.revalidate()
         }
         .onDisappear {
-            appSettingsModel?.removeAuthenticationOwner(
-                windowOwner.benchmarkAuthenticationOwnerID
-            )
-            navigationCoordinator.resetForWindowClosure()
-            windowOwner.sources.resetForWindowClosure()
-            authenticationModel.cancelTransientWork()
-            commentsModel?.reset()
-            windowOwner.close()
+            window.close()
         }
     }
 
-    private var windowOwner: AppWindowOwner {
-        windowOwnerHolder.owner
+    private var window: WindowComposition {
+        windowHolder.window
+    }
+
+    private var accountSessionCoordinator: AccountSessionCoordinator {
+        window.process.accountSession
     }
 
     private var navigationCoordinator: AppNavigationCoordinator {
-        windowOwner.navigationCoordinator
+        window.navigationCoordinator
     }
 
     private var browseModel: BrowseViewModel {
-        windowOwner.browseModel
+        window.browseModel
     }
 
     private var videoModel: VideoViewModel {
-        windowOwner.videoModel
+        window.videoModel
     }
 
-    private var commentsModel: PlaybackCommentsViewModel? {
-        windowOwner.commentsModel
+    private var commentsModel: PlaybackCommentsViewModel {
+        window.commentsModel
     }
 
     private var danmakuModel: DanmakuControlsViewModel {
-        windowOwner.danmakuModel
+        window.danmakuModel
     }
 
     private var authenticationModel: AuthenticationViewModel {
-        windowOwner.authenticationModel
+        window.authenticationModel
     }
 
     private var historyModel: WatchHistoryViewModel {
-        windowOwner.historyModel
+        window.historyModel
     }
 
     private var isAccountSignedOutConfirmed: Bool {
@@ -224,18 +172,18 @@ struct AppRootView: View {
     }
 
     private var playerContent: AnyView {
-        windowOwner.playerContent
+        window.playerContent
     }
 
     /// 窗口关闭后 onDisappear 已注销测速 owner；迟到的同步（如恢复登录完成）不得把它登记回去。
     private func synchronizeBenchmarkAuthentication() {
-        guard !windowOwner.isClosed else { return }
-        appSettingsModel?.synchronizeAuthentication(
+        guard !window.isClosed else { return }
+        window.process.settings.synchronizeAuthentication(
             Self.benchmarkAccess(
                 sessionPhase: authenticationModel.sessionPhase,
                 isSigningOut: authenticationModel.isSigningOut
             ),
-            ownerID: windowOwner.benchmarkAuthenticationOwnerID
+            ownerID: window.benchmarkAuthenticationOwnerID
         )
     }
 
@@ -267,7 +215,7 @@ struct AppRootView: View {
         case .popular:
             .popular
         case .search:
-            windowOwner.searchSession.browseActivation
+            window.searchSession.browseActivation
         case .history:
             .inactive
         }
@@ -275,8 +223,7 @@ struct AppRootView: View {
 
     private func applyCommentActivation(aid: Int64?) async {
         // 短链属于上一个视频的简介或评论：视频变化时取消在途解析。
-        windowOwner.commentShortLinks.cancel()
-        guard let commentsModel else { return }
+        window.commentShortLinks.cancel()
         guard let aid else {
             commentsModel.reset()
             return
@@ -295,7 +242,7 @@ struct AppRootView: View {
             return
         }
         navigationCoordinator.closePlaybackForAuthenticationChange()
-        windowOwner.sources.resetAccountContent()
+        window.sources.resetAccountContent()
         authenticationModel.revalidateAfterExternalSessionChange()
         await authenticationModel.waitForCurrentTask()
         guard accountSessionCoordinator.generation == processGeneration else {
@@ -314,7 +261,7 @@ struct AppRootView: View {
         scope: AccountSessionScope,
         requiringAccount: Bool
     ) {
-        for source in windowOwner.sources.ordered where source.requiresAccount == requiringAccount {
+        for source in window.sources.ordered where source.requiresAccount == requiringAccount {
             source.synchronizeAccountSession(
                 AccountSessionChange(
                     generation: generation,
@@ -331,10 +278,10 @@ struct AppRootView: View {
 /// `@StateObject` 的 autoclosure 只求值一次；`State(initialValue:)` 会在父视图每次重算
 /// `AppRootView.init` 时构造并丢弃整套对象图（包括 AVPlayer 与 URLSession）。
 @MainActor
-private final class AppWindowOwnerHolder: ObservableObject {
-    let owner: AppWindowOwner
+private final class WindowCompositionHolder: ObservableObject {
+    let window: WindowComposition
 
-    init(_ owner: AppWindowOwner) {
-        self.owner = owner
+    init(_ window: WindowComposition) {
+        self.window = window
     }
 }

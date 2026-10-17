@@ -49,9 +49,9 @@ struct SearchTabRoot: View {
     let model: BrowseViewModel
     let gridHost: NativeVideoGridHostContext
     let imagePipeline: NativeVideoImagePipeline
-    let trendingSearchModel: TrendingSearchViewModel?
-    let searchHistory: SearchHistoryStore?
-    let searchSuggestionSource: SearchSuggestionSource?
+    let trendingSearchModel: TrendingSearchViewModel
+    let searchHistory: SearchHistoryStore
+    let searchSuggestionSource: SearchSuggestionSource
     let onSelect: (String) -> Void
 
     var body: some View {
@@ -71,7 +71,7 @@ struct SearchTabRoot: View {
                 ToolbarSearchField(
                     text: $session.draft,
                     prompt: AppStrings.localized("搜索 B 站视频"),
-                    history: { searchHistory?.entries ?? [] },
+                    history: { searchHistory.entries },
                     suggestionSource: searchSuggestionSource,
                     onSubmit: session.submit,
                     onSelectSuggestion: session.search(keyword:)
@@ -92,20 +92,16 @@ struct SearchTabRoot: View {
         }
     }
 
-    /// 没有热搜模型时起始页留空。
-    ///
     /// 历史以读取闭包交出，只在起始页里求值，这里不读 `entries`。
-    private var startPageContext: SearchStartPageContext? {
-        trendingSearchModel.map { trendingModel in
-            SearchStartPageContext(
-                trendingModel: trendingModel,
-                iconLoader: imagePipeline,
-                history: { searchHistory?.entries ?? [] },
-                onSearch: session.search(keyword:),
-                onRemoveHistory: { searchHistory?.remove($0) },
-                onClearHistory: { searchHistory?.clear() }
-            )
-        }
+    private var startPageContext: SearchStartPageContext {
+        SearchStartPageContext(
+            trendingModel: trendingSearchModel,
+            iconLoader: imagePipeline,
+            history: { searchHistory.entries },
+            onSearch: session.search(keyword:),
+            onRemoveHistory: { searchHistory.remove($0) },
+            onClearHistory: { searchHistory.clear() }
+        )
     }
 }
 

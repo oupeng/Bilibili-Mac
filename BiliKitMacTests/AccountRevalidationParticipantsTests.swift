@@ -62,16 +62,13 @@ struct AccountRevalidationParticipantsTests {
 
     /// 窗口组装登记了全部六个参与者，只有观看历史绑定来源；漏登记会让那一页的凭据失效静默不复核。
     @Test
-    func windowOwnerRegistersEveryParticipant() throws {
-        let owner = AppWindowOwner(
-            environment: AppEnvironment.live(process: makeTestProcess()),
-            recordSearchHistory: { _ in }
-        )
+    func windowCompositionRegistersEveryParticipant() throws {
+        let owner = WindowComposition(process: makeTestProcess(), adapters: makeTestAdapters())
         let expected: [(AnyObject, AppTab?)] = [
             (owner.videoModel, nil),
             (owner.browseModel, nil),
             (owner.danmakuModel, nil),
-            (try #require(owner.commentsModel), nil),
+            (owner.commentsModel, nil),
             (try #require(owner.navigationCoordinator.uploaderSpace), nil),
             (owner.historyModel, .history)
         ]

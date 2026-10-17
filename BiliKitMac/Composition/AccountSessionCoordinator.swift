@@ -46,8 +46,11 @@ final class AccountSessionCoordinator: AuthenticatedSessionInvalidating {
     }
 }
 
+/// 一个窗口的 API transport 在账户会话里的登记：窗口打开时登记、关闭时注销，登出与换号时随会话一起失效。
+///
+/// 由窗口 adapter 的 `open`／`close` 调用（`WindowAdapters.live`），各只生效一次；弱引用账户会话，不延长它。
 @MainActor
-final class AppEnvironmentSessionRegistration {
+final class WindowSessionRegistration {
     private weak var coordinator: AccountSessionCoordinator?
     private let invalidator: any AuthenticatedSessionInvalidating
     private var registrationID: UUID?

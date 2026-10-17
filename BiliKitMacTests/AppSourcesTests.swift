@@ -63,7 +63,9 @@ struct AppSourcesTests {
                 useCase: WatchHistoryUseCase(repository: WatchHistoryRepositoryStub())
             ),
             searchSession: session,
-            trendingSearchModel: nil
+            trendingSearchModel: TrendingSearchViewModel(
+                useCase: TrendingSearchUseCase(repository: EmptyTrendingSearchRepository())
+            )
         )
         session.search(keyword: "猫")
 
@@ -84,7 +86,9 @@ struct AppSourcesTests {
                 useCase: WatchHistoryUseCase(repository: WatchHistoryRepositoryStub())
             ),
             searchSession: session,
-            trendingSearchModel: nil
+            trendingSearchModel: TrendingSearchViewModel(
+                useCase: TrendingSearchUseCase(repository: EmptyTrendingSearchRepository())
+            )
         )
         session.search(keyword: "猫")
         let submitted = session.submittedCriteria
@@ -114,7 +118,9 @@ struct AppSourcesTests {
             browseModel: browseModel,
             historyModel: historyModel,
             searchSession: VideoSearchSession(browseModel: browseModel, recordHistory: { _ in }),
-            trendingSearchModel: nil
+            trendingSearchModel: TrendingSearchViewModel(
+                useCase: TrendingSearchUseCase(repository: EmptyTrendingSearchRepository())
+            )
         )
     }
 }

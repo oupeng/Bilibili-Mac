@@ -53,7 +53,7 @@ BiliNetworking 不依赖任何 Bili 模块
 | `BiliVideoDetailFeature` | 播放页（VideoDetail）与侧栏上下文层 UP 主空间（UploaderSpace）：视频与分 P 意图、续播与链接起播、相关推荐与 UP 主名片（`VideoViewModel`；导航给出的 `PlaybackSelectionIntent` 怎样落到当前视频——就地换分 P、链接 `t=` 原地跳转或重新加载——以及失败后由模型重试还是交回导航，也只在这里），合集选集的分 P（`CollectionEpisodePagesController`），评论（`PlaybackCommentsViewModel`），弹幕设置，空间投稿列表（`UploaderSpaceViewModel`），以及主区布局、骨架、相关推荐横排与选集、评论、投稿行的呈现投影；播放页失败（`VideoLoadFailure`）的标题、说明与是否可重试只在这里。这些页面的 AppKit 视图也在这里：播放侧栏（`NativePlaybackSidebarView`，含评论原生 item）、评论图片预览与保存（`NativeCommentImagePreviewView`、`NativeCommentImageSaver`、动图播放）、相关推荐横排（`RelatedNativeShelfView`）与空间列表（`UploaderSpaceSidebarView`）。取图 port `VideoDetailImageLoading`（头像、封面、表情、评论图片与预览；结果含图、可选的动图数据 `NativeAnimatedImage` 与是否淡入，评论图片另可取原图数据；相关推荐横排是共享卡片，仍走卡片 port `NativeVideoImageLoading`，不为本 Feature 的其他用途放宽它），App 构造的评论资源地址闭包`CommentAssetURLResolver`，以及 App 键盘控制器检查的 `PlayerKeyboardFocusOwner`。拥有自己的字符串目录；App 用到的类型为 `public`，有 library product | 同其他 Feature，但可直接 import AppKit、CoreText（评论正文排版）与 ImageIO（动图逐帧解码）；横排卡片与集合视图支撑经 `BiliVideoCollectionUI`；不依赖 AVKit/AVFoundation、网络与 adapter；下载、来源与响应校验、首帧解码、动图播放门槛和缓存只在 App 管线，本 target 只对管线按门槛放行的 `NativeAnimatedImage` 数据逐帧解码播放 |
 | `BiliUI` | Feature 共享的 SwiftUI 呈现层：卡片几何、网格、骨架、加载过渡、刷新与分页状态胶囊、整页失败视图，只按账户读取的来源共用的登录门槛（`AccountGateView`，形态映射为 `AccountGatePhase`），`ContentApplicationError` 的失败文案（`ContentFailureText`），计数、时长与日期格式化，视频卡片的 B 站图片缩略地址；拥有自己的字符串目录。默认 `package` 访问级别，App 直接使用的卡片几何、时长格式化、播放器加载转圈、单行失败说明（`ContentFailureText.message`）与头像图片的像素边长（`BiliAvatarImageSize`：卡片与评论头像的请求框、图片管线的头像解码上限都取它）为 `public`；AppKit target `BiliVideoCollectionUI` 也经 `package` 接口取用它的文案（卡片选中的读屏值 `VideoCardAccessibilityText`）。无 library product | 除 Foundation、SwiftUI、BiliApplication 外的任何模块（含 BiliModels、AppKit 与其他 Feature） |
 | `BiliVideoCollectionUI` | 浏览网格与横排共用的 AppKit 卡片（`NativeVideoCollectionItem`、封面与文字层）、原生网格 `NativeVideoGridView` 及其状态（回顶握手、锚点、预备区域），集合视图的悬停、键盘与通知观察，卡片与评论图片共用的淡入动画 `NativeImageFadeAnimation`，近尾部分页 `NearEndPagination`，滚动坐标换算，取图 port `NativeVideoImageLoading`（只分封面与头像，结果只含图与是否淡入），来源网格从 App 窗口拿到的依赖 `NativeVideoGridHostContext`（滚动位置、回顶请求、取图 port），以及网格与横排共用的内容差异 `NativeVideoGridUpdatePlan`。App 用到的类型为 `public`（取图 port 及其结果类型、网格依赖 `NativeVideoGridHostContext` 与回顶请求、通知观察集合），只有 Package 内 Feature 用到的为 `package`（除上述 `public` 类型外，凡是 Feature 用到的都是），其余为 `internal`，有 library product | 除 BiliUI 外的 Bili 模块（含 BiliNetworking、adapter 与 Feature）；图片下载与缓存只经 port 注入 |
-| App `BiliKitMac` | composition root、导航协调、来源描述、复核汇总与评论链接执行（`Navigation/`）、窗口 owner、`AVPlayerView` 宿主、各来源网格的滚动位置与回顶请求、图片管线（实现卡片、热搜图标与播放页三个取图 port）、Settings、Now Playing、Sparkle | `App/` 与 `Navigation/` 目录不直接 import adapter 或平台框架（`Navigation/` 只依赖 Feature、Application 与 Models），具体实现只在 `Composition/`、`Platform/`、`Settings/` 出现；Application 只在搜索条件或账户投影的使用点 import（`AppRootView`、`AppShellView`、`AppSidebarViews`、`AppSourceRootViews`、`AppWindowOwner`、`SearchToolbarControls`；成员可见性要求直接 import 定义模块，Feature 不转出 Application）；BiliVideoCollectionUI 在 `Platform/` 只由播放器宿主（通知观察集合）与图片管线（实现卡片取图 port）import，`Composition/` 只有 `WatchProgressWindowConnection`，`App/` 只有构造并转交 `NativeVideoGridHostContext` 的 `AppShellView`、`AppSourceRootViews`；只按账户读取的来源由 Feature 渲染登录门槛，App 只注入账户呈现状态与打开登录页的动作 |
+| App `BiliKitMac` | composition root、导航协调、来源描述、复核汇总与评论链接执行（`Navigation/`）、进程级与窗口级组装（`Composition/` 的 `ProcessComposition`、`WindowComposition`）、`AVPlayerView` 宿主、各来源网格的滚动位置与回顶请求、图片管线（实现卡片、热搜图标与播放页三个取图 port）、Settings、Now Playing、Sparkle | `App/` 与 `Navigation/` 目录不直接 import adapter 或平台框架（`Navigation/` 只依赖 Feature、Application 与 Models），具体实现只在 `Composition/`、`Platform/`、`Settings/` 出现；Application 只在搜索条件或账户投影的使用点 import（`AppRootView`、`AppShellView`、`AppSidebarViews`、`AppSourceRootViews`、`SearchToolbarControls`；成员可见性要求直接 import 定义模块，Feature 不转出 Application）；BiliVideoCollectionUI 在 `Platform/` 只由播放器宿主（通知观察集合）与图片管线（实现卡片取图 port）import，`Composition/` 只有 `WatchProgressWindowConnection`，`App/` 只有构造并转交 `NativeVideoGridHostContext` 的 `AppShellView`、`AppSourceRootViews`；只按账户读取的来源由 Feature 渲染登录门槛，App 只注入账户呈现状态与打开登录页的动作 |
 
 补充规则：
 
@@ -100,8 +100,18 @@ BiliNetworking 不依赖任何 Bili 模块
   协调器、进程唯一的观看进度 writer（构造时就登记进账户会话，与它的 transport 一起随登出、换号与凭据失效
   失效）、设置与线路测速（测速用自己的 API client，同样登记进账户会话）、系统 Now Playing、本机搜索历史与更新器。
   生产 `BiliAPIClient` 只由 `LiveAPIClients` 构造，账户读取 allowlist 也只在那里声明。
-- 窗口级：每个窗口由 `AppRootView` 从进程组装构造一次对象图（`AppEnvironment.live(process:)` 建窗口的
-  adapter，`AppWindowOwner` 持有模型与窗口生命周期），只引用进程级对象，不替它们创建或关闭。
+- 窗口级 `WindowComposition`（`Composition/`，每个窗口一份，由 `AppRootView` 在视图身份首次出现时经
+  `ProcessComposition.makeWindow()` 构造一次）：全部模型（浏览、视频、评论、弹幕、认证、历史、UP 主空间、热搜与
+  联想、搜索会话）、导航协调、来源描述与复核参与者、播放器视图、窗口图片管线、评论短链解析与图片保存、Now
+  Playing 与观看进度的连接。它只引用进程级对象，不替它们创建或关闭。具体实现只经 `WindowAdapters`（仓库、
+  认证服务、播放控制与播放器视图、弹幕呈现与偏好、Now Playing 与观看进度连接、窗口打开与关闭时 adapter 自己
+  的登记与清理）进入；生产由 `WindowAdapters.live(process:)` 一处构造（窗口自己的 API client、`AVPlayerEngine`、
+  弹幕 renderer、会话与内存压力监听），测试换成替身后走同一条组装路径。
+- 窗口出现时，`AppRootView` 先把当前账户范围同步为观看进度的上报权限，再 `open()`：登记窗口 API 的会话失效，
+  开始观看进度与 Now Playing。窗口消失时 `close()`（不可逆）按序：从进程级测速注销本窗口 → 关闭播放并恢复新窗口
+  的来源 → 各来源丢弃内容（Browse 工作集整体一次）→ 取消认证临时任务与评论 → 取消短链解析与图片保存 → 停止观看
+  进度与 Now Playing → 关闭图片管线 → adapter 取消弹幕内存压力监听、停止播放偏好的持久化、注销会话并失效短链
+  session。adapter 的这一步只在窗口打开过之后执行，没打开过的窗口不注销从未登记的会话。
 
 ### 播放：DASH→HLS loopback bridge
 
@@ -156,8 +166,8 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   手写 wire reader 要长期自维护 varint、未知字段和恶意长度边界，成本高于约 1.8 MiB 的体积。
 - wire 类型解码后立即映射为 `BiliModels.DanmakuEvent`；`BiliDanmaku` 只见 Models/Application。
 - renderer 使用 Core Animation layer 与纹理缓存，调度与 lane 分配可用虚拟时间独立测试。系统内存压力时
-  清空纹理缓存，在途准备以容量不足拒绝；`BiliDanmaku` 不自己监听内存压力，监听由 `AppEnvironment` 持有并在
-  `close` 时先取消，与图片管线共用 `SystemMemoryPressureObserver`。
+  清空纹理缓存，在途准备以容量不足拒绝；`BiliDanmaku` 不自己监听内存压力，监听由窗口 adapter（`WindowAdapters.live`）持有并在
+  窗口关闭时先于会话注销取消，与图片管线共用 `SystemMemoryPressureObserver`。
 - 分段请求会被间歇风控（游客更常见），被 HTTP 412 拒绝的分段由 API 客户端等 2 秒后再请求一次（等待期间
   占一个加载名额）；其余失败与再次被拒的分段在当前视频内不再请求，换视频或重开会话才重来。
 - 补位：seek、续播起点与时间回跳仍先清屏，播放中打开弹幕时从空屏开始；之后第一个播放中的快照补发回看窗口
@@ -222,7 +232,7 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   列表不接收键盘焦点，方向键、空格留给播放器快捷键。
   悬停由 `NativeVideoHoverTracker` 统一管理（网格卡片与投稿行都实现 `NativeHoverableCollectionItem`）；
   “返回顶部”玻璃按钮与评论区共用 `NativeScrollToTopScrollView`。
-- 封面、头像与评论图片由 `AppWindowOwner` 持有的窗口级匿名、有界 `NativeVideoImagePipeline`
+- 封面、头像与评论图片由 `WindowComposition` 持有的窗口级匿名、有界 `NativeVideoImagePipeline`
   加载（Now Playing 封面另有进程级实例）；cell 离屏、复用和 teardown 取消等待者。缓存上界按管线用途
   只在 `NativeVideoImageCacheLimits` 定义：窗口 160 张／64 MiB，Now Playing 4 张／8 MiB；单张成本超过
   总上限的 1/4（如评论图片预览的大原图）不进共享缓存，由预览会话持有当前与前后各一张，来回翻页不重新
@@ -276,7 +286,7 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
 
 - 平级来源（搜索、首页、热门、观看历史）以 `AppTab` 为 id，各由一份 `AppSourceDescriptor` 描述：标题、SF Symbol、
   是否要求账户、内容整体替换的代次（推荐、热门与搜索只计原地刷新，历史含首次加载）、离开来源时的停用、
-  账户变化的通知、绑定本来源的复核参与者与丢弃内容的 reset。`AppSources` 由窗口 owner 对 `AppTab.allCases` 穷尽构造一次，case 顺序即侧栏顺序；侧栏行、
+  账户变化的通知、绑定本来源的复核参与者与丢弃内容的 reset。`AppSources` 由 `WindowComposition` 对 `AppTab.allCases` 穷尽构造一次，case 顺序即侧栏顺序；侧栏行、
   刷新回顶、离开停用、账户变化、关窗清理与其他窗口换号时的提前清理（只对要求账户的来源）都遍历它。来源描述的 reset 只丢弃
   本来源自己的内容，推荐、热门与搜索共用的 Browse 工作集关窗时由 `AppSources` 整体丢弃一次。根视图构造与 Browse
   激活依赖各来源自己的类型，仍是 `AppTab` 上的穷尽 switch。
@@ -369,7 +379,7 @@ Repository adapter 只调用 endpoint 方法，不自行构造 `RequestAccess`�
 `AccountRevalidationParticipant`（推荐／热门／搜索、视频、弹幕、评论、UP 主空间、观看历史；字幕目录由
 `SubtitleUseCase` 报告给视频模型，播放侧仍把失败的目录当作没有字幕）：发现需要复核的失败时以 `&+=` 递增
 `authenticationRevalidationGeneration`，复核结束的 `authenticationRevalidationSucceeded`／`Failed` 默认不动作。
-参与者集合 `AccountRevalidationParticipants` 由窗口 owner 构造一次，`AppRootView` 只读取各参与者的代次，前后
+参与者集合 `AccountRevalidationParticipants` 由 `WindowComposition` 构造一次，`AppRootView` 只读取各参与者的代次，前后
 不等（不比大小，回绕仍算）就调用一次 `revalidate()`；复核离开 restoring 时把结果交给参与者，绑定来源的参与者
 只在该来源是当前来源时收到（绑定关系只来自来源描述）（观看历史：复核成功后自动重载至多一次、失败时给可重试说明）。Feature 不直接调用
 认证服务，也不经单独回调。heartbeat 写请求例外，不触发复核。

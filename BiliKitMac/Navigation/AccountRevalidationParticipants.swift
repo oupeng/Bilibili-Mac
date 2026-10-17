@@ -1,7 +1,7 @@
 import BiliApplication
 import BiliAuthFeature
 
-/// 一个窗口内全部账户复核参与者（`AccountRevalidationParticipant`）的集合，由 `AppWindowOwner` 构造一次。
+/// 一个窗口内全部账户复核参与者（`AccountRevalidationParticipant`）的集合，由 `WindowComposition` 构造一次。
 ///
 /// 只持有参与者引用与它们所属的来源，不拥有复核：`AppRootView` 读取 `generations` 并在前后不等时调用一次认证复核，
 /// 复核结束（离开 restoring）时调用 `finishRevalidation`。参与者自己的代次与复核后的恢复归各 ViewModel。

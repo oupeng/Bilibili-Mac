@@ -129,8 +129,8 @@ SCOPES = {
 EXTRA_ALLOWED = {
     # App 壳里搜索条件或账户投影（会话 scope、账户呈现状态）的使用点：搜索工具栏的排序与筛选
     # （SearchToolbarControls）、搜索提交后的回顶（AppShellView），侧栏账号行（AppSidebarViews）、历史来源
-    # 的登录门槛（AppSourceRootViews）与窗口 owner（AppWindowOwner 组装复核参与者；AppRootView、AppShellView
-    # 读取账户 scope）。
+    # 的登录门槛（AppSourceRootViews）；AppRootView、AppShellView 读取账户 scope。窗口组装 WindowComposition
+    # 在 Composition/，那里本就允许 Application。
     # MemberImportVisibility 下成员只对直接 import 定义模块的文件可见，经 Feature 转出类型名不够用，
     # 在 Feature 镜像一份又违反“同一逻辑只写一处”。
     # AppShellView 持有各来源网格的滚动位置与回顶请求，并与图片管线一起构造 BiliVideoCollectionUI 的
@@ -141,7 +141,6 @@ EXTRA_ALLOWED = {
     "BiliKitMac/App/AppShellView.swift": {"BiliApplication", "BiliVideoCollectionUI"},
     "BiliKitMac/App/AppSidebarViews.swift": {"BiliApplication"},
     "BiliKitMac/App/AppSourceRootViews.swift": {"BiliApplication", "BiliVideoCollectionUI"},
-    "BiliKitMac/App/AppWindowOwner.swift": {"BiliApplication"},
     "BiliKitMac/App/SearchToolbarControls.swift": {"BiliApplication"},
     # 观看进度连接、播放器宿主与网格、侧栏共用同一份通知观察集合（NativeVideoNotificationObservers）；
     # 图片管线在 NativeVideoImageLoadingPorts 实现卡片取图 port（NativeVideoImageLoading）。

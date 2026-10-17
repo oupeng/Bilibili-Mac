@@ -16,14 +16,14 @@ struct AppShellView: View {
     let sources: AppSources
     let browseModel: BrowseViewModel
     let videoModel: VideoViewModel
-    let commentsModel: PlaybackCommentsViewModel?
+    let commentsModel: PlaybackCommentsViewModel
     let danmakuModel: DanmakuControlsViewModel
     let authenticationModel: AuthenticationViewModel
     let historyModel: WatchHistoryViewModel
-    let trendingSearchModel: TrendingSearchViewModel?
+    let trendingSearchModel: TrendingSearchViewModel
     let searchSession: VideoSearchSession
-    let searchHistory: SearchHistoryStore?
-    let searchSuggestionSource: SearchSuggestionSource?
+    let searchHistory: SearchHistoryStore
+    let searchSuggestionSource: SearchSuggestionSource
     let playerContent: AnyView
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentLinkRouter: CommentLinkRouter

@@ -7,7 +7,7 @@ import Foundation
 ///
 /// 拥有账户会话协调器（窗口间广播账户变化、推进认证 epoch）、唯一的观看进度 writer（构造时就登记进账户会话，
 /// 不存在“先准备再读取”的顺序）、设置与线路测速、系统 Now Playing、本机搜索历史与更新器。不拥有任何窗口的
-/// 对象图：窗口组装（`AppRootView`）拿到这些共享对象的引用，各自注册、注销与清理。进程退出前不关闭；
+/// 对象图：窗口组装（`makeWindow()` 构造的 `WindowComposition`）拿到这些共享对象的引用，各自注册、注销与清理。进程退出前不关闭；
 /// Now Playing 的封面管线与各 client 随进程释放。
 @MainActor
 final class ProcessComposition {

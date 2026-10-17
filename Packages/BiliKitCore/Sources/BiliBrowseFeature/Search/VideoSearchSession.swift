@@ -4,7 +4,7 @@ import Observation
 
 /// 搜索来源的会话：工具栏草稿、排序与筛选、已提交的搜索条件，以及它们到 Browse 搜索工作集的映射。
 ///
-/// 每个窗口一份，由 App 的窗口 owner 构造。拥有草稿、筛选选择、已应用的筛选与已提交的条件；不拥有请求、分页与
+/// 每个窗口一份，由 App 的窗口组装（`WindowComposition`）构造。拥有草稿、筛选选择、已应用的筛选与已提交的条件；不拥有请求、分页与
 /// generation（`BrowseViewModel`），也不拥有搜索历史的存储：提交时经 App 注入的 `recordHistory` 写入（历史的
 /// 读取、删除与清除经 `SearchStartPageContext`）。工具栏控件的 AppKit/SwiftUI 宿主在 App，只绑定这里的状态。
 @MainActor

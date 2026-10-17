@@ -5,7 +5,7 @@ import Foundation
 
 /// 侧栏一个平级来源的描述：标题、图标，以及窗口在来源边界上对它做的事。
 ///
-/// 只保存读取与动作闭包，不拥有模型；模型归 `AppWindowOwner`。侧栏行、刷新回顶、离开来源时的停用、账户变化、
+/// 只保存读取与动作闭包，不拥有模型；模型归 `WindowComposition`。侧栏行、刷新回顶、离开来源时的停用、账户变化、
 /// 关窗与其他窗口换号时的清理都遍历 `AppSources`，新增来源时这些地方不需要各自再登记一次。根视图的构造
 /// （`AppShellView.selectedSourceRoot`）与 Browse 工作集的激活（`AppRootView.browseActivation`）依赖各来源
 /// 自己的类型，仍是 `AppTab` 上的穷尽 switch，漏写由编译器报。
@@ -35,7 +35,7 @@ struct AppSourceDescriptor: Identifiable {
     /// 绑定本来源的账户复核参与者：只在本来源是当前来源时收到复核结果（`AccountRevalidationParticipants`）。
     ///
     /// 观看历史复核成功后会 `loadIfNeeded`，不在历史页时不能让它在后台读取账户内容。不绑定来源的参与者
-    /// （视频、弹幕、评论、UP 主空间与三个来源共用的 Browse）由 `AppWindowOwner` 另行登记。
+    /// （视频、弹幕、评论、UP 主空间与三个来源共用的 Browse）由 `WindowComposition` 另行登记。
     let revalidationParticipant: (any AccountRevalidationParticipant)?
     /// 取消本来源自己的请求并丢弃自己的内容（搜索的草稿与热搜、观看历史）。
     ///
@@ -54,7 +54,7 @@ struct AccountSessionChange {
     let isCurrentRoute: Bool
 }
 
-/// 一个窗口的全部来源描述，按侧栏顺序排列；由 `AppWindowOwner` 构造一次。
+/// 一个窗口的全部来源描述，按侧栏顺序排列；由 `WindowComposition` 构造一次。
 ///
 /// 构造是对 `AppTab.allCases` 的穷尽 switch：新增一个 `AppTab` 必须在这里给出完整描述，否则不能编译，因此每个
 /// `AppTab` 恰好有一份描述，按 tab 取描述不会落空。
@@ -68,7 +68,7 @@ struct AppSources {
         browseModel: BrowseViewModel,
         historyModel: WatchHistoryViewModel,
         searchSession: VideoSearchSession,
-        trendingSearchModel: TrendingSearchViewModel?
+        trendingSearchModel: TrendingSearchViewModel
     ) {
         // 推荐、热门与搜索共用一个模型：Browse 按代次去重，丢弃三份工作集并只重启当前路由。
         let synchronizeBrowse: @MainActor (AccountSessionChange) -> Void = {
@@ -89,7 +89,7 @@ struct AppSources {
                     revalidationParticipant: nil,
                     reset: {
                         searchSession.reset()
-                        trendingSearchModel?.reset()
+                        trendingSearchModel.reset()
                     }
                 )
             case .home:

@@ -25,7 +25,7 @@ struct VideoDetailLifecycleTests {
             ),
             playback: player
         )
-        let presentation = RecordingPresentation()
+        let presentation = RecordingDanmakuPresentation()
         let danmakuModel = DanmakuControlsViewModel(presentation: presentation)
         let hostingView = NSHostingView(
             rootView: AnyView(
@@ -88,27 +88,15 @@ struct VideoDetailLifecycleTests {
     {
         let fixture = VideoFixture()
         let profileRepository = UploaderProfileRepositoryStub(holdsRequests: true)
-        let videoModel = makeVideoViewModel(
-            useCase: VideoUseCase(
-                repository: FixtureVideoRepository(fixtures: [fixture])
-            ),
-            playback: RecordingPlayback(),
-            uploaderProfileUseCase: UploaderProfileUseCase(
-                repository: profileRepository
+        let composition = WindowComposition(
+            process: makeTestProcess(),
+            adapters: makeTestAdapters(
+                video: FixtureVideoRepository(fixtures: [fixture]),
+                uploaderProfile: profileRepository
             )
         )
-        let coordinator = AppNavigationCoordinator(
-            startPlayback: { intent in
-                videoModel.loadVideo(
-                    intent.bvid,
-                    preferredCID: intent.preferredCID
-                )
-            },
-            stopPlayback: {
-                videoModel.reset()
-            },
-            uploaderSpace: nil
-        )
+        let videoModel = composition.videoModel
+        let coordinator = composition.navigationCoordinator
 
         coordinator.openPlayback(fixture.bvid)
         await waitUntilSettled(videoModel)
@@ -131,54 +119,23 @@ struct VideoDetailLifecycleTests {
         let watchProgressProbe = WatchProgressConnectionProbe()
         let repository = FixtureVideoRepository(fixtures: [fixture])
         let playback = RecordingPlayback()
-        let browseModel = BrowseViewModel(
-            useCase: FeedUseCase(repository: EmptyFeedRepository())
-        )
-        let videoModel = makeVideoViewModel(
-            useCase: VideoUseCase(repository: repository),
-            playback: playback
-        )
-        let danmakuModel = DanmakuControlsViewModel(
-            presentation: RecordingPresentation()
-        )
-        let authenticationService = LifecycleAuthenticationService(
+        let authenticationService = AuthenticationServiceStub(
             restoreState: .signedIn(nil),
             blocksFirstRestore: true
         )
-        let authenticationModel = AuthenticationViewModel(
-            service: authenticationService,
-            qrCodeProvider: LifecycleQRCodeProvider()
-        )
-        let historyModel = WatchHistoryViewModel(
-            useCase: WatchHistoryUseCase(
-                repository: WatchHistoryRepositoryStub()
+        let composition = WindowComposition(
+            process: makeTestProcess(),
+            adapters: makeTestAdapters(
+                video: repository,
+                authentication: authenticationService,
+                playback: playback,
+                watchProgress: watchProgressProbe.connection
             )
         )
-        let coordinator = AppNavigationCoordinator(
-            startPlayback: { intent in
-                videoModel.loadVideo(
-                    intent.bvid,
-                    preferredCID: intent.preferredCID
-                )
-            },
-            stopPlayback: {
-                videoModel.reset()
-                danmakuModel.reset()
-            },
-            uploaderSpace: nil
-        )
-        let hostingView = NSHostingView(
-            rootView: AppRootView(
-                navigationCoordinator: coordinator,
-                browseModel: browseModel,
-                videoModel: videoModel,
-                danmakuModel: danmakuModel,
-                authenticationModel: authenticationModel,
-                historyModel: historyModel,
-                playerContent: AnyView(EmptyView()),
-                watchProgressConnection: watchProgressProbe.connection
-            )
-        )
+        let videoModel = composition.videoModel
+        let authenticationModel = composition.authenticationModel
+        let coordinator = composition.navigationCoordinator
+        let hostingView = NSHostingView(rootView: AppRootView(window: composition))
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
             styleMask: [.borderless],
@@ -275,55 +232,23 @@ struct VideoDetailLifecycleTests {
             playbackError: source == .playback ? .authenticationInvalid : nil
         )
         let playback = RecordingPlayback()
-        let videoModel = makeVideoViewModel(
-            useCase: VideoUseCase(repository: repository),
-            playback: playback
-        )
-        let commentsModel = PlaybackCommentsViewModel(
-            useCase: CommentUseCase(
-                repository: LifecycleCommentRepository(
+        let authenticationService = AuthenticationServiceStub(restoreState: .signedIn(nil))
+        let composition = WindowComposition(
+            process: makeTestProcess(),
+            adapters: makeTestAdapters(
+                video: repository,
+                comments: CommentRepositoryStub(
                     rootError: source == .comments ? .authenticationInvalid : nil
-                )
+                ),
+                authentication: authenticationService,
+                playback: playback
             )
         )
-        let danmakuModel = DanmakuControlsViewModel(
-            presentation: RecordingPresentation()
-        )
-        let authenticationService = LifecycleAuthenticationService(
-            restoreState: .signedIn(nil)
-        )
-        let authenticationModel = AuthenticationViewModel(
-            service: authenticationService,
-            qrCodeProvider: LifecycleQRCodeProvider()
-        )
-        let coordinator = AppNavigationCoordinator(
-            startPlayback: {
-                videoModel.loadVideo($0.bvid, preferredCID: $0.preferredCID)
-            },
-            stopPlayback: {
-                videoModel.reset()
-                danmakuModel.reset()
-            },
-            uploaderSpace: nil
-        )
-        let hostingView = NSHostingView(
-            rootView: AppRootView(
-                navigationCoordinator: coordinator,
-                browseModel: BrowseViewModel(
-                    useCase: FeedUseCase(repository: EmptyFeedRepository())
-                ),
-                videoModel: videoModel,
-                commentsModel: commentsModel,
-                danmakuModel: danmakuModel,
-                authenticationModel: authenticationModel,
-                historyModel: WatchHistoryViewModel(
-                    useCase: WatchHistoryUseCase(
-                        repository: WatchHistoryRepositoryStub()
-                    )
-                ),
-                playerContent: AnyView(EmptyView())
-            )
-        )
+        let videoModel = composition.videoModel
+        let commentsModel = composition.commentsModel
+        let authenticationModel = composition.authenticationModel
+        let coordinator = composition.navigationCoordinator
+        let hostingView = NSHostingView(rootView: AppRootView(window: composition))
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1_080, height: 680),
             styleMask: [.borderless],
@@ -374,51 +299,19 @@ struct VideoDetailLifecycleTests {
         let repository = FixtureVideoRepository(
             fixtures: [first, replacement]
         )
-        let commentsRepository = LifecycleCommentRepository()
-        let videoModel = makeVideoViewModel(
-            useCase: VideoUseCase(repository: repository),
-            playback: RecordingPlayback()
-        )
-        let commentsModel = PlaybackCommentsViewModel(
-            useCase: CommentUseCase(repository: commentsRepository)
-        )
-        let danmakuModel = DanmakuControlsViewModel(
-            presentation: RecordingPresentation()
-        )
-        let coordinator = AppNavigationCoordinator(
-            startPlayback: { intent in
-                videoModel.loadVideo(
-                    intent.bvid,
-                    preferredCID: intent.preferredCID
-                )
-            },
-            stopPlayback: {
-                videoModel.reset()
-                danmakuModel.reset()
-            },
-            uploaderSpace: nil
-        )
-        let hostingView = NSHostingView(
-            rootView: AppRootView(
-                navigationCoordinator: coordinator,
-                browseModel: BrowseViewModel(
-                    useCase: FeedUseCase(repository: EmptyFeedRepository())
-                ),
-                videoModel: videoModel,
-                commentsModel: commentsModel,
-                danmakuModel: danmakuModel,
-                authenticationModel: AuthenticationViewModel(
-                    service: LifecycleAuthenticationService(restoreState: .signedOut),
-                    qrCodeProvider: LifecycleQRCodeProvider()
-                ),
-                historyModel: WatchHistoryViewModel(
-                    useCase: WatchHistoryUseCase(
-                        repository: WatchHistoryRepositoryStub()
-                    )
-                ),
-                playerContent: AnyView(EmptyView())
+        let commentsRepository = CommentRepositoryStub()
+        let composition = WindowComposition(
+            process: makeTestProcess(),
+            adapters: makeTestAdapters(
+                video: repository,
+                comments: commentsRepository,
+                authentication: AuthenticationServiceStub(restoreState: .signedOut)
             )
         )
+        let videoModel = composition.videoModel
+        let commentsModel = composition.commentsModel
+        let coordinator = composition.navigationCoordinator
+        let hostingView = NSHostingView(rootView: AppRootView(window: composition))
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1080, height: 680),
             styleMask: [.borderless],
@@ -462,183 +355,4 @@ struct VideoDetailLifecycleTests {
 enum VideoDetailCredentialFailureSource: CaseIterable, Sendable {
     case playback
     case comments
-}
-
-/// 本文件唯一的评论 port 替身：记录请求的 subject；`rootError` 让根评论请求失败。
-private actor LifecycleCommentRepository: CommentRepository {
-    private let rootError: CommentReadError?
-    private var subjects: [CommentSubjectIdentity] = []
-    private var requestWaiters = CountWaiters()
-
-    init(rootError: CommentReadError? = nil) {
-        self.rootError = rootError
-    }
-
-    func rootComments(
-        for subject: CommentSubjectIdentity,
-        sort: CommentSort,
-        after continuation: CommentContinuation?
-    ) async throws -> CommentRootPage {
-        subjects.append(subject)
-        requestWaiters.resume(reaching: subjects.count)
-        if let rootError { throw rootError }
-        return CommentRootPage(
-            threads: [],
-            totalCount: 0,
-            continuation: nil,
-            isEnd: true
-        )
-    }
-
-    func replies(
-        for subject: CommentSubjectIdentity,
-        rootID: CommentID,
-        page: Int,
-        pageSize: Int
-    ) async throws -> CommentReplyPage {
-        if let rootError { throw rootError }
-        return CommentReplyPage(
-            rootID: rootID,
-            replies: [],
-            pageNumber: page,
-            pageSize: pageSize,
-            totalCount: 0
-        )
-    }
-
-    func requestedSubjects() -> [CommentSubjectIdentity] {
-        subjects
-    }
-
-    func waitForRequestCount(_ target: Int) async {
-        await withCheckedContinuation {
-            requestWaiters.add($0, until: target, current: subjects.count)
-        }
-    }
-}
-
-@MainActor
-private final class RecordingPresentation: DanmakuPresentationControlling {
-    private(set) var startedIdentities: [PlaybackItemIdentity] = []
-    private(set) var stopCount = 0
-    private var startWaiters = CountWaiters()
-    private var stopWaiters = CountWaiters()
-
-    func start(for identity: PlaybackItemIdentity) {
-        startedIdentities.append(identity)
-        startWaiters.resume(reaching: startedIdentities.count)
-    }
-
-    func setEnabled(_ enabled: Bool) {}
-    func setSpeedLevel(_ speedLevel: DanmakuSpeedLevel) {}
-    func setOpacity(_ opacity: DanmakuOpacity) {}
-    func setDisplayArea(_ displayArea: DanmakuDisplayArea) {}
-    func setDensity(_ density: DanmakuDensity) {}
-    func setModeVisibility(scrolling: Bool, top: Bool, bottom: Bool) {}
-    func setAuthenticationInvalidationHandler(_ handler: @escaping @MainActor () -> Void) {}
-
-    func stop() {
-        stopCount += 1
-        stopWaiters.resume(reaching: stopCount)
-    }
-
-    func waitForStartedCount(_ target: Int) async {
-        await withCheckedContinuation {
-            startWaiters.add($0, until: target, current: startedIdentities.count)
-        }
-    }
-
-    func waitForStopCount(_ target: Int) async {
-        await withCheckedContinuation {
-            stopWaiters.add($0, until: target, current: stopCount)
-        }
-    }
-}
-
-private actor LifecycleAuthenticationService: AuthenticationServicing {
-    private var restoreState: AuthenticationState
-    private let blocksFirstRestore: Bool
-    private var restoreCount = 0
-    private var firstRestoreStarted = false
-    private var firstRestoreReleased = false
-    private var restoreStartWaiters: [CheckedContinuation<Void, Never>] = []
-    private var restoreReleaseWaiters: [CheckedContinuation<Void, Never>] = []
-    private var restoreCountWaiters = CountWaiters()
-
-    init(
-        restoreState: AuthenticationState,
-        blocksFirstRestore: Bool = false
-    ) {
-        self.restoreState = restoreState
-        self.blocksFirstRestore = blocksFirstRestore
-    }
-
-    func setRestoreState(_ state: AuthenticationState) {
-        restoreState = state
-    }
-
-    func restoreCallCount() -> Int {
-        restoreCount
-    }
-
-    func restore() async -> AuthenticationState {
-        restoreCount += 1
-        restoreCountWaiters.resume(reaching: restoreCount)
-        if blocksFirstRestore, restoreCount == 1 {
-            firstRestoreStarted = true
-            restoreStartWaiters.resumeAll()
-            await withCheckedContinuation { continuation in
-                if firstRestoreReleased {
-                    continuation.resume()
-                } else {
-                    restoreReleaseWaiters.append(continuation)
-                }
-            }
-        }
-        return restoreState
-    }
-
-    func waitForFirstRestoreStart() async throws {
-        if firstRestoreStarted { return }
-        await withCheckedContinuation { continuation in
-            restoreStartWaiters.append(continuation)
-        }
-    }
-
-    func waitForRestoreCallCount(_ target: Int) async {
-        await withCheckedContinuation {
-            restoreCountWaiters.add($0, until: target, current: restoreCount)
-        }
-    }
-
-    func releaseFirstRestore() {
-        firstRestoreReleased = true
-        restoreReleaseWaiters.resumeAll()
-    }
-
-    func restoreAfterExternalSessionChange() async -> AuthenticationState { await restore() }
-    func requestQRCode() async -> AuthenticationState { .signedOut }
-    func pollOnce() async -> AuthenticationState { .signedOut }
-    func finalizeLogin() async -> AuthenticationState { .signedOut }
-    func cancelLogin() async -> AuthenticationState { .signedOut }
-    func logout() async -> AuthenticationState { .signedOut }
-}
-
-@MainActor
-private final class WatchProgressConnectionProbe {
-    private(set) var startCount = 0
-    private(set) var stopCount = 0
-    private(set) var accessValues: [Bool] = []
-
-    var connection: WatchProgressWindowConnection {
-        WatchProgressWindowConnection(
-            start: { [weak self] in self?.startCount += 1 },
-            stop: { [weak self] in self?.stopCount += 1 },
-            setReportingAccess: { [weak self] in self?.accessValues.append($0) }
-        )
-    }
-}
-
-private struct LifecycleQRCodeProvider: AuthenticationQRCodeProviding {
-    func makeQRCodeImage(scale: Int) async throws -> CGImage? { nil }
 }
