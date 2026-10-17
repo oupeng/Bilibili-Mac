@@ -111,13 +111,21 @@ struct WebCredentialTests {
     }
 }
 
+/// 记录 Keychain 调用的内存替身；`nextReadStatus` 只让下一次读取返回该状态。
+///
+/// `@unchecked Sendable` 由 `lock` 保证：所有状态（含计数）只在锁内读写。不用 `Mutex`：`add` 要把
+/// 调用方传入的非 Sendable `[String: Any]` 存进状态，`Mutex` 的 region 检查不允许。
 private final class RecordingKeychainOperations: KeychainOperating, @unchecked Sendable {
     private let lock = NSLock()
     private var data: Data?
     private var nextReadStatus: OSStatus?
-    private(set) var lastAddAttributes: [String: Any]?
-    private(set) var updateCount = 0
-    private(set) var deleteCount = 0
+    private var addedAttributes: [String: Any]?
+    private var updates = 0
+    private var deletes = 0
+
+    var lastAddAttributes: [String: Any]? { lock.withLock { addedAttributes } }
+    var updateCount: Int { lock.withLock { updates } }
+    var deleteCount: Int { lock.withLock { deletes } }
 
     init(nextReadStatus: OSStatus? = nil) {
         self.nextReadStatus = nextReadStatus
@@ -137,7 +145,7 @@ private final class RecordingKeychainOperations: KeychainOperating, @unchecked S
     func add(_ attributes: [String: Any]) -> OSStatus {
         lock.withLock {
             guard data == nil else { return errSecDuplicateItem }
-            lastAddAttributes = attributes
+            addedAttributes = attributes
             data = attributes[kSecValueData as String] as? Data
             return errSecSuccess
         }
@@ -150,14 +158,14 @@ private final class RecordingKeychainOperations: KeychainOperating, @unchecked S
         lock.withLock {
             guard data != nil else { return errSecItemNotFound }
             data = attributes[kSecValueData as String] as? Data
-            updateCount += 1
+            updates += 1
             return errSecSuccess
         }
     }
 
     func delete(_ query: [String: Any]) -> OSStatus {
         lock.withLock {
-            deleteCount += 1
+            deletes += 1
             guard data != nil else { return errSecItemNotFound }
             data = nil
             return errSecSuccess

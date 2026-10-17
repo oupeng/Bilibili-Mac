@@ -1,6 +1,7 @@
 import BiliAPI
 import BiliNetworking
 import Foundation
+import Synchronization
 import Testing
 
 // BiliAPITests 共用的 fixture 读取与 HTTP 测试替身：每个 port 在本 target 内只保留一份可配置 stub。
@@ -84,7 +85,7 @@ func mutatedFixture(
 /// 但照常记录（`waitForRequests` 的计数也包含它）。之后再取 nav 记为测试失败并按无响应抛错：
 /// 同一 client 的多个签名请求必须复用 key，多取 nav 就是风控要避免的请求放大。
 /// 只把 nav 当作签名前置的测试用它；验证 WBI key 取用、刷新、顺序或匿名性的测试仍显式排 nav。
-final class StubTransport: HTTPTransport, HTTPTransportInvalidating, @unchecked Sendable {
+final class StubTransport: HTTPTransport, HTTPTransportInvalidating, Sendable {
     enum Reply: Sendable {
         case response(HTTPResponse)
         /// 挂起到 `resumeSuspendedRequest()`；等待期间任务取消则抛出 `CancellationError`。
@@ -100,19 +101,22 @@ final class StubTransport: HTTPTransport, HTTPTransportInvalidating, @unchecked 
         case waiting(CheckedContinuation<Void, any Error>)
     }
 
+    private struct State {
+        var answeredWBINav = false
+        var replies: [Reply]
+        var requests: [HTTPRequest] = []
+        var requestWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+        var gate = Gate.closed
+        var invalidated = false
+    }
+
     static let wbiNavPath = "/x/web-interface/nav"
 
-    private let lock = NSLock()
     private let answersWBINavOnce: Bool
-    private var answeredWBINav = false
-    private var replies: [Reply]
-    private var requests: [HTTPRequest] = []
-    private var requestWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
-    private var gate = Gate.closed
-    private var invalidated = false
+    private let state: Mutex<State>
 
     init(_ replies: [Reply], answersWBINavOnce: Bool = false) {
-        self.replies = replies
+        state = Mutex(State(replies: replies))
         self.answersWBINavOnce = answersWBINavOnce
     }
 
@@ -120,9 +124,9 @@ final class StubTransport: HTTPTransport, HTTPTransportInvalidating, @unchecked 
         self.init(responses.map(Reply.response), answersWBINavOnce: answersWBINavOnce)
     }
 
-    var wasInvalidated: Bool { lock.withLock { invalidated } }
+    var wasInvalidated: Bool { state.withLock { $0.invalidated } }
 
-    func capturedRequests() -> [HTTPRequest] { lock.withLock { requests } }
+    func capturedRequests() -> [HTTPRequest] { state.withLock { $0.requests } }
 
     /// 去掉 WBI key 的 nav 请求，只留下业务请求。
     func businessRequests() -> [HTTPRequest] {
@@ -131,14 +135,15 @@ final class StubTransport: HTTPTransport, HTTPTransportInvalidating, @unchecked 
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         let isAutoAnsweredNav = answersWBINavOnce && request.url.path == Self.wbiNavPath
-        let (reply, isRepeatedNav, ready) = lock.withLock {
-            requests.append(request)
-            let count = requests.count
-            let ready = requestWaiters.filter { $0.count <= count }.map(\.continuation)
-            requestWaiters.removeAll { $0.count <= count }
-            let isRepeatedNav = isAutoAnsweredNav && answeredWBINav
-            answeredWBINav = answeredWBINav || isAutoAnsweredNav
-            let reply = isAutoAnsweredNav || replies.isEmpty ? nil : replies.removeFirst()
+        let (reply, isRepeatedNav, ready) = state.withLock { state in
+            state.requests.append(request)
+            let count = state.requests.count
+            let ready = state.requestWaiters.filter { $0.count <= count }.map(\.continuation)
+            state.requestWaiters.removeAll { $0.count <= count }
+            let isRepeatedNav = isAutoAnsweredNav && state.answeredWBINav
+            state.answeredWBINav = state.answeredWBINav || isAutoAnsweredNav
+            let reply =
+                isAutoAnsweredNav || state.replies.isEmpty ? nil : state.replies.removeFirst()
             return (reply, isRepeatedNav, ready)
         }
         for waiter in ready { waiter.resume() }
@@ -166,14 +171,14 @@ final class StubTransport: HTTPTransport, HTTPTransportInvalidating, @unchecked 
     }
 
     func invalidateAndCancel() {
-        lock.withLock { invalidated = true }
+        state.withLock { $0.invalidated = true }
     }
 
     func waitForRequests(_ count: Int) async {
         await withCheckedContinuation { continuation in
-            let isReady = lock.withLock {
-                guard requests.count < count else { return true }
-                requestWaiters.append((count, continuation))
+            let isReady = state.withLock { state in
+                guard state.requests.count < count else { return true }
+                state.requestWaiters.append((count, continuation))
                 return false
             }
             if isReady { continuation.resume() }
@@ -181,9 +186,9 @@ final class StubTransport: HTTPTransport, HTTPTransportInvalidating, @unchecked 
     }
 
     func resumeSuspendedRequest() {
-        let waiting: CheckedContinuation<Void, any Error>? = lock.withLock {
-            defer { gate = .open }
-            guard case .waiting(let continuation) = gate else { return nil }
+        let waiting: CheckedContinuation<Void, any Error>? = state.withLock { state in
+            defer { state.gate = .open }
+            guard case .waiting(let continuation) = state.gate else { return nil }
             return continuation
         }
         waiting?.resume()
@@ -192,18 +197,18 @@ final class StubTransport: HTTPTransport, HTTPTransportInvalidating, @unchecked 
     private func waitForGate() async throws {
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                let result: Result<Void, any Error>? = lock.withLock {
-                    if case .open = gate { return .success(()) }
+                let result: Result<Void, any Error>? = state.withLock { state in
+                    if case .open = state.gate { return .success(()) }
                     if Task.isCancelled { return .failure(CancellationError()) }
-                    gate = .waiting(continuation)
+                    state.gate = .waiting(continuation)
                     return nil
                 }
                 if let result { continuation.resume(with: result) }
             }
         } onCancel: {
-            let waiting: CheckedContinuation<Void, any Error>? = lock.withLock {
-                guard case .waiting(let continuation) = gate else { return nil }
-                gate = .closed
+            let waiting: CheckedContinuation<Void, any Error>? = state.withLock { state in
+                guard case .waiting(let continuation) = state.gate else { return nil }
+                state.gate = .closed
                 return continuation
             }
             waiting?.resume(throwing: CancellationError())

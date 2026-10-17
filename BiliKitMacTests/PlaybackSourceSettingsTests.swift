@@ -3,6 +3,7 @@ import BiliAuthFeature
 import BiliModels
 import BiliPlayback
 import Foundation
+import Synchronization
 import Testing
 
 @testable import BiliKit
@@ -400,14 +401,11 @@ enum SettingsBenchmarkFailureFixture: CaseIterable, Sendable {
     }
 }
 
-private final class MemoryPlaybackSourcePreferenceStore: PlaybackSourcePreferenceStoring,
-    @unchecked Sendable
-{
-    private let lock = NSLock()
-    private var record: PlaybackSourcePreferenceRecord
-    init(record: PlaybackSourcePreferenceRecord = .defaults) { self.record = record }
-    func load() -> PlaybackSourcePreferenceRecord { lock.withLock { record } }
-    func save(_ record: PlaybackSourcePreferenceRecord) { lock.withLock { self.record = record } }
+private final class MemoryPlaybackSourcePreferenceStore: PlaybackSourcePreferenceStoring, Sendable {
+    private let record: Mutex<PlaybackSourcePreferenceRecord>
+    init(record: PlaybackSourcePreferenceRecord = .defaults) { self.record = Mutex(record) }
+    func load() -> PlaybackSourcePreferenceRecord { record.withLock { $0 } }
+    func save(_ record: PlaybackSourcePreferenceRecord) { self.record.withLock { $0 = record } }
 }
 
 private actor ResetGate {
