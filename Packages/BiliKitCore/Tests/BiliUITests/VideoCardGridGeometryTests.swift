@@ -46,11 +46,13 @@ struct VideoCardGridGeometryTests {
     }
 
     @Test(arguments: [
-        // 窄窗口 2 列、常见窗口 4 列、大窗口 5 列；末行只露出一部分时也算一行。
-        (width: CGFloat(760), height: CGFloat(600), count: 6),
-        (width: 1_080, height: 720, count: 16),
+        // 窄窗口 2 列、常见窗口 4 列、大窗口 5 列；以下高度都露出末行的一部分，这一行也画。
+        (width: CGFloat(760), height: CGFloat(650), count: 6),
+        (width: 1_080, height: 760, count: 16),
         (width: 1_600, height: 1_000, count: 20),
         (width: 2_560, height: 1_440, count: 20),
+        // 三整行之下只露出行间距：多画的第四行在视野外，不可见。
+        (width: 1_080, height: 720, count: 16),
         // 高度不足一行仍画一行。
         (width: 1_080, height: 1, count: 4)
     ])
@@ -65,7 +67,7 @@ struct VideoCardGridGeometryTests {
     }
 
     @Test
-    func placeholderCountAddsARowOnlyWhenPartOfItIsVisible() {
+    func placeholderCountDrawsNoExtraRowForExactRowsAndCoversAPartialRow() {
         let width: CGFloat = 1_080
         let columns = VideoCardGridGeometry.columnCount(for: width)
         let rowHeight = VideoCardGridGeometry.itemSize(for: width).height

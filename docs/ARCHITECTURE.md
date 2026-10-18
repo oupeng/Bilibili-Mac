@@ -190,14 +190,14 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   正文使用可选择、不可编辑的 `NSTextView`；diffable identity 为 subject + root `CommentID`；
   高度缓存按 identity、宽度桶、内容 revision 做有界 LRU，resize 分批精测并恢复语义 anchor。
   `PlaybackCommentsViewModel` 仍唯一拥有 subject、排序、分页、并发上限与 generation。
-  评论状态行与页脚的加载是固定行高的系统转圈（状态行大号、页脚小号）：状态行与暂无评论等说明行同高，
-  页脚与“加载更多”同高，加载结束或追加时文档高度不跳；转圈只在加载中转动，复用即停，不单独读屏。
+  评论状态行与页脚的加载是固定行高的系统转圈（状态行大号、页脚小号）：加载中的状态行与说明行
+  （idle／empty／closed）同高，加载中的页脚与“加载更多”行同高；转圈只在加载中转动，复用即停，不单独读屏。
 - **浏览网格与 shelf**：首页推荐、热门、搜索、观看历史、稍后再看、收藏夹的网格和相关推荐 shelf 使用
   `NSCollectionView` + 复用的原生卡片；卡片与网格在 `BiliVideoCollectionUI`，各来源的网格包装在拥有它的
   Feature，shelf 在 `BiliVideoDetailFeature`。热门 50 卡 A/B 表明 SwiftUI `LazyVGrid`/AttributeGraph 是主要滚动成本；卡片 overlay
   与文字改为持久 `CALayer`／`CATextLayer` 后，同样约 20 秒滚动 cycles 下降约 39%，0 hitch。来源的
   loading／empty／failure 等状态与网格在同一个 Feature 视图里渲染，网格只是已加载状态的呈现。
-  网格首次加载的骨架（BiliUI `VideoCardGridSkeleton`）与相关推荐横排的骨架共用卡片骨架 `VideoCardSkeleton`
+  网格加载中的骨架（BiliUI `VideoCardGridSkeleton`）与相关推荐横排的骨架共用卡片骨架 `VideoCardSkeleton`
   （横排不带头像），张数由可见尺寸与真实网格或横排的同一几何算出（`VideoCardGridGeometry.placeholderCount`、
   `NativeVideoShelfGeometry.placeholderCount`）并向上取整，露出一部分的行或卡片也画，任何窗口都铺满可见区域。
 - 网格提前准备：AppKit 默认只为视野内创建卡片，封面要等卡片露出来才开始加载。网格的集合视图把准备区域

@@ -55,7 +55,7 @@ public enum VideoCardGridGeometry {
     /// 行数是 `contentHeight` 行高公式的反解，高度刚好容纳整行时不多画；只露出行间距时多画一行，
     /// 这一行在视野外，不可见。宽度不足以排出网格（真实网格此时也不布局）或高度不是正的有限值时
     /// 返回 0：首次布局常给出零尺寸，下一次布局拿到真实尺寸后再铺满。
-    public static func placeholderCount(for size: CGSize) -> Int {
+    package static func placeholderCount(for size: CGSize) -> Int {
         guard
             isRenderableViewport(width: size.width),
             size.height.isFinite,

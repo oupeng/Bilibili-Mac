@@ -179,7 +179,7 @@ struct RelatedVideoShelfFrame<Content: View>: View {
 /// 横排加载中的占位行：与真实横排同一几何的卡片骨架（无头像，与横排卡片一致），张数按可见宽度铺满
 /// （`NativeVideoShelfGeometry.placeholderCount`），与已加载的横排同高；不需要取图。
 ///
-/// 首卡起点是安全区前缘加内容边距，与真实横排一致；超出可见宽度的部分裁掉。
+/// 首卡起点是安全区前缘加内容边距，与真实横排一致；骨架只在安全区内铺开并裁掉超出部分。
 struct RelatedVideoShelfLoadingRow: View {
     private typealias Shelf = VideoCardShelfGeometry
 
