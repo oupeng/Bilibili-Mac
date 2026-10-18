@@ -382,6 +382,6 @@ private func thread(_ id: Int64) -> CommentThread {
 private func comment(_ id: Int64) -> BiliModels.Comment {
     BiliModels.Comment(
         id: CommentID(rawValue: id),
-        payload: .unavailable(.deleted)
+        payload: .unavailable(.unavailable)
     )
 }

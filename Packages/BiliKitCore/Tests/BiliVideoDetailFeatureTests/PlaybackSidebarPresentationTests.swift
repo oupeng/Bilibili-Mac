@@ -137,7 +137,8 @@ struct PlaybackSidebarPresentationTests: PlaybackSidebarFixtures {
             content: NativePlaybackSidebarContent(
                 bvid: content.bvid,
                 uploader: VideoUploaderHeaderContent(
-                    owner: VideoOwner(id: 1, name: "UP 主", signature: "新签名")
+                    owner: VideoOwner(id: 1, name: "UP 主"),
+                    profileState: .loaded(UploaderProfile(signature: "新签名"))
                 ),
                 summary: content.summary,
                 summaryLinks: content.summaryLinks,

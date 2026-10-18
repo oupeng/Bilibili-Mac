@@ -25,13 +25,12 @@ public struct CDNBenchmarkDiscoveredSample: Sendable, Equatable {
 /// 之后的发现跳过它们，让再次测速换一批样本；设置窗口关闭或失去测速资格时调用方经
 /// `resetSeenSamples()` 清空。
 public actor CDNBenchmarkSampleDiscoverer {
-    /// 一轮最多计入的近期投稿条数（8 个分区 × 每页 5 条）；与下面两个上限一起限定发现阶段的请求量。
-    public static let maximumMetadataCount = 40
-    /// 一轮最多请求的稿件详情次数；调大更容易凑满样本但多发账户读取，
-    /// 调小会让候选不合格时更常找不到样本。
-    public static let maximumDetailRequestCount = 8
-    /// 一轮最多请求的 playurl 次数；每个详情至多引出一次，实际不超过详情次数。
-    public static let maximumPlaybackRequestCount = 8
+    /// 一轮最多计入的近期投稿条数（8 个分区 × 每页 5 条）；与下面的详情上限一起限定发现阶段的请求量。
+    private static let maximumMetadataCount = 40
+    /// 一轮最多请求的稿件详情次数；每个详情至多引出一次 playurl，playurl 次数因此也以它为上限。
+    ///
+    /// 调大更容易凑满样本但多发账户读取，调小会让候选不合格时更常找不到样本。
+    private static let maximumDetailRequestCount = 8
 
     /// 依次查询的分区 ID；每个分区至多取一个样本，同一 UP 主不重复，
     /// 让多个样本来自不同内容与上传者。
@@ -99,9 +98,7 @@ public actor CDNBenchmarkSampleDiscoverer {
                 && !uploaderIDs.contains(submission.mid)
             {
                 try Task.checkCancellation()
-                guard detailRequestCount < Self.maximumDetailRequestCount,
-                    detailRequestCount < Self.maximumPlaybackRequestCount
-                else { break }
+                guard detailRequestCount < Self.maximumDetailRequestCount else { break }
                 detailRequestCount += 1
                 do {
                     let detail = try await client.recentSubmissionDetail(

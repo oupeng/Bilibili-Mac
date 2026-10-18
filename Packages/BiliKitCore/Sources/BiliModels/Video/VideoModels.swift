@@ -1,25 +1,23 @@
 import Foundation
 
-/// 视频的 UP 主：MID、昵称，以及可选的头像与签名。
+/// 视频的 UP 主：MID、昵称，以及可选的头像。
 ///
 /// 由热门、推荐、详情、搜索与历史的映射产生，也由空间与评论作者入口按 MID 构造；来自接口的
-/// `avatarURL` 已经 `WebImageURL` 升级为 HTTPS 并过公开 HTTPS 基线（见 SECURITY-MODEL §4）。
+/// `avatarURL` 已经 `WebImageURL` 升级为 HTTPS 并过公开 HTTPS 基线（见 SECURITY-MODEL §4）。签名只来自
+/// 名片（`UploaderProfile`）。
 public struct VideoOwner: Sendable, Equatable {
     public let id: Int64
     public let name: String
     public let avatarURL: URL?
-    public let signature: String?
 
     public init(
         id: Int64,
         name: String,
-        avatarURL: URL? = nil,
-        signature: String? = nil
+        avatarURL: URL? = nil
     ) {
         self.id = id
         self.name = name
         self.avatarURL = avatarURL
-        self.signature = signature
     }
 }
 

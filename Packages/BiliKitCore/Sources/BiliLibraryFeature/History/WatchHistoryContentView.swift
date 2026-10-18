@@ -60,35 +60,35 @@ struct WatchHistoryContentView: View {
 
     @ViewBuilder
     private var content: some View {
-        if let surface = WatchHistoryLoadedSurface(
-            state: model.state,
-            requiresManualLoadMore: model.requiresManualLoadMore
-        ) {
-            historyList(
-                items: surface.items,
-                canLoadMore: surface.canLoadMore,
-                isLoadingMore: surface.isLoadingMore,
-                requiresManualLoadMore: surface.requiresManualLoadMore,
-                loadMoreError: surface.loadMoreError
+        switch model.state {
+        case .idle, .loading:
+            VideoCardGridSkeleton(
+                loadingLabel: LibraryFeatureStrings.localized(
+                    "正在加载观看历史",
+                    locale: locale
+                )
             )
-        } else {
-            switch model.state {
-            case .idle, .loading:
-                VideoCardGridSkeleton(
-                    loadingLabel: LibraryFeatureStrings.localized(
-                        "正在加载观看历史",
-                        locale: locale
-                    )
+        case .loaded(let items, let continuation, let loadMoreError) where items.isEmpty:
+            emptyHistory(
+                canLoadMore: continuation != nil,
+                loadMoreError: loadMoreError
+            )
+        case .failed(let error):
+            failure(error)
+        case .loaded, .loadingMore:
+            // 有条目的 loaded 与加载更多共用这一支，网格在加载更多前后保持同一视图身份；
+            // 这两种状态下 surface 总能构造。
+            if let surface = WatchHistoryLoadedSurface(
+                state: model.state,
+                requiresManualLoadMore: model.requiresManualLoadMore
+            ) {
+                historyList(
+                    items: surface.items,
+                    canLoadMore: surface.canLoadMore,
+                    isLoadingMore: surface.isLoadingMore,
+                    requiresManualLoadMore: surface.requiresManualLoadMore,
+                    loadMoreError: surface.loadMoreError
                 )
-            case .loaded(_, let continuation, let loadMoreError):
-                emptyHistory(
-                    canLoadMore: continuation != nil,
-                    loadMoreError: loadMoreError
-                )
-            case .failed(let error):
-                failure(error)
-            case .loadingMore:
-                EmptyView()
             }
         }
     }

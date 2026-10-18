@@ -266,7 +266,6 @@ final class NativePlaybackCommentRowView: NSView {
 
     private static func unavailableText(_ reason: CommentUnavailableReason) -> String {
         switch reason {
-        case .deleted: VideoDetailFeatureStrings.localized("该评论已删除")
         case .folded: VideoDetailFeatureStrings.localized("该评论已折叠")
         case .unavailable, .unknown: VideoDetailFeatureStrings.localized("该评论暂不可见")
         }

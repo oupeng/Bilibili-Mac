@@ -50,7 +50,7 @@ extension PlaybackSidebarFixtures {
                 uploader: VideoUploaderHeaderContent(
                     owner: context.detail.owner,
                     profileState: .loaded(
-                        UploaderProfile(signature: context.detail.owner.signature)
+                        UploaderProfile(signature: "签名")
                     )
                 ),
                 summary: context.detail.summary,
@@ -197,7 +197,7 @@ extension PlaybackSidebarFixtures {
             detail: makeVideoDetail(
                 bvid: bvid,
                 summary: "一段可选择、可精确换行的简介正文。",
-                owner: VideoOwner(id: 1, name: "UP 主", signature: "签名"),
+                owner: VideoOwner(id: 1, name: "UP 主"),
                 pages: [
                     VideoPage(cid: 1_001, index: 1, title: "第一部分", durationSeconds: 61),
                     VideoPage(cid: 1_002, index: 2, title: "第二部分", durationSeconds: 122)

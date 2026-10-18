@@ -2,37 +2,20 @@ import BiliModels
 import BiliNetworking
 import Foundation
 
-/// 评论链接目标到可交给系统浏览器的网页地址；视频与时间戳在应用内处理，返回 nil。
+/// 评论外链与短链到可交给系统浏览器的网页地址。
 ///
 /// 外链与短链（解析失败时的回退）只经 `PublicHTTPSURLPolicy` 形状复核，不预取、不解析 DNS、
-/// 不附加凭据，见 SECURITY-MODEL §4。调用方是 App 的 `CommentLinkRouting`，
-/// 以及正文网址识别（判断外链能否显示为链接）。无状态。
+/// 不附加凭据，见 SECURITY-MODEL §4。视频、时间戳、@ 成员与空间链接都在应用内处理，不经这里。
+/// 调用方是 App 的 `CommentLinkRouting`，以及正文网址识别（判断外链能否显示为链接）。无状态。
 public struct BiliCommentLinkResolver: Sendable {
     private let publicHTTPSPolicy = PublicHTTPSURLPolicy()
 
     public init() {}
 
-    public func externalURL(for target: CommentLinkTarget) -> URL? {
-        switch target {
-        case .video, .timestamp:
-            return nil
-        case .member(let user):
-            guard let memberID = user.id.memberID else { return nil }
-            return Self.spaceURL(memberID)
-        case .space(let memberID):
-            guard memberID > 0 else { return nil }
-            return Self.spaceURL(memberID)
-        // 短链在这里只作解析失败时的回退：浏览器打开原短链，由 b23.tv 自己跳转。
-        case .external(let reference), .shortLink(let reference):
-            let url = reference.remoteURL
-            return allowsUserInitiatedExternalURL(url) ? url : nil
-        }
-    }
-
-    /// 成员与空间目标的网页空间地址；App 的评论路由把这两类目标直接打开为应用内空间，
-    /// 不读取这里的结果。
-    private static func spaceURL(_ memberID: Int64) -> URL? {
-        URL(string: "https://space.bilibili.com/\(memberID)")
+    /// 通过复核时返回原地址，否则 nil；短链在这里只作解析失败时的回退，浏览器打开原短链，由 b23.tv 自己跳转。
+    public func externalURL(for reference: CommentExternalLinkReference) -> URL? {
+        let url = reference.remoteURL
+        return allowsUserInitiatedExternalURL(url) ? url : nil
     }
 
     /// 公开 HTTPS 形状复核（见 SECURITY-MODEL §4）；fragment 不随请求发出，只在复核时去掉，

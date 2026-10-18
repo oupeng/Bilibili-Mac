@@ -164,6 +164,6 @@ private func commentContinuation(_ value: String) -> CommentContinuation {
 private func comment(_ id: Int64) -> BiliModels.Comment {
     BiliModels.Comment(
         id: CommentID(rawValue: id),
-        payload: .unavailable(.deleted)
+        payload: .unavailable(.unavailable)
     )
 }

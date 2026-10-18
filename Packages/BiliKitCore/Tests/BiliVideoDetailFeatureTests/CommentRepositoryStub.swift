@@ -141,7 +141,7 @@ actor CommentRepositoryStub: CommentRepository {
             replies: [
                 BiliModels.Comment(
                     id: CommentID(rawValue: replyID ?? rootID.rawValue * 100 + Int64(page)),
-                    payload: .unavailable(.deleted)
+                    payload: .unavailable(.unavailable)
                 )
             ],
             pageNumber: page,
