@@ -194,6 +194,10 @@ private struct AVPlayerContainerView: NSViewRepresentable {
     }
 }
 
+/// 播放准备期间（换视频、切分 P、准备播放）不显示 AVKit 原生控制条。
+///
+/// 与 `DanmakuPlayerView` 在同一状态下屏蔽命中测试、第一响应者、快捷键与读屏一起，
+/// 阻止操作正在被替换的播放。
 enum PlayerPlaybackPreparationPolicy {
     static func controlsStyle(
         blocksNativePlaybackInteraction: Bool
@@ -202,6 +206,16 @@ enum PlayerPlaybackPreparationPolicy {
     }
 }
 
+/// 唯一的播放器 AppKit 宿主：`AVPlayerView` 子类，在 content overlay 上挂弹幕层与 SwiftUI
+/// 提示浮层。
+///
+/// 用 AppKit：原生控制条、画中画与全屏都来自 `AVPlayerView`，弹幕与浮层要放进它的 content overlay
+/// 才能随 detached 全屏一起移动，见 docs/ARCHITECTURE.md「播放页布局」。拥有键盘快捷键
+/// controller（本地 key monitor）、浮层模型、player 的三个 KVO 观察、item
+/// 时间跳转观察与失焦通知观察；不拥有 player、弹幕 renderer 与弹幕 controller，它们由窗口组装持有。
+/// 拆除由 `AVPlayerContainerView.dismantleNSView` 按顺序进行：清除提示、撤销弹幕 surface、
+/// 停止失焦与 player 观察、停止键盘监听、结束临时倍速，最后断开 player。`momentaryRatePressID`
+/// 记录当前临时倍速对应的按压，结束回调按它比对，旧按压迟到的结束不影响新的临时倍速。
 @MainActor
 final class DanmakuPlayerView: AVPlayerView {
     let danmakuOverlay: DanmakuOverlayView
@@ -256,6 +270,8 @@ final class DanmakuPlayerView: AVPlayerView {
         )
         super.init(frame: .zero)
         delegate = self
+        // 系统 Now Playing 只由进程级 `SystemNowPlayingController` 发布，AVKit
+        // 自动更新会与它争写同一份信息。
         updatesNowPlayingInfoCenter = false
         overlayHostingView.sizingOptions = []
         // 浮层与 content overlay 等大；不按窗口安全区缩进，否则播放器滚到工具栏下或全屏时提示位置

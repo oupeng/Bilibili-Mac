@@ -18,6 +18,10 @@ enum CommentLinkRoute: Sendable {
 typealias CommentLinkRouter = @Sendable (CommentLinkTarget) -> CommentLinkRoute?
 
 /// 评论链接目标到 App 路由的唯一翻译处。
+///
+/// 每个窗口一份，由 `WindowAdapters.live` 构造；`shortLinkResolver` 持有本窗口的短链 session，
+/// 关窗时由 adapter 的 `close` 失效（见 SECURITY-MODEL §4）。短链解析的在途 Task 不在这里，归
+/// `CommentShortLinkResolution`。
 struct CommentLinkRouting: Sendable {
     let linkResolver: BiliCommentLinkResolver
     let shortLinkResolver: BiliShortLinkResolver

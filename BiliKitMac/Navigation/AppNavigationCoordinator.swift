@@ -11,23 +11,29 @@ enum AppTab: Hashable, CaseIterable {
     case history
 }
 
+/// 播放层在 `NavigationStack` 路径里的唯一元素，只标识播放 surface，不携带视频。
+///
+/// 右侧栈深最多 1（见 docs/ARCHITECTURE.md「动线与侧栏上下文层」）：首次打开播放时生成
+/// `surfaceID`，之后换视频只替换 `ActivePlayback.intent`，surface 不变，导航路径不因换视频而变化。
 struct PlaybackDestination: Hashable {
     let surfaceID: UUID
 }
 
+/// 当前播放层：建立后不变的 surface 与可替换的选择意图；为 nil 表示不在播放层。
 private struct ActivePlayback: Equatable {
     let destination: PlaybackDestination
     var intent: PlaybackSelectionIntent
 }
 
-@MainActor
-@Observable
 /// 协调窗口内的顶层 Tab、原生导航路径、播放生命周期副作用与侧栏上下文层。
 ///
-/// Coordinator 不拥有播放器；typed path 只表达是否位于播放层级，当前 BVID 则表达该
-/// 层级内的媒体 identity。系统返回、切换来源与关窗都通过同一条播放副作用边界收口。
-/// 侧栏上下文层（UP 主空间）的打开与关闭入口都在这里，是否打开从空间模型的 `owner` 派生；空间模型自己在
-/// 返回按钮或账户会话切换时关闭，同样反映到 `isSidebarContextOpen`。
+/// Coordinator 不拥有播放器：开始与停止播放经 `WindowComposition` 注入的闭包交给视频与弹幕模型。
+/// typed path 只表达是否位于播放层级，当前 BVID 则表达该层级内的媒体 identity。系统返回、切换来源、
+/// 登出与关窗都经 `closePlayback()` 这一条播放副作用边界收口。侧栏上下文层（UP 主空间）
+/// 的打开与关闭入口都在这里，是否打开从空间模型的 `owner` 派生；
+/// 空间模型自己在返回按钮或账户会话切换时关闭，同样反映到 `isSidebarContextOpen`。
+@MainActor
+@Observable
 final class AppNavigationCoordinator {
     var selectedTab: AppTab = .home {
         didSet {

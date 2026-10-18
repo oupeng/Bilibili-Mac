@@ -4,7 +4,12 @@ import BiliVideoDetailFeature
 
 /// 播放器键盘快捷键：本地 key monitor、长按临时倍速、离散快捷键与焦点让渡规则。
 ///
-/// 以 content overlay 中的弹幕层为锚点取所在窗口，因此 detached 全屏窗口里同样生效。
+/// 以 content overlay 中的弹幕层为锚点取所在窗口，因此 detached 全屏窗口里同样生效。由
+/// `DanmakuPlayerView` 持有：弹幕层挂上 content overlay 时 `startMonitoring()`，拆除时宿主先
+/// `cancelInputSession()` 再 `stopMonitoring()`。拥有本地 key monitor、长按计时 Task 与字幕切换
+/// Task；`cancelInputSession()` 取消两个 Task、结束仍在进行的长按并清除反馈。长按计时到时按
+/// `keyboardLongPressID` 与状态机的 `pressID` 比对，不符即丢弃。MainActor 隔离，local monitor
+/// 回调在主线程上同步决定是否吞掉事件。
 @MainActor
 final class PlayerKeyboardShortcutController {
     private enum KeyboardKey: Sendable {

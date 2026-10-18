@@ -2,7 +2,12 @@ import Combine
 import Foundation
 import Sparkle
 
-/// Owns Sparkle for the application process, independently of accounts and windows.
+/// 进程级的 Sparkle 更新器 owner，独立于账号与窗口。
+///
+/// 由 `ProcessComposition` 创建并持有到进程结束；只在 `hasValidConfiguration` 通过时创建并启动
+/// `SPUStandardUpdaterController`，把可否检查与两个自动更新开关同步给「检查更新」
+/// 菜单（`AppUpdateCommands`）。不引用认证、账户或播放器，启动失败只记为 `failedToStart`，
+/// 不进入其他清理链路；见 SECURITY-MODEL §7。
 @MainActor
 final class AppUpdater: ObservableObject {
     @Published private(set) var canCheckForUpdates = false
@@ -16,7 +21,7 @@ final class AppUpdater: ObservableObject {
     init(info: [String: Any] = Bundle.main.infoDictionary ?? [:]) {
         guard Self.hasValidConfiguration(info) else { return }
         isConfigured = true
-        // Hosted tests must never start Sparkle's scheduler or touch update preferences.
+        // 宿主测试进程里不启动 Sparkle 的定时检查，也不读写更新偏好。
         guard NSClassFromString("XCTestCase") == nil else { return }
         let controller = SPUStandardUpdaterController(
             startingUpdater: false,
@@ -33,7 +38,7 @@ final class AppUpdater: ObservableObject {
             controller.updater.publisher(for: \.automaticallyDownloadsUpdates)
                 .assign(to: &$automaticallyDownloadsUpdates)
         } catch {
-            // Configuration errors do not interrupt app launch or expose diagnostic URLs.
+            // 启动失败不打断应用启动，也不暴露诊断用的 URL。
             failedToStart = true
         }
     }
@@ -51,6 +56,11 @@ final class AppUpdater: ObservableObject {
         controller?.updater.automaticallyDownloadsUpdates = enabled
     }
 
+    /// Info.plist 的更新配置是否完整且符合 SECURITY-MODEL §7。
+    ///
+    /// 要求显式启用、HTTPS `/appcast.xml`（无 userinfo、query、fragment，端口缺省或 443）、32 字节
+    /// EdDSA 公钥、签名 feed、解压前校验、签名失败不宽限、启用 Installer XPC、禁用 Downloader XPC；
+    /// 任一不符就不启动 Sparkle。`SUEnableSystemProfiling` 由 Info.plist 关闭，这里不检查。
     static func hasValidConfiguration(_ info: [String: Any]) -> Bool {
         guard info["BiliKitUpdaterEnabled"] as? Bool == true,
             let feed = info["SUFeedURL"] as? String,

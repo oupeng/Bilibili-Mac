@@ -1,6 +1,11 @@
 import BiliPlayback
 import Foundation
 
+/// 设置里可选的新播放优先线路；`rawValue` 就是持久化的版本化 route identifier
+/// （见 SECURITY-MODEL §6）。
+///
+/// 服务端默认、服务端原始 Akamai 与 bilivideo 之外的 case 与 `BilivideoRoute` 同名，是实验镜像。
+/// 改名或删除 case 会让已存的值读成未知值，回退服务端默认。
 enum PlaybackSourceSelection: String, Sendable, Equatable, CaseIterable, Identifiable {
     case serverDefault, serverAkamai, serverBilivideo
     case tencentOverseas, alibabaOverseas
@@ -91,6 +96,7 @@ extension BilivideoRoute {
     }
 }
 
+/// 一次读写的播放偏好整体：线路选择与响度均一化开关；`defaults` 是没有存过或读到损坏值时的回退。
 struct PlaybackSourcePreferenceRecord: Sendable, Equatable {
     static let defaults = Self(selection: .serverDefault, loudnessNormalizationEnabled: false)
     let selection: PlaybackSourceSelection
@@ -105,11 +111,24 @@ struct PlaybackSourcePreferenceRecord: Sendable, Equatable {
     }
 }
 
+/// 播放偏好的持久化 port：`load` 不抛错，读不到或值损坏时返回
+/// `PlaybackSourcePreferenceRecord.defaults`，`save` 整体覆盖。
+///
+/// `AppSettingsModel` 构造时读取一次，每次改选写入一次。
 protocol PlaybackSourcePreferenceStoring: AnyObject, Sendable {
     func load() -> PlaybackSourcePreferenceRecord
     func save(_ record: PlaybackSourcePreferenceRecord)
 }
 
+/// 播放偏好的 UserDefaults 实现：schema 版本、线路选择与响度均一化开关三个键
+/// （见 SECURITY-MODEL §6）。
+///
+/// schema 不符或线路选择是未知值时整体回退默认（响度开关也回到关闭）；
+/// 响度开关类型不对时按关闭处理。每次读取都删除另一个含义不同的响度偏好键
+/// （`legacyLoudnessNormalizationEnabled`），不读取它的值。
+///
+/// `@unchecked Sendable`：只持有不可变的 `let defaults`，`UserDefaults` 本身可以跨线程读写；
+/// 三个键不是原子写入，生产调用方只有 MainActor 上的 `AppSettingsModel`。
 final class UserDefaultsPlaybackSourcePreferenceStore:
     PlaybackSourcePreferenceStoring, @unchecked Sendable
 {

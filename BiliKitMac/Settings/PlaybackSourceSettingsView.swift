@@ -2,6 +2,9 @@ import BiliPlayback
 import Foundation
 import SwiftUI
 
+/// 设置窗口的表单：响度均一化（只在支持的系统上显示）、新播放优先线路与线路测速参考。
+///
+/// 只绑定进程级 `AppSettingsModel`；窗口消失时调用 `closeSettings()` 取消测速并丢弃结果。
 struct PlaybackSourceSettingsView: View {
     private static let experimentalRouteCount = BilivideoRoute.allCases.count
 

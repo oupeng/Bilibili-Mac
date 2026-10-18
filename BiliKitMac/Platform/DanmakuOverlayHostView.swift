@@ -1,11 +1,13 @@
 import AppKit
 import BiliDanmaku
 
-@MainActor
 /// 将 renderer 的 layer 挂到当前 `AVPlayerView` overlay，并独占其尺寸更新权。
 ///
-/// `ownerID` 防止已拆除 host 的迟到 layout/detach 清空新 host；零尺寸只表示 surface
-/// 尚未完成布局，不会扩大为另一个渲染会话。
+/// `ownerID` 防止已拆除 host 的迟到 layout/detach 清空新 host；零尺寸只表示 surface 尚未完成布局，
+/// 不会扩大为另一个渲染会话。用 AppKit：弹幕由 Core Animation layer 树渲染，要作为 layer-backed
+/// `NSView` 放进 `AVPlayerView` 的 content overlay，才能随 detached 全屏一起移动，见
+/// docs/ARCHITECTURE.md「播放页布局」。不接收鼠标事件。
+@MainActor
 final class DanmakuOverlayView: NSView {
     private let renderer: CoreAnimationDanmakuRenderer
     private let controller: DanmakuPresentationController
