@@ -4,8 +4,8 @@ import Sparkle
 
 /// 进程级的 Sparkle 更新器 owner，独立于账号与窗口。
 ///
-/// 由 `ProcessComposition` 创建并持有到进程结束；只在 `hasValidConfiguration` 通过时创建并启动
-/// `SPUStandardUpdaterController`，把可否检查与两个自动更新开关同步给「检查更新」
+/// 由 `ProcessComposition` 创建并持有到进程结束；只在 Release 构建且 `hasValidConfiguration` 通过时
+/// 创建并启动 `SPUStandardUpdaterController`，把可否检查与两个自动更新开关同步给「检查更新」
 /// 菜单（`AppUpdateCommands`）。不引用认证、账户或播放器，启动失败只记为 `failedToStart`，
 /// 不进入其他清理链路；见 SECURITY-MODEL §7。
 @MainActor
@@ -18,11 +18,21 @@ final class AppUpdater: ObservableObject {
 
     private var controller: SPUStandardUpdaterController?
 
-    init(info: [String: Any] = Bundle.main.infoDictionary ?? [:]) {
-        guard Self.hasValidConfiguration(info) else { return }
+    /// Debug 构建不启用更新检查，菜单按未配置显示。
+    ///
+    /// 本地开发与 Gate 构建都是 Debug，因此不启动 Sparkle 按正式 appcast 的定时检查，也不读写与正式版
+    /// 同一 Bundle ID 下的更新偏好；只有 Release 构建按随包 Info.plist 的配置启动。
+    #if DEBUG
+        private static let buildEnablesUpdateChecks = false
+    #else
+        private static let buildEnablesUpdateChecks = true
+    #endif
+
+    init() {
+        guard Self.buildEnablesUpdateChecks,
+            Self.hasValidConfiguration(Bundle.main.infoDictionary ?? [:])
+        else { return }
         isConfigured = true
-        // 宿主测试进程里不启动 Sparkle 的定时检查，也不读写更新偏好。
-        guard NSClassFromString("XCTestCase") == nil else { return }
         let controller = SPUStandardUpdaterController(
             startingUpdater: false,
             updaterDelegate: nil,

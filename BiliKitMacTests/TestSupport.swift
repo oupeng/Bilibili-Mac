@@ -531,7 +531,7 @@ func makeTestProcess() -> ProcessComposition {
             artworkLoader: { _ in nil }
         ),
         searchHistory: SearchHistoryStore(defaults: defaults),
-        updater: AppUpdater(info: [:])
+        updater: AppUpdater()
     )
 }
 

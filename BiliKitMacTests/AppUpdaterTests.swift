@@ -20,13 +20,19 @@ struct AppUpdaterTests {
         ]
     }
 
+    /// Debug 构建（含 Gate）即使随包配置完整也不启用更新检查：不启动 Sparkle，菜单按未配置显示。
     @Test
-    func incompleteConfigurationLeavesUpdaterUnavailable() {
-        let updater = AppUpdater(info: [:])
+    func debugBuildNeverStartsUpdateChecksEvenWithCompleteBundledConfiguration() {
+        #expect(AppUpdater.hasValidConfiguration(Bundle.main.infoDictionary ?? [:]))
+        let updater = AppUpdater()
         #expect(!updater.isConfigured)
         #expect(!updater.canCheckForUpdates)
         #expect(!updater.failedToStart)
         updater.checkForUpdates()
+    }
+
+    @Test
+    func incompleteConfigurationLeavesUpdaterUnavailable() {
         var info = configuredInfo
         info["BiliKitUpdaterEnabled"] = false
         #expect(!AppUpdater.hasValidConfiguration(info))
