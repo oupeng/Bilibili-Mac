@@ -113,7 +113,7 @@ struct WatchLaterItemPayload: Decodable, Sendable {
     /// 不可用行的宽松映射：缺失或不合规的标题、作者、加入时间与时长都留空。
     private func unavailableModel(
         bvid: String,
-        unavailability: WatchLaterUnavailability
+        unavailability: LibraryItemUnavailability
     ) -> WatchLaterItem {
         let owner: VideoOwner? =
             if let owner, let name = owner.name, !name.isEmpty, let mid = owner.mid, mid >= 0 {
@@ -140,7 +140,7 @@ struct WatchLaterItemPayload: Decodable, Sendable {
     /// 已失效优先：失效的番剧或课程同样无法打开，“已失效”比分类更准确；其次番剧与影视，最后课程。
     ///
     /// 充电专属不算不可用，由播放页处理。
-    var unavailability: WatchLaterUnavailability? {
+    var unavailability: LibraryItemUnavailability? {
         if let state, state < 0 {
             return .invalid
         }

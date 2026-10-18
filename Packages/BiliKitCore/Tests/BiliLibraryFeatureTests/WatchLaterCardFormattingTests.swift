@@ -68,12 +68,12 @@ struct WatchLaterCardFormattingTests {
     }
 
     @Test(arguments: [
-        (WatchLaterUnavailability.pgc(label: "电影"), "电影"),
+        (LibraryItemUnavailability.pgc(label: "电影"), "电影"),
         (.pgc(label: nil), localized("番剧")),
         (.course, localized("课程")),
         (.invalid, localized("已失效"))
     ])
-    func unavailableItemsShowTheReason(unavailability: WatchLaterUnavailability, reason: String) {
+    func unavailableItemsShowTheReason(unavailability: LibraryItemUnavailability, reason: String) {
         let presentation = WatchLaterCardPresentation(
             item: item(progress: .notStarted, unavailability: unavailability),
             locale: Locale(identifier: "zh-Hans")
@@ -86,7 +86,7 @@ struct WatchLaterCardFormattingTests {
 
     private func item(
         progress: WatchLaterProgress,
-        unavailability: WatchLaterUnavailability? = nil
+        unavailability: LibraryItemUnavailability? = nil
     ) -> WatchLaterItem {
         WatchLaterItem(
             bvid: "BV1LaterCard",

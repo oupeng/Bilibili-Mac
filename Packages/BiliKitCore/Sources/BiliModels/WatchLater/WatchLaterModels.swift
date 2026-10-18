@@ -1,18 +1,5 @@
 import Foundation
 
-/// 稍后再看条目不能在 BiliKit 里播放的原因。
-///
-/// 只描述接口给出的事实；卡片角标与读屏文案由 Library 格式化。充电专属不在这里：播放页自己处理完整播放、
-/// 试看与提示。
-public enum WatchLaterUnavailability: Sendable, Equatable {
-    /// 已失效（`state < 0`）。
-    case invalid
-    /// 番剧、影视等 PGC 内容（`is_pgc` 为真或 `pgc_label` 非空）；`label` 是接口给的分类原文，空时为 nil。
-    case pgc(label: String?)
-    /// 课程（`is_pugv` 为真）。
-    case course
-}
-
 /// 稍后再看条目的观看进度。
 public enum WatchLaterProgress: Sendable, Equatable {
     case notStarted
@@ -38,7 +25,7 @@ public struct WatchLaterItem: Identifiable, Sendable, Equatable {
     /// 加入稍后再看的时间。
     public let addedAt: Date?
     /// nil 表示可以进入播放。
-    public let unavailability: WatchLaterUnavailability?
+    public let unavailability: LibraryItemUnavailability?
 
     public init(
         bvid: String,
@@ -48,7 +35,7 @@ public struct WatchLaterItem: Identifiable, Sendable, Equatable {
         durationSeconds: Int?,
         progress: WatchLaterProgress,
         addedAt: Date?,
-        unavailability: WatchLaterUnavailability? = nil
+        unavailability: LibraryItemUnavailability? = nil
     ) {
         self.bvid = bvid
         self.title = title
