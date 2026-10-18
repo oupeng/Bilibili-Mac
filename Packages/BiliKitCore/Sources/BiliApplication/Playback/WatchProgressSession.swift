@@ -18,7 +18,7 @@ public final class WatchProgressSession {
             PlaybackLoadIntent
         ) -> WatchProgressTarget?
 
-    /// 会话读取的墙钟时间戳、单调时间、会话 ID 与周期 tick 来源；App 传 `.live`。
+    /// 会话读取的墙钟时间戳、单调时间、会话 ID 与周期 tick 来源，是本会话的时钟边界；App 传 `.live`。
     public struct Environment: Sendable {
         let timestamp: @Sendable () -> Int64
         let monotonicTime: @MainActor @Sendable () -> Double

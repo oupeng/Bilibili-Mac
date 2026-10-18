@@ -8,14 +8,11 @@ import Testing
 
 struct PlayerKeyboardInputStateTests {
     @Test
-    func shortAndLongPressAreMutuallyExclusiveAndRepeatIndependent() {
+    func shortAndLongPressAreMutuallyExclusiveAndRepeatIndependent() throws {
         var shortState = PlayerKeyboardInputState()
-        let shortID = UUID()
-        #expect(
-            shortState.keyDown(.right, isRepeat: false, timestamp: 0) {
-                shortID
-            } == [.scheduleLongPress(pressID: shortID)]
-        )
+        let shortActions = shortState.keyDown(.right, isRepeat: false, timestamp: 0)
+        let shortID = try scheduledPressID(shortActions)
+        #expect(shortActions == [.scheduleLongPress(pressID: shortID)])
         #expect(shortState.keyDown(.right, isRepeat: true, timestamp: 0.1).isEmpty)
         #expect(
             shortState.keyUp(.right) == [
@@ -26,8 +23,9 @@ struct PlayerKeyboardInputStateTests {
         #expect(shortState.deadlineReached(pressID: shortID).isEmpty)
 
         var longState = PlayerKeyboardInputState()
-        let longID = UUID()
-        _ = longState.keyDown(.left, isRepeat: false, timestamp: 0) { longID }
+        let longID = try scheduledPressID(
+            longState.keyDown(.left, isRepeat: false, timestamp: 0)
+        )
         #expect(
             longState.deadlineReached(pressID: longID) == [
                 .beginMomentaryRate(rate: .slow, pressID: longID)
@@ -37,19 +35,21 @@ struct PlayerKeyboardInputStateTests {
     }
 
     @Test
-    func staleKeyUpAndLifecycleCancellationCannotEndNewPress() {
+    func staleKeyUpAndLifecycleCancellationCannotEndNewPress() throws {
         var state = PlayerKeyboardInputState()
-        let leftID = UUID()
-        let rightID = UUID()
-        _ = state.keyDown(.left, isRepeat: false, timestamp: 0) { leftID }
-        _ = state.deadlineReached(pressID: leftID)
-        #expect(
-            state.keyDown(.right, isRepeat: false, timestamp: 1) { rightID }
-                == [
-                    .endMomentaryRate(pressID: leftID),
-                    .scheduleLongPress(pressID: rightID)
-                ]
+        let leftID = try scheduledPressID(
+            state.keyDown(.left, isRepeat: false, timestamp: 0)
         )
+        _ = state.deadlineReached(pressID: leftID)
+        let rightActions = state.keyDown(.right, isRepeat: false, timestamp: 1)
+        let rightID = try scheduledPressID(rightActions)
+        #expect(
+            rightActions == [
+                .endMomentaryRate(pressID: leftID),
+                .scheduleLongPress(pressID: rightID)
+            ]
+        )
+        #expect(rightID != leftID)
         #expect(state.keyUp(.left).isEmpty)
         #expect(
             state.cancel() == [.cancelLongPress(pressID: rightID)]
@@ -153,3 +153,14 @@ struct PlayerKeyboardInputStateTests {
 
 @MainActor
 private final class KeyboardOwningOverlay: NSView, PlayerKeyboardFocusOwner {}
+
+/// 取出按下左右键时安排的长按计时 ID；没有安排长按就记录失败。
+private func scheduledPressID(
+    _ actions: [PlayerKeyboardInputState.Action]
+) throws -> UUID {
+    let ids = actions.compactMap { action -> UUID? in
+        guard case .scheduleLongPress(let pressID) = action else { return nil }
+        return pressID
+    }
+    return try #require(ids.count == 1 ? ids.first : nil)
+}

@@ -54,7 +54,7 @@ extension CommentContentPayload {
         case .space(let memberID):
             "2:\(memberID)"
         case .shortLink(let reference), .external(let reference):
-            "3:\(reference.remoteURL?.absoluteString ?? "")"
+            "3:\(reference.remoteURL.absoluteString)"
         }
     }
 }

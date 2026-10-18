@@ -25,44 +25,6 @@ struct DanmakuDensityAdmissionPolicy: Sendable, Equatable {
     }
 }
 
-/// 呈现控制器累计的弹幕丢弃数与当前活动数，不参与呈现决策。
-///
-/// `droppedNoLane` 含没有车道、文本无效与纹理过大；`droppedCapacity` 含活动数或准备数上限、
-/// 纹理字节超限与上屏失败；准备被取消与车道请求无效不计入。
-public struct DanmakuRendererStatistics: Sendable, Equatable {
-    public private(set) var droppedNoLane = 0
-    public private(set) var droppedCapacity = 0
-    public private(set) var active = 0
-
-    public init() {}
-
-    mutating func record(_ admission: DanmakuLaneAdmission) {
-        droppedNoLane += admission.dropCounts.noLane
-        droppedCapacity += admission.dropCounts.capacity
-    }
-
-    mutating func recordCapacityDrops(_ count: Int) {
-        droppedCapacity += max(count, 0)
-    }
-
-    mutating func recordPreparationDrop(
-        _ reason: DanmakuPreparationRejectionReason
-    ) {
-        switch reason {
-        case .capacity:
-            droppedCapacity += 1
-        case .invalidInput, .oversized:
-            droppedNoLane += 1
-        case .cancelled:
-            break
-        }
-    }
-
-    mutating func updateActive(_ count: Int) {
-        active = count
-    }
-}
-
 /// 在调度 batch 与具体 renderer 之间执行 identity/generation 检查、lane 分配与容量治理。
 ///
 /// surface owner ID 防止旧 `AVPlayerView` 的迟到 resize/detach 操作清空新宿主；换 surface owner、
@@ -95,8 +57,6 @@ public final class DanmakuPresentationController:
     /// 补位时每条车道最多准备的候选数：一屏里同一车道同时可见的滚动弹幕很少超过这个数，
     /// 再多只会准备出马上被丢弃的纹理。
     static let catchUpCandidatesPerLane = 4
-
-    public private(set) var statistics = DanmakuRendererStatistics()
 
     private let backend: any DanmakuRenderingBackend
     private var allocator: DanmakuLaneAllocator
@@ -210,9 +170,6 @@ public final class DanmakuPresentationController:
             candidates = batch.events
             attemptedEvents = candidates.prefix(availablePreparationSlots)
         }
-        statistics.recordCapacityDrops(
-            candidates.count - attemptedEvents.count
-        )
         var catchUpGroup: UInt64?
         if batch.catchesUp {
             nextCatchUpGroup &+= 1
@@ -266,7 +223,6 @@ public final class DanmakuPresentationController:
         identity = nil
         discontinuityGeneration = nil
         latestSnapshot = nil
-        statistics.updateActive(0)
     }
 
     private func updateSurfaceSize(
@@ -333,14 +289,12 @@ public final class DanmakuPresentationController:
 
     public func rendererDidFinish(eventID: String) {
         allocator.remove(eventID: eventID)
-        statistics.updateActive(allocator.activeCount)
     }
 
     private func clearBackendAndAllocator() {
         cancelPendingPreparations()
         _ = allocator.clear()
         backend.clearAll()
-        statistics.updateActive(0)
     }
 
     /// 先登记整批再开始准备：缓存命中会同步完成，补位批次必须在第一条完成前就知道同批还有谁。
@@ -433,7 +387,6 @@ public final class DanmakuPresentationController:
             releaseDeferred(deferred)
             return
         }
-        var failedRenders = 0
         for item in deferred {
             let placement = item.placement
             let isVisible = placement.expiresAtSeconds > now
@@ -447,14 +400,9 @@ public final class DanmakuPresentationController:
             {
                 continue
             }
-            if isVisible {
-                failedRenders += 1
-            }
             allocator.remove(eventID: placement.request.event.id)
             backend.discardPreparation(preparationID: item.preparationID)
         }
-        statistics.recordCapacityDrops(failedRenders)
-        statistics.updateActive(allocator.activeCount)
     }
 
     private func processPreparation(
@@ -474,9 +422,6 @@ public final class DanmakuPresentationController:
             return
         }
         guard case .ready(let metrics) = result else {
-            if case .rejected(let reason) = result {
-                statistics.recordPreparationDrop(reason)
-            }
             backend.discardPreparation(preparationID: preparationID)
             return
         }
@@ -518,10 +463,9 @@ public final class DanmakuPresentationController:
                     DeferredCatchUp(placement: $0, preparationID: preparationID)
                 }
             )
-            statistics.record(admission)
             return
         }
-        var installed: [DanmakuLanePlacement] = []
+        var installedAny = false
         for placement in admission.admitted {
             if backend.renderPrepared(
                 placement,
@@ -529,25 +473,14 @@ public final class DanmakuPresentationController:
                 generation: preparationGeneration,
                 elapsedSeconds: now - admissionSeconds
             ) {
-                installed.append(placement)
+                installedAny = true
             } else {
                 allocator.remove(eventID: placement.request.event.id)
             }
         }
-        if installed.isEmpty {
+        if !installedAny {
             backend.discardPreparation(preparationID: preparationID)
         }
-        statistics.recordCapacityDrops(
-            admission.admitted.count - installed.count
-        )
-        statistics.record(
-            DanmakuLaneAdmission(
-                expired: admission.expired,
-                admitted: installed,
-                dropCounts: admission.dropCounts
-            )
-        )
-        statistics.updateActive(allocator.activeCount)
     }
 
     /// 等待上屏的补位弹幕已占用车道，丢弃时一并归还，否则车道会被看不见的弹幕占到过期。
@@ -556,7 +489,6 @@ public final class DanmakuPresentationController:
             allocator.remove(eventID: item.placement.request.event.id)
             backend.discardPreparation(preparationID: item.preparationID)
         }
-        statistics.updateActive(allocator.activeCount)
     }
 
     private func cancelPendingPreparations() {

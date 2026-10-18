@@ -100,33 +100,13 @@ public struct DanmakuLaneAllocator: Sendable {
         at playbackTime: Double
     ) -> DanmakuLaneAdmission {
         guard playbackTime.isFinite else {
-            var dropCounts = DanmakuLaneDropCounts()
-            for _ in requests {
-                dropCounts.record(.invalidRequest)
-            }
-            return DanmakuLaneAdmission(
-                expired: [],
-                admitted: [],
-                dropCounts: dropCounts
-            )
+            return DanmakuLaneAdmission(expired: [], admitted: [])
         }
         let expired = expire(at: playbackTime)
-        var admitted: [DanmakuLanePlacement] = []
-        var dropCounts = DanmakuLaneDropCounts()
-        for request in requests {
-            let result = admit(request, at: playbackTime)
-            switch result {
-            case .success(let placement):
-                admitted.append(placement)
-            case .failure(let reason):
-                dropCounts.record(reason)
-            }
+        let admitted = requests.compactMap { request in
+            try? admit(request, at: playbackTime).get()
         }
-        return DanmakuLaneAdmission(
-            expired: expired,
-            admitted: admitted,
-            dropCounts: dropCounts
-        )
+        return DanmakuLaneAdmission(expired: expired, admitted: admitted)
     }
 
     private mutating func admit(

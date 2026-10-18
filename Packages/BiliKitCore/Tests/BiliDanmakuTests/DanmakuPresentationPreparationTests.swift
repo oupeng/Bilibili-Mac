@@ -33,13 +33,13 @@ struct DanmakuPresentationPreparationTests {
         let firstID = backend.preparationIDs[0]
         let secondID = backend.preparationIDs[1]
 
-        #expect(controller.statistics.active == 0)
+        #expect(backend.activeEventIDs.count == 0)
         #expect(backend.renderedEventIDs.isEmpty)
         backend.completePreparation(secondID)
         #expect(backend.renderedEventIDs.isEmpty)
         backend.completePreparation(firstID)
         #expect(backend.renderedEventIDs == ["first", "second"])
-        #expect(controller.statistics.active == 2)
+        #expect(backend.activeEventIDs.count == 2)
     }
 
     @Test
@@ -76,7 +76,7 @@ struct DanmakuPresentationPreparationTests {
         #expect(backend.renderedEventIDs.isEmpty)
         backend.completePreparation(newPreparationID)
         #expect(backend.renderedEventIDs == ["new-identity"])
-        #expect(controller.statistics.active == 1)
+        #expect(backend.activeEventIDs.count == 1)
     }
 
     @Test
@@ -158,7 +158,7 @@ struct DanmakuPresentationPreparationTests {
         controller.stopPresentation()
         backend.completePreparation(stoppedID)
         #expect(backend.renderedEventIDs.isEmpty)
-        #expect(controller.statistics.active == 0)
+        #expect(backend.activeEventIDs.count == 0)
         #expect(backend.cancelPreparationCount >= 3)
     }
 
@@ -215,8 +215,7 @@ struct DanmakuPresentationPreparationTests {
                 events: [fixtureEvent(id: "failed", mode: .top)]
             )
         )
-        #expect(controller.statistics.active == 0)
-        #expect(controller.statistics.droppedCapacity == 1)
+        #expect(backend.activeEventIDs.count == 0)
 
         backend.renderPreparedResult = true
         controller.apply(
@@ -228,6 +227,6 @@ struct DanmakuPresentationPreparationTests {
             )
         )
         #expect(backend.renderedEventIDs == ["replacement"])
-        #expect(controller.statistics.active == 1)
+        #expect(backend.activeEventIDs.count == 1)
     }
 }

@@ -27,7 +27,7 @@ public final class CoreAnimationDanmakuRenderer:
         let relay: AnimationCompletionRelay
     }
 
-    /// 已上屏 layer 的纹理字节总上限；超出时新弹幕不上屏，呈现控制器计为容量丢弃。
+    /// 已上屏 layer 的纹理字节总上限；超出时新弹幕不上屏，呈现控制器归还它占用的车道。
     ///
     /// 与活动数硬上限一起限定最坏情况的纹理内存：调大允许更多长文本同屏，调小则高峰期更早丢弃。
     static let maximumActiveTextureByteCost = 64 * 1_024 * 1_024
@@ -53,8 +53,9 @@ public final class CoreAnimationDanmakuRenderer:
     /// 已上屏 layer 的纹理字节合计，对照 `maximumActiveTextureByteCost`。
     private(set) var activeTextureByteCost = 0
 
-    public init(contentsScale: Double = 2) {
-        backingScale = Self.normalizedBackingScale(contentsScale)
+    /// 初始 backing scale 取 2；宿主挂上 surface 后经 `updateSurfaceSize` 换成窗口的实际值。
+    public init() {
+        backingScale = 2
         preparationOwner = DanmakuTexturePreparationOwner()
         rootLayer = CALayer()
         rootLayer.anchorPoint = .zero
@@ -210,14 +211,6 @@ public final class CoreAnimationDanmakuRenderer:
         CATransaction.setDisableActions(true)
         rootLayer.opacity = Float(opacity.value)
         CATransaction.commit()
-    }
-
-    public func updateSurfaceSize(width: Double, height: Double) {
-        updateSurfaceSize(
-            width: width,
-            height: height,
-            backingScale: backingScale
-        )
     }
 
     public func updateSurfaceSize(

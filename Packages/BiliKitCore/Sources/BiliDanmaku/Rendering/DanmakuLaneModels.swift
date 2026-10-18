@@ -162,30 +162,10 @@ public enum DanmakuLaneDropReason: Error, Sendable, Equatable {
     case invalidRequest
 }
 
-/// 一次准入中按原因累计的丢弃数。
-public struct DanmakuLaneDropCounts: Sendable, Equatable {
-    public private(set) var capacity = 0
-    public private(set) var noLane = 0
-    public private(set) var invalidRequest = 0
-
-    public init() {}
-
-    public var total: Int { capacity + noLane + invalidRequest }
-
-    mutating func record(_ reason: DanmakuLaneDropReason) {
-        switch reason {
-        case .capacity: capacity += 1
-        case .noLane: noLane += 1
-        case .invalidRequest: invalidRequest += 1
-        }
-    }
-}
-
-/// 一次 `admit` 的结果：本次到期回收的 placement、新准入的 placement 与丢弃计数。
+/// 一次 `admit` 的结果：本次到期回收的 placement 与新准入的 placement；没准入的请求直接丢弃，不排队。
 ///
 /// `expired` 已从 allocator 移除，调用方负责移除对应的 layer。
 public struct DanmakuLaneAdmission: Sendable, Equatable {
     public let expired: [DanmakuLanePlacement]
     public let admitted: [DanmakuLanePlacement]
-    public let dropCounts: DanmakuLaneDropCounts
 }

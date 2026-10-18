@@ -33,6 +33,7 @@ public struct BiliPlaybackHeartbeatRequestAuthorizer: HTTPRequestAuthorizing,
         store = KeychainWebCredentialStore()
     }
 
+    /// Keychain 边界；`init()` 由此接入 Keychain store。
     init(store: any WebCredentialStoring) {
         self.store = store
     }

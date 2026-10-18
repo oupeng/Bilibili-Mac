@@ -82,24 +82,10 @@ public struct CommentAssetPixelBox: Sendable, Equatable, Hashable {
 /// `BiliCommentAssetResolver` 解析时才执行 `BiliBFSImageURLPolicy`（见 SECURITY-MODEL §4），
 /// Feature 不得绕过解析器直接读取 `remoteURL`。
 public struct CommentAssetReference: Sendable, Equatable, Hashable {
-    private enum Storage: Sendable, Equatable, Hashable {
-        case opaque(UUID)
-        case remote(URL)
-    }
-
-    private let storage: Storage
-
-    package var remoteURL: URL? {
-        guard case .remote(let url) = storage else { return nil }
-        return url
-    }
-
-    public init() {
-        storage = .opaque(UUID())
-    }
+    package let remoteURL: URL
 
     package init(remoteURL: URL) {
-        storage = .remote(remoteURL)
+        self.remoteURL = remoteURL
     }
 }
 
@@ -109,24 +95,10 @@ public struct CommentAssetReference: Sendable, Equatable, Hashable {
 /// `BiliCommentLinkResolver` 的公开 HTTPS 复核，短链再由 `BiliShortLinkResolver` 收窄为
 /// `https://b23.tv/{短码}` 才发请求（见 SECURITY-MODEL §4）。
 public struct CommentExternalLinkReference: Sendable, Equatable, Hashable {
-    private enum Storage: Sendable, Equatable, Hashable {
-        case opaque(UUID)
-        case remote(URL)
-    }
-
-    private let storage: Storage
-
-    package var remoteURL: URL? {
-        guard case .remote(let url) = storage else { return nil }
-        return url
-    }
-
-    public init() {
-        storage = .opaque(UUID())
-    }
+    package let remoteURL: URL
 
     package init(remoteURL: URL) {
-        storage = .remote(remoteURL)
+        self.remoteURL = remoteURL
     }
 }
 

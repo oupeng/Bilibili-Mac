@@ -37,7 +37,7 @@ struct DanmakuPresentationControllerTests {
         )
 
         #expect(backend.lifecycle == ["+first", "-first", "+second"])
-        #expect(controller.statistics.active == 1)
+        #expect(backend.activeEventIDs.count == 1)
     }
 
     @Test
@@ -63,10 +63,6 @@ struct DanmakuPresentationControllerTests {
 
         #expect(
             backend.measureCount
-                == DanmakuLaneConfiguration.hardMaximumActiveCount
-        )
-        #expect(
-            controller.statistics.droppedCapacity
                 == DanmakuLaneConfiguration.hardMaximumActiveCount
         )
         #expect(backend.renderedEventIDs.count == 1)
@@ -105,9 +101,8 @@ struct DanmakuPresentationControllerTests {
         )
 
         #expect(backend.preparationIDs.count == maximum)
-        #expect(controller.statistics.droppedCapacity == maximum + 1)
         controller.clearPresentation()
-        #expect(controller.statistics.active == 0)
+        #expect(backend.activeEventIDs.count == 0)
     }
 
     @Test
@@ -149,11 +144,11 @@ struct DanmakuPresentationControllerTests {
             )
         )
         #expect(backend.clearCount == clearCount + 1)
-        #expect(controller.statistics.active == 1)
+        #expect(backend.activeEventIDs.count == 1)
 
         controller.stopPresentation()
         #expect(backend.stopCount == 1)
-        #expect(controller.statistics.active == 0)
+        #expect(backend.activeEventIDs.count == 0)
     }
 
     @Test
@@ -196,7 +191,7 @@ struct DanmakuPresentationControllerTests {
         )
 
         #expect(backend.clearCount == clearCount)
-        #expect(controller.statistics.active == 1)
+        #expect(backend.activeEventIDs.count == 1)
     }
 
     @Test
@@ -218,7 +213,7 @@ struct DanmakuPresentationControllerTests {
                 events: [fixtureEvent(id: "before-detach", mode: .top)]
             )
         )
-        #expect(controller.statistics.active == 1)
+        #expect(backend.activeEventIDs.count == 1)
         let clearCount = backend.clearCount
 
         #expect(
@@ -236,7 +231,7 @@ struct DanmakuPresentationControllerTests {
             )
         )
         #expect(backend.clearCount == clearCount)
-        #expect(controller.statistics.active == 1)
+        #expect(backend.activeEventIDs.count == 1)
         #expect(
             controller.updateSurface(
                 width: 800,
@@ -245,11 +240,11 @@ struct DanmakuPresentationControllerTests {
             )
         )
         #expect(backend.clearCount == clearCount)
-        #expect(controller.statistics.active == 1)
+        #expect(backend.activeEventIDs.count == 1)
 
         #expect(controller.attachSurface(ownerID: replacementOwner))
         #expect(backend.clearCount == clearCount + 1)
-        #expect(controller.statistics.active == 0)
+        #expect(backend.activeEventIDs.count == 0)
         #expect(!controller.detachSurface(ownerID: firstOwner))
         #expect(backend.clearCount == clearCount + 1)
 
@@ -262,6 +257,6 @@ struct DanmakuPresentationControllerTests {
             )
         )
         #expect(backend.renderedEventIDs.last == "after-attach")
-        #expect(controller.statistics.active == 1)
+        #expect(backend.activeEventIDs.count == 1)
     }
 }

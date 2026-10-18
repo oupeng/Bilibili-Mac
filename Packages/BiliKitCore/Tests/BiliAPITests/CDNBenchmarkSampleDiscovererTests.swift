@@ -65,7 +65,7 @@ struct CDNBenchmarkSampleDiscovererTests {
     @Test
     func cancellationStopsBeforeAnotherDiscoveryRequest() async throws {
         let transport = StubTransport([.suspended(rank(Self.candidateA))])
-        let discoverer = discoverer(transport, regionIDs: [1, 3, 4])
+        let discoverer = discoverer(transport)
         let task = Task { try await discoverer.discover() }
         await transport.waitForRequests(1)
         task.cancel()
@@ -134,7 +134,7 @@ struct CDNBenchmarkSampleDiscovererTests {
             answersWBINavOnce: true
         )
 
-        let samples = try await discoverer(transport, regionIDs: [201, 124]).discover()
+        let samples = try await discoverer(transport).discover()
 
         #expect(samples.count == 1)
         #expect(
@@ -179,8 +179,7 @@ struct CDNBenchmarkSampleDiscovererTests {
             answersWBINavOnce: true
         )
 
-        let samples = try await discoverer(transport, regionIDs: [201, 124])
-            .discover(targetCount: 2)
+        let samples = try await discoverer(transport).discover(targetCount: 2)
 
         #expect(samples.count == 2)
         #expect(
@@ -219,14 +218,24 @@ struct CDNBenchmarkSampleDiscovererTests {
                 rank(Self.candidateA),
                 detail(Self.candidateA),
                 try playURL(promotesAVCToHighQuality: false)
-            ],
+                // 其余分区的近期列表都是空的；多备的空列表足够覆盖全部分区，用不完也无妨。
+            ] + Array(repeating: rank(), count: 32),
             answersWBINavOnce: true
         )
 
         let samples = try await discoverer(transport).discover()
 
         #expect(samples.isEmpty)
-        #expect(transport.businessRequests().count == 3)
+        // 唯一的候选只请求一次详情与 playurl；之后只剩各分区的近期列表。
+        let paths = transport.businessRequests().map(\.url.path)
+        #expect(
+            Array(paths.prefix(3)) == [
+                "/x/web-interface/newlist_rank",
+                "/x/web-interface/wbi/view",
+                "/x/player/wbi/playurl"
+            ]
+        )
+        #expect(paths.dropFirst(3).allSatisfy { $0 == "/x/web-interface/newlist_rank" })
     }
 
     @Test
@@ -252,7 +261,6 @@ struct CDNBenchmarkSampleDiscovererTests {
 
     private func discoverer(
         _ transport: StubTransport,
-        regionIDs: [Int] = [201],
         authorized: Bool = true
     ) -> CDNBenchmarkSampleDiscoverer {
         CDNBenchmarkSampleDiscoverer(
@@ -260,8 +268,7 @@ struct CDNBenchmarkSampleDiscovererTests {
                 transport: transport,
                 requestAuthorizer: authorized ? StubAuthorizer() : nil
             ),
-            now: { Date(timeIntervalSince1970: 1_700_100_000) },
-            regionIDs: regionIDs
+            now: { Date(timeIntervalSince1970: 1_700_100_000) }
         )
     }
 

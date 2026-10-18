@@ -697,3 +697,20 @@ func makeVideoViewModel(
         playbackAuthenticationInvalidations: playbackAuthenticationInvalidations
     )
 }
+
+/// 评论资源的引用；每次调用指向不同的 `example.invalid` 地址，因此彼此不相等。
+func fixtureAssetReference() -> CommentAssetReference {
+    CommentAssetReference(remoteURL: fixtureReferenceURL())
+}
+
+/// 评论外链或短链的引用；每次调用指向不同的 `example.invalid` 地址。
+func fixtureLinkReference() -> CommentExternalLinkReference {
+    CommentExternalLinkReference(remoteURL: fixtureReferenceURL())
+}
+
+private func fixtureReferenceURL() -> URL {
+    guard let url = URL(string: "https://example.invalid/fixture/\(UUID().uuidString)") else {
+        preconditionFailure("fixture 地址必须合法")
+    }
+    return url
+}

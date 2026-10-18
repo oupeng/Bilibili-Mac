@@ -96,8 +96,7 @@ struct PlayerKeyboardInputState: Equatable, Sendable {
     mutating func keyDown(
         _ direction: PlayerKeyboardDirection,
         isRepeat: Bool,
-        timestamp: TimeInterval,
-        makePressID: () -> UUID = UUID.init
+        timestamp: TimeInterval
     ) -> [Action] {
         if let volumeOffset = direction.volumeOffset {
             return volumeKeyDown(
@@ -118,7 +117,7 @@ struct PlayerKeyboardInputState: Equatable, Sendable {
         guard !isRepeat else { return [] }
 
         var actions = cancelHorizontalPress(suppressHeldKey: true)
-        let pressID = makePressID()
+        let pressID = UUID()
         horizontalPress = HorizontalPress(
             direction: direction,
             pressID: pressID,

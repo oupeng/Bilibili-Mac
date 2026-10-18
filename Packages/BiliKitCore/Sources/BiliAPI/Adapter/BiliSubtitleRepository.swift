@@ -31,7 +31,8 @@ public actor BiliSubtitleRepository: SubtitleRepository {
         )
     }
 
-    public init(
+    /// 字幕正文的网络边界：`init(client:)` 由此接入无凭据 session。
+    init(
         client: BiliAPIClient,
         bodyTransport: any HTTPTransport
     ) {

@@ -123,6 +123,7 @@ public actor BilivideoRouteBenchmark {
         }
     }
 
+    /// CDN Range 网络边界；`init()` 每轮新建有界 Range client。
     init(rangeFetcher: any HTTPBoundedRangeFetching) {
         makeRangeFetcher = { rangeFetcher }
     }
@@ -134,7 +135,7 @@ public actor BilivideoRouteBenchmark {
     /// 轮转一段，各目标不总在同一位置被测。
     public func benchmarkUnifiedPool(
         samples: [PlaybackRouteBenchmarkSample],
-        progress: @escaping @Sendable (Int, Int) async -> Void = { _, _ in }
+        progress: @escaping @Sendable (Int, Int) async -> Void
     ) async throws -> [PlaybackRouteMeasurement] {
         guard Self.supportedRepetitions.contains(samples.count) else {
             throw BilivideoRouteBenchmarkError.invalidRepetitionCount(samples.count)
@@ -181,22 +182,6 @@ public actor BilivideoRouteBenchmark {
                 totalRuns: $0.totalRuns
             )
         }
-    }
-
-    /// 用同一模板作为 `repetitions` 个样本的便捷形式。
-    public func benchmarkUnifiedPool(
-        template: MediaRepresentation,
-        headers: [String: String],
-        repetitions: Int = 1,
-        progress: @escaping @Sendable (Int, Int) async -> Void = { _, _ in }
-    ) async throws -> [PlaybackRouteMeasurement] {
-        try await benchmarkUnifiedPool(
-            samples: Array(
-                repeating: PlaybackRouteBenchmarkSample(template: template, headers: headers),
-                count: repetitions
-            ),
-            progress: progress
-        )
     }
 
     private func probeSample<Target: Hashable & Sendable>(

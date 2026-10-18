@@ -87,7 +87,7 @@ struct CommentContentDecodingTests {
             return
         }
         #expect(
-            externalReference.remoteURL?.absoluteString
+            externalReference.remoteURL.absoluteString
                 == "https://www.bilibili.com/opus/42#reply"
         )
         // @ 用户带上昵称与头像，进入空间时空间头部才有名字和头像。
@@ -190,7 +190,7 @@ struct CommentContentDecodingTests {
         #expect(emotes.map(\.size) == [.standard, .standard, .large])
         #expect(emotes[0].asset == emotes[1].asset)
         #expect(emotes[1].asset != emotes[2].asset)
-        #expect(emotes[0].asset.remoteURL?.scheme == "https")
+        #expect(emotes[0].asset.remoteURL.scheme == "https")
     }
 
     @Test
@@ -277,7 +277,7 @@ struct CommentContentDecodingTests {
         let onePictureContent = try onePicturePayload.model()
         #expect(onePictureContent.pictureCount == 1)
         let mapped = try #require(onePictureContent.pictures.first)
-        #expect(mapped.asset.remoteURL?.scheme == "https")
+        #expect(mapped.asset.remoteURL.scheme == "https")
         #expect(mapped.position == 0)
         #expect(mapped.pixelWidth == 1920)
         #expect(mapped.pixelHeight == 1080)

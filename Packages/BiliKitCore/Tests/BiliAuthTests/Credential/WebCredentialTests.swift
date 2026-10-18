@@ -59,14 +59,8 @@ struct WebCredentialTests {
 
     @Test
     func dataProtectionKeychainUsesFixedProtectionAndAtomicUpdate() throws {
-        let service = "com.shiinayane.BiliKitMac.tests.fixture"
-        let account = "web-credential"
         let operations = RecordingKeychainOperations()
-        let store = KeychainWebCredentialStore(
-            service: service,
-            account: account,
-            operations: operations
-        )
+        let store = KeychainWebCredentialStore(operations: operations)
         let first = try makeFixtureCredential()
         let second = try makeFixtureCredential(
             expiresAt: Date(timeIntervalSince1970: 4_133_980_800)
@@ -80,8 +74,10 @@ struct WebCredentialTests {
 
         let attributes = try #require(operations.lastAddAttributes)
         #expect(attributes[kSecUseDataProtectionKeychain as String] as? Bool == true)
-        #expect(attributes[kSecAttrService as String] as? String == service)
-        #expect(attributes[kSecAttrAccount as String] as? String == account)
+        #expect(
+            attributes[kSecAttrService as String] as? String == "com.shiinayane.BiliKitMac.web-auth"
+        )
+        #expect(attributes[kSecAttrAccount as String] as? String == "web-credential")
         #expect(
             attributes[kSecAttrAccessible as String] as? String
                 == kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String

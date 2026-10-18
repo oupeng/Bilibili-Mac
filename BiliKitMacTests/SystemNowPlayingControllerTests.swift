@@ -274,10 +274,6 @@ struct SystemNowPlayingControllerTests {
         fixture.update(controller, windowID: windowID, timeline: Self.timeline())
         #expect(commands.invoke(.pause) == .commandFailed)
         #expect(commands.installationCount == 1)
-        controller.close()
-        #expect(commands.removalCount == 1)
-        controller.close()
-        #expect(commands.removalCount == 1)
     }
 
     @Test

@@ -18,7 +18,8 @@ public struct BiliCommentAssetResolver: Sendable {
         for reference: CommentAssetReference,
         fitting box: CommentAssetPixelBox?
     ) -> URL? {
-        guard let url = reference.remoteURL, BiliBFSImageURLPolicy.allows(url) else {
+        let url = reference.remoteURL
+        guard BiliBFSImageURLPolicy.allows(url) else {
             return nil
         }
         guard let box, box.width > 0, box.height > 0, !url.path.contains("@"),

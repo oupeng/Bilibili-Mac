@@ -80,7 +80,7 @@ struct PlaybackSourceSettingsTests {
         let store = MemoryPlaybackSourcePreferenceStore(
             record: PlaybackSourcePreferenceRecord(selection: .alibabaMainland)
         )
-        let model = AppSettingsModel(
+        let model = makeSettingsModel(
             store: store,
             discover: { count in Array(repeating: try Self.sample(), count: count) },
             run: { samples, progress in
@@ -114,8 +114,7 @@ struct PlaybackSourceSettingsTests {
 
     @Test @MainActor
     func completedResultsPreferSampleSuccessRateThenHigherThroughput() async throws {
-        let model = AppSettingsModel(
-            store: MemoryPlaybackSourcePreferenceStore(),
+        let model = makeSettingsModel(
             discover: { count in Array(repeating: try Self.sample(), count: count) },
             run: { _, _ in
                 [
@@ -184,7 +183,7 @@ struct PlaybackSourceSettingsTests {
 
     @Test @MainActor
     func authenticationAccessUsesDenyWinsAcrossWindows() {
-        let model = makeModel(store: MemoryPlaybackSourcePreferenceStore())
+        let model = makeSettingsModel(signedIn: false)
         let firstWindow = UUID()
         let secondWindow = UUID()
 
@@ -202,8 +201,7 @@ struct PlaybackSourceSettingsTests {
     func newDiscoveryWaitsForLifecycleResetToFinish() async throws {
         let resetGate = ResetGate()
         let discovery = TestEventCounter()
-        let model = AppSettingsModel(
-            store: MemoryPlaybackSourcePreferenceStore(),
+        let model = makeSettingsModel(
             discover: { _ in
                 await discovery.record()
                 return [try Self.sample()]
@@ -225,8 +223,7 @@ struct PlaybackSourceSettingsTests {
     func benchmarkFailureMapsToNonIdentifyingStateAndKeepsSelection(
         _ failure: SettingsBenchmarkFailureFixture
     ) async {
-        let model = AppSettingsModel(
-            store: MemoryPlaybackSourcePreferenceStore(),
+        let model = makeSettingsModel(
             discover: { _ in
                 if let discoveryError = failure.discoveryError {
                     throw PlaybackRouteBenchmarkOperationError.mappingDiscoveryError(discoveryError)
@@ -249,7 +246,7 @@ struct PlaybackSourceSettingsTests {
         let store = MemoryPlaybackSourcePreferenceStore(
             record: PlaybackSourcePreferenceRecord(selection: .serverAkamai)
         )
-        let model = AppSettingsModel(
+        let model = makeSettingsModel(
             store: store,
             discover: { _ in
                 await invocation.record()
@@ -275,8 +272,7 @@ struct PlaybackSourceSettingsTests {
     func ownerDestructionCancelsDiscovery() async throws {
         let cancellation = TestEventCounter()
         let invocation = TestEventCounter()
-        var model: AppSettingsModel? = AppSettingsModel(
-            store: MemoryPlaybackSourcePreferenceStore(),
+        var model: AppSettingsModel? = makeSettingsModel(
             discover: { _ in
                 await invocation.record()
                 do {
@@ -303,9 +299,8 @@ struct PlaybackSourceSettingsTests {
         let discovery = TestEventCounter()
         let cancellation = TestEventCounter()
         let reset = TestEventCounter()
-        let model = AppSettingsModel(
-            store: MemoryPlaybackSourcePreferenceStore(),
-            benchmarkAccess: .signedOut,
+        let model = makeSettingsModel(
+            signedIn: false,
             discover: { _ in
                 await discovery.record()
                 do {
@@ -320,13 +315,15 @@ struct PlaybackSourceSettingsTests {
             run: { _, _ in [] }
         )
 
+        let window = UUID()
+        model.synchronizeAuthentication(.signedOut, ownerID: window)
         model.startBenchmark()
         #expect(await discovery.count == 0)
 
-        model.synchronizeAuthentication(.signedIn)
+        model.synchronizeAuthentication(.signedIn, ownerID: window)
         model.startBenchmark()
         await discovery.wait()
-        model.synchronizeAuthentication(.signedOut)
+        model.synchronizeAuthentication(.signedOut, ownerID: window)
         await cancellation.wait()
         await reset.wait()
 
@@ -334,9 +331,25 @@ struct PlaybackSourceSettingsTests {
         #expect(model.measurements.isEmpty)
     }
 
+    /// 设置模型；`signedIn` 时以一个已登录窗口登记测速权限，与生产里窗口出现后的同步一致。
     @MainActor
-    private func makeModel(store: MemoryPlaybackSourcePreferenceStore) -> AppSettingsModel {
-        AppSettingsModel(store: store, discover: { _ in [] }, run: { _, _ in [] })
+    private func makeSettingsModel(
+        store: MemoryPlaybackSourcePreferenceStore = MemoryPlaybackSourcePreferenceStore(),
+        signedIn: Bool = true,
+        discover: @escaping AppSettingsModel.Discover = { _ in [] },
+        resetDiscovery: @escaping AppSettingsModel.ResetDiscovery = {},
+        run: @escaping AppSettingsModel.Run = { _, _ in [] }
+    ) -> AppSettingsModel {
+        let model = AppSettingsModel(
+            store: store,
+            discover: discover,
+            resetDiscovery: resetDiscovery,
+            run: run
+        )
+        if signedIn {
+            model.synchronizeAuthentication(.signedIn, ownerID: UUID())
+        }
+        return model
     }
 
     private static func sample() throws -> PlaybackRouteBenchmarkSample {

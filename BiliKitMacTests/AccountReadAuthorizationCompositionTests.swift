@@ -110,7 +110,8 @@ struct AccountReadAuthorizationCompositionTests {
         for allowedPaths in configuredCapabilities {
             let authorizer = BiliCredentialRequestAuthorizer(
                 store: CompositionFixtureCredentialStore(credential: credential),
-                allowedPaths: allowedPaths
+                allowedPaths: allowedPaths,
+                transport: AuthenticationHTTP.makeProductionTransport()
             )
             for path in allowedPaths {
                 let request = HTTPRequest(

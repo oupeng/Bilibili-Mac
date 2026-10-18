@@ -57,10 +57,11 @@ public struct BiliCredentialRequestAuthorizer: HTTPRequestAuthorizing, Sendable 
         self.isConfirmedSignedOut = isConfirmedSignedOut
     }
 
+    /// Keychain 与会话校验网络两个系统边界；public init 由此接入 Keychain store 与认证专用 session。
     init(
         store: any WebCredentialStoring,
         allowedPaths: Set<String>,
-        transport: any HTTPTransport = AuthenticationHTTP.makeProductionTransport(),
+        transport: any HTTPTransport,
         isConfirmedSignedOut: @escaping @Sendable () -> Bool = { false }
     ) {
         self.store = store

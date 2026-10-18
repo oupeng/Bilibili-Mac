@@ -96,14 +96,14 @@ struct PlayerHostViewIdentityTests {
                 mode: .scrolling
             )
         )
-        #expect(await waitUntil { controller.statistics.active == 1 })
+        #expect(await waitUntil { (renderer.rootLayer.sublayers?.count ?? 0) == 1 })
         let firstLayer = try #require(renderer.rootLayer.sublayers?.first)
 
         overlay.removeFromSuperview()
         #expect(overlay.window == nil)
         #expect(renderer.rootLayer.superlayer === overlay.layer)
         #expect(renderer.rootLayer.sublayers?.first === firstLayer)
-        #expect(controller.statistics.active == 1)
+        #expect((renderer.rootLayer.sublayers?.count ?? 0) == 1)
 
         overlay.frame = .zero
         overlay.layoutSubtreeIfNeeded()
@@ -115,18 +115,18 @@ struct PlayerHostViewIdentityTests {
                 mode: .top
             )
         )
-        #expect(await waitUntil { controller.statistics.active == 2 })
+        #expect(await waitUntil { (renderer.rootLayer.sublayers?.count ?? 0) == 2 })
 
         overlay.frame = secondWindow.contentView?.bounds ?? .zero
         secondWindow.contentView?.addSubview(overlay)
         overlay.layoutSubtreeIfNeeded()
         #expect(renderer.rootLayer.superlayer === overlay.layer)
         #expect(renderer.rootLayer.sublayers?.first === firstLayer)
-        #expect(controller.statistics.active == 2)
+        #expect((renderer.rootLayer.sublayers?.count ?? 0) == 2)
 
         overlay.detachSurface()
         #expect(renderer.rootLayer.superlayer == nil)
-        #expect(controller.statistics.active == 0)
+        #expect((renderer.rootLayer.sublayers?.count ?? 0) == 0)
     }
 
     private func danmakuUpdate(

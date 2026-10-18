@@ -38,7 +38,6 @@ struct CommentLinkResolverTests {
             resolver.externalURL(for: .shortLink(CommentExternalLinkReference(remoteURL: url)))
                 == url
         )
-        #expect(resolver.externalURL(for: .shortLink(CommentExternalLinkReference())) == nil)
     }
 
     @Test(arguments: ["", "0", "-1", "abc", "１２３", "999999999999999999999999"])

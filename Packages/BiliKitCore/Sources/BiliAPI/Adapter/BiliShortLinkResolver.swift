@@ -24,6 +24,7 @@ public struct BiliShortLinkResolver: Sendable {
         )
     }
 
+    /// 网络边界：`init()` 由此接入无凭据、拒绝跳转、5 秒时限的 session。
     init(transport: any HTTPTransport) {
         self.transport = transport
     }
@@ -40,7 +41,7 @@ public struct BiliShortLinkResolver: Sendable {
     /// `CommentShortLinkResolution`）。
     public func resolve(_ target: CommentLinkTarget) async -> CommentLinkTarget? {
         guard case .shortLink(let reference) = target,
-            let url = reference.remoteURL.flatMap(CommentRemoteLink.shortLinkRequestURL),
+            let url = CommentRemoteLink.shortLinkRequestURL(reference.remoteURL),
             let response = try? await transport.send(HTTPRequest(url: url, method: .head)),
             Self.redirectStatusCodes.contains(response.statusCode),
             let location = response.headers.first(where: {

@@ -92,7 +92,7 @@ final class AppSettingsModel {
         ) async throws -> [PlaybackRouteMeasurement]
 
     private(set) var state: PlaybackRouteBenchmarkState = .notTested
-    private(set) var benchmarkAccess: PlaybackRouteBenchmarkAccess
+    private(set) var benchmarkAccess: PlaybackRouteBenchmarkAccess = .resolving
     private(set) var record: PlaybackSourcePreferenceRecord
     private(set) var measurements: [PlaybackRouteMeasurement] = []
     private(set) var benchmarkSampleCount = 1
@@ -108,19 +108,19 @@ final class AppSettingsModel {
     /// 各主窗口报告的测速权限，键是窗口的 `benchmarkAuthenticationOwnerID`，关窗时注销。
     ///
     /// 按最保守的结果汇总：任一窗口未登录（含正在登出）即不允许测速，否则任一窗口已登录即允许，
-    /// 其余为确认中。
+    /// 其余（含还没有窗口报告）为确认中。
     @ObservationIgnored private var authenticationAccessByOwner:
         [UUID: PlaybackRouteBenchmarkAccess] = [:]
 
+    /// `discover`、`resetDiscovery` 与 `run` 是样本发现与测速的网络边界，由 `ProcessComposition`
+    /// 接到测速 API client 与 `BilivideoRouteBenchmark`。
     init(
         store: any PlaybackSourcePreferenceStoring,
-        benchmarkAccess: PlaybackRouteBenchmarkAccess = .signedIn,
         discover: @escaping Discover,
-        resetDiscovery: @escaping ResetDiscovery = {},
+        resetDiscovery: @escaping ResetDiscovery,
         run: @escaping Run
     ) {
         self.store = store
-        self.benchmarkAccess = benchmarkAccess
         self.discover = discover
         self.resetDiscovery = resetDiscovery
         self.run = run
@@ -130,10 +130,6 @@ final class AppSettingsModel {
     deinit {
         task?.cancel()
         discoveryResetTask?.cancel()
-    }
-
-    func synchronizeAuthentication(_ access: PlaybackRouteBenchmarkAccess) {
-        synchronizeAuthentication(access, ownerID: Self.unscopedAuthenticationOwnerID)
     }
 
     func synchronizeAuthentication(
@@ -148,8 +144,6 @@ final class AppSettingsModel {
         authenticationAccessByOwner[ownerID] = nil
         applyAuthenticationAccess()
     }
-
-    private static let unscopedAuthenticationOwnerID = UUID()
 
     private func applyAuthenticationAccess() {
         let access: PlaybackRouteBenchmarkAccess

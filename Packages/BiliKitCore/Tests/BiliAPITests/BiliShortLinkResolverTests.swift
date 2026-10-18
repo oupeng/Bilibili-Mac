@@ -72,7 +72,7 @@ struct BiliShortLinkResolverTests {
             Issue.record("站外目标应分类为外链")
             return
         }
-        #expect(reference.remoteURL?.absoluteString == "https://www.bilibili.com/read/cv42")
+        #expect(reference.remoteURL.absoluteString == "https://www.bilibili.com/read/cv42")
     }
 
     /// 不是跳转、没有或不合规的 Location、目标又是短链时都解析不出，由调用方打开原短链。
@@ -150,8 +150,7 @@ struct BiliShortLinkResolverTests {
             .video(bvid: "BV1xx411c7mD", page: nil, startSeconds: nil),
             .space(memberID: 42),
             .external(CommentExternalLinkReference(remoteURL: shortURL)),
-            .shortLink(CommentExternalLinkReference(remoteURL: malformedShortURL)),
-            .shortLink(CommentExternalLinkReference())
+            .shortLink(CommentExternalLinkReference(remoteURL: malformedShortURL))
         ]
         let transport = StubTransport(responses: [])
         let resolver = BiliShortLinkResolver(transport: transport)

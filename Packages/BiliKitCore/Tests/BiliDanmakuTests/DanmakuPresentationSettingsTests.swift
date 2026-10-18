@@ -32,14 +32,13 @@ struct DanmakuPresentationSettingsTests {
             )
         )
 
-        #expect(controller.statistics.active == 5)
-        #expect(controller.statistics.droppedNoLane == 6)
+        #expect(backend.activeEventIDs.count == 5)
         #expect(backend.renderedPlacements.map(\.overlapDepth) == [0, 0, 0, 0, 0])
 
         let clearCount = backend.clearCount
         controller.setDisplayArea(.full)
         #expect(backend.clearCount == clearCount)
-        #expect(controller.statistics.active == 5)
+        #expect(backend.activeEventIDs.count == 5)
         controller.apply(
             update(
                 identity: identity,
@@ -51,7 +50,7 @@ struct DanmakuPresentationSettingsTests {
             )
         )
 
-        #expect(controller.statistics.active == 11)
+        #expect(backend.activeEventIDs.count == 11)
         #expect(Array(backend.renderedPlacements.suffix(6)).map(\.laneIndex) == [5, 6, 7, 8, 9, 0])
         #expect(
             Array(backend.renderedPlacements.suffix(6)).map(\.overlapDepth)
@@ -109,7 +108,6 @@ struct DanmakuPresentationSettingsTests {
         )
 
         #expect(backend.renderedEventIDs == ["fast-0", "fast-1", "slow-overlap"])
-        #expect(controller.statistics.droppedNoLane == 1)
     }
 
     @Test(

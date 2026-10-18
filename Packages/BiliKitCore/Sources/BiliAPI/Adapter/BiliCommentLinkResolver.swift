@@ -24,10 +24,8 @@ public struct BiliCommentLinkResolver: Sendable {
             return Self.spaceURL(memberID)
         // 短链在这里只作解析失败时的回退：浏览器打开原短链，由 b23.tv 自己跳转。
         case .external(let reference), .shortLink(let reference):
-            guard let url = reference.remoteURL,
-                allowsUserInitiatedExternalURL(url)
-            else { return nil }
-            return url
+            let url = reference.remoteURL
+            return allowsUserInitiatedExternalURL(url) ? url : nil
         }
     }
 

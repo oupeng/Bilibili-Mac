@@ -522,6 +522,7 @@ func makeTestProcess() -> ProcessComposition {
         settings: AppSettingsModel(
             store: MemoryPlaybackSourcePreferenceStore(),
             discover: { _ in [] },
+            resetDiscovery: {},
             run: { _, _ in [] }
         ),
         nowPlaying: SystemNowPlayingController(

@@ -59,17 +59,6 @@ struct CommentAssetResolverTests {
         #expect(resolver.imageURL(for: reference, fitting: nil) == nil)
     }
 
-    @Test
-    func rejectsOpaqueReferencesWithoutInventingASource() {
-        #expect(resolver.imageURL(for: CommentAssetReference(), fitting: nil) == nil)
-        #expect(
-            resolver.imageURL(
-                for: CommentAssetReference(),
-                fitting: CommentAssetPixelBox(width: 728, height: 360)
-            ) == nil
-        )
-    }
-
     /// 带像素框时请求图床按框缩小的 WebP；动图也走同一参数（图床返回动态 WebP）。
     @Test(
         arguments: ["i0.hdslb.com", "album.biliimg.com"],

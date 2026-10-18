@@ -281,7 +281,7 @@ struct PlaybackSidebarPresentationTests: PlaybackSidebarFixtures {
         let avatarAuthor = CommentAuthor(
             id: CommentAuthorID(rawValue: "author"),
             name: "评论者",
-            avatar: CommentAssetReference()
+            avatar: fixtureAssetReference()
         )
         let plain = NativePlaybackCommentThreadPresentation(
             subject: subject,
@@ -324,7 +324,7 @@ struct PlaybackSidebarPresentationTests: PlaybackSidebarFixtures {
                         target: .video(bvid: "BV1FixtureA1", page: nil, startSeconds: nil)
                     )
                 ],
-                pictures: [CommentImage(asset: CommentAssetReference())],
+                pictures: [CommentImage(asset: fixtureAssetReference())],
                 author: verifiedAuthor
             ),
             replyState: nil

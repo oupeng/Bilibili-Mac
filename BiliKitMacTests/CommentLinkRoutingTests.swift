@@ -1,10 +1,10 @@
 import BiliAPI
-import BiliModels
 import BiliVideoDetailFeature
 import Foundation
 import Testing
 
 @testable import BiliKit
+@testable import BiliModels
 
 @Suite(.timeLimit(.minutes(1)))
 @MainActor
@@ -52,18 +52,19 @@ struct CommentLinkRoutingTests {
         #expect(seconds == 83)
     }
 
-    /// 短链先解析再打开；没有地址的引用既不发请求也没有回退。
+    /// 短链先解析再打开，解析不出时回退到原地址；不是 b23.tv 短码形状的地址解析时不发请求。
     @Test
-    func shortLinksResolveBeforeOpening() async {
+    func shortLinksResolveBeforeOpening() async throws {
+        let url = try #require(URL(string: "https://example.invalid/short"))
         guard
             case .shortLink(let resolve, let webFallback) = routing.route(
-                for: .shortLink(CommentExternalLinkReference())
+                for: .shortLink(CommentExternalLinkReference(remoteURL: url))
             )
         else {
             Issue.record("短链应先解析再打开")
             return
         }
-        #expect(webFallback == nil)
+        #expect(webFallback == url)
         #expect(await resolve() == nil)
     }
 }

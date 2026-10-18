@@ -23,21 +23,16 @@ enum WebCredentialStoreError: Error, Sendable, Equatable {
 }
 
 /// Web 凭据的唯一持久化 adapter，使用不可同步、仅本机解锁时可读的 Data Protection Keychain。
+///
+/// `operations` 是 Security.framework 的系统边界，默认为 `SystemKeychainOperations`。
 struct KeychainWebCredentialStore: WebCredentialStoring, Sendable {
-    static let productionService = "com.shiinayane.BiliKitMac.web-auth"
-    static let productionAccount = "web-credential"
+    /// 固定的 item 名称，不含 UID（见 SECURITY-MODEL §1）；改动等于换一个 item，旧登录态不迁移。
+    static let service = "com.shiinayane.BiliKitMac.web-auth"
+    static let account = "web-credential"
 
-    private let service: String
-    private let account: String
     private let operations: any KeychainOperating
 
-    init(
-        service: String = Self.productionService,
-        account: String = Self.productionAccount,
-        operations: any KeychainOperating = SystemKeychainOperations()
-    ) {
-        self.service = service
-        self.account = account
+    init(operations: any KeychainOperating = SystemKeychainOperations()) {
         self.operations = operations
     }
 
@@ -100,8 +95,8 @@ struct KeychainWebCredentialStore: WebCredentialStoring, Sendable {
     private var baseQuery: [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
+            kSecAttrService as String: Self.service,
+            kSecAttrAccount as String: Self.account,
             kSecAttrSynchronizable as String: false,
             kSecUseDataProtectionKeychain as String: true
         ]

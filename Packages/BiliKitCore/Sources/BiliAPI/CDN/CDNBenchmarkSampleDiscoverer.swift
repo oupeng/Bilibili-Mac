@@ -56,24 +56,17 @@ public actor CDNBenchmarkSampleDiscoverer {
     private static let minimumShortSide = 720
 
     private let client: BiliAPIClient
+    /// 时钟边界：样本条件按发布时间筛选、查询窗口按日期计算；`init(client:)` 读系统时间。
     private let now: @Sendable () -> Date
-    private let regionIDs: [Int]
     private var seenBVIDs: Set<String> = []
 
     public init(client: BiliAPIClient) {
-        self.client = client
-        now = Date.init
-        regionIDs = Self.regionIDs
+        self.init(client: client, now: Date.init)
     }
 
-    init(
-        client: BiliAPIClient,
-        now: @escaping @Sendable () -> Date,
-        regionIDs: [Int] = CDNBenchmarkSampleDiscoverer.regionIDs
-    ) {
+    init(client: BiliAPIClient, now: @escaping @Sendable () -> Date) {
         self.client = client
         self.now = now
-        self.regionIDs = Array(regionIDs.prefix(Self.maximumPlaybackRequestCount))
     }
 
     public func discover(targetCount: Int = 1) async throws -> [CDNBenchmarkDiscoveredSample] {
@@ -86,7 +79,7 @@ public actor CDNBenchmarkSampleDiscoverer {
         var detailRequestCount = 0
         let dateWindow = try dateWindow(at: now())
 
-        for regionID in regionIDs {
+        for regionID in Self.regionIDs {
             try Task.checkCancellation()
             guard qualified.count < targetCount,
                 metadataCount < Self.maximumMetadataCount,
