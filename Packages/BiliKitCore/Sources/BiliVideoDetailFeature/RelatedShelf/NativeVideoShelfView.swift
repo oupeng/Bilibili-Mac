@@ -296,11 +296,13 @@ struct NativeVideoShelfView: NSViewRepresentable {
             }
         }
 
+        /// 横排激活的唯一入口：点击、回车／空格与读屏按下都经这里；与网格同一规则，不可用或已不在内容里的卡片不
+        /// 回调 `onSelect`。
         private func selectAndActivate(_ id: String) {
             guard
                 !isReset,
                 isInteractionEnabled,
-                contents[id] != nil
+                contents.isActivatable(id)
             else { return }
             if let indexPath = contents.indexPath(of: id) {
                 collectionView.selectionIndexPaths = [indexPath]

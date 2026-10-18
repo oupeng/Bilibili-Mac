@@ -154,3 +154,16 @@ extension VideoPublicationFilter {
         }
     }
 }
+
+extension VideoDurationFilter {
+    /// 时长四档的标题；搜索与稍后再看的筛选弹窗都在 App，这里是这组文案的唯一位置。
+    func localizedTitle(locale: Locale = .current) -> String {
+        switch self {
+        case .all: AppStrings.localized("全部时长", locale: locale)
+        case .underTenMinutes: AppStrings.localized("10 分钟以下", locale: locale)
+        case .tenToThirtyMinutes: AppStrings.localized("10–30 分钟", locale: locale)
+        case .thirtyToSixtyMinutes: AppStrings.localized("30–60 分钟", locale: locale)
+        case .overSixtyMinutes: AppStrings.localized("60 分钟以上", locale: locale)
+        }
+    }
+}
