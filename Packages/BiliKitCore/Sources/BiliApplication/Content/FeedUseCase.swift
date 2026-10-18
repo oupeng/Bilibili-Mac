@@ -1,6 +1,7 @@
 import BiliModels
 import Foundation
 
+/// 推荐、热门、搜索三种 Feed 来源的一次请求意图；`FeedUseCase` 在交给 adapter 前校验它。
 public enum FeedRequest: Sendable, Equatable {
     case recommendation(continuation: RecommendationContinuation?)
     case popular(page: Int, pageSize: Int)
@@ -16,6 +17,7 @@ public enum FeedRequest: Sendable, Equatable {
     }
 }
 
+/// `FeedUseCase.execute` 的结果，与 `FeedRequest` 的来源一一对应；搜索结果带规范化后的查询词。
 public enum FeedContent: Sendable, Equatable {
     case recommendation(RecommendationPage)
     case popular(PopularPage)

@@ -8,6 +8,10 @@ public enum WatchHistoryDevice: Sendable, Equatable {
     case tv
 }
 
+/// 观看历史（`/x/web-interface/history/cursor`）里的一条视频，由 BiliAPI 的
+/// `WatchHistoryItemPayload` 映射产生。
+///
+/// 只保留稿件类历史；`progressSeconds` 不超过时长，接口用负数表示已看完时取整段时长。
 public struct WatchHistoryItem: Identifiable, Sendable, Equatable {
     public var id: String { bvid }
 

@@ -12,7 +12,7 @@ package struct VideoListPage<Item, Cursor> {
 /// 首页推荐、热门、搜索与观看历史共用的分页列表。
 ///
 /// 按 BVID 去重累积条目，决定何时继续、停止、暂停自动加载或要求用户显式继续，并给出近尾自动加载用的
-/// 尾标；规则见 `docs/ARCHITECTURE.md` 的浏览网格一节。
+/// 尾标；规则见 docs/ARCHITECTURE.md「原生 AppKit 集合视图」。
 ///
 /// 拥有已显示条目、下一页游标、本次分页会话已消费的游标、加载更多与原地刷新是否进行、加载更多失败、
 /// 显式继续门与尾标计数。不拥有网络请求、Task 与取消（ViewModel 的 `LatestTask`）、请求身份与账户

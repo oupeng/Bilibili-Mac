@@ -1,5 +1,8 @@
 import BiliModels
 
+/// 读取当前视频的相关推荐：去掉当前视频本身与重复的 BV，保持原顺序。
+///
+/// 由播放页的 `VideoViewModel` 调用，Task 与取消归它；空 BV 按无效请求拒绝。
 public struct RelatedVideoUseCase: Sendable {
     private let repository: any RelatedVideoRepository
 

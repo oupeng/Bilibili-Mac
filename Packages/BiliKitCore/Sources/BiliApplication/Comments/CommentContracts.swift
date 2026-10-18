@@ -1,6 +1,10 @@
 import BiliModels
 
-/// 认证与内容页同一四态：无凭据、凭据失效（唯一触发账户复核）、本地凭据读不到、风控。
+/// 评论读取的应用级错误，由 BiliAPI 的 `BiliCommentRepository` 从 `BiliAPIError.Failure` 映射，
+/// 不并入内容域。
+///
+/// 认证与内容页同一四态：无凭据、凭据失效（唯一触发账户复核）、本地凭据读不到、风控。调用方只读
+/// `requiresAccountRevalidation` 与 `isRetryable`，不各自比较错误值。
 public enum CommentReadError: Error, Sendable, Hashable {
     /// 客户端无法发出的请求：参数不合规，或授权器拒绝（path 不在 allowlist），见 SECURITY-MODEL §3。
     case invalidRequest
@@ -48,6 +52,10 @@ public struct CommentContinuation: Sendable, Equatable, Hashable {
     }
 }
 
+/// `CommentRepository.rootComments` 返回的一页主评论，尚未去重，也未判定分页是否终止。
+///
+/// `isEnd` 为真或 `continuation` 为 nil 时 `CommentUseCase` 视为远端已到底；`totalCount`
+/// 是远端报告的评论数。
 public struct CommentRootPage: Sendable, Equatable {
     public let threads: [CommentThread]
     public let totalCount: Int
@@ -67,6 +75,9 @@ public struct CommentRootPage: Sendable, Equatable {
     }
 }
 
+/// `CommentRepository.replies` 返回的一页楼中楼回复。
+///
+/// `CommentUseCase` 校验它与请求的根评论、页码、页大小一致且总数不为负，否则按无效响应处理。
 public struct CommentReplyPage: Sendable, Equatable {
     public let rootID: CommentID
     public let replies: [Comment]
@@ -90,6 +101,10 @@ public struct CommentReplyPage: Sendable, Equatable {
 }
 
 /// 匿名只读评论 port；endpoint、WBI 和远端 DTO 留在具体 adapter。
+///
+/// 实现是 BiliAPI 的 `BiliCommentRepository`，只经 `CommentUseCase` 调用。失败抛出
+/// `CommentReadError`，取消原样传播为 `CancellationError`；分页令牌只能回传 adapter 自己发出的
+/// `CommentContinuation`。
 public protocol CommentRepository: Sendable {
     func rootComments(
         for subject: CommentSubjectIdentity,
@@ -105,12 +120,21 @@ public protocol CommentRepository: Sendable {
     ) async throws -> CommentReplyPage
 }
 
+/// 主评论分页停止的原因，由 `CommentUseCase.loadRoots` 判定。
+///
+/// `serverEnd`：远端表示已到底；`emptyPage`：本页没有评论；`duplicatePage`：
+/// 本页全部与已显示的重复。后两种仍带回游标，但评论 ViewModel 不再翻页，侧栏显示为“已停止”
+/// 而不是“已到底”。
 public enum CommentPaginationTermination: Sendable, Equatable {
     case serverEnd
     case emptyPage
     case duplicatePage
 }
 
+/// `CommentUseCase.loadRoots` 交给评论 ViewModel 的一批主评论，已按 `CommentID`
+/// 去掉与已显示及本页前文重复的条目。
+///
+/// `termination` 为 nil 表示可以继续翻页；为 `.serverEnd` 时 `continuation` 一定为 nil。
 public struct CommentRootBatch: Sendable, Equatable {
     public let threads: [CommentThread]
     public let totalCount: Int
@@ -130,6 +154,9 @@ public struct CommentRootBatch: Sendable, Equatable {
     }
 }
 
+/// `CommentUseCase.loadReplies` 交给评论 ViewModel 的一页楼中楼，页内已按 `CommentID` 去重。
+///
+/// `isEnd` 在本页已是按总数推算的最后一页，或本页为空时为真。
 public struct CommentReplyBatch: Sendable, Equatable {
     public let rootID: CommentID
     public let replies: [Comment]

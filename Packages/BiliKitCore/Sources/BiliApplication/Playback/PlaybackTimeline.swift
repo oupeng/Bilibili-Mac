@@ -35,17 +35,29 @@ public struct PlaybackResumeToken: Sendable, Hashable {
     }
 }
 
+/// `PlaybackControlling.beginPlayback` 的结果。
+///
+/// `rejected`：intent 或 identity 已过期、item 未就绪、已在播放或已观察到用户操作；
+/// `startedAtBeginning`：就绪位置接近开头；`resumed`：从续播位置开播，附带只对这次开播有效的
+/// `PlaybackResumeToken`，供续播浮层“从头播放”使用。
 public enum PlaybackStartOutcome: Sendable, Equatable {
     case rejected
     case startedAtBeginning
     case resumed(positionSeconds: Double, token: PlaybackResumeToken)
 }
 
+/// 续播位置的取舍规则，由 `VideoUseCase` 选择续播位置时读取。
 public enum PlaybackResumePolicy {
     /// 接近片尾的服务器位置按已看完处理，避免恢复到结束画面。
+    ///
+    /// 调大会让更多接近片尾的位置改为从头播放，调小则可能续播到只剩几秒的片尾。
     public static let completedThresholdSeconds = 5.0
 }
 
+/// 播放器 adapter 发布的终态失败，带失败时的 identity 与 load intent。
+///
+/// 订阅方（播放页的 `VideoViewModel`）必须同时比对两者，只处理仍是当前加载意图的失败，丢弃旧 item
+/// 的事件。
 public struct PlaybackFailureEvent: Sendable, Equatable {
     public let identity: PlaybackItemIdentity
     public let intent: PlaybackLoadIntent
@@ -56,6 +68,10 @@ public struct PlaybackFailureEvent: Sendable, Equatable {
     }
 }
 
+/// 时间线的播放状态。
+///
+/// `ended` 只描述当前终点，seek 或重播形成新时间段后变回 `paused`；`failed` 由 adapter 在当前 item
+/// 失败时写入，速率同时归零。
 public enum PlaybackTimelineState: Sendable, Equatable {
     case idle
     case loading
@@ -114,7 +130,11 @@ public struct PlaybackTimelineSnapshot: Sendable, Equatable {
     }
 }
 
-/// 播放器之外各消费方（弹幕、观看进度、播放器浮层与 Now Playing）共用的播放时钟；新订阅者应先得到当前快照。
+/// 播放器之外各消费方（弹幕、观看进度、播放器浮层与 Now Playing）共用的播放时钟。
+///
+/// 实现是 BiliPlayback 的 `AVPlayerEngine`，见 docs/ARCHITECTURE.md「媒体时间轴」。
+/// 新订阅者应先得到当前快照；消费者不自建计时器，用 `discontinuityGeneration`
+/// 而不是秒数判断时间是否连续。
 @MainActor
 public protocol PlaybackTimelineProviding: AnyObject {
     var currentTimelineSnapshot: PlaybackTimelineSnapshot { get }
@@ -126,6 +146,9 @@ public protocol PlaybackTimelineProviding: AnyObject {
 }
 
 /// Feature 可驱动的最小播放命令边界；具体 AVPlayer 和 bridge 生命周期留在 adapter。
+///
+/// 实现是 BiliPlayback 的 `AVPlayerEngine`，调用方是播放页的 `VideoViewModel`。`beginPlayback` 与
+/// `restartFromBeginning` 在实现里与当前 item 的 identity、intent 比对，已过期的意图被拒绝。
 @MainActor
 public protocol PlaybackControlling: AnyObject {
     /// 只发布 adapter 已按当前 item token／generation 验证过的终态失败。每次调用得到独立订阅，
@@ -154,11 +177,19 @@ public protocol PlaybackControlling: AnyObject {
     func stop()
 }
 
+/// `PlaybackTimelineStore.beginItem` 发出的不可复用 item token；值只能在本文件构造，持有旧 token
+/// 的写入会被 store 丢弃。
 package struct PlaybackTimelineItemToken: Sendable, Equatable {
     fileprivate let value: UUID
 }
 
 /// 以不可复用 item token 拒绝旧 AVPlayer observer 写回的时间线状态容器。
+///
+/// 由 BiliPlayback 的 `AVPlayerTimelineAdapter` 持有并写入，它在每个新 item 时调用 `beginItem`
+/// 取得 token。拥有当前快照、当前 token、`AsyncBroadcast` 订阅与同步 observer 表，不拥有 AVPlayer
+/// 或 KVO observation。只有当前 token 的写入生效，`clear(token: nil)` 不比对 token；
+/// 相同快照不重复发布。`discontinuityGeneration` 在 `beginItem`、`markDiscontinuity` 与 `clear`
+/// 时递增。
 @MainActor
 package final class PlaybackTimelineStore {
     package private(set) var currentSnapshot = PlaybackTimelineSnapshot.idle

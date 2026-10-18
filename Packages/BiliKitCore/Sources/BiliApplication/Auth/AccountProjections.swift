@@ -9,6 +9,7 @@ public enum AccountSessionScope: Sendable, Equatable {
     case signedOut
     case signedIn(accountID: Int64?)
 
+    /// 两侧都已解析且不相同才算账户切换；从 `unresolved` 解析出结果不算切换。
     public static func isResolvedChange(from previous: Self, to current: Self) -> Bool {
         previous != .unresolved && current != .unresolved && previous != current
     }

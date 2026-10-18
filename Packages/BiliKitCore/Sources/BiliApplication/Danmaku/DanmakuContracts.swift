@@ -20,6 +20,11 @@ extension DanmakuApplicationError {
     }
 }
 
+/// 弹幕分段读取 port，实现是 BiliAPI 的 `BiliDanmakuRepository`，只经 `DanmakuSegmentUseCase`
+/// 调用。
+///
+/// 失败抛出 `DanmakuApplicationError`，取消原样传播为 `CancellationError`。被 HTTP 412
+/// 拒绝时的一次重试在 API 客户端内完成，调用方不再叠加重试，见 SECURITY-MODEL §3。
 public protocol DanmakuSegmentRepository: Sendable {
     func segment(
         index: Int,
@@ -29,6 +34,8 @@ public protocol DanmakuSegmentRepository: Sendable {
 
 /// 验证弹幕分段请求边界，并拒绝 adapter 返回与请求 index 不一致的结果。
 public struct DanmakuSegmentUseCase: Sendable {
+    /// 分段序号上限：每段 360 秒，约合 1000 小时，远超任何稿件时长，只用来拒绝越界的序号；
+    /// 调小会让超长视频后段请求不到弹幕。
     public static let maximumSegmentIndex = 10_000
 
     private let repository: any DanmakuSegmentRepository

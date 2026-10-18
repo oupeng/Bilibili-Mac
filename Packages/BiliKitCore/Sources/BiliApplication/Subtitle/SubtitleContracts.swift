@@ -1,5 +1,7 @@
 import BiliModels
 
+/// 字幕读取的应用级错误，由 BiliAPI 的 `BiliSubtitleRepository` 从 `BiliAPIError.Failure` 映射。
+///
 /// 认证与内容页同一四态：无凭据、凭据失效（唯一触发账户复核）、本地凭据读不到、风控。
 public enum SubtitleApplicationError: Error, Sendable, Equatable {
     case invalidRequest
@@ -20,6 +22,10 @@ extension SubtitleApplicationError {
 }
 
 /// 字幕目录与正文的 identity-scoped port。
+///
+/// 实现是 BiliAPI 的 `BiliSubtitleRepository`，只经 `SubtitleUseCase` 调用（BiliPlayback
+/// 的播放引擎与字幕来源）。失败抛出 `SubtitleApplicationError`，取消原样传播为
+/// `CancellationError`；目录只按账户读取，正文从不携带凭据，见 SECURITY-MODEL §3。
 ///
 /// `reset` 是 adapter 清除当前身份 URL 映射的生命周期操作，不是一般缓存清理。
 public protocol SubtitleRepository: Sendable {
