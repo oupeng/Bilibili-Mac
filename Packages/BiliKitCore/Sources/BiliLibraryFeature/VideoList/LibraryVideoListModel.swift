@@ -82,8 +82,8 @@ public final class LibraryVideoListModel<
     /// 复核结束（`authenticationRevalidationSucceeded`／`authenticationRevalidationFailed`）、
     /// 加载成功、离开页面或 `reset` 时清除。
     public private(set) var isAwaitingAuthenticationRevalidation = false
-    /// 最近一次成功的第一页给出的总条数（来源给出时），条件下的总数随加载成功更新；首次加载、条件变化、失败与
-    /// `reset` 时清空，只在已显示内容时有值。
+    /// 来源给出的当前条件下的总条数：第一页与加载更多成功时都按响应更新；首次加载、条件变化、失败与 `reset` 时
+    /// 清空，只在已显示内容时有值。
     public private(set) var totalCount: Int?
 
     /// 已有条目时的原地刷新正在进行；首次加载仍是 `.loading`。
@@ -100,7 +100,7 @@ public final class LibraryVideoListModel<
     /// 无进展页保留游标时（显式继续策略），必须由用户显式继续，避免 near-end 连续扫描；原地刷新期间收起，
     /// 刷新失败后恢复。
     ///
-    /// 停止策略的来源总是 false。
+    /// 停止策略的来源总是 false：它们没有显式继续入口，加载更多被认证会话切换打断时改记为可重试的加载更多失败。
     public var requiresManualLoadMore: Bool {
         list.offersManualContinue
     }
@@ -215,10 +215,20 @@ public final class LibraryVideoListModel<
                 let result = try await load(continuation)
                 guard isCurrent() else { return }
                 list.apply(result.page, requested: continuation, bvid: bvid)
+                if let totalCount = result.totalCount {
+                    self.totalCount = totalCount
+                }
             } catch is CancellationError {
-                // 认证切换带来的取消只保留已显示条目，并要求用户显式继续。
+                // 认证切换带来的取消只保留已显示条目，不变成自动扫描。显式继续策略的来源（历史）要求用户显式继续；
+                // 停止策略的来源（稍后再看）没有显式继续入口，记为可重试的加载更多失败，底部的重试请求同一游标，
+                // 否则底部既没有入口也不再自动加载。
                 guard isCurrent() else { return }
-                list.cancelLoadMore(requiringManualContinue: true)
+                switch stallPolicy {
+                case .requireManualContinue:
+                    list.cancelLoadMore(requiringManualContinue: true)
+                case .stop:
+                    list.failLoadMore(.unavailable)
+                }
             } catch {
                 guard isCurrent() else { return }
                 let failure = error as? ContentApplicationError ?? .unavailable

@@ -251,4 +251,48 @@ struct WatchLaterViewModelTests {
         )
         #expect(await repository.requestedPages == [1, 2, 1])
     }
+
+    /// 加载更多途中认证会话切换（请求以取消结束而本任务未被取消）：保留条目与游标，记为可重试的加载更多失败，
+    /// 重试请求同一页；不会停在既没有入口也不再自动加载的状态。
+    @Test
+    @MainActor
+    func sessionSwitchDuringLoadMoreLeavesARetryableFailure() async {
+        let repository = WatchLaterRepositoryStub(
+            results: [
+                laterPage(["BV1LaterA1"], page: 1, next: 2, total: 2),
+                .failure(CancellationError()),
+                laterPage(["BV1LaterB2"], page: 2, next: nil, total: 3)
+            ]
+        )
+        let model = WatchLaterViewModel(useCase: WatchLaterUseCase(repository: repository))
+
+        model.loadIfNeeded()
+        await model.waitForCurrentTask()
+        model.loadMore()
+        await model.waitForCurrentTask()
+
+        guard case .loaded(let items, let continuation, let loadMoreError) = model.state else {
+            Issue.record("会话切换后应保持 loaded")
+            return
+        }
+        #expect(items == [laterItem("BV1LaterA1")])
+        #expect(continuation == WatchLaterRequest(page: 2))
+        #expect(loadMoreError?.isRetryable == true)
+        #expect(!model.requiresManualLoadMore)
+
+        model.loadMore()
+        await model.waitForCurrentTask()
+
+        #expect(await repository.requestedPages == [1, 2, 2])
+        #expect(
+            model.state
+                == .loaded(
+                    items: [laterItem("BV1LaterA1"), laterItem("BV1LaterB2")],
+                    continuation: nil,
+                    loadMoreError: nil
+                )
+        )
+        // 加载更多成功时总数按响应更新。
+        #expect(model.totalCount == 3)
+    }
 }
