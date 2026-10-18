@@ -22,7 +22,7 @@ public enum FavoriteFolderListState: Sendable, Equatable {
 /// 范围读取（`accountScope`），adapter 不自己取账户。
 ///
 /// 与其他资料库来源不同，它是窗口级复核参与者（不绑定来源）：列表是侧栏常驻的元数据，窗口已登录就读取，不论当前来源；
-/// 首次加载由侧栏组出现时的 `synchronize()` 触发（未解析到已登录不算账户变化，不会收到账户变化通知），账户范围变化时由
+/// 首次加载由导航侧栏出现时的 `synchronize()` 触发（未解析到已登录不算账户变化，不会收到账户变化通知），账户范围变化时由
 /// 收藏夹来源的描述 `reset` 后重新 `synchronize()`，关窗与其他窗口换号时 `reset`。夹内视频仍绑定收藏夹来源，不在本页时
 /// 不读取（见 SECURITY-MODEL §3）。
 @MainActor
@@ -58,7 +58,8 @@ public final class FavoriteFolderListModel: AccountRevalidationParticipant {
     /// 列表请求的最新意图 Task：新请求替换旧请求，迟到结果经 `isCurrent` 丢弃；`reset` 取消。
     @ObservationIgnored private let loadTask = LatestTask()
 
-    /// `accountScope` 是窗口此刻的账户范围，每次开始读取时求值，mid 取自其中。
+    /// `accountScope` 是窗口此刻可用于读取的账户范围，每次开始读取时求值，mid 取自其中；App 在认证仍在确认或其他窗口
+    /// 换号、本窗口复核未完时给出 `unresolved`。
     public init(
         useCase: FavoritesUseCase,
         accountScope: @escaping @MainActor () -> AccountSessionScope
@@ -68,9 +69,9 @@ public final class FavoriteFolderListModel: AccountRevalidationParticipant {
     }
 
     /// 按窗口此刻的账户范围对齐列表：已登录且 mid 已知时，列表不属于这个 mid 就丢弃，空闲时加载；mid 未知时显示说明；
-    /// 未登录时丢弃。
+    /// 未登录时丢弃；范围无法确认（`unresolved`）时不动作。
     ///
-    /// 侧栏「收藏夹」组出现与账户范围变化时调用（`.task(id:)`），复核结束后也经它恢复；已加载或加载中时不重复请求。
+    /// 导航侧栏出现与账户范围变化时调用（`.task(id:)`），复核结束后也经它恢复；已加载或加载中时不重复请求。
     public func synchronize() {
         switch accountScope() {
         case .signedIn(let accountID?):
@@ -82,8 +83,12 @@ public final class FavoriteFolderListModel: AccountRevalidationParticipant {
         case .signedIn(nil):
             reset()
             state = .accountUnidentified
-        case .signedOut, .unresolved:
+        case .signedOut:
             reset()
+        case .unresolved:
+            // 账户范围此刻无法确认（仍在确认登录，或其他窗口换号、本窗口复核未完）：既不读取也不丢弃，复核结束后由
+            // 复核结果或账户变化重新对齐。
+            break
         }
     }
 

@@ -440,7 +440,8 @@ Repository adapter 只调用 endpoint 方法，不自行构造 `RequestAccess`�
 只在该来源是当前来源时收到（绑定关系只来自来源描述）（稍后再看、观看历史与收藏夹的夹内页面：复核成功后自动重载至多一次、失败时给可重试说明），
 不在本页时不在后台读取账户内容。收藏夹列表是例外：它是侧栏常驻的元数据（名称、私密、默认），按窗口级（不绑定来源）登记，
 窗口已登录就读取、复核结果不论当前来源都交给它；首次读取由导航侧栏出现时按窗口账户范围触发（未解析到已登录不算账户
-变化），mid 只取自窗口账户范围（`AccountSessionScope.signedIn(accountID:)`），adapter 不自己取账户。夹内视频仍绑定收藏夹来源。
+变化），mid 只取自窗口账户范围（`AccountSessionScope.signedIn(accountID:)`），adapter 不自己取账户；认证仍在确认、或其他窗口
+换号而本窗口还没复核到（`AccountSessionCoordinator.awaitsRevalidation`）时不读取，外部复核结束后重新对齐。夹内视频仍绑定收藏夹来源。
 Feature 不直接调用认证服务，也不经单独回调。heartbeat 写请求例外，不触发复核。
 
 多窗口共享一个 App 级账户 session coordinator：窗口出现后注册其 API transport，登出／换号／凭据

@@ -118,9 +118,16 @@ final class WindowComposition {
         self.watchLaterSession = watchLaterSession
         self.historyModel = historyModel
         let favoritesUseCase = FavoritesUseCase(repository: adapters.favoritesRepository)
+        let accountSession = process.accountSession
         let favoriteFolderList = FavoriteFolderListModel(
             useCase: favoritesUseCase,
-            accountScope: { authenticationModel.sessionScope }
+            accountScope: {
+                Self.favoriteFolderReadingScope(
+                    windowScope: authenticationModel.sessionScope,
+                    isRestoring: authenticationModel.resolutionPhase == .restoring,
+                    accountSession: accountSession
+                )
+            }
         )
         let favoriteFolders = FavoriteFolderViewModel(
             useCase: favoritesUseCase,
@@ -201,6 +208,28 @@ final class WindowComposition {
         if isOpen {
             adapters.close()
         }
+    }
+
+    /// 其他窗口换号引起的本窗口复核结束后由 `AppRootView` 调用：复核前收藏夹列表已被丢弃，复核得出的范围没变时不会有
+    /// 账户变化通知，这里让它按此刻的范围重新对齐（范围变了时与账户变化通知重复调用也无妨，已在读取就不再请求）。
+    func externalSessionRevalidationDidFinish() {
+        favoriteFolderList.synchronize()
+    }
+
+    /// 收藏夹列表此刻按哪个账户范围读取：认证仍在确认、或其他窗口换号而本窗口还没复核到时为 `unresolved`（列表不读取、
+    /// 也不丢弃），否则是本窗口的范围。
+    ///
+    /// 复核期间窗口范围仍是旧账户，Keychain 里却可能已是新账户的 Cookie 或没有凭据：此时读取会用新 Cookie 读旧 mid，
+    /// 把旧账户的公开收藏夹显示出来，凭据失败还会触发一次普通复核、替换掉进行中的外部复核。见 SECURITY-MODEL §2、§3。
+    static func favoriteFolderReadingScope(
+        windowScope: AccountSessionScope,
+        isRestoring: Bool,
+        accountSession: AccountSessionCoordinator
+    ) -> AccountSessionScope {
+        guard !isRestoring, !accountSession.awaitsRevalidation(ofWindowScope: windowScope) else {
+            return .unresolved
+        }
+        return windowScope
     }
 
     func markWindowActive() {

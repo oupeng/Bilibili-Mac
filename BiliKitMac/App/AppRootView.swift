@@ -243,16 +243,19 @@ struct AppRootView: View {
     /// 其他窗口换号后，让本窗口先复核再按进程代次通知来源。
     ///
     /// 先丢弃要求账户的来源的内容，让本窗口认证 owner 完成凭据复核和 transport 失效，再按进程代次通知不要求
-    /// 账户的来源。要求账户的来源由复核得出的范围变化（`historyAccountScope` 的 onChange）重新加载。
+    /// 账户的来源。要求账户的来源由复核得出的范围变化（`historyAccountScope` 的 onChange）重新加载；复核得出的范围不变时
+    /// 没有这次变化，由 `WindowComposition.externalSessionRevalidationDidFinish()` 让被提前丢弃的收藏夹列表重新对齐。
     private func synchronizeProcessAccountSession() async {
         let processGeneration = accountSessionCoordinator.generation
-        guard accountSessionCoordinator.scope != historyAccountScope else {
+        guard accountSessionCoordinator.awaitsRevalidation(ofWindowScope: historyAccountScope)
+        else {
             return
         }
         navigationCoordinator.closePlaybackForAuthenticationChange()
         window.sources.resetAccountContent()
         authenticationModel.revalidateAfterExternalSessionChange()
         await authenticationModel.waitForCurrentTask()
+        window.externalSessionRevalidationDidFinish()
         guard accountSessionCoordinator.generation == processGeneration else {
             return
         }
