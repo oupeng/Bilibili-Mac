@@ -39,6 +39,8 @@ struct AppRootView: View {
             watchLaterModel: window.watchLaterModel,
             watchLaterSession: window.watchLaterSession,
             historyModel: historyModel,
+            favoriteFolderList: window.favoriteFolderList,
+            favoriteFolders: window.favoriteFolders,
             trendingSearchModel: window.trendingSearchModel,
             searchSession: window.searchSession,
             searchHistory: window.process.searchHistory,
@@ -88,8 +90,8 @@ struct AppRootView: View {
                 return
             }
             accountSessionCoordinator.publish(scope)
-            // 先通知不要求账户的来源（Browse 重启当前路由），关闭播放，再通知要求账户的来源（稍后再看与观看历史
-            // 清空并按需重载）。
+            // 先通知不要求账户的来源（Browse 重启当前路由），关闭播放，再通知要求账户的来源（稍后再看、观看历史与
+            // 收藏夹清空并按需重载）；最后，当前来源所在的组在新范围下不再显示（登出时的收藏夹）就回到首页。
             notifyAccountSessionChange(
                 generation: accountSessionCoordinator.generation,
                 scope: scope,
@@ -100,6 +102,10 @@ struct AppRootView: View {
                 generation: accountSessionCoordinator.generation,
                 scope: scope,
                 requiringAccount: true
+            )
+            navigationCoordinator.selectedTab = window.sources.route(
+                afterAccountChangeFrom: navigationCoordinator.selectedTab,
+                scope: scope
             )
         }
         .task(id: accountSessionCoordinator.generation) {
@@ -218,7 +224,7 @@ struct AppRootView: View {
             .popular
         case .search:
             window.searchSession.browseActivation
-        case .watchLater, .history:
+        case .watchLater, .history, .favorites:
             .inactive
         }
     }

@@ -56,6 +56,8 @@ struct AccountReadAuthorizationCompositionTests {
                 "/x/v2/history/toview/web",
                 "/x/v2/reply/reply",
                 "/x/v2/reply/wbi/main",
+                "/x/v3/fav/folder/created/list-all",
+                "/x/v3/fav/resource/list",
                 "/x/web-interface/archive/related",
                 "/x/web-interface/card",
                 "/x/web-interface/history/cursor",
@@ -90,6 +92,8 @@ struct AccountReadAuthorizationCompositionTests {
             (BiliAccountReadPath.uploaderCard, "/x/web-interface/card"),
             (BiliAccountReadPath.watchHistory, "/x/web-interface/history/cursor"),
             (BiliAccountReadPath.watchLater, "/x/v2/history/toview/web"),
+            (BiliAccountReadPath.favoriteFolders, "/x/v3/fav/folder/created/list-all"),
+            (BiliAccountReadPath.favoriteFolderContent, "/x/v3/fav/resource/list"),
             (BiliAccountReadPath.popular, "/x/web-interface/popular"),
             (BiliAccountReadPath.recommendations, "/x/web-interface/wbi/index/top/feed/rcmd"),
             (BiliAccountReadPath.videoSearch, "/x/web-interface/wbi/search/type")

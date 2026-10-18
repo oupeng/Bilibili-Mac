@@ -59,6 +59,11 @@ public final class FavoriteFolderViewModel: AccountRevalidationParticipant {
         return folderList.folders.first { $0.id == selectedFolderID }
     }
 
+    /// 选中的收藏夹名称，App 用作导航标题；列表还没到或已不含它时为 nil。
+    public var selectedFolderTitle: String? {
+        selectedFolder?.title
+    }
+
     /// 当前条件下的总条数（有关键词时是过滤后的条数）；翻页加载与失败期间保留，换夹或换条件后、第一页到达前为 nil。
     public var totalCount: Int? {
         paging.totalCount

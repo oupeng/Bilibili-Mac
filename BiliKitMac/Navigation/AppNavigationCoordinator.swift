@@ -11,6 +11,8 @@ enum AppTab: Hashable, CaseIterable {
     case popular
     case watchLater
     case history
+    /// 收藏夹：侧栏「收藏夹」组里每个收藏夹一行（`AppSidebarSelection.item`），选中的收藏夹记在收藏夹模型里。
+    case favorites
 }
 
 /// 播放层在 `NavigationStack` 路径里的唯一元素，只标识播放 surface，不携带视频。

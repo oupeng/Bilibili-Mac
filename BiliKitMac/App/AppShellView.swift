@@ -22,6 +22,8 @@ struct AppShellView: View {
     let watchLaterModel: WatchLaterViewModel
     let watchLaterSession: WatchLaterSession
     let historyModel: WatchHistoryViewModel
+    let favoriteFolderList: FavoriteFolderListModel
+    let favoriteFolders: FavoriteFolderViewModel
     let trendingSearchModel: TrendingSearchViewModel
     let searchSession: VideoSearchSession
     let searchHistory: SearchHistoryStore
@@ -37,6 +39,10 @@ struct AppShellView: View {
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var gridScroll = SourceGridScrollStates()
     @State private var commentImagePreview: NativeCommentImagePreviewRequest?
+    /// 侧栏「收藏夹」组是否展开；只在窗口内存里，默认展开。
+    ///
+    /// 放在这里而不是侧栏里：进入、退出播放时导航侧栏会重建。
+    @State private var isFavoritesExpanded = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -53,6 +59,9 @@ struct AppShellView: View {
                         AppNavigationSidebar(
                             sections: sources.sections,
                             selection: sidebarSelection,
+                            favoriteFolderList: favoriteFolderList,
+                            isFavoritesExpanded: $isFavoritesExpanded,
+                            accountScope: historyAccountScope,
                             accountState: authenticationModel.accountPresentationState,
                             imagePipeline: imagePipeline,
                             onPresentAuthentication: {
@@ -138,7 +147,8 @@ struct AppShellView: View {
             else {
                 return
             }
-            // 账户变化会替换每个来源的内容（Browse 丢弃全部工作集，稍后再看与观看历史随账户重载），所有网格都回到顶部。
+            // 账户变化会替换每个来源的内容（Browse 丢弃全部工作集，稍后再看、观看历史与收藏夹随账户重载），所有网格都
+            // 回到顶部。
             for tab in AppTab.allCases {
                 scrollToTop(tab)
             }
@@ -360,6 +370,17 @@ struct AppShellView: View {
                 model: historyModel,
                 accountState: authenticationModel.accountPresentationState,
                 gridHost: gridHost(.history),
+                onSelect: navigationCoordinator.openPlayback,
+                onPresentAuthentication: {
+                    isAuthenticationPresented = true
+                }
+            )
+        case .favorites:
+            FavoritesTabRoot(
+                title: sources[.favorites].title,
+                model: favoriteFolders,
+                accountState: authenticationModel.accountPresentationState,
+                gridHost: gridHost(.favorites),
                 onSelect: navigationCoordinator.openPlayback,
                 onPresentAuthentication: {
                     isAuthenticationPresented = true

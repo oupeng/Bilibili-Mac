@@ -8,7 +8,8 @@ import SwiftUI
 /// 窗口级组装：一个窗口必须同代、跨 SwiftUI `body` 重算保持稳定的整个对象图，由 `AppRootView` 在视图身份首次
 /// 出现时构造一次（`ProcessComposition.makeWindow()`）。
 ///
-/// 拥有本窗口的全部模型（浏览、视频、评论、弹幕、认证、稍后再看与稍后再看会话、观看历史、UP 主空间、热搜与联想、搜索会话）、导航协调、
+/// 拥有本窗口的全部模型（浏览、视频、评论、弹幕、认证、稍后再看与稍后再看会话、观看历史、收藏夹列表与夹内页面、UP 主空间、热搜与
+/// 联想、搜索会话）、导航协调、
 /// 来源描述与复核参与者、播放器视图、窗口图片管线、评论短链解析与图片保存、Now Playing 与观看进度的连接，以及
 /// 经 `WindowAdapters` 拿到的具体实现。只引用进程级对象（账户会话、设置、Now Playing 控制器、搜索历史），不创建
 /// 也不关闭它们。视频、弹幕模型与播放器视图必须共享 adapter 里同一个播放器；分别重建会让画面、时间线与弹幕指向
@@ -31,6 +32,10 @@ final class WindowComposition {
     /// 稍后再看的排序、筛选与关键词；关窗与账户变化时由稍后再看来源的描述恢复默认。
     let watchLaterSession: WatchLaterSession
     let historyModel: WatchHistoryViewModel
+    /// 侧栏「收藏夹」组的列表；窗口级复核参与者，mid 取自本窗口认证模型的账户范围。
+    let favoriteFolderList: FavoriteFolderListModel
+    /// 收藏夹来源的选择、条件与夹内内容；经收藏夹来源的描述绑定来源。
+    let favoriteFolders: FavoriteFolderViewModel
     let trendingSearchModel: TrendingSearchViewModel
     let searchSuggestionSource: SearchSuggestionSource
     /// 搜索来源的草稿、筛选与已提交的条件；关窗时由搜索来源的描述 reset。
@@ -103,14 +108,26 @@ final class WindowComposition {
         self.videoModel = videoModel
         self.commentsModel = commentsModel
         self.danmakuModel = danmakuModel
-        authenticationModel = AuthenticationViewModel(
+        let authenticationModel = AuthenticationViewModel(
             service: adapters.authenticationService,
             qrCodeProvider: adapters.authenticationQRCodeProvider
         )
+        self.authenticationModel = authenticationModel
         self.watchLaterModel = watchLaterModel
         let watchLaterSession = WatchLaterSession(model: watchLaterModel)
         self.watchLaterSession = watchLaterSession
         self.historyModel = historyModel
+        let favoritesUseCase = FavoritesUseCase(repository: adapters.favoritesRepository)
+        let favoriteFolderList = FavoriteFolderListModel(
+            useCase: favoritesUseCase,
+            accountScope: { authenticationModel.sessionScope }
+        )
+        let favoriteFolders = FavoriteFolderViewModel(
+            useCase: favoritesUseCase,
+            folderList: favoriteFolderList
+        )
+        self.favoriteFolderList = favoriteFolderList
+        self.favoriteFolders = favoriteFolders
         self.trendingSearchModel = trendingSearchModel
         searchSuggestionSource = SearchSuggestionSource(
             useCase: SearchSuggestionUseCase(repository: adapters.searchSuggestionRepository)
@@ -125,12 +142,15 @@ final class WindowComposition {
             watchLaterModel: watchLaterModel,
             watchLaterSession: watchLaterSession,
             historyModel: historyModel,
+            favoriteFolderList: favoriteFolderList,
+            favoriteFolders: favoriteFolders,
             searchSession: searchSession,
             trendingSearchModel: trendingSearchModel
         )
         self.sources = sources
+        // 收藏夹列表是侧栏常驻的元数据，窗口已登录就读取，不绑定来源；夹内页面经收藏夹来源的描述绑定。
         let windowWide: [any AccountRevalidationParticipant] = [
-            videoModel, browseModel, danmakuModel, commentsModel, uploaderSpace
+            videoModel, browseModel, danmakuModel, commentsModel, uploaderSpace, favoriteFolderList
         ]
         revalidationParticipants = AccountRevalidationParticipants(
             entries: windowWide.map { .init(participant: $0, route: nil) }

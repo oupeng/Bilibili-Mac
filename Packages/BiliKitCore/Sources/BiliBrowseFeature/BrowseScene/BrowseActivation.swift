@@ -6,7 +6,7 @@ public enum BrowseActivation: Hashable, Sendable {
     case popular
     /// 搜索页；还没有提交搜索时为 nil，此时停用 Browse 路由、显示起始页。
     case search(criteria: VideoSearchCriteria?)
-    /// 当前来源不由 Browse 承担（稍后再看、观看历史）。
+    /// 当前来源不由 Browse 承担（稍后再看、观看历史、收藏夹）。
     case inactive
 }
 

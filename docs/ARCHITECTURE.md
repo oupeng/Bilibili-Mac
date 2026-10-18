@@ -49,11 +49,11 @@ BiliNetworking 不依赖任何 Bili 模块
 | `BiliAuth` | Web QR 状态机、Cookie envelope、Keychain store、请求授权器，实现 `AuthenticationServicing` | `BiliAPI`、`BiliPlayback`、`BiliDanmaku`、Feature、UI 框架 |
 | `BiliPlayback` | DASH→HLS bridge、loopback server、SIDX、`AVPlayerEngine`、线路偏好与测速、响度 tap | `BiliAPI`、`BiliAuth` |
 | `BiliDanmaku` | 弹幕会话、按媒体时间调度、lane 分配、Core Animation renderer | `BiliAPI`、`BiliAuth`、`BiliNetworking`、`BiliPlayback`、Feature、SwiftUI |
-| `Bili*Feature` | SwiftUI View 与 `@MainActor` ViewModel；Browse（Feed/Search，含推荐、热门、搜索的原生网格、热搜图标的取图 port `TrendingSearchIconLoading`、搜索会话 `VideoSearchSession`（草稿、排序与筛选、提交，以及来源到工作集的激活 `BrowseActivation`））、Library（观看历史与稍后再看：两者共用的资料库列表 ViewModel `LibraryVideoListModel`、按账户呈现状态渲染的登录门槛、刷新与原生网格，各来源只给出读取、翻页策略、文案与卡片映射；稍后再看的不可用条目映射为不可用卡片；稍后再看的排序、筛选与关键词在每个窗口一份的会话 `WatchLaterSession`）、Auth（扫码登录、登出与账户投影的来源），播放页见下一行。共享的 AppKit 卡片与网格经 `BiliVideoCollectionUI` 渲染 | adapter target、其他 Feature、直接 import AppKit/AVKit/AVFoundation（播放页的例外见下一行） |
+| `Bili*Feature` | SwiftUI View 与 `@MainActor` ViewModel；Browse（Feed/Search，含推荐、热门、搜索的原生网格、热搜图标的取图 port `TrendingSearchIconLoading`、搜索会话 `VideoSearchSession`（草稿、排序与筛选、提交，以及来源到工作集的激活 `BrowseActivation`））、Library（观看历史、稍后再看与收藏夹：三者共用登录门槛、工具栏控件与刷新的外壳 `LibrarySourceShell`、账户复核进度 `LibraryAccountRevalidation` 与不可用原因的文字 `LibraryUnavailabilityFormatting`；观看历史与稍后再看共用资料库列表 ViewModel `LibraryVideoListModel` 与原生网格，各来源只给出读取、翻页策略、文案与卡片映射；稍后再看与收藏夹的不可用条目映射为不可用卡片；稍后再看的排序、筛选与关键词在每个窗口一份的会话 `WatchLaterSession`；收藏夹按页整体替换，不走 `PagedVideoList`：侧栏的收藏夹列表 `FavoriteFolderListModel` 与夹内页面 `FavoriteFolderViewModel`（选中的收藏夹、排序与关键词），以及侧栏分段视图 `FavoriteFolderSidebarSection`）、Auth（扫码登录、登出与账户投影的来源），播放页见下一行。共享的 AppKit 卡片与网格经 `BiliVideoCollectionUI` 渲染 | adapter target、其他 Feature、直接 import AppKit/AVKit/AVFoundation（播放页的例外见下一行） |
 | `BiliVideoDetailFeature` | 播放页（VideoDetail）与侧栏上下文层 UP 主空间（UploaderSpace）：视频与分 P 意图、续播与链接起播、相关推荐与 UP 主名片（`VideoViewModel`；导航给出的 `PlaybackSelectionIntent` 怎样落到当前视频——就地换分 P、链接 `t=` 原地跳转或重新加载——以及失败后由模型重试还是交回导航，也只在这里），合集选集的分 P（`CollectionEpisodePagesController`），评论（`PlaybackCommentsViewModel`），弹幕设置，空间投稿列表（`UploaderSpaceViewModel`），以及主区布局、骨架、相关推荐横排与选集、评论、投稿行的呈现投影；播放页失败（`VideoLoadFailure`）的标题、说明与是否可重试只在这里。这些页面的 AppKit 视图也在这里：播放侧栏（`NativePlaybackSidebarView`，含评论原生 item）、评论图片预览与保存（`NativeCommentImagePreviewView`、`NativeCommentImageSaver`、动图播放）、相关推荐横排（`RelatedNativeShelfView`）与空间列表（`UploaderSpaceSidebarView`）。取图 port `VideoDetailImageLoading`（头像、封面、表情、评论图片与预览；结果含图、可选的动图数据 `NativeAnimatedImage` 与是否淡入，评论图片另可取原图数据；相关推荐横排是共享卡片，仍走卡片 port `NativeVideoImageLoading`，不为本 Feature 的其他用途放宽它），App 构造的评论资源地址闭包`CommentAssetURLResolver`，以及 App 键盘控制器检查的 `PlayerKeyboardFocusOwner`。拥有自己的字符串目录；App 用到的类型为 `public`，有 library product | 同其他 Feature，但可直接 import AppKit、CoreText（评论正文排版）与 ImageIO（动图逐帧解码）；横排卡片与集合视图支撑经 `BiliVideoCollectionUI`；不依赖 AVKit/AVFoundation、网络与 adapter；下载、来源与响应校验、首帧解码、动图播放门槛和缓存只在 App 管线，本 target 只对管线按门槛放行的 `NativeAnimatedImage` 数据逐帧解码播放 |
 | `BiliUI` | Feature 共享的 SwiftUI 呈现层：卡片几何、网格、骨架、加载过渡、刷新与分页状态胶囊、按页整体替换的列表底部悬浮的页码条（`PageNumberPager`，几何与列表为它留出的高度在 `PageNumberPagerGeometry`）、整页失败视图，只按账户读取的来源共用的登录门槛（`AccountGateView`，形态映射为 `AccountGatePhase`），`ContentApplicationError` 的失败文案（`ContentFailureText`），计数、时长与日期格式化，视频卡片的 B 站图片缩略地址；拥有自己的字符串目录。默认 `package` 访问级别，App 直接使用的卡片几何、时长格式化、播放器加载转圈、单行失败说明（`ContentFailureText.message`）、头像图片的像素边长（`BiliAvatarImageSize`：卡片、评论与侧栏账号头像的请求框、图片管线的头像解码上限都取它）与头像缩略地址（`BiliImageThumbnail` 的头像尺寸，侧栏账号头像请求前经它改写）为 `public`；AppKit target `BiliVideoCollectionUI` 也经 `package` 接口取用它的文案（卡片选中与不可播放的读屏值 `VideoCardAccessibilityText`）。无 library product | 除 Foundation、SwiftUI、BiliApplication 外的任何模块（含 BiliModels、AppKit 与其他 Feature） |
 | `BiliVideoCollectionUI` | 浏览网格与横排共用的 AppKit 卡片（`NativeVideoCollectionItem`、封面与文字层；调用方可把卡片标为不可用 `NativeVideoCardAvailability.unavailable`：变暗、封面角标写调用方给的原因、不画悬停与按下，网格拒绝鼠标选中，点击、回车、空格与读屏按下都不激活，键盘选择仍可停留，读屏呈现为不可用的按钮）、原生网格 `NativeVideoGridView` 及其状态（回顶握手、锚点、预备区域），集合视图的悬停、键盘与通知观察，卡片与评论图片共用的淡入动画 `NativeImageFadeAnimation`，近尾部分页 `NearEndPagination`，滚动坐标换算，取图 port `NativeVideoImageLoading`（只分封面与头像，结果只含图与是否淡入），来源网格从 App 窗口拿到的依赖 `NativeVideoGridHostContext`（滚动位置、回顶请求、取图 port），以及网格与横排共用的内容差异 `NativeVideoGridUpdatePlan`。App 用到的类型为 `public`（取图 port 及其结果类型、网格依赖 `NativeVideoGridHostContext` 与回顶请求、通知观察集合，以及 SwiftUI 一侧的新图淡入 `NativeImageFadeTransition`：评论图片预览与侧栏账号头像共用，时长与 `NativeImageFadeAnimation` 相同），只有 Package 内 Feature 用到的为 `package`（除上述 `public` 类型外，凡是 Feature 用到的都是），其余为 `internal`，有 library product | 除 BiliUI 外的 Bili 模块（含 BiliNetworking、adapter 与 Feature）；图片下载与缓存只经 port 注入 |
-| App `BiliKitMac` | composition root、导航协调、来源描述、复核汇总与评论链接执行（`Navigation/`）、进程级与窗口级组装（`Composition/` 的 `ProcessComposition`、`WindowComposition`）、`AVPlayerView` 宿主、各来源网格的滚动位置与回顶请求、图片管线（实现卡片、热搜图标与播放页三个取图 port；侧栏账号头像 `AccountAvatarImage` 与管线同在 App，直接按头像用途取图，不另设 port）、Settings、Now Playing、Sparkle | `App/` 与 `Navigation/` 目录不直接 import adapter 或平台框架（`Navigation/` 只依赖 Feature、Application 与 Models），具体实现只在 `Composition/`、`Platform/`、`Settings/` 出现；Application 只在搜索与稍后再看条件或账户投影的使用点 import（`AppRootView`、`AppShellView`、`AppSidebarViews`、`AppSourceRootViews`、`SearchToolbarControls`、`WatchLaterToolbarControls`；两者共用的菜单、按钮与弹窗外壳 `ToolbarFilterControls` 不依赖 Application；成员可见性要求直接 import 定义模块，Feature 不转出 Application）；BiliVideoCollectionUI 在 `Platform/` 只由播放器宿主（通知观察集合）、图片管线（实现卡片取图 port）与侧栏账号头像（SwiftUI 淡入）import，`Composition/` 只有 `WatchProgressWindowConnection`，`App/` 只有构造并转交 `NativeVideoGridHostContext` 的 `AppShellView`、`AppSourceRootViews`；只按账户读取的来源由 Feature 渲染登录门槛，App 只注入账户呈现状态与打开登录页的动作；例外是稍后再看另注入排序菜单与筛选按钮（`WatchLaterToolbarControls`），由 Feature 放进自己 `.toolbar` 的 primaryAction 组、排在刷新之前，保证同组顺序 |
+| App `BiliKitMac` | composition root、导航协调、来源描述、复核汇总与评论链接执行（`Navigation/`）、进程级与窗口级组装（`Composition/` 的 `ProcessComposition`、`WindowComposition`）、`AVPlayerView` 宿主、各来源网格的滚动位置与回顶请求、图片管线（实现卡片、热搜图标与播放页三个取图 port；侧栏账号头像 `AccountAvatarImage` 与管线同在 App，直接按头像用途取图，不另设 port）、Settings、Now Playing、Sparkle | `App/` 与 `Navigation/` 目录不直接 import adapter 或平台框架（`Navigation/` 只依赖 Feature、Application 与 Models），具体实现只在 `Composition/`、`Platform/`、`Settings/` 出现；Application 只在搜索、稍后再看与收藏夹条件或账户投影的使用点 import（`AppRootView`、`AppShellView`、`AppSidebarViews`、`AppSourceRootViews`、`SearchToolbarControls`、`WatchLaterToolbarControls`、`FavoritesToolbarControls`；三者共用的菜单、按钮与弹窗外壳 `ToolbarFilterControls` 不依赖 Application；成员可见性要求直接 import 定义模块，Feature 不转出 Application）；BiliVideoCollectionUI 在 `Platform/` 只由播放器宿主（通知观察集合）、图片管线（实现卡片取图 port）与侧栏账号头像（SwiftUI 淡入）import，`Composition/` 只有 `WatchProgressWindowConnection`，`App/` 只有构造并转交 `NativeVideoGridHostContext` 的 `AppShellView`、`AppSourceRootViews`；只按账户读取的来源由 Feature 渲染登录门槛，App 只注入账户呈现状态与打开登录页的动作；例外是稍后再看另注入排序菜单与筛选按钮（`WatchLaterToolbarControls`）、收藏夹另注入排序菜单（`FavoritesToolbarControls`），由 Feature 放进自己 `.toolbar` 的 primaryAction 组、排在刷新之前，保证同组顺序；侧栏「收藏夹」组的行由 Library 的分段视图渲染，App 只给出带 ID 的选择值与折叠状态 |
 
 补充规则：
 
@@ -79,7 +79,7 @@ BiliNetworking 不依赖任何 Bili 模块
   自己的标题。视频卡片封面与头像的缩略参数只由 `BiliImageThumbnail` 追加；评论资源是不透明引用，其图片
   地址与缩略参数只由 BiliAPI 的 resolver 生成。
 - 网格与横排共用的 AppKit 卡片、网格与集合视图支撑放在 `BiliVideoCollectionUI`。各来源把条目映射为卡片的
-  网格包装放在拥有该来源的 Feature（推荐、热门、搜索在 Browse，观看历史与稍后再看在 Library），Feature 视图直接渲染它们，
+  网格包装放在拥有该来源的 Feature（推荐、热门、搜索在 Browse，观看历史、稍后再看与收藏夹在 Library），Feature 视图直接渲染它们，
   不经 App 填充的泛型内容插槽；相关推荐横排、播放侧栏、评论图片预览与 UP 主空间的 AppKit 视图与它们读取的
   ViewModel、呈现投影都在 `BiliVideoDetailFeature`，横排同样由播放页视图直接渲染、不经插槽；App 只注入窗口级依赖
   （图片管线经卡片与播放页两个取图 port、评论资源地址闭包、保存图片的窗口级 owner）。Browse 与播放页之间的跳转（选卡片进入播放、返回来源）由 App 协调。
@@ -102,8 +102,8 @@ BiliNetworking 不依赖任何 Bili 模块
   失效）、设置与线路测速（测速用自己的 API client，同样登记进账户会话）、系统 Now Playing、本机搜索历史与更新器。
   生产 `BiliAPIClient` 只由 `LiveAPIClients` 构造，账户读取 allowlist 也只在那里声明。
 - 窗口级 `WindowComposition`（`Composition/`，每个窗口一份，由 `AppRootView` 在视图身份首次出现时经
-  `ProcessComposition.makeWindow()` 构造一次）：全部模型（浏览、视频、评论、弹幕、认证、稍后再看、观看历史、UP 主空间、热搜与
-  联想、搜索会话、稍后再看会话）、导航协调、来源描述与复核参与者、播放器视图、窗口图片管线、评论短链解析与图片保存、Now
+  `ProcessComposition.makeWindow()` 构造一次）：全部模型（浏览、视频、评论、弹幕、认证、稍后再看、观看历史、收藏夹列表与夹内页面、UP 主空间、
+  热搜与联想、搜索会话、稍后再看会话）、导航协调、来源描述与复核参与者、播放器视图、窗口图片管线、评论短链解析与图片保存、Now
   Playing 与观看进度的连接。它只引用进程级对象，不替它们创建或关闭。具体实现只经 `WindowAdapters`（仓库、
   认证服务、播放控制与播放器视图、弹幕呈现与偏好、Now Playing 与观看进度连接、窗口打开与关闭时 adapter 自己
   的登记与清理）进入；生产由 `WindowAdapters.live(process:)` 一处构造（窗口自己的 API client、`AVPlayerEngine`、
@@ -190,7 +190,7 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   正文使用可选择、不可编辑的 `NSTextView`；diffable identity 为 subject + root `CommentID`；
   高度缓存按 identity、宽度桶、内容 revision 做有界 LRU，resize 分批精测并恢复语义 anchor。
   `PlaybackCommentsViewModel` 仍唯一拥有 subject、排序、分页、并发上限与 generation。
-- **浏览网格与 shelf**：首页推荐、热门、搜索、观看历史、稍后再看的网格和相关推荐 shelf 使用
+- **浏览网格与 shelf**：首页推荐、热门、搜索、观看历史、稍后再看、收藏夹的网格和相关推荐 shelf 使用
   `NSCollectionView` + 复用的原生卡片；卡片与网格在 `BiliVideoCollectionUI`，各来源的网格包装在拥有它的
   Feature，shelf 在 `BiliVideoDetailFeature`。热门 50 卡 A/B 表明 SwiftUI `LazyVGrid`/AttributeGraph 是主要滚动成本；卡片 overlay
   与文字改为持久 `CALayer`／`CATextLayer` 后，同样约 20 秒滚动 cycles 下降约 39%，0 hitch。来源的
@@ -213,14 +213,21 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   至少新增一条，页数已被条目上限封住，不另设页数上限。分页尾标是只在并入新条目时递增的计数。加载更多失败
   保留条目与游标、暂停自动加载（不给尾标），底部重试请求同一游标；被失败或离开页面打断的显式继续仍需显式
   继续，不会变成自动扫描。
-- 首页推荐、热门、搜索、观看历史与稍后再看在已有内容时都原地刷新：网格不卸载，顶部显示共用的 `RefreshStatusCapsule`
+- 收藏夹与 UP 主空间按页整体替换，不走 `PagedVideoList`：翻页状态是 BiliApplication 的 `PageReplacementPaging`
+  （保留上一页的总数与总页数、越界与正在显示／加载的页不请求、失败重试当前页、总数变少时退回最后一页），底部悬浮
+  页码条是 BiliUI 的 `PageNumberPager`。收藏夹每页 40 条，总页数取当前条件下的 `media_count`，越界页给出的 0 不
+  覆盖已知总数（先回第 1 页取新总数再转到最后一页，一次意图里至多改请求两次），是否还有下一页以 `has_more` 为准，
+  某页过滤后为空而还有其他页时说明“本页没有可显示的视频”并保留页码条。网格不做近尾自动加载（尾标为 `.end`），
+  末行下方为页码条留出 `PageNumberPagerGeometry.reservedHeight`（`NativeVideoGridView` 的 `bottomInset`，布局与内容
+  高度同源）；选夹、换夹、翻页、换排序或关键词与刷新每次替换成功，刷新代次都前进、网格回顶。
+- 首页推荐、热门、搜索、观看历史、稍后再看与收藏夹在已有内容时都原地刷新（收藏夹原地重读当前页）：网格不卸载，顶部显示共用的 `RefreshStatusCapsule`
   （BiliUI；结果为空时也显示），成功后整体替换并由刷新代次把该来源的网格滚回顶部；失败保留已显示内容并在
   胶囊里给出原因。底部的加载更多转圈、失败原因与重试，以及历史空页之后的“加载更早的记录”按钮共用
   `PaginationStatusOverlay`（BiliUI）。刷新期间各来源都收起分页尾标（历史的“加载更早的记录”也一并收起），
   结束后重新给出：
   网格对同一尾标只触发一次，刷新中被忽略的近尾事件要靠尾标重新出现才能再布防。账户变化替换所有来源的内容，所有网格都回到顶部。
-  观看历史与稍后再看（同一 `LibraryVideoListModel`）在刷新或加载更多遇到凭据缺失或失效时放弃已显示内容、转入
-  失败页并请求账户复核；复核期间显示“正在重新确认”，确认仍登录后自动重载一次（直到下一次加载成功前不再自动
+  观看历史与稍后再看（同一 `LibraryVideoListModel`）以及收藏夹（复核进度同一份 `LibraryAccountRevalidation`）在
+  刷新或加载更多遇到凭据缺失或失效时放弃已显示内容、转入失败页并请求账户复核；复核期间显示“正在重新确认”，确认仍登录后自动重载一次（直到下一次加载成功前不再自动
   重载），复核结束仍失败时给静态说明。离开页面时停止等待复核，凭据失败页回到初始状态，回来时重新加载。本地凭据读不到与复核失败显示
   “无法读取登录状态”并可重试。首次加载仍是骨架屏。程序回到顶部后、用户再次滚动前，内容整体
   替换保持在顶部（`NativeVideoGridTopPin`），不按旧内容第一张可见卡片做锚点恢复；锚点卡片已不在新内容里时
@@ -288,12 +295,20 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
 
 ### 动线与侧栏上下文层
 
-- 平级来源（搜索、首页、热门、稍后再看、观看历史）以 `AppTab` 为 id，各由一份 `AppSourceDescriptor` 描述：标题、SF Symbol、
-  所属侧栏分组、是否要求账户、内容整体替换的代次（推荐、热门与搜索只计原地刷新，稍后再看与观看历史含首次加载）、离开来源时的停用、
-  账户变化的通知、绑定本来源的复核参与者与丢弃内容的 reset。`AppSources` 由 `WindowComposition` 对 `AppTab.allCases`
-  穷尽构造一次，每个来源必须给出所属的组。侧栏按 `AppSourceGroup` 分段（`Section`）：顶部不带标题的一组（搜索、
-  首页、热门）与带标题的「资料库」（稍后再看、观看历史）；组的顺序由 `AppSourceGroup` 固定，组内按 case 顺序。分组只决定
-  侧栏的分段与标题，不改变来源的停用、账户与清理语义。侧栏行、
+- 平级来源（搜索、首页、热门、稍后再看、观看历史、收藏夹）以 `AppTab` 为 id，各由一份 `AppSourceDescriptor` 描述：标题、SF Symbol、
+  所属侧栏分组、在侧栏提供多行时的选中读写、是否要求账户、内容整体替换的代次（推荐、热门与搜索只计原地刷新，稍后再看与观看历史含首次加载，
+  收藏夹计每次整体替换）、离开来源时的停用、账户变化的通知、绑定本来源的复核参与者与丢弃内容的 reset。`AppSources` 由 `WindowComposition` 对
+  `AppTab.allCases` 穷尽构造一次，每个来源必须给出所属的组。侧栏按 `AppSourceGroup` 分段（`Section`）：顶部不带标题的一组（搜索、
+  首页、热门）、带标题的「资料库」（稍后再看、观看历史）与可折叠的「收藏夹」；组的顺序由 `AppSourceGroup` 固定，组内按 case 顺序。分组只决定
+  侧栏的分段、标题、折叠与未登录时是否显示，不改变来源的停用、账户与清理语义。
+- 「收藏夹」组只在已登录时显示，由一个来源（`.favorites`）为每个自己创建的收藏夹提供一行（Apple Music「播放列表」式），
+  点一行直接在右侧显示夹内视频，不进右侧栈。侧栏 `List` 的选择值是 `AppSidebarSelection`：单行来源是 `.source(AppTab)`，
+  收藏夹的行是 `.item(.favorites, id:)`，每行带不同的 tag，避免多行同时高亮、键盘上下错乱；选中的收藏夹记在收藏夹模型里，
+  读写经来源描述的 `itemSelection` 映射，进入、退出播放重建侧栏后照样恢复高亮。组的展开状态只在窗口内存（`AppShellView`
+  的 `@State`，导航侧栏重建不丢失），默认展开、不持久化，组标题不可选中。列表加载中、失败（可重试按钮）与账户 mid 未知
+  （需复核或重新登录）各显示一行说明，说明行不可选中。列表重新加载后选中的收藏夹不在了就回落到默认收藏夹（按 `attr` 标记
+  识别），没有则第一个；不在收藏夹时只改选择、不读取。在收藏夹时登出（组不再显示）回到首页，换号仍留在收藏夹并选新账户的
+  默认收藏夹。侧栏行、
   刷新回顶、离开停用、账户变化、关窗清理与其他窗口换号时的提前清理（只对要求账户的来源）都遍历它。来源描述的 reset 只丢弃
   本来源自己的内容，推荐、热门与搜索共用的 Browse 工作集关窗时由 `AppSources` 整体丢弃一次。根视图构造与 Browse
   激活依赖各来源自己的类型，仍是 `AppTab` 上的穷尽 switch。
@@ -393,6 +408,19 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   弹窗外壳由 App 的 `ToolbarFilterControls` 与搜索共用，时长档标题与日期筛选的错误文案在 `SearchToolbarControls` 一处。副标题是当前条件下接口给的总数；有筛选或
   关键词而结果为空时空态给出“清除筛选”（清除筛选与关键词，保留排序）。
 
+### 收藏夹的排序与搜索
+
+- 选中的收藏夹、排序（最近收藏 `mtime` 默认、最多播放 `view`、最近投稿 `pubtime`）与关键词在每个窗口一份的
+  `FavoriteFolderViewModel`，只在内存里，`reset`（关窗）与账户范围变化恢复默认。换夹时取消在途请求、回到第 1 页、清空
+  关键词、保留排序。工具栏从左到右是排序菜单（与搜索、稍后再看共用 `ToolbarSortMenu`）、刷新与尾部的紧凑 `.searchable`
+  搜索框（只搜当前收藏夹 `type=0`，回车提交、清空恢复）；不做“全部收藏夹”搜索与分区筛选。导航标题是收藏夹名称，副标题是
+  当前条件下的总数（有关键词时是过滤后的数量）。整个收藏夹为空、搜索无结果（给“清除搜索”）与某页没有可显示的视频是三种
+  不同的空态。
+- 只有 type 2 的普通视频（含 `attr` bit7 仅自己可见）可以播放；合集（type 21）、音频（type 12）、番剧／影视（`ogv` 非空，
+  角标用 `ogv.type_name`，空时写“番剧”）、其他未知类型与已失效（`attr` bit0，或标题为“已失效视频”“该合集已失效”；失效优先）
+  是不可用卡片。不可用原因的角标与占位标题与稍后再看共用 `LibraryUnavailabilityFormatting`；不可用条目字段不全时放宽，
+  普通视频严格校验。
+
 ### 认证
 
 Web QR 协议没有官方稳定文档，按“fixture 固定的外部观察”处理，未知状态一律失败关闭。秘密只在
@@ -404,20 +432,23 @@ Repository adapter 只调用 endpoint 方法，不自行构造 `RequestAccess`�
 [`SECURITY-MODEL.md`](SECURITY-MODEL.md)。
 
 窗口复核契约：凭据失效只由 ViewModel 记录。参与者实现 BiliApplication 的 `@MainActor` 协议
-`AccountRevalidationParticipant`（推荐／热门／搜索、视频、弹幕、评论、UP 主空间、稍后再看、观看历史；字幕目录由
+`AccountRevalidationParticipant`（推荐／热门／搜索、视频、弹幕、评论、UP 主空间、稍后再看、观看历史、收藏夹列表与夹内页面；字幕目录由
 `SubtitleUseCase` 报告给视频模型，播放侧仍把失败的目录当作没有字幕）：发现需要复核的失败时以 `&+=` 递增
 `authenticationRevalidationGeneration`，复核结束的 `authenticationRevalidationSucceeded`／`Failed` 默认不动作。
 参与者集合 `AccountRevalidationParticipants` 由 `WindowComposition` 构造一次，`AppRootView` 只读取各参与者的代次，前后
 不等（不比大小，回绕仍算）就调用一次 `revalidate()`；复核离开 restoring 时把结果交给参与者，绑定来源的参与者
-只在该来源是当前来源时收到（绑定关系只来自来源描述）（稍后再看与观看历史：复核成功后自动重载至多一次、失败时给可重试说明）。Feature 不直接调用
-认证服务，也不经单独回调。heartbeat 写请求例外，不触发复核。
+只在该来源是当前来源时收到（绑定关系只来自来源描述）（稍后再看、观看历史与收藏夹的夹内页面：复核成功后自动重载至多一次、失败时给可重试说明），
+不在本页时不在后台读取账户内容。收藏夹列表是例外：它是侧栏常驻的元数据（名称、私密、默认），按窗口级（不绑定来源）登记，
+窗口已登录就读取、复核结果不论当前来源都交给它；首次读取由导航侧栏出现时按窗口账户范围触发（未解析到已登录不算账户
+变化），mid 只取自窗口账户范围（`AccountSessionScope.signedIn(accountID:)`），adapter 不自己取账户。夹内视频仍绑定收藏夹来源。
+Feature 不直接调用认证服务，也不经单独回调。heartbeat 写请求例外，不触发复核。
 
 多窗口共享一个 App 级账户 session coordinator：窗口出现后注册其 API transport，登出／换号／凭据
 失效时先全局推进 authentication epoch，其他窗口再复核 Keychain 并按新 generation 重启依赖账户的
 内容；窗口关闭时注销。账户变化由来源自己处理，App 只经来源描述通知（进程代次、窗口账户范围、是否当前来源）：
-Browse 按代次去重，丢弃三份工作集并重启当前路由；关闭播放之后再通知稍后再看与观看历史：丢弃条目，已登录且是当前
-来源时立即重载。其他窗口
-换号时，本窗口先丢弃要求账户的来源的内容再复核，复核结束后只通知不要求账户的来源，稍后再看与观看历史由复核得出的范围变化
+Browse 按代次去重，丢弃三份工作集并重启当前路由；关闭播放之后再通知稍后再看、观看历史与收藏夹：丢弃条目，已登录且是当前
+来源时立即重载（收藏夹列表不论是否当前来源都按新账户重读，夹内页面在新列表到达后选默认收藏夹）。其他窗口
+换号时，本窗口先丢弃要求账户的来源的内容再复核，复核结束后只通知不要求账户的来源，稍后再看、观看历史与收藏夹由复核得出的范围变化
 重新加载。
 
 ### 播放线路偏好与测速

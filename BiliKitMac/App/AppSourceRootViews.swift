@@ -156,6 +156,62 @@ struct WatchLaterTabRoot: View {
     }
 }
 
+/// 收藏夹来源的 App 接线：登录门槛、刷新、加载语义、空态、页码条与原生网格在 Library 的 `FavoriteFolderView`，选择与条件在
+/// Library 的 `FavoriteFolderViewModel`。
+///
+/// 这里转交账户呈现状态、窗口级网格依赖与打开登录页的动作，构造排序菜单（`FavoritesToolbarControls`，排在刷新之前），
+/// 并挂工具栏尾部的紧凑搜索框（系统 `.searchable`，只在已登录时；只搜当前收藏夹，回车提交、清空恢复）。导航标题是选中的
+/// 收藏夹名称（列表未到时用来源标题），副标题是当前条件下的总数。
+struct FavoritesTabRoot: View {
+    @Environment(\.locale) private var locale
+    let title: LocalizedStringResource
+    @Bindable var model: FavoriteFolderViewModel
+    let accountState: AccountPresentationState
+    let gridHost: NativeVideoGridHostContext
+    let onSelect: (String) -> Void
+    let onPresentAuthentication: () -> Void
+
+    var body: some View {
+        let content = FavoriteFolderView(
+            model: model,
+            accountState: accountState,
+            gridHost: gridHost,
+            onSelect: onSelect,
+            onPresentAuthentication: onPresentAuthentication,
+            toolbarControls: AnyView(FavoritesToolbarControls(model: model))
+        )
+        .navigationTitle(navigationTitle)
+        .navigationSubtitle(subtitle)
+        if case .signedIn = accountState {
+            content
+                .searchable(
+                    text: $model.searchDraft,
+                    placement: .toolbar,
+                    prompt: Text(AppStrings.localized("搜索收藏夹", locale: locale))
+                )
+                .onSubmit(of: .search) {
+                    model.submitSearch()
+                }
+        } else {
+            content
+        }
+    }
+
+    private var navigationTitle: Text {
+        if let folderTitle = model.selectedFolderTitle {
+            Text(verbatim: folderTitle)
+        } else {
+            Text(title)
+        }
+    }
+
+    /// 已有当前条件下的总数时显示，其他时候不显示。
+    private var subtitle: String {
+        guard let totalCount = model.totalCount else { return "" }
+        return AppStrings.localized("共 \(totalCount) 个", locale: locale)
+    }
+}
+
 /// 观看历史来源的 App 接线：登录门槛、刷新、加载语义与原生网格在 Library 的 `WatchHistoryView`，这里只转交
 /// 账户呈现状态、窗口级网格依赖、标题与打开登录页的动作。
 struct HistoryTabRoot: View {

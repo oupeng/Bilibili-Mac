@@ -259,6 +259,7 @@ func makeTestAdapters(
         commentRepository: comments,
         historyRepository: WatchHistoryRepositoryStub(),
         watchLaterRepository: WatchLaterRepositoryStub(),
+        favoritesRepository: FavoritesRepositoryStub(),
         commentAssetURLResolver: { _, _ in nil },
         commentLinkRouter: { _ in nil },
         authenticationService: authentication,
