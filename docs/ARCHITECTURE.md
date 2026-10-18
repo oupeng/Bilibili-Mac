@@ -286,8 +286,11 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
 ### 动线与侧栏上下文层
 
 - 平级来源（搜索、首页、热门、观看历史）以 `AppTab` 为 id，各由一份 `AppSourceDescriptor` 描述：标题、SF Symbol、
-  是否要求账户、内容整体替换的代次（推荐、热门与搜索只计原地刷新，历史含首次加载）、离开来源时的停用、
-  账户变化的通知、绑定本来源的复核参与者与丢弃内容的 reset。`AppSources` 由 `WindowComposition` 对 `AppTab.allCases` 穷尽构造一次，case 顺序即侧栏顺序；侧栏行、
+  所属侧栏分组、是否要求账户、内容整体替换的代次（推荐、热门与搜索只计原地刷新，历史含首次加载）、离开来源时的停用、
+  账户变化的通知、绑定本来源的复核参与者与丢弃内容的 reset。`AppSources` 由 `WindowComposition` 对 `AppTab.allCases`
+  穷尽构造一次，每个来源必须给出所属的组。侧栏按 `AppSourceGroup` 分段（`Section`）：顶部不带标题的一组（搜索、
+  首页、热门）与带标题的「资料库」（观看历史）；组的顺序由 `AppSourceGroup` 固定，组内按 case 顺序。分组只决定
+  侧栏的分段与标题，不改变来源的停用、账户与清理语义。侧栏行、
   刷新回顶、离开停用、账户变化、关窗清理与其他窗口换号时的提前清理（只对要求账户的来源）都遍历它。来源描述的 reset 只丢弃
   本来源自己的内容，推荐、热门与搜索共用的 Browse 工作集关窗时由 `AppSources` 整体丢弃一次。根视图构造与 Browse
   激活依赖各来源自己的类型，仍是 `AppTab` 上的穷尽 switch。

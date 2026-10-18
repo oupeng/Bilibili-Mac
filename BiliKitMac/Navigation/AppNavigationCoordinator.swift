@@ -3,7 +3,8 @@ import BiliVideoDetailFeature
 import Foundation
 import Observation
 
-/// 侧栏的平级来源，也是来源描述（`AppSourceDescriptor`）的 id；case 的声明顺序就是侧栏顺序。
+/// 侧栏的平级来源，也是来源描述（`AppSourceDescriptor`）的 id；case 的声明顺序就是同一侧栏分组内的顺序，
+/// 分组之间的顺序由 `AppSourceGroup` 固定。
 enum AppTab: Hashable, CaseIterable {
     case search
     case home

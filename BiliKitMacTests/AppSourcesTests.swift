@@ -5,7 +5,8 @@ import Testing
 
 @testable import BiliKit
 
-/// 每个来源恰好一份描述并按侧栏顺序排列；只有观看历史要求账户，离开、换号与关窗的停用与清理经描述作用到来源的模型。
+/// 每个来源恰好一份描述，侧栏按固定的组顺序分段、组内按 case 顺序排列；只有观看历史要求账户，离开、换号与关窗的
+/// 停用与清理经描述作用到来源的模型。
 @Suite(.timeLimit(.minutes(1)))
 @MainActor
 struct AppSourcesTests {
@@ -13,11 +14,24 @@ struct AppSourcesTests {
     func everySourceHasOneDescriptorInSidebarOrder() {
         let sources = makeSources()
 
-        #expect(sources.ordered.map(\.id) == AppTab.allCases)
+        #expect(Set(sources.ordered.map(\.id)) == Set(AppTab.allCases))
+        #expect(sources.ordered.count == AppTab.allCases.count)
         for tab in AppTab.allCases {
             #expect(sources[tab].id == tab)
         }
         #expect(sources.ordered.filter(\.requiresAccount).map(\.id) == [.history])
+    }
+
+    /// 顶部无标题的一组是搜索、首页、热门，「资料库」组带标题；侧栏顺序就是各段依次展开。
+    @Test
+    func sidebarGroupsSourcesUnderFixedSections() {
+        let sources = makeSources()
+
+        #expect(sources.sections.map(\.group) == [.browse, .library])
+        #expect(sources.sections.map { $0.sources.map(\.id) } == [[.search, .home, .popular], [.history]])
+        #expect(sources.ordered.map(\.id) == sources.sections.flatMap { $0.sources.map(\.id) })
+        #expect(AppSourceGroup.browse.title == nil)
+        #expect(AppSourceGroup.library.title != nil)
     }
 
     @Test

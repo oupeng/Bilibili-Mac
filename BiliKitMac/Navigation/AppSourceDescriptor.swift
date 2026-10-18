@@ -3,7 +3,26 @@ import BiliBrowseFeature
 import BiliLibraryFeature
 import Foundation
 
-/// 侧栏一个平级来源的描述：标题、图标，以及窗口在来源边界上对它做的事。
+/// 侧栏把平级来源分成的组；case 的声明顺序就是组在侧栏里的顺序，组内按 `AppTab` 的声明顺序。
+///
+/// 每个来源在 `AppSources.init` 的穷尽 switch 里必须给出所属的组。组只决定侧栏怎样分段与是否带标题，
+/// 不改变来源的停用、账户变化与清理语义。
+enum AppSourceGroup: CaseIterable {
+    /// 顶部不带标题的一组：搜索、首页、热门。
+    case browse
+    /// 「资料库」：只属于当前账户的个人列表。
+    case library
+
+    /// 侧栏分段标题；nil 表示不显示标题。
+    var title: LocalizedStringResource? {
+        switch self {
+        case .browse: nil
+        case .library: "资料库"
+        }
+    }
+}
+
+/// 侧栏一个平级来源的描述：标题、图标、所属分组，以及窗口在来源边界上对它做的事。
 ///
 /// 只保存读取与动作闭包，不拥有模型；模型归 `WindowComposition`。侧栏行、刷新回顶、离开来源时的停用、账户变化、
 /// 关窗与其他窗口换号时的清理都遍历 `AppSources`，新增来源时这些地方不需要各自再登记一次。根视图的构造
@@ -15,6 +34,8 @@ struct AppSourceDescriptor: Identifiable {
     /// 侧栏行与来源页导航标题共用。
     let title: LocalizedStringResource
     let systemImage: String
+    /// 侧栏里所属的组；组内按 `AppTab` 的声明顺序排列。
+    let group: AppSourceGroup
     /// 内容只属于当前账户（只在登录后读取）。
     ///
     /// 其他窗口换号时，本窗口在自己的复核结束前就先 `reset`，不让上一账户的内容在复核期间继续显示。
@@ -54,13 +75,26 @@ struct AccountSessionChange {
     let isCurrentRoute: Bool
 }
 
-/// 一个窗口的全部来源描述，按侧栏顺序排列；由 `WindowComposition` 构造一次。
+/// 侧栏的一段：一个分组与它按 `AppTab` 声明顺序排列的来源；没有来源的组不成段。
+@MainActor
+struct AppSourceSection: Identifiable {
+    let group: AppSourceGroup
+    let sources: [AppSourceDescriptor]
+
+    var id: AppSourceGroup { group }
+}
+
+/// 一个窗口的全部来源描述，按侧栏顺序排列（组的顺序固定，组内按 `AppTab` 的声明顺序）；由 `WindowComposition`
+/// 构造一次。
 ///
-/// 构造是对 `AppTab.allCases` 的穷尽 switch：新增一个 `AppTab` 必须在这里给出完整描述，否则不能编译，因此每个
-/// `AppTab` 恰好有一份描述，按 tab 取描述不会落空。
+/// 构造是对 `AppTab.allCases` 的穷尽 switch：新增一个 `AppTab` 必须在这里给出完整描述（含所属的组），否则不能
+/// 编译，因此每个 `AppTab` 恰好有一份描述，按 tab 取描述不会落空。
 @MainActor
 struct AppSources {
+    /// 侧栏顺序的全部来源，等于 `sections` 依次展开。
     let ordered: [AppSourceDescriptor]
+    /// 侧栏的分段，按 `AppSourceGroup` 的声明顺序。
+    let sections: [AppSourceSection]
     /// 推荐、热门与搜索共用的 Browse 工作集；只在关窗时整体丢弃。
     private let resetBrowseWorksets: @MainActor () -> Void
 
@@ -75,13 +109,14 @@ struct AppSources {
             browseModel.synchronizeAuthenticationSession(generation: $0.generation)
         }
         resetBrowseWorksets = { browseModel.reset() }
-        ordered = AppTab.allCases.map { tab in
+        let descriptors = AppTab.allCases.map { tab in
             switch tab {
             case .search:
                 AppSourceDescriptor(
                     id: tab,
                     title: "搜索",
                     systemImage: "magnifyingglass",
+                    group: .browse,
                     requiresAccount: false,
                     refreshGeneration: { browseModel.successfulRefreshGeneration(for: .search) },
                     deactivate: {},
@@ -97,6 +132,7 @@ struct AppSources {
                     id: tab,
                     title: "首页",
                     systemImage: "house",
+                    group: .browse,
                     requiresAccount: false,
                     refreshGeneration: {
                         browseModel.successfulRefreshGeneration(for: .recommendation)
@@ -112,6 +148,7 @@ struct AppSources {
                     id: tab,
                     title: "热门",
                     systemImage: "flame",
+                    group: .browse,
                     requiresAccount: false,
                     refreshGeneration: { browseModel.successfulRefreshGeneration(for: .popular) },
                     deactivate: {},
@@ -125,6 +162,7 @@ struct AppSources {
                     id: tab,
                     title: "观看历史",
                     systemImage: "clock.arrow.circlepath",
+                    group: .library,
                     requiresAccount: true,
                     refreshGeneration: { historyModel.successfulReloadGeneration },
                     deactivate: historyModel.deactivateRoute,
@@ -139,6 +177,11 @@ struct AppSources {
                 )
             }
         }
+        sections = AppSourceGroup.allCases.compactMap { group in
+            let sources = descriptors.filter { $0.group == group }
+            return sources.isEmpty ? nil : AppSourceSection(group: group, sources: sources)
+        }
+        ordered = sections.flatMap(\.sources)
     }
 
     /// 关窗：每个来源丢弃自己的内容，再整体丢弃一次 Browse 工作集。

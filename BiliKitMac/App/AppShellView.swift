@@ -51,7 +51,7 @@ struct AppShellView: View {
                         playbackSidebar
                     } else {
                         AppNavigationSidebar(
-                            sources: sources.ordered,
+                            sections: sources.sections,
                             selection: $navigationCoordinator.selectedTab,
                             accountState: authenticationModel.accountPresentationState,
                             imagePipeline: imagePipeline,
