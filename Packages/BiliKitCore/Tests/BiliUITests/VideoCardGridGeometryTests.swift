@@ -38,6 +38,11 @@ struct VideoCardGridGeometryTests {
         #expect(size.height == 220)
         #expect(VideoCardGridGeometry.contentHeight(for: 1_080, itemCount: 50) == 3_220)
         #expect(VideoCardGridGeometry.contentHeight(for: 1_080, itemCount: 0) == 0)
+        // 为悬浮页码条留出的高度只加在有内容时的末行下方。
+        #expect(
+            VideoCardGridGeometry.contentHeight(for: 1_080, itemCount: 50, bottomInset: 60)
+                == 3_280
+        )
     }
 
     @Test(arguments: [CGFloat.zero, 1, 48, 67])

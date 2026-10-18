@@ -2,7 +2,7 @@ import SwiftUI
 
 /// 原地刷新时盖在内容顶部的状态胶囊：刷新中显示转圈，失败时显示原因，已显示的内容保持不动。
 ///
-/// 首页推荐、热门、搜索、观看历史与稍后再看共用，出现与消失按 `LoadingStateTransition` 淡入淡出。
+/// 首页推荐、热门、搜索、观看历史、稍后再看与收藏夹共用，出现与消失按 `LoadingStateTransition` 淡入淡出。
 package struct RefreshStatusCapsule: View {
     private typealias Geometry = StatusCapsuleGeometry
 

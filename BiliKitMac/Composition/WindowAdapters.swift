@@ -30,6 +30,7 @@ struct WindowAdapters {
     let commentRepository: any CommentRepository
     let historyRepository: any WatchHistoryRepository
     let watchLaterRepository: any WatchLaterRepository
+    let favoritesRepository: any FavoritesRepository
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentLinkRouter: CommentLinkRouter
     let authenticationService: any AuthenticationServicing
@@ -113,6 +114,7 @@ extension WindowAdapters {
             commentRepository: BiliCommentRepository(client: api),
             historyRepository: BiliWatchHistoryRepository(client: api),
             watchLaterRepository: BiliWatchLaterRepository(client: api),
+            favoritesRepository: BiliFavoritesRepository(client: api),
             commentAssetURLResolver: { reference, box in
                 commentAssetResolver.imageURL(for: reference, fitting: box)
             },

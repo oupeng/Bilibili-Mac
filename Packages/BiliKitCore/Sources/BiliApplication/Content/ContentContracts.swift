@@ -1,6 +1,6 @@
 import BiliModels
 
-/// 内容类读取（Feed、视频、UP 主空间、观看历史、稍后再看）共用的应用级错误。
+/// 内容类读取（Feed、视频、UP 主空间、观看历史、稍后再看、收藏夹）共用的应用级错误。
 ///
 /// 认证相关分四态：本地无凭据（`authenticationRequired`）、凭据失效（`authenticationInvalid`，
 /// 唯一触发账户复核的一种）、本地凭据读不到（`authenticationUnavailable`，如 Keychain 不可用），

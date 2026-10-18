@@ -55,15 +55,14 @@ public struct WatchLaterFilterSelection: Hashable, Sendable {
 @MainActor
 @Observable
 public final class WatchLaterSession {
-    /// 工具栏搜索框的文字；清空（只剩空白）且已按关键词过滤时恢复全部，提交前不影响列表。
-    public var searchDraft = "" {
-        didSet {
-            guard searchDraft != oldValue,
-                Self.normalized(searchDraft).isEmpty,
-                !appliedKeyword.isEmpty
-            else { return }
-            appliedKeyword = ""
-            model.reloadReplacingContent()
+    /// 工具栏搜索框的文字；清空（只剩空白）且已按关键词过滤时恢复全部，提交前不影响列表（规则在
+    /// `LibrarySearchKeyword`）。
+    public var searchDraft: String {
+        get { keyword.draft }
+        set {
+            if keyword.updateDraft(newValue) {
+                model.reloadReplacingContent()
+            }
         }
     }
     /// 排序菜单与筛选弹窗编辑的选择；排序立即生效，筛选在弹窗“应用”后经 `applyFilters` 生效。
@@ -71,7 +70,11 @@ public final class WatchLaterSession {
     /// 当前列表使用的排序与筛选（加入时间是未解析的选项）。
     public private(set) var appliedFilters = WatchLaterFilterSelection()
     /// 当前列表使用的关键词；空串表示不按关键词过滤。
-    public private(set) var appliedKeyword = ""
+    public var appliedKeyword: String {
+        keyword.applied
+    }
+
+    private var keyword = LibrarySearchKeyword()
 
     @ObservationIgnored private let model: WatchLaterViewModel
 
@@ -92,9 +95,7 @@ public final class WatchLaterSession {
 
     /// 提交规范化后的草稿作为关键词；与已应用的关键词相同时不重新加载。
     public func submitSearch() {
-        let keyword = Self.normalized(searchDraft)
-        guard keyword != appliedKeyword else { return }
-        appliedKeyword = keyword
+        guard keyword.submit() else { return }
         model.reloadReplacingContent()
     }
 
@@ -122,12 +123,10 @@ public final class WatchLaterSession {
         filterSelection.resetFilters()
         var cleared = appliedFilters
         cleared.resetFilters()
-        let changed = cleared != appliedFilters || !appliedKeyword.isEmpty
-        // 先清掉已应用的关键词再清空草稿：草稿的 didSet 看到关键词已空就不会再单独触发一次加载。
+        let filtersChanged = cleared != appliedFilters
         appliedFilters = cleared
-        appliedKeyword = ""
-        searchDraft = ""
-        guard changed else { return }
+        let keywordChanged = keyword.clear()
+        guard filtersChanged || keywordChanged else { return }
         model.reloadReplacingContent()
     }
 
@@ -168,11 +167,6 @@ public final class WatchLaterSession {
     private func resetCriteria() {
         filterSelection = WatchLaterFilterSelection()
         appliedFilters = WatchLaterFilterSelection()
-        appliedKeyword = ""
-        searchDraft = ""
-    }
-
-    private static func normalized(_ draft: String) -> String {
-        SearchText.normalized(draft)
+        keyword = LibrarySearchKeyword()
     }
 }

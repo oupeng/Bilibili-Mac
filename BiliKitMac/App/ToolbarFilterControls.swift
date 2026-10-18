@@ -3,7 +3,7 @@ import SwiftUI
 
 /// 工具栏的排序菜单：每个选项一个勾选项，选中即生效。
 ///
-/// 搜索与稍后再看共用，选项与文案由调用方给出。
+/// 搜索、稍后再看与收藏夹共用，选项与文案由调用方给出。
 struct ToolbarSortMenu<Option: Hashable & Identifiable>: View {
     let options: [Option]
     @Binding var selection: Option

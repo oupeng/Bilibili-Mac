@@ -190,6 +190,51 @@ struct WatchLaterRepositoryStub: WatchLaterRepository {
     }
 }
 
+/// 收藏夹 port 的唯一测试替身：返回固定的收藏夹列表（含默认收藏夹）与所请求页的空页，并记录列表请求的 mid；给了
+/// `error` 时每次读取都失败。
+actor FavoritesRepositoryStub: FavoritesRepository {
+    private let error: ContentApplicationError?
+    private(set) var folderOwnerIDs: [Int64] = []
+    private var folderRequestWaiters = CountWaiters()
+
+    init(error: ContentApplicationError? = nil) {
+        self.error = error
+    }
+
+    func waitForFolderRequestCount(_ target: Int) async {
+        await withCheckedContinuation {
+            folderRequestWaiters.add($0, until: target, current: folderOwnerIDs.count)
+        }
+    }
+
+    func favoriteFolders(ownerID: Int64) async throws -> [FavoriteFolder] {
+        folderOwnerIDs.append(ownerID)
+        folderRequestWaiters.resume(reaching: folderOwnerIDs.count)
+        if let error { throw error }
+        return [
+            FavoriteFolder(
+                id: 10,
+                title: "默认收藏夹",
+                mediaCount: 0,
+                isPrivate: false,
+                isDefault: true
+            ),
+            FavoriteFolder(id: 20, title: "私密收藏", mediaCount: 0, isPrivate: true, isDefault: false)
+        ]
+    }
+
+    func favoriteFolderPage(request: FavoriteFolderRequest) async throws -> FavoriteFolderPage {
+        if let error { throw error }
+        return FavoriteFolderPage(
+            items: [],
+            pageNumber: request.page,
+            pageSize: 40,
+            totalCount: 0,
+            hasMore: false
+        )
+    }
+}
+
 /// 单个视频的手写详情、分 P 与播放地址；`FixtureVideoRepository` 按它回答。
 struct VideoFixture: Sendable {
     let aid: Int64

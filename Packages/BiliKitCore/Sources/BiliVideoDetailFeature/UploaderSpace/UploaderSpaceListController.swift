@@ -1,5 +1,6 @@
 import AppKit
 import BiliModels
+import BiliUI
 import BiliVideoCollectionUI
 
 /// 原生列表需要的全部展示值；加载、失败等状态由 SwiftUI 覆盖层负责，这里只画头部与已加载的行。
@@ -245,7 +246,7 @@ final class UploaderSpaceListController: NSObject, NSCollectionViewDelegateFlowL
             )
         }
         let pagerSpace =
-            content?.reservesPagerSpace == true ? UploaderSpaceGeometry.pagerReservedHeight : 0
+            content?.reservesPagerSpace == true ? PageNumberPagerGeometry.reservedHeight : 0
         return NSEdgeInsets(
             top: 0,
             left: horizontal,

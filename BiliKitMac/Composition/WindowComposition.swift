@@ -8,7 +8,8 @@ import SwiftUI
 /// 窗口级组装：一个窗口必须同代、跨 SwiftUI `body` 重算保持稳定的整个对象图，由 `AppRootView` 在视图身份首次
 /// 出现时构造一次（`ProcessComposition.makeWindow()`）。
 ///
-/// 拥有本窗口的全部模型（浏览、视频、评论、弹幕、认证、稍后再看与稍后再看会话、观看历史、UP 主空间、热搜与联想、搜索会话）、导航协调、
+/// 拥有本窗口的全部模型（浏览、视频、评论、弹幕、认证、稍后再看与稍后再看会话、观看历史、收藏夹列表与夹内页面、UP 主空间、热搜与
+/// 联想、搜索会话）、导航协调、
 /// 来源描述与复核参与者、播放器视图、窗口图片管线、评论短链解析与图片保存、Now Playing 与观看进度的连接，以及
 /// 经 `WindowAdapters` 拿到的具体实现。只引用进程级对象（账户会话、设置、Now Playing 控制器、搜索历史），不创建
 /// 也不关闭它们。视频、弹幕模型与播放器视图必须共享 adapter 里同一个播放器；分别重建会让画面、时间线与弹幕指向
@@ -31,6 +32,10 @@ final class WindowComposition {
     /// 稍后再看的排序、筛选与关键词；关窗与账户变化时由稍后再看来源的描述恢复默认。
     let watchLaterSession: WatchLaterSession
     let historyModel: WatchHistoryViewModel
+    /// 侧栏「收藏夹」组的列表；窗口级复核参与者，mid 取自本窗口认证模型的账户范围。
+    let favoriteFolderList: FavoriteFolderListModel
+    /// 收藏夹来源的选择、条件与夹内内容；经收藏夹来源的描述绑定来源。
+    let favoriteFolders: FavoriteFolderViewModel
     let trendingSearchModel: TrendingSearchViewModel
     let searchSuggestionSource: SearchSuggestionSource
     /// 搜索来源的草稿、筛选与已提交的条件；关窗时由搜索来源的描述 reset。
@@ -103,14 +108,33 @@ final class WindowComposition {
         self.videoModel = videoModel
         self.commentsModel = commentsModel
         self.danmakuModel = danmakuModel
-        authenticationModel = AuthenticationViewModel(
+        let authenticationModel = AuthenticationViewModel(
             service: adapters.authenticationService,
             qrCodeProvider: adapters.authenticationQRCodeProvider
         )
+        self.authenticationModel = authenticationModel
         self.watchLaterModel = watchLaterModel
         let watchLaterSession = WatchLaterSession(model: watchLaterModel)
         self.watchLaterSession = watchLaterSession
         self.historyModel = historyModel
+        let favoritesUseCase = FavoritesUseCase(repository: adapters.favoritesRepository)
+        let accountSession = process.accountSession
+        let favoriteFolderList = FavoriteFolderListModel(
+            useCase: favoritesUseCase,
+            accountScope: {
+                Self.favoriteFolderReadingScope(
+                    windowScope: authenticationModel.sessionScope,
+                    isRestoring: authenticationModel.resolutionPhase == .restoring,
+                    accountSession: accountSession
+                )
+            }
+        )
+        let favoriteFolders = FavoriteFolderViewModel(
+            useCase: favoritesUseCase,
+            folderList: favoriteFolderList
+        )
+        self.favoriteFolderList = favoriteFolderList
+        self.favoriteFolders = favoriteFolders
         self.trendingSearchModel = trendingSearchModel
         searchSuggestionSource = SearchSuggestionSource(
             useCase: SearchSuggestionUseCase(repository: adapters.searchSuggestionRepository)
@@ -125,12 +149,15 @@ final class WindowComposition {
             watchLaterModel: watchLaterModel,
             watchLaterSession: watchLaterSession,
             historyModel: historyModel,
+            favoriteFolderList: favoriteFolderList,
+            favoriteFolders: favoriteFolders,
             searchSession: searchSession,
             trendingSearchModel: trendingSearchModel
         )
         self.sources = sources
+        // 收藏夹列表是侧栏常驻的元数据，窗口已登录就读取，不绑定来源；夹内页面经收藏夹来源的描述绑定。
         let windowWide: [any AccountRevalidationParticipant] = [
-            videoModel, browseModel, danmakuModel, commentsModel, uploaderSpace
+            videoModel, browseModel, danmakuModel, commentsModel, uploaderSpace, favoriteFolderList
         ]
         revalidationParticipants = AccountRevalidationParticipants(
             entries: windowWide.map { .init(participant: $0, route: nil) }
@@ -181,6 +208,28 @@ final class WindowComposition {
         if isOpen {
             adapters.close()
         }
+    }
+
+    /// 其他窗口换号引起的本窗口复核结束后由 `AppRootView` 调用：复核前收藏夹列表已被丢弃，复核得出的范围没变时不会有
+    /// 账户变化通知，这里让它按此刻的范围重新对齐（范围变了时与账户变化通知重复调用也无妨，已在读取就不再请求）。
+    func externalSessionRevalidationDidFinish() {
+        favoriteFolderList.synchronize()
+    }
+
+    /// 收藏夹列表此刻按哪个账户范围读取：认证仍在确认、或其他窗口换号而本窗口还没复核到时为 `unresolved`（列表不读取、
+    /// 也不丢弃），否则是本窗口的范围。
+    ///
+    /// 复核期间窗口范围仍是旧账户，Keychain 里却可能已是新账户的 Cookie 或没有凭据：此时读取会用新 Cookie 读旧 mid，
+    /// 把旧账户的公开收藏夹显示出来，凭据失败还会触发一次普通复核、替换掉进行中的外部复核。见 SECURITY-MODEL §2、§3。
+    static func favoriteFolderReadingScope(
+        windowScope: AccountSessionScope,
+        isRestoring: Bool,
+        accountSession: AccountSessionCoordinator
+    ) -> AccountSessionScope {
+        guard !isRestoring, !accountSession.awaitsRevalidation(ofWindowScope: windowScope) else {
+            return .unresolved
+        }
+        return windowScope
     }
 
     func markWindowActive() {

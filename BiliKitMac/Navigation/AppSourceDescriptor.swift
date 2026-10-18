@@ -5,19 +5,30 @@ import Foundation
 
 /// 侧栏把平级来源分成的组；case 的声明顺序就是组在侧栏里的顺序，组内按 `AppTab` 的声明顺序。
 ///
-/// 每个来源在 `AppSources.init` 的穷尽 switch 里必须给出所属的组。组只决定侧栏怎样分段与是否带标题，
-/// 不改变来源的停用、账户变化与清理语义。
+/// 每个来源在 `AppSources.init` 的穷尽 switch 里必须给出所属的组。组只决定侧栏怎样分段、是否带标题、是否可折叠与
+/// 未登录时是否显示，不改变来源的停用、账户变化与清理语义。
 enum AppSourceGroup: CaseIterable {
     /// 顶部不带标题的一组：搜索、首页、热门。
     case browse
     /// 「资料库」：只属于当前账户的个人列表（稍后再看、观看历史）。
     case library
+    /// 「收藏夹」：一个来源（收藏夹）为每个自己创建的收藏夹提供一行，可折叠；只在已登录时显示。
+    case favorites
 
     /// 侧栏分段标题；nil 表示不显示标题。
     var title: LocalizedStringResource? {
         switch self {
         case .browse: nil
         case .library: "资料库"
+        case .favorites: "收藏夹"
+        }
+    }
+
+    /// 未登录（含仍在确认）时整组不显示：行来自只属于当前账户的列表，没有可显示的行。
+    var isShownOnlyWhenSignedIn: Bool {
+        switch self {
+        case .browse, .library: false
+        case .favorites: true
         }
     }
 }
@@ -36,6 +47,10 @@ struct AppSourceDescriptor: Identifiable {
     let systemImage: String
     /// 侧栏里所属的组；组内按 `AppTab` 的声明顺序排列。
     let group: AppSourceGroup
+    /// 来源在侧栏提供多行（每行一个条目）时的选中读写；只有一行的来源为 nil。
+    ///
+    /// 侧栏的选择值据此在来源本身与条目行之间映射（`AppSidebarSelection`）。
+    let itemSelection: AppSourceItemSelection?
     /// 内容只属于当前账户（只在登录后读取）。
     ///
     /// 其他窗口换号时，本窗口在自己的复核结束前就先 `reset`，不让上一账户的内容在复核期间继续显示。
@@ -43,7 +58,7 @@ struct AppSourceDescriptor: Identifiable {
     /// 内容被整体替换的代次；`AppShellView` 在它前进时只把这个来源的网格滚回顶部。
     ///
     /// 按各来源现有语义透传：推荐、热门与搜索只在原地刷新成功时前进，稍后再看与观看历史每次加载成功（含首次加载）
-    /// 都前进。
+    /// 都前进，收藏夹每次整体替换成功（选夹、换夹、翻页、换排序或关键词、刷新）都前进。
     let refreshGeneration: @MainActor () -> UInt64
     /// 从本来源切到另一个来源时调用一次；推荐、热门与搜索的停用由 Browse 激活（`AppRootView.browseActivation`）
     /// 统一承担，这里不动作。
@@ -56,10 +71,12 @@ struct AppSourceDescriptor: Identifiable {
     let synchronizeAccountSession: @MainActor (AccountSessionChange) -> Void
     /// 绑定本来源的账户复核参与者：只在本来源是当前来源时收到复核结果（`AccountRevalidationParticipants`）。
     ///
-    /// 稍后再看与观看历史复核成功后会 `loadIfNeeded`，不在本页时不能让它在后台读取账户内容。不绑定来源的参与者
-    /// （视频、弹幕、评论、UP 主空间与三个来源共用的 Browse）由 `WindowComposition` 另行登记。
+    /// 稍后再看、观看历史与收藏夹的夹内页面复核成功后会加载，不在本页时不能让它在后台读取账户内容。不绑定来源的参与者
+    /// （视频、弹幕、评论、UP 主空间、三个来源共用的 Browse，以及侧栏常驻的收藏夹列表）由 `WindowComposition` 另行
+    /// 登记；收藏夹列表是例外：它是侧栏行的元数据，窗口已登录就读取（见 SECURITY-MODEL §3）。
     let revalidationParticipant: (any AccountRevalidationParticipant)?
-    /// 取消本来源自己的请求并丢弃自己的内容（搜索的草稿与热搜、稍后再看的列表与条件、观看历史）。
+    /// 取消本来源自己的请求并丢弃自己的内容（搜索的草稿与热搜、稍后再看的列表与条件、观看历史、收藏夹的列表、
+    /// 选择、条件与夹内内容）。
     ///
     /// 由 `AppSources` 调用：关窗时对所有来源，其他窗口换号时只对 `requiresAccount` 的来源。推荐、热门与搜索
     /// 共用的 Browse 工作集不属于某一个来源，不在这里，由 `AppSources.resetForWindowClosure` 整体丢弃一次。
@@ -104,6 +121,8 @@ struct AppSources {
         watchLaterModel: WatchLaterViewModel,
         watchLaterSession: WatchLaterSession,
         historyModel: WatchHistoryViewModel,
+        favoriteFolderList: FavoriteFolderListModel,
+        favoriteFolders: FavoriteFolderViewModel,
         searchSession: VideoSearchSession,
         trendingSearchModel: TrendingSearchViewModel
     ) {
@@ -120,6 +139,7 @@ struct AppSources {
                     title: "搜索",
                     systemImage: "magnifyingglass",
                     group: .browse,
+                    itemSelection: nil,
                     requiresAccount: false,
                     refreshGeneration: { browseModel.successfulRefreshGeneration(for: .search) },
                     deactivate: {},
@@ -136,6 +156,7 @@ struct AppSources {
                     title: "首页",
                     systemImage: "house",
                     group: .browse,
+                    itemSelection: nil,
                     requiresAccount: false,
                     refreshGeneration: {
                         browseModel.successfulRefreshGeneration(for: .recommendation)
@@ -152,6 +173,7 @@ struct AppSources {
                     title: "热门",
                     systemImage: "flame",
                     group: .browse,
+                    itemSelection: nil,
                     requiresAccount: false,
                     refreshGeneration: { browseModel.successfulRefreshGeneration(for: .popular) },
                     deactivate: {},
@@ -166,6 +188,7 @@ struct AppSources {
                     title: "稍后再看",
                     systemImage: "play.square.stack",
                     group: .library,
+                    itemSelection: nil,
                     requiresAccount: true,
                     refreshGeneration: { watchLaterModel.successfulReloadGeneration },
                     deactivate: watchLaterModel.deactivateRoute,
@@ -185,6 +208,7 @@ struct AppSources {
                     title: "观看历史",
                     systemImage: "clock.arrow.circlepath",
                     group: .library,
+                    itemSelection: nil,
                     requiresAccount: true,
                     refreshGeneration: { historyModel.successfulReloadGeneration },
                     deactivate: historyModel.deactivateRoute,
@@ -196,6 +220,30 @@ struct AppSources {
                     },
                     revalidationParticipant: historyModel,
                     reset: historyModel.reset
+                )
+            case .favorites:
+                AppSourceDescriptor(
+                    id: tab,
+                    title: "收藏夹",
+                    systemImage: "folder",
+                    group: .favorites,
+                    itemSelection: AppSourceItemSelection(
+                        selectedID: { favoriteFolders.selectedFolderID },
+                        select: { favoriteFolders.selectFolder($0) }
+                    ),
+                    requiresAccount: true,
+                    refreshGeneration: { favoriteFolders.successfulReloadGeneration },
+                    deactivate: favoriteFolders.deactivateRoute,
+                    // 夹内页面丢弃上一账户的选择与内容；列表不论是否当前来源都按新账户重读。
+                    synchronizeAccountSession: { _ in
+                        favoriteFolders.synchronizeAuthenticationSession()
+                        favoriteFolderList.synchronizeAuthenticationSession()
+                    },
+                    revalidationParticipant: favoriteFolders,
+                    reset: {
+                        favoriteFolders.reset()
+                        favoriteFolderList.reset()
+                    }
                 )
             }
         }
@@ -219,6 +267,13 @@ struct AppSources {
         for source in ordered where source.requiresAccount {
             source.reset()
         }
+    }
+
+    /// 账户范围变化后当前来源应在哪里：当前来源所在的组在新范围下不再显示（未登录时的「收藏夹」）时回到首页，否则不变。
+    func route(afterAccountChangeFrom tab: AppTab, scope: AccountSessionScope) -> AppTab {
+        guard self[tab].group.isShownOnlyWhenSignedIn else { return tab }
+        if case .signedIn = scope { return tab }
+        return .home
     }
 
     subscript(tab: AppTab) -> AppSourceDescriptor {

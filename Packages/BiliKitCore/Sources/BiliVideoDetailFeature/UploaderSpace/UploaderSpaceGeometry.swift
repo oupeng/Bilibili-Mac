@@ -1,6 +1,8 @@
 import CoreGraphics
 
-/// UP 主空间层的唯一几何来源：原生列表、状态覆盖层与页码条共用；App 壳的上下文层动画读取其中的过渡时长。
+/// UP 主空间层的唯一几何来源：原生列表与状态覆盖层共用；App 壳的上下文层动画读取其中的过渡时长。
+///
+/// 页码条的几何与列表为它留出的高度在 BiliUI 的 `PageNumberPagerGeometry`。
 public enum UploaderSpaceGeometry {
     static let listHorizontalInset: CGFloat = 8
     static let listTopInset: CGFloat = 8
@@ -33,21 +35,6 @@ public enum UploaderSpaceGeometry {
     static let playingIconSpacing: CGFloat = 3
     static let badgeSpacing: CGFloat = 6
     static let badgeToMetadataSpacing: CGFloat = 4
-
-    /// 页码条显示时列表底部留出的高度，让最后一行不被悬浮的页码条挡住。
-    static let pagerReservedHeight: CGFloat = 60
-    static let pagerItemSize: CGFloat = 22
-    static let pagerItemSpacing: CGFloat = 2
-    static let pagerNumberPadding: CGFloat = 3
-    static let pagerGapWidth: CGFloat = 16
-    static let pagerFieldWidth: CGFloat = 40
-    static let pagerHorizontalPadding: CGFloat = 12
-    static let pagerVerticalPadding: CGFloat = 8
-    static let pagerCollapsedLabelPadding: CGFloat = 6
-    static let pagerBottomInset: CGFloat = 10
-    /// 展开时页码从这个比例放大到原尺寸。
-    static let pagerExpansionScale: CGFloat = 0.6
-    static let pagerExpansionDuration: Double = 0.28
 
     /// 空间层滑入／滑出侧栏的动画时长。
     public static let layerTransitionDuration: Double = 0.28

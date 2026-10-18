@@ -25,11 +25,11 @@ public struct WatchLaterCardPresentation: Sendable, Equatable {
     public init(item: WatchLaterItem, locale: Locale = .current) {
         let addedAt = item.addedAt.map { LibraryCardFormatting.timestamp($0, locale: locale) }
         let reason = item.unavailability.map {
-            WatchLaterCardFormatting.reason($0, locale: locale)
+            LibraryUnavailabilityFormatting.reason($0, locale: locale)
         }
         let title =
             item.title
-            ?? WatchLaterCardFormatting.placeholderTitle(item.unavailability, locale: locale)
+            ?? LibraryUnavailabilityFormatting.placeholderTitle(item.unavailability, locale: locale)
         let coverText: String?
         let spokenProgress: String?
         switch (item.progress, item.durationSeconds) {
@@ -85,37 +85,5 @@ public struct WatchLaterCardPresentation: Sendable, Equatable {
             accessibilityLabel: accessibilityLabel,
             availability: unavailableReason.map { .unavailable(badge: $0) } ?? .available
         )
-    }
-}
-
-/// 稍后再看卡片特有的文字规则：不可用原因的角标文字与缺标题时的占位。
-enum WatchLaterCardFormatting {
-    /// 番剧与影视用接口给的分类原文（如“电影”），没有分类时写“番剧”；课程写“课程”；失效写“已失效”。
-    static func reason(
-        _ unavailability: WatchLaterUnavailability,
-        locale: Locale = .current
-    ) -> String {
-        switch unavailability {
-        case .pgc(let label):
-            label ?? LibraryFeatureStrings.localized("番剧", locale: locale)
-        case .course:
-            LibraryFeatureStrings.localized("课程", locale: locale)
-        case .invalid:
-            LibraryFeatureStrings.localized("已失效", locale: locale)
-        }
-    }
-    /// 不可用条目缺标题时的占位：失效写“已失效视频”，其余写“无标题视频”。
-    ///
-    /// 可播放条目总有标题。
-    static func placeholderTitle(
-        _ unavailability: WatchLaterUnavailability?,
-        locale: Locale = .current
-    ) -> String {
-        switch unavailability {
-        case .invalid:
-            LibraryFeatureStrings.localized("已失效视频", locale: locale)
-        case .pgc, .course, nil:
-            LibraryFeatureStrings.localized("无标题视频", locale: locale)
-        }
     }
 }

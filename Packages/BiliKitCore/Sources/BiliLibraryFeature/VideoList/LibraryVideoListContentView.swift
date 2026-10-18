@@ -107,7 +107,7 @@ struct LibraryVideoListContentView<Item: Sendable & Equatable, Cursor: Equatable
                 loadMoreError: loadMoreError
             )
         case .failed(let error):
-            failure(error)
+            failures.view(error, fallbackTitle: text.failureTitle, retry: { model.reload() })
         case .loaded, .loadingMore:
             // 有条目的 loaded 与加载更多共用这一支，网格在加载更多前后保持同一视图身份；
             // 这两种状态下 surface 总能构造。
@@ -159,7 +159,7 @@ struct LibraryVideoListContentView<Item: Sendable & Equatable, Cursor: Equatable
             Label(text.emptyTitle, systemImage: text.emptySymbol)
         } description: {
             if let loadMoreError {
-                Text(message(for: loadMoreError))
+                Text(failures.message(for: loadMoreError))
             } else if canLoadMore, let manualContinue = text.manualContinue {
                 Text(manualContinue.emptyDescription)
             } else {
@@ -198,7 +198,7 @@ struct LibraryVideoListContentView<Item: Sendable & Equatable, Cursor: Equatable
             RefreshStatusCapsule(
                 isRefreshing: model.isRefreshing,
                 refreshingLabel: text.refreshing,
-                errorMessage: model.refreshError.map(message(for:))
+                errorMessage: model.refreshError.map(failures.message(for:))
             )
         }
         .overlay(alignment: .bottom) {
@@ -215,7 +215,7 @@ struct LibraryVideoListContentView<Item: Sendable & Equatable, Cursor: Equatable
         if let loadMoreError = surface.loadMoreError {
             let canRetry = surface.canLoadMore && loadMoreError.isRetryable
             return .failed(
-                message: message(for: loadMoreError),
+                message: failures.message(for: loadMoreError),
                 retry: canRetry ? { model.loadMore() } : nil
             )
         }
@@ -228,26 +228,11 @@ struct LibraryVideoListContentView<Item: Sendable & Equatable, Cursor: Equatable
         return .idle
     }
 
-    private func failure(_ error: ContentApplicationError) -> some View {
-        let failureText = ContentFailureText(
-            error: error,
-            fallbackTitle: text.failureTitle,
-            revalidation: revalidation,
+    /// 失败文案按模型的账户复核进度区分（`LibraryContentFailure`）。
+    private var failures: LibraryContentFailure {
+        LibraryContentFailure(
+            isAwaitingRevalidation: model.isAwaitingAuthenticationRevalidation,
             locale: locale
         )
-        return ContentFailureView(
-            title: failureText.title,
-            message: failureText.message,
-            retry: error.isRetryable ? { model.reload() } : nil
-        )
-    }
-
-    private func message(for error: ContentApplicationError) -> String {
-        ContentFailureText.message(for: error, revalidation: revalidation, locale: locale)
-    }
-
-    /// 资料库列表的凭据失败总会请求账户复核：复核进行中说“正在重新确认”，结束仍失败时给静态说明。
-    private var revalidation: ContentFailureText.Revalidation {
-        model.isAwaitingAuthenticationRevalidation ? .awaiting : .finished
     }
 }

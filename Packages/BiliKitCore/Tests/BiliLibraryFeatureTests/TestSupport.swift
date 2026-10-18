@@ -161,7 +161,7 @@ actor HistoryRepositoryStub: WatchHistoryRepository {
 
 func laterItem(
     _ bvid: String,
-    unavailability: WatchLaterUnavailability? = nil
+    unavailability: LibraryItemUnavailability? = nil
 ) -> WatchLaterItem {
     WatchLaterItem(
         bvid: bvid,
