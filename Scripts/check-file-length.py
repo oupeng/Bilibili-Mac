@@ -15,7 +15,6 @@ GENERATED_SUFFIX = ".pb.swift"
 
 OVERSIZED = {
     "Packages/BiliKitCore/Tests/BiliAPITests/BiliAPIClientTests.swift": 2166,
-    "Packages/BiliKitCore/Tests/BiliAPITests/CommentAPIClientTests.swift": 946,
 }
 
 

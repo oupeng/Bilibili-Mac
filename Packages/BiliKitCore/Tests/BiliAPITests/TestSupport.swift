@@ -1,10 +1,12 @@
 import BiliAPI
+import BiliModels
 import BiliNetworking
 import Foundation
 import Synchronization
 import Testing
 
-// BiliAPITests 共用的 fixture 读取与 HTTP 测试替身：每个 port 在本 target 内只保留一份可配置 stub。
+// BiliAPITests 共用的 fixture 读取、HTTP 测试替身与评论结果的取值帮手：
+// 每个 port 在本 target 内只保留一份可配置 stub。
 
 func fixtureResponse(
     _ name: String,
@@ -309,4 +311,10 @@ actor StubAuthorizer: HTTPRequestAuthorizing {
 
 struct StubAuthorizationFailure: HTTPRequestAuthorizationFailure {
     let authorizationFailureKind: HTTPRequestAuthorizationFailureKind
+}
+
+/// 评论可读时取出正文与作者；不可读的标记返回 nil。
+func available(_ comment: BiliModels.Comment) -> CommentDetails? {
+    guard case .available(let details) = comment.payload else { return nil }
+    return details
 }
