@@ -116,12 +116,14 @@ Sparkle 更新网络，以及任何 redirect 后的主机。不使用 `*.bilibil
 | 媒体（DASH、progressive） | `BiliMediaCDNURLPolicy`：`bilivideo.com`／`bilivideo.cn`／`szbdyd.com` 及子域、`upos-*.akamaized.net` | DTO 映射时、bridge 读取 SIDX 前与 loopback 媒体资源构造时各检查一次；Range client 本身只执行 `PublicHTTPSURLPolicy`。响应须为精确 206 与起止一致的 `Content-Range`，正文逐字节计数、长度必须精确；媒体分段另核对 `Content-Range` 完整长度，progressive 另要求 `Content-Length` 与 `Content-Type`。SIDX（≤ 1 MiB）与音频 init（≤ 2 MiB）区间超限时不发请求，读取同样先验证响应头再接收正文，超出区间立即取消。构造每个 Range 请求时统一去除调用方 headers 里的 `Cookie`／`Authorization` |
 | 字幕正文 | `SubtitleURLPolicy`：`https://aisubtitle.hdslb.com/bfs/...` | 正文 ≤ 2 MiB；新主机先失败关闭 |
 | 评论头像、表情、正文图片、链接前置图标，热搜图标 | `BiliBFSImageURLPolicy`：`i0`／`i1`／`i2.hdslb.com` 与相册域名 `album.biliimg.com`（较早的评论图片）的 `/bfs/` 路径（热搜图标的 `http:` 与协议相对地址先升级为 HTTPS） | 拒绝 query、fragment、点段、编码分隔符；评论列表图片与头像的缩略参数写在 path 上（`@{宽}w_{高}h.webp`），加参数后的地址再过一次同一规则；热搜图标不合规时只丢图标、保留文字 |
-| 视频封面 | 接口返回的 HTTPS URL（`http:`、协议相对地址升级为 HTTPS），映射时与图片管线请求前各过一次 `PublicHTTPSURLPolicy` | 由图片管线限制 |
+| 视频封面，卡片与侧栏账号头像 | 接口返回的 HTTPS URL（`http:`、协议相对地址升级为 HTTPS），映射时与图片管线请求前各过一次 `PublicHTTPSURLPolicy` | 由图片管线限制；`hdslb.com` 的地址经 `BiliImageThumbnail` 在 path 上追加缩略参数，侧栏账号头像在缩略后、进管线前再过一次同一基线 |
 | 评论与简介外链 | 视频链接只回送合法 BVID（av 号在本地换算，不发请求），分 P 序号与起播秒数 `t` 只取正整数，`t` 超出可跳转时长（充电试看取试看时长）时忽略；正文时间戳只在当前视频的播放器里跳转；@ 成员与空间链接只允许正整数 MID，在应用内打开空间；搜索词链接不生成；正文纯文字里识别出的网址只认 `https`（`http` 仅在指向站内目标时升级），外链须先通过公开 HTTPS 复核才显示为链接；其他目标经公开 HTTPS 形状复核 | 仅用户点击后交给系统 `OpenURLAction`；不预取、不解析 DNS、不附加凭据 |
 | 评论与简介短链 | 只认 `https://b23.tv/{1–16 位 ASCII 字母数字}`，请求时去掉 query 与 fragment；其他短链域名按评论外链处理 | 仅用户点击后发一次无凭据 `HEAD`（拒绝 redirect、5 秒超时、不读正文），只读一次 3xx 的绝对或协议相对 `Location`，目标按评论外链同一规则分类；目标仍在 b23.tv（不论形状）、不是跳转或失败时，把原短链交给系统浏览器；同一窗口同时只解析一个，新点击、换视频或关窗取消，关窗时释放 session；不记录短码与目标地址 |
 
 - 弹幕分段与评论页须通过状态、Content-Type 与 2 MiB 上限，再交给解码器；JSON、protobuf、HTML 错误页和
   空响应不能互相降级解析。未知接口状态失败关闭。
+- 所有远端图片（含侧栏账号头像）都经图片管线加载，不用 `AsyncImage` 等走系统共享 session、URL cache 或跟随
+  redirect 的加载方式。
 - 图片管线（`NativeVideoImagePipeline`）：无凭据 session，响应必须 2xx、HTTPS、同主机、`image/*`、
   ≤ 8 MiB（评论图片预览请求原图，按 B 站评论图片 20 MB 上传上限单独放宽到 ≤ 20 MiB）；按用途限制解码尺寸；
   只有有界内存 cache（单张不超过总上限的 1/4，系统内存压力时清空），没有磁盘 cache。评论图片的列表格子与预览另保留动图的编码数据（计入 cache 成本），

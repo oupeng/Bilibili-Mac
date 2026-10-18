@@ -1,4 +1,5 @@
 import AppKit
+import BiliUI
 import BiliVideoDetailFeature
 import CoreGraphics
 import Foundation
@@ -8,8 +9,8 @@ import UniformTypeIdentifiers
 
 @testable import BiliKit
 
-/// 窗口图片管线的边界：只请求公开 HTTPS 地址，响应、解码尺寸与缓存都有上界，各用途缓存互不覆盖，动图只在
-/// 评论图片且不超限时保留，关闭后不再接受请求。
+/// 窗口图片管线的边界：只请求公开 HTTPS 地址（侧栏账号头像与卡片头像同样先缩略再校验），响应、解码尺寸与
+/// 缓存都有上界，各用途缓存互不覆盖，动图只在评论图片且不超限时保留，关闭后不再接受请求。
 @Suite(.timeLimit(.minutes(1)))
 struct NativeVideoImagePipelineTests {
     @Test(arguments: [
@@ -24,6 +25,34 @@ struct NativeVideoImagePipelineTests {
     func requestsOnlyPublicHTTPSImageAddresses(urlString: String, accepted: Bool) throws {
         let url = try #require(URL(string: urlString))
         #expect(NativeVideoImagePipeline.acceptsRequestURL(url) == accepted)
+    }
+
+    @Test
+    func accountAvatarRequestsTheAvatarThumbnailLikeCardAvatars() throws {
+        let face = try #require(URL(string: "https://i1.hdslb.com/bfs/face/fixture.jpg"))
+        let elsewhere = try #require(URL(string: "https://images.example/face.jpg"))
+
+        #expect(
+            NativeVideoImagePipeline.accountAvatarRequestURL(for: face)?.absoluteString
+                == "https://i1.hdslb.com/bfs/face/fixture.jpg@96w_96h_1c.webp"
+        )
+        #expect(NativeVideoImagePipeline.accountAvatarRequestURL(for: elsewhere) == elsewhere)
+        #expect(NativeVideoImagePipeline.accountAvatarRequestURL(for: nil) == nil)
+        #expect(
+            NativeVideoImageVariant.avatar.maximumDecodedPixelSize == BiliAvatarImageSize.pixelSide
+        )
+    }
+
+    @Test(arguments: [
+        "http://i1.hdslb.com/bfs/face/fixture.jpg",
+        "https://127.0.0.1/face.jpg",
+        "https://localhost/face.jpg",
+        "https://i1.hdslb.com:8443/bfs/face/fixture.jpg",
+        "https://user@i1.hdslb.com/bfs/face/fixture.jpg"
+    ])
+    func accountAvatarSkipsAddressesThePipelineWouldNotRequest(urlString: String) throws {
+        let url = try #require(URL(string: urlString))
+        #expect(NativeVideoImagePipeline.accountAvatarRequestURL(for: url) == nil)
     }
 
     @Test

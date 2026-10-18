@@ -54,6 +54,7 @@ struct AppShellView: View {
                             sources: sources.ordered,
                             selection: $navigationCoordinator.selectedTab,
                             accountState: authenticationModel.accountPresentationState,
+                            imagePipeline: imagePipeline,
                             onPresentAuthentication: {
                                 isAuthenticationPresented = true
                             }

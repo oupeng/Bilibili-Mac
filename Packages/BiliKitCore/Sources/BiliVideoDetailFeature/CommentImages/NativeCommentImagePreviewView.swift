@@ -477,10 +477,11 @@ private struct NativeCommentImagePreviewContent: View {
             phase = placeholder.map { .placeholder($0, originalFailed: true) } ?? .failed
             return
         }
-        let animation: Animation? =
-            placeholder == nil && result.fadesIn && !reduceMotion
-            ? .easeOut(duration: NativeImageFadeAnimation.duration)
-            : nil
+        // 已有缩小图占位时原位替换，不再淡入。
+        let animation = NativeImageFadeTransition.animation(
+            fadesIn: placeholder == nil && result.fadesIn,
+            reduceMotion: reduceMotion
+        )
         withAnimation(animation) {
             phase = .loaded(result.image, result.animation)
         }
