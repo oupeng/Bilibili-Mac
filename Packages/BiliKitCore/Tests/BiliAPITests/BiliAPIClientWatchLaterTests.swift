@@ -1,0 +1,298 @@
+import BiliApplication
+import BiliModels
+import BiliNetworking
+import Foundation
+import Testing
+
+@testable import BiliAPI
+
+/// 固定稍后再看契约：WBI 签名的账户读取与固定参数，丢弃没有可用 BVID 的占位行，番剧／影视、课程与失效三类
+/// 判为不可用，按总条数推出下一页，响应不属于所请求的页时整页失败。
+struct BiliAPIClientWatchLaterTests {
+    @Test
+    func requestIsSignedAccountReadWithFixedParameters() async throws {
+        let transport = StubTransport(
+            responses: [try fixtureResponse("watchlater")],
+            answersWBINavOnce: true
+        )
+        let authorizer = StubAuthorizer()
+        let client = BiliAPIClient(
+            transport: transport,
+            requestAuthorizer: authorizer,
+            timestampProvider: { 1_700_000_000 }
+        )
+
+        _ = try await client.watchLater(page: 1)
+
+        let requests = transport.businessRequests()
+        #expect(requests.map(\.url.path) == ["/x/v2/history/toview/web"])
+        let request = try #require(requests.first)
+        #expect(request.headers["Referer"] == "https://www.bilibili.com/watchlater/")
+        #expect(request.headers["Cookie"] == StubAuthorizer.cookie)
+        let query = Dictionary(
+            uniqueKeysWithValues: (URLComponents(url: request.url, resolvingAgainstBaseURL: false)?
+                .queryItems ?? []).map { ($0.name, $0.value ?? "") }
+        )
+        #expect(query["pn"] == "1")
+        #expect(query["ps"] == "20")
+        #expect(query["viewed"] == "0")
+        #expect(query["key"] == "")
+        #expect(query["asc"] == "0")
+        #expect(query["web_location"] == "333.881")
+        #expect(query["need_split"] == nil)
+        #expect(query["wts"] == "1700000000")
+        #expect(query["w_rid"]?.count == 32)
+        // WBI nav 保持匿名，只有稍后再看本身经过授权器。
+        #expect(await authorizer.capturedPaths() == ["/x/v2/history/toview/web"])
+    }
+
+    @Test
+    func pageMapsItemsAndDropsPlaceholderRows() async throws {
+        let client = BiliAPIClient(
+            transport: StubTransport(
+                responses: [try fixtureResponse("watchlater")],
+                answersWBINavOnce: true
+            ),
+            requestAuthorizer: StubAuthorizer(),
+            timestampProvider: { 1_700_000_000 }
+        )
+
+        let page = try await client.watchLater(page: 1)
+
+        #expect(
+            page.items.map(\.bvid) == [
+                "BV1LaterA1", "BV1LaterB2", "BV1LaterC3", "BV1LaterD4", "BV1LaterE5", "BV1LaterF6",
+                "BV1LaterG7"
+            ]
+        )
+        let first = page.items[0]
+        #expect(first.title == "稍后 & 再看 一")
+        #expect(first.coverURL?.absoluteString == "https://images.example.invalid/a.jpg")
+        #expect(first.owner == VideoOwner(
+            id: 20_001,
+            name: "作者甲",
+            avatarURL: URL(string: "https://images.example.invalid/face-a.jpg")
+        ))
+        #expect(first.durationSeconds == 300)
+        #expect(first.progress == .watched(seconds: 125))
+        #expect(first.addedAt == Date(timeIntervalSince1970: 1_700_000_000))
+        #expect(first.unavailability == nil)
+        #expect(page.items[1].progress == .finished)
+        #expect(page.items[1].owner.avatarURL == nil)
+        #expect(page.items[2].progress == .notStarted)
+        #expect(
+            page.items.map(\.unavailability) == [
+                nil, nil, .pgc(label: "番剧"), .pgc(label: "电影"), .course, .invalid, nil
+            ]
+        )
+    }
+
+    /// 有下一页的条件是本页有条目且已请求的条数少于总条数；`list` 为 null 时是空页。
+    @Test(arguments: [
+        (1, 23, 3, Int?.some(2)),
+        (2, 23, 3, nil),
+        (1, 20, 20, nil),
+        (1, 0, 0, nil)
+    ])
+    func nextPageFollowsTheTotalCount(
+        page: Int,
+        count: Int,
+        rows: Int,
+        expectedNextPage: Int?
+    ) async throws {
+        let client = BiliAPIClient(
+            transport: StubTransport(
+                responses: [jsonResponse(Self.body(count: count, rows: rows))],
+                answersWBINavOnce: true
+            ),
+            requestAuthorizer: StubAuthorizer(),
+            timestampProvider: { 1_700_000_000 }
+        )
+
+        let result = try await client.watchLater(page: page)
+
+        #expect(result.pageNumber == page)
+        #expect(result.items.count == rows)
+        #expect(result.nextPageNumber == expectedNextPage)
+    }
+
+    @Test
+    func nullListIsAnEmptyLastPage() async throws {
+        let client = BiliAPIClient(
+            transport: StubTransport(
+                responses: [jsonResponse(#"{"code":0,"data":{"count":0,"list":null}}"#)],
+                answersWBINavOnce: true
+            ),
+            requestAuthorizer: StubAuthorizer(),
+            timestampProvider: { 1_700_000_000 }
+        )
+
+        let page = try await client.watchLater(page: 1)
+
+        #expect(page.items.isEmpty)
+        #expect(page.nextPageNumber == nil)
+    }
+
+    /// 有条目却落在总条数之外、条数超过每页条数，或总条数为负，都说明响应不属于所请求的页。
+    @Test(arguments: [(2, 20, 3), (1, 30, 21), (1, -1, 0)])
+    func responseOutsideTheRequestedPageFails(page: Int, count: Int, rows: Int) async throws {
+        let client = BiliAPIClient(
+            transport: StubTransport(
+                responses: [jsonResponse(Self.body(count: count, rows: rows))],
+                answersWBINavOnce: true
+            ),
+            requestAuthorizer: StubAuthorizer(),
+            timestampProvider: { 1_700_000_000 }
+        )
+
+        await #expect(throws: BiliAPIError.decodingFailed) {
+            try await client.watchLater(page: page)
+        }
+    }
+
+    /// 不是占位行的条目缺标题、作者或加入时间时整页失败，不悄悄显示残缺卡片。
+    @Test
+    func malformedVideoRowFailsThePage() async throws {
+        let body = #"""
+            {"code":0,"data":{"count":1,"list":[{"aid":1,"bvid":"BV1LaterA1","title":"","pic":"","duration":10,"owner":{"mid":1,"name":"作者"},"progress":0,"add_at":1700000000,"state":0}]}}
+            """#
+        let client = BiliAPIClient(
+            transport: StubTransport(responses: [jsonResponse(body)], answersWBINavOnce: true),
+            requestAuthorizer: StubAuthorizer(),
+            timestampProvider: { 1_700_000_000 }
+        )
+
+        await #expect(throws: BiliAPIError.decodingFailed) {
+            try await client.watchLater(page: 1)
+        }
+    }
+
+    /// 进度 `-1` 是已看完，正数截到时长以内，其余按没看过。
+    @Test(arguments: [
+        (-1, 100, WatchLaterProgress.finished),
+        (40, 100, .watched(seconds: 40)),
+        (130, 100, .watched(seconds: 100)),
+        (0, 100, .notStarted),
+        (-2, 100, .notStarted)
+    ])
+    func progressMapsTheFinishedSentinel(
+        progress: Int,
+        duration: Int,
+        expected: WatchLaterProgress
+    ) throws {
+        let row = try JSONDecoder().decode(
+            WatchLaterItemPayload.self,
+            from: Data(
+                #"{"aid":1,"bvid":"BV1LaterA1","title":"标题","duration":\#(duration),"owner":{"mid":1,"name":"作者"},"progress":\#(progress),"add_at":1700000000,"state":0}"#
+                    .utf8
+            )
+        )
+
+        #expect(try row.model()?.progress == expected)
+    }
+
+    @Test(arguments: [0, -1])
+    func nonPositivePageSendsNothing(page: Int) async {
+        let transport = StubTransport(responses: [])
+        let client = BiliAPIClient(transport: transport, requestAuthorizer: StubAuthorizer())
+
+        await #expect(throws: BiliAPIError.invalidRequest) {
+            try await client.watchLater(page: page)
+        }
+        #expect(transport.capturedRequests().isEmpty)
+    }
+
+    /// 一页 `rows` 条可播放的手写条目，总条数为 `count`。
+    private static func body(count: Int, rows: Int) -> String {
+        let list = (0..<rows).map { index in
+            #"{"aid":\#(index + 1),"bvid":"BV1Later\#(index)","title":"条目 \#(index)","pic":"","duration":60,"owner":{"mid":1,"name":"作者"},"progress":0,"add_at":1700000000,"state":0}"#
+        }
+        return #"{"code":0,"data":{"count":\#(count),"list":[\#(list.joined(separator: ","))]}}"#
+    }
+}
+
+/// 稍后再看 adapter 只经内容域映射失败：凭据四态与风控各归其类，取消原样传播；本地无凭据时不发出业务请求。
+@Suite(.timeLimit(.minutes(1)))
+struct BiliWatchLaterRepositoryTests {
+    @Test
+    func missingCredentialFailsWithoutBusinessRequest() async {
+        let transport = StubTransport(responses: [], answersWBINavOnce: true)
+        let repository = BiliWatchLaterRepository(
+            client: BiliAPIClient(
+                transport: transport,
+                requestAuthorizer: StubAuthorizer(.fail(.missingCredential))
+            )
+        )
+
+        await #expect(throws: ContentApplicationError.authenticationRequired) {
+            try await repository.watchLater(page: 1)
+        }
+        #expect(transport.businessRequests().isEmpty)
+    }
+
+    @Test(arguments: [
+        (#"{"code":-101,"message":"fixture"}"#, 200, ContentApplicationError.authenticationInvalid),
+        (#"{"code":-500,"message":"fixture"}"#, 200, .serviceRejected(code: -500)),
+        ("", 412, .requestRestricted)
+    ])
+    func mapsAPIFailure(body: String, statusCode: Int, expected: ContentApplicationError) async {
+        let repository = BiliWatchLaterRepository(
+            client: BiliAPIClient(
+                transport: StubTransport(
+                    responses: [jsonResponse(body, statusCode: statusCode)],
+                    answersWBINavOnce: true
+                ),
+                requestAuthorizer: StubAuthorizer()
+            )
+        )
+
+        await #expect(throws: expected) {
+            try await repository.watchLater(page: 1)
+        }
+    }
+
+    @Test
+    func keychainUnavailableIsNotCredentialInvalidation() async {
+        let repository = BiliWatchLaterRepository(
+            client: BiliAPIClient(
+                transport: StubTransport(responses: [], answersWBINavOnce: true),
+                requestAuthorizer: StubAuthorizer(.fail(.unavailable))
+            )
+        )
+
+        await #expect(throws: ContentApplicationError.authenticationUnavailable) {
+            try await repository.watchLater(page: 1)
+        }
+    }
+
+    @Test
+    func preservesCancellation() async {
+        let repository = BiliWatchLaterRepository(
+            client: BiliAPIClient(
+                transport: StubTransport([.cancellation], answersWBINavOnce: true),
+                requestAuthorizer: StubAuthorizer()
+            )
+        )
+
+        await #expect(throws: CancellationError.self) {
+            try await repository.watchLater(page: 1)
+        }
+    }
+
+    @Test
+    func pageOutsideTheCountIsAnInvalidResponse() async {
+        let body = #"""
+            {"code":0,"data":{"count":1,"list":[{"aid":1,"bvid":"BV1LaterA1","title":"标题","pic":"","duration":10,"owner":{"mid":1,"name":"作者"},"progress":0,"add_at":1700000000,"state":0}]}}
+            """#
+        let repository = BiliWatchLaterRepository(
+            client: BiliAPIClient(
+                transport: StubTransport(responses: [jsonResponse(body)], answersWBINavOnce: true),
+                requestAuthorizer: StubAuthorizer()
+            )
+        )
+
+        await #expect(throws: ContentApplicationError.invalidResponse) {
+            try await repository.watchLater(page: 2)
+        }
+    }
+}

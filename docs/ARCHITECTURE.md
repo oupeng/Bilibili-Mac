@@ -43,7 +43,7 @@ BiliNetworking 不依赖任何 Bili 模块
 | target | 拥有 | 不得依赖 |
 | --- | --- | --- |
 | `BiliModels` | 跨层稳定实体与值类型（视频、播放清单、字幕、弹幕、评论、账户投影） | 任何 Bili 模块、SwiftUI、AppKit、AVFoundation、Network |
-| `BiliApplication` | Use Case、port（Feed、视频详情与播放地址、相关推荐、热搜、搜索联想、UP 主资料与投稿、播放控制与时间轴、字幕、弹幕分段与呈现、评论、认证与会话失效、观看历史、观看进度）、窗口账户复核的参与者契约 `AccountRevalidationParticipant`（由 Feature ViewModel 实现、App 窗口汇总，不是 adapter 实现的 port）、应用级错误、界面可用的账户投影（`AccountSessionScope`、`AccountPresentationState`，由窗口的账户会话状态得出），以及 `package` 并发原语（Feature 共用的 `LatestTask`、时间线与播放失败事件共用的多订阅广播 `AsyncBroadcast`）与列表来源共用的分页状态机 `PagedVideoList`；设置界面、样本发现与测速共用的线路测速样本数（`PlaybackRouteBenchmarkPolicy`） | 除 `BiliModels` 外的 Bili 模块、UI/播放/网络框架、DTO、Keychain、Cookie |
+| `BiliApplication` | Use Case、port（Feed、视频详情与播放地址、相关推荐、热搜、搜索联想、UP 主资料与投稿、播放控制与时间轴、字幕、弹幕分段与呈现、评论、认证与会话失效、观看历史、稍后再看、观看进度）、窗口账户复核的参与者契约 `AccountRevalidationParticipant`（由 Feature ViewModel 实现、App 窗口汇总，不是 adapter 实现的 port）、应用级错误、界面可用的账户投影（`AccountSessionScope`、`AccountPresentationState`，由窗口的账户会话状态得出），以及 `package` 并发原语（Feature 共用的 `LatestTask`、时间线与播放失败事件共用的多订阅广播 `AsyncBroadcast`）与列表来源共用的分页状态机 `PagedVideoList`；设置界面、样本发现与测速共用的线路测速样本数（`PlaybackRouteBenchmarkPolicy`） | 除 `BiliModels` 外的 Bili 模块、UI/播放/网络框架、DTO、Keychain、Cookie |
 | `BiliNetworking` | 无业务语义的 HTTP client、Range client、`HTTPRequestAuthorizing`、URL 形状策略（含 BiliAPI 与 BiliAuth 共用的远端图片地址 HTTPS 升级 `WebImageURL`）与 JSON 响应判定 | Bili 模块、`Security`、UI/播放框架 |
 | `BiliAPI` | endpoint DTO、WBI、解码、protobuf wire、远端错误映射，并实现 Application 仓库 port | `BiliAuth`（只接受注入的授权器） |
 | `BiliAuth` | Web QR 状态机、Cookie envelope、Keychain store、请求授权器，实现 `AuthenticationServicing` | `BiliAPI`、`BiliPlayback`、`BiliDanmaku`、Feature、UI 框架 |
@@ -63,7 +63,7 @@ BiliNetworking 不依赖任何 Bili 模块
   意图统一用 `LatestTask` 隔离，不各自手写。View 的 `.task(id:)` 只把生命周期意图交给 ViewModel。
 - adapter 必须传播 `CancellationError`，不把取消折叠成网络失败。
 - adapter 只经 `BiliAPIError.Failure`（`domainError`）分类远端错误，各域只把分类对应到自己的 Application
-  错误。内容类读取（Feed、视频、UP 主空间、观看历史）共用
+  错误。内容类读取（Feed、视频、UP 主空间、观看历史、稍后再看）共用
   `BiliAPIError.contentApplicationError(for:)` 映射到 `ContentApplicationError`：认证分无凭据、凭据失效、
   本地凭据读不到、风控四态，业务码 -404／62002／62004 归为“内容不存在或不可见”。是否复核账户、是否给
   重试只由 `ContentApplicationError` 的 `requiresAccountRevalidation`／`isRetryable` 决定，Feature 不各自判断。
