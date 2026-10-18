@@ -250,6 +250,7 @@ struct SearchHistoryFlowLayout: Layout {
         }
     }
 
+    /// 一行排布结果：成员的下标与测得尺寸，以及累计宽度与行高。
     private struct Row {
         var items: [(index: Int, size: CGSize)] = []
         var width: CGFloat = 0

@@ -2,8 +2,10 @@ import Foundation
 
 /// Bili 媒体字节请求的用途专属 host allowlist。
 ///
-/// 调用方在 DTO 映射时和实际
-/// 建立媒体连接前都应检查；本策略不携带 Cookie，也不放宽重定向。
+/// 在 `PublicHTTPSURLPolicy` 之上只允许固定 CDN 域名及其子域与 `upos-*.akamaized.net`，
+/// 不用 `*.bilibili.com` 后缀匹配。调用方在 DTO 映射时和实际建立媒体连接前都应检查；
+/// Range client 本身只执行公共 HTTPS 基线。本策略不携带 Cookie，也不放宽重定向
+/// （见 SECURITY-MODEL §4）。
 public struct BiliMediaCDNURLPolicy: Sendable {
     private static let dedicatedDomainSuffixes = [
         "bilivideo.com",

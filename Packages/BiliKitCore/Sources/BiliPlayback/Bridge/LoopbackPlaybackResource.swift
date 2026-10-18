@@ -64,6 +64,8 @@ public final class LoopbackProgressiveResource: Sendable, Equatable {
         self.contentLength = contentLength
         self.contentType = contentType.lowercased()
         var allowed = Set([self.contentType])
+        // 上游 Content-Type 只接受 `video/mp4`；调用方已有 MP4 容器证据时另外接受
+        // `application/octet-stream`，见 SECURITY-MODEL §4。
         if allowsOctetStreamWithContainerEvidence {
             allowed.insert("application/octet-stream")
         }
@@ -78,12 +80,17 @@ public final class LoopbackProgressiveResource: Sendable, Equatable {
         lhs === rhs
     }
 
+    /// 已固定来源时只剩它，否则按顺序返回全部候选。
     var eligibleSourceURLs: [URL] {
         selectedSourceURL.withLock { selectedSourceURL in
             selectedSourceURL.map { [$0] } ?? candidateURLs
         }
     }
 
+    /// 由 server 在上游响应头通过验证、向 AVPlayer 发出 206 之前调用。
+    ///
+    /// 首个调用的候选胜出并固定给后续 Range，之后只有同一 URL 返回 true；返回 false 时 server
+    /// 取消本次响应。
     func select(_ url: URL) -> Bool {
         selectedSourceURL.withLock { selectedSourceURL in
             if let selectedSourceURL {
@@ -112,6 +119,7 @@ public enum LoopbackGeneratedResourceError: Error, Sendable, Equatable {
 public final class LoopbackGeneratedResource: Sendable, Equatable {
     public let contentType: String
 
+    /// 锁内状态：generation、剩余生成次数、是否已作废、缓存正文与在途生成 Task（见类型注释）。
     private struct State {
         var generation: UInt64 = 0
         var remainingLoadAttempts: Int
@@ -153,6 +161,9 @@ public final class LoopbackGeneratedResource: Sendable, Equatable {
         lhs === rhs
     }
 
+    /// 由 server 在响应前调用：有缓存直接返回，有在途生成就等它，否则在剩余次数内开始一次新生成。
+    ///
+    /// `cancel()` 之后或次数用尽时失败；生成出的正文为空或超过上限也算失败。
     func resolve() async throws -> Data {
         let pending = state.withLock { state -> (UInt64, Task<Data, any Error>, Data?) in
             guard !state.invalidated else {
@@ -220,6 +231,7 @@ public final class LoopbackGeneratedResource: Sendable, Equatable {
         }
     }
 
+    /// 由 server `stop` 调用：作废缓存并取消在途生成，之后的 `resolve` 都以取消失败。
     func cancel() {
         let task = state.withLock { state -> Task<Data, any Error>? in
             state.generation &+= 1
@@ -240,6 +252,7 @@ public enum LoopbackPlaybackResource: Sendable, Equatable {
     case generated(LoopbackGeneratedResource)
     case progressive(LoopbackProgressiveResource)
 
+    /// `.generated` 没有固定长度，server 必须先 `resolve` 成内存正文再取。
     var contentLength: Int64 {
         switch self {
         case .inMemory(let data, _):

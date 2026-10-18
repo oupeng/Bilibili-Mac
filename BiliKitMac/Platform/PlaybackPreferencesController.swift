@@ -29,6 +29,9 @@ extension UserDefaults {
     }
 }
 
+/// 播放器原生控件的设备级偏好：音量、静音与首选倍速（`AVPlayer.defaultRate`）。
+///
+/// `defaults` 是没有存储值或存储值无效时的回退；持久化范围见 SECURITY-MODEL §6。
 struct PlaybackPreferences: Equatable, Sendable {
     static let defaults = PlaybackPreferences(
         volume: 1,
@@ -41,6 +44,10 @@ struct PlaybackPreferences: Equatable, Sendable {
     let preferredRate: Float
 }
 
+/// 播放偏好的持久化 port：`PlaybackPreferencesController` 初始化时读取一次，
+/// 之后播放器每次变化写回一项。
+///
+/// `load` 不失败，无效值回退默认；写入在 KVO 回调所在的线程调用。
 protocol PlaybackPreferencesStoring: AnyObject, Sendable {
     func load() -> PlaybackPreferences
     func saveVolume(_ volume: Float)
@@ -48,7 +55,10 @@ protocol PlaybackPreferencesStoring: AnyObject, Sendable {
     func savePreferredRate(_ rate: Float)
 }
 
-/// `UserDefaults` 官方保证线程安全，但当前 SDK 尚未声明其为 `Sendable`。
+/// 播放偏好的 `UserDefaults` 实现：读取只接受类型严格匹配且在范围内的值，写入丢弃越界值。
+///
+/// `@unchecked Sendable`：只有一个不可变的 `let defaults`，`UserDefaults` 官方保证线程安全，只是
+/// SDK 尚未声明其为 `Sendable`。
 final class UserDefaultsPlaybackPreferencesStore:
     PlaybackPreferencesStoring, @unchecked Sendable
 {
@@ -106,6 +116,9 @@ final class UserDefaultsPlaybackPreferencesStore:
     }
 }
 
+/// 弹幕显示的设备级偏好：速度档位、透明度、显示区域与密度。
+///
+/// `defaults` 是没有存储值或存储值无效时的回退；持久化范围见 SECURITY-MODEL §6。
 struct DanmakuPreferences: Equatable, Sendable {
     static let defaults = DanmakuPreferences(
         speedLevel: .default,
@@ -120,6 +133,7 @@ struct DanmakuPreferences: Equatable, Sendable {
     let density: DanmakuDensity
 }
 
+/// 弹幕偏好的持久化 port：窗口组装弹幕控制模型时读取一次初值，用户每次调整写回一项。
 protocol DanmakuPreferencesStoring: AnyObject, Sendable {
     func load() -> DanmakuPreferences
     func saveSpeedLevel(_ speedLevel: DanmakuSpeedLevel)
@@ -128,7 +142,11 @@ protocol DanmakuPreferencesStoring: AnyObject, Sendable {
     func saveDensity(_ density: DanmakuDensity)
 }
 
-/// 只保存设备级弹幕显示意图，不保存视频 identity、正文或播放位置。
+/// 弹幕偏好的 `UserDefaults` 实现：只保存设备级弹幕显示意图，不保存视频 identity、正文或播放位置。
+///
+/// 读取只接受类型严格匹配的数字，再由各值类型的构造器校验取值，无效值回退默认。
+/// `@unchecked Sendable`：只有一个不可变的 `let defaults`，`UserDefaults` 官方保证线程安全，只是
+/// SDK 尚未声明其为 `Sendable`。
 final class UserDefaultsDanmakuPreferencesStore:
     DanmakuPreferencesStoring, @unchecked Sendable
 {
@@ -207,8 +225,12 @@ final class UserDefaultsDanmakuPreferencesStore:
     }
 }
 
-@MainActor
 /// 恢复并观察 AVPlayerView 原生控件的非内容偏好；不接触播放 identity、进度或字幕选择。
+///
+/// 每个窗口一个，由窗口 adapter（`WindowAdapters.live`）创建：初始化时把存储的音量、
+/// 静音与首选倍速写入 player，再用三个 KVO 观察把之后的变化写回存储。观察由本类型持有，关窗时
+/// adapter 调用 `invalidate()` 取消。
+@MainActor
 final class PlaybackPreferencesController {
     private let player: AVPlayer
     private let store: any PlaybackPreferencesStoring
@@ -255,6 +277,8 @@ final class PlaybackPreferencesController {
         defaultRateObservation = nil
     }
 
+    /// 键盘音量步进：先取消静音，再按偏移调整并夹在 0...1，返回调整后的音量；新值随后经 KVO
+    /// 写回存储。
     @discardableResult
     func adjustVolume(by offset: Float) -> Float {
         guard offset.isFinite else { return player.volume }

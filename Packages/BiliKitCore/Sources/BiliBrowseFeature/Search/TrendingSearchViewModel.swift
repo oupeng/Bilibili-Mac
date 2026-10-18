@@ -5,9 +5,12 @@ import Observation
 /// 搜索起始页的 B 站热搜：每次起始页出现时刷新，失败只影响热搜区。
 ///
 /// 已有结果时在后台刷新并保留旧结果，刷新失败也不清空；没有结果时才呈现加载与失败。
+/// `loadTask`（`LatestTask`）只保留最新一次刷新：新刷新取消旧请求，迟到结果经 `isCurrent` 丢弃；
+/// 关窗时 App 调 `reset` 取消在途请求。
 @MainActor
 @Observable
 public final class TrendingSearchViewModel {
+    /// 热搜区的呈现状态；`loaded` 可以是空列表，`failed` 只在没有可用结果时出现。
     public enum State: Equatable {
         case idle
         case loading

@@ -4,11 +4,14 @@ import Observation
 
 /// 本机搜索历史，进程内唯一，所有窗口共享同一份。
 ///
-/// 只记录用户提交的搜索词：最近的在前，按规范化后的词去重，最多 `maximumEntryCount` 条，没有时间期限。
-/// 历史属于本机而不属于账号：未登录时也记录，登出不清理；用户可在搜索页逐条删除或全部清除。
+/// 只记录用户提交的搜索词：最近的在前，按规范化后的词去重，最多 `maximumEntryCount` 条，
+/// 没有时间期限。历史属于本机而不属于账号：未登录时也记录，登出不清理；
+/// 用户可在搜索页逐条删除或全部清除。持久化规则（schema、容量、损坏值处理）见 SECURITY-MODEL §6。
 @MainActor
 @Observable
 final class SearchHistoryStore {
+    /// 历史条数上限，即 SECURITY-MODEL §6 规定的容量；超出时丢弃最旧的条目，
+    /// 调大会在本机保留更多搜索原文。
     static let maximumEntryCount = 20
 
     private enum Key {

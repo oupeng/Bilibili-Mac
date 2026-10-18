@@ -12,13 +12,17 @@ struct TrendingSearchPayload: Decodable, Sendable {
     }
 }
 
+/// 热搜的 `trending`：单项解码失败只丢该项。
 struct TrendingSearchListPayload: Decodable, Sendable {
     let list: [LossyDecodable<TrendingSearchKeywordPayload>]
 }
 
+/// 热搜的一项：搜索词、展示名与图标。
 struct TrendingSearchKeywordPayload: Decodable, Sendable {
     let keyword: String
     let showName: String?
+    /// 图标地址：`http:` 与协议相对地址先升级为 HTTPS，再须通过 `BiliBFSImageURLPolicy`（见
+    /// SECURITY-MODEL §4）。
     let icon: String?
 
     private enum CodingKeys: String, CodingKey {

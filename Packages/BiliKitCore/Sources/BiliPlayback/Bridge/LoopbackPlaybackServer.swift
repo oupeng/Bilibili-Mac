@@ -14,6 +14,7 @@ private struct LoopbackResponseAlreadyStartedError: Error {}
 /// Network 对象的 cancel 与 Task 的取消带出锁外执行。唯一例外是撤销未完成的启动（`cancelStart`）：
 /// 只在登记的仍是这个 listener 时移除并 cancel，两步在同一临界区完成。
 public final class LoopbackPlaybackServer: Sendable {
+    /// 请求头上限，超出回 431，见 SECURITY-MODEL §5。
     private static let maximumHeaderBytes = 16 * 1_024
     /// 同时保持的连接上限；AVPlayer 的并发请求远低于此。
     static let maximumConcurrentConnections = 32
@@ -25,6 +26,8 @@ public final class LoopbackPlaybackServer: Sendable {
     /// 从接受连接到收齐请求头的时限；超时关闭，空闲或慢速连接不能长期占住连接名额。
     private static let requestHeaderTimeout: DispatchTimeInterval = .seconds(10)
 
+    /// 锁内的 listener、端口、route 与连接登记表；`nextPendingHeaderOrder` 只增，
+    /// 名额满时据此选出最早的连接让位。
     private struct State {
         var listener: NWListener?
         var port: NWEndpoint.Port?
@@ -47,6 +50,7 @@ public final class LoopbackPlaybackServer: Sendable {
     private let queue: DispatchQueue
     private let state = Mutex(State())
     private let rangeStreamer: any HTTPRangeStreaming
+    /// 每实例随机的 session path 段，只有它下面的 route 可访问，见 SECURITY-MODEL §5。
     private let sessionToken: String
 
     public init(
@@ -411,6 +415,8 @@ public final class LoopbackPlaybackServer: Sendable {
                 self.sendStatus(502, reason: "Bad Gateway", on: connection)
             }
         }
+        // 创建 Task 期间可能已 stop 或连接已关闭：锁内确认连接与 route 仍登记才交出 Task，
+        // 否则立即取消。
         let accepted = state.withLock { state -> Bool in
             guard state.connections[id] != nil,
                 state.routes[request.target] == resource
@@ -696,6 +702,8 @@ public final class LoopbackPlaybackServer: Sendable {
         state.withLock { $0.detach(id) }.cancelPendingWork()
     }
 
+    /// 登记的相对路径只允许字母数字与 `-._/`，不能含 `..` 或首尾 `/`，
+    /// 生成的 URL 不会逃出 session path。
     private func isValidRoute(_ route: String) -> Bool {
         guard !route.isEmpty,
             !route.hasPrefix("/"),

@@ -1,11 +1,14 @@
 import BiliModels
 import Foundation
 
+/// 服务端候选地址的 CDN 类别。
 public enum PlaybackSourceCategory: String, Sendable, Equatable, CaseIterable {
     case akamai
     case bilivideo
 }
 
+/// 可固定选择的 bilivideo 镜像；只替换服务端原始 bilivideo 地址的 host，保留签名（见
+/// docs/ARCHITECTURE.md「播放线路偏好与测速」）。
 public enum BilivideoRoute: String, Sendable, Equatable, Hashable, CaseIterable {
     case tencentOverseas
     case alibabaOverseas
@@ -90,12 +93,17 @@ public enum BilivideoRoute: String, Sendable, Equatable, Hashable, CaseIterable 
     }
 }
 
+/// Settings 里的播放线路偏好；每次新 load 只读一次，只调整视频候选：重排顺序，或在最前插入换了
+/// host 的镜像地址。
 public enum PlaybackSourcePreference: Sendable, Equatable {
     case serverDefault
     case category(PlaybackSourceCategory)
     case experimentalBilivideoRoute(BilivideoRoute)
 }
 
+/// 按 host 把候选地址归入 Akamai 或 bilivideo，只用于排序与测速选址。
+///
+/// 这不是来源校验：地址是否允许由 `BiliMediaCDNURLPolicy` 判定，见 SECURITY-MODEL §4。
 public enum PlaybackSourceClassifier {
     public static func category(for url: URL) -> PlaybackSourceCategory? {
         guard let host = url.host?.lowercased() else { return nil }
@@ -113,6 +121,10 @@ public enum PlaybackSourceClassifier {
     }
 }
 
+/// 按偏好重排一个视频 representation 的候选地址。
+///
+/// 类别偏好把该类地址排前；实验镜像把换了 host 的地址放在最前，其余保持原序。
+/// 找不到对应地址时保持服务端顺序，音频 representation 不动。
 public enum PlaybackSourceOrdering {
     public static func applying(
         _ preference: PlaybackSourcePreference,

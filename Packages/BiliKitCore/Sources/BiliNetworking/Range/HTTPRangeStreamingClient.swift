@@ -1,6 +1,7 @@
 import Foundation
 import Synchronization
 
+/// 通过验证的 Range 响应头：`Content-Range`、正文长度（等于请求区间长度）与上游 `Content-Type`。
 public struct HTTPRangeStreamResponse: Sendable, Equatable {
     public let contentRange: HTTPContentRange
     public let contentLength: UInt64
@@ -17,6 +18,7 @@ public struct HTTPRangeStreamResponse: Sendable, Equatable {
     }
 }
 
+/// 一次流式读取完成时实际交给下游的字节数，等于请求区间长度。
 public struct HTTPRangeStreamResult: Sendable, Equatable {
     public let byteCount: UInt64
 
@@ -25,6 +27,11 @@ public struct HTTPRangeStreamResult: Sendable, Equatable {
     }
 }
 
+/// 单来源 Range 流读取的 port；生产实现是 `HTTPRangeStreamingClient`。
+///
+/// bridge 的 SIDX、init 读取（经 `HTTPRangeClient`）与 loopback 媒体转发共用它。`onResponse`
+/// 在响应头通过验证、正文放行之前调用，`onChunk` 返回前不交付下一个 chunk；
+/// 任一回调抛错即取消上游请求（见 SECURITY-MODEL §4、§5）。
 public protocol HTTPRangeStreaming: Sendable {
     /// `expectedCompleteLength` 为 nil 时不核对 `Content-Range` 的完整长度；`allowedContentTypes`
     /// 为 nil 时不限制上游 `Content-Type`；`requiresContentLength` 为 false 时允许上游省略
@@ -121,6 +128,7 @@ private final class RangeStreamingOperation: URLSessionRangeOperation, Sendable 
     /// 超过上限才判定失败，避免无界积压。
     private static let maximumPendingBytes = 4 * 1_024 * 1_024
 
+    /// 一次请求的 task、结束回调、计数、回调进行中标记与暂存 chunk；只在 `state` 锁内读写。
     private struct State {
         var task: URLSessionDataTask?
         var onFinish: (@Sendable () -> Void)?

@@ -2,6 +2,10 @@ import BiliModels
 import BiliUI
 import Foundation
 
+/// 热门卡片的已格式化文字、缩略图地址与读屏标签，由 `PopularNativeGridView` 映射为原生卡片。
+///
+/// 计数、时长与日期的格式取自 BiliUI，图片地址经 `BiliImageThumbnail` 改写为缩略地址；
+/// 渲染侧不再格式化。
 public struct PopularVideoCardPresentation: Sendable, Equatable {
     public let bvid: String
     public let title: String
@@ -48,6 +52,8 @@ public struct PopularVideoCardPresentation: Sendable, Equatable {
     }
 }
 
+/// 首页推荐卡片的已格式化文字、缩略图地址与读屏标签；另带推荐理由，由 `RecommendedNativeGridView`
+/// 显示为页脚胶囊。
 public struct RecommendedVideoCardPresentation: Sendable, Equatable {
     public let bvid: String
     public let title: String
@@ -97,6 +103,8 @@ public struct RecommendedVideoCardPresentation: Sendable, Equatable {
     }
 }
 
+/// 搜索结果卡片的已格式化文字、缩略图地址与读屏标签；搜索结果可能没有时长，
+/// 此时 `durationText` 为 nil，封面不显示时长。
 public struct SearchVideoCardPresentation: Sendable, Equatable {
     public let bvid: String
     public let title: String

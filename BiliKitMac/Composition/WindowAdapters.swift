@@ -14,9 +14,10 @@ import SwiftUI
 /// 一个窗口可替换的 adapter 与 port：内容与认证仓库、播放控制与播放器视图、弹幕呈现、Now Playing 与观看进度
 /// 的连接，以及窗口打开、关闭时 adapter 自己的登记与清理。
 ///
-/// `WindowComposition` 只经它拿到具体实现；生产实现只由 `live(process:)` 一处构造。本类型不持有状态；live 的
-/// 具体对象（窗口 API、`AVPlayerEngine`、播放偏好、弹幕 renderer 与会话、内存压力监听）由这些闭包捕获，随
-/// `WindowComposition` 存活，`close` 依次取消内存压力监听、停止播放偏好的持久化、注销会话。
+/// `WindowComposition` 只经它拿到具体实现；生产实现只由 `live(process:)` 一处构造。
+/// 本类型不持有状态；live 的具体对象（窗口 API、`AVPlayerEngine`、播放偏好、弹幕 renderer 与会话、
+/// 内存压力监听）由这些闭包捕获，随 `WindowComposition` 存活，`close` 依次取消内存压力监听、
+/// 停止播放偏好的持久化、注销会话并失效短链 session。
 @MainActor
 struct WindowAdapters {
     let feedRepository: any FeedRepository

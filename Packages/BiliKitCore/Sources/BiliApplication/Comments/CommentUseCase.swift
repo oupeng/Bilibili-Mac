@@ -1,5 +1,10 @@
 import BiliModels
 
+/// 评论读取的一次性用例：主评论按已显示的 ID 去重并判定分页终止，楼中楼校验页码与页大小，
+/// 并校验响应与请求衔接。
+///
+/// 不拥有 Task、分页状态与并发上限（`PlaybackCommentsViewModel`）；adapter 调用前后都检查取消，
+/// 被取消的请求抛出 `CancellationError` 而不返回结果。
 public struct CommentUseCase: Sendable {
     private let repository: any CommentRepository
 

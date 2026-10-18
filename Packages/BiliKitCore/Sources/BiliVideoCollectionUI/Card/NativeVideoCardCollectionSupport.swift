@@ -175,7 +175,8 @@ package enum NativeVideoCollectionKeys {
     }
 }
 
-/// 网格与 shelf 的集合视图基类：激活回调与键盘选择框状态；`open` 供 App 的横排子类化。
+/// 网格与 shelf 的集合视图基类：激活回调与键盘选择框状态；`open` 供 BiliVideoDetailFeature 的横排
+/// （`NativeVideoShelfCollectionView`）跨模块子类化。
 ///
 /// 用 AppKit 的理由见 ARCHITECTURE「原生 AppKit 集合视图」。
 @MainActor

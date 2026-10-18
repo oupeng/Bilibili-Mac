@@ -3,6 +3,11 @@ import BiliApplication
 import Foundation
 @preconcurrency import MediaPlayer
 
+/// 交给系统 Now Playing 的标题信息：标题、UP 主、专辑与封面地址。
+///
+/// 多分 P 且分 P 标题非空、与总标题不同时，标题取分 P 标题、专辑取总标题；否则标题取总标题、
+/// 不设专辑。空白 UP 主名不显示。封面只经本 controller 的进程级图片管线加载，请求与响应校验见
+/// SECURITY-MODEL §4。
 struct SystemNowPlayingPresentation: Equatable, Sendable {
     let title: String
     let artist: String?
@@ -41,6 +46,10 @@ struct SystemNowPlayingPresentation: Equatable, Sendable {
     }
 }
 
+/// 系统远程命令（媒体键、控制中心等）转成的播放命令。
+///
+/// `skip(interval:direction:)` 拒绝非有限或非正的间隔；位置与偏移再由 `SystemNowPlayingController`
+/// 按胜出会话的时间轴校验，窗口执行前还会核对 identity 与 player item。
 enum SystemNowPlayingCommand: Equatable, Sendable {
     case play
     case pause
@@ -59,17 +68,25 @@ enum SystemNowPlayingCommand: Equatable, Sendable {
     }
 }
 
+/// 系统快进或快退命令的方向。
 enum SystemNowPlayingSkipDirection: Sendable {
     case forward
     case backward
 }
 
+/// 远程命令的处理结果，一一映射到 `MPRemoteCommandHandlerStatus`。
 enum SystemNowPlayingCommandResult: Equatable, Sendable {
     case success
     case noSuchContent
     case commandFailed
 }
 
+/// 一个窗口最近一次上报的播放会话，只在 MainActor 上读写。
+///
+/// `generation` 由 `SystemNowPlayingWindowCoordinator` 在播放 identity 或 player item 变化时递增；
+/// `selectionOrder` 取 controller 的 `selectionClock`。多个窗口竞争时先取正在播放（含缓冲）的会话，
+/// 再按（`selectionOrder`, `generation`）取最大者。`perform` 把命令连同会话的 identity 与 item
+/// 交回窗口，窗口发现已不是同一项时拒绝。
 @MainActor
 private struct SystemNowPlayingSession {
     let windowID: UUID
@@ -100,6 +117,7 @@ private struct SystemNowPlayingSession {
     }
 }
 
+/// 已发布到系统的会话身份；变化时重新发布并重新加载封面，迟到的封面按它比对后丢弃。
 private struct SystemNowPlayingPublicationIdentity: Equatable {
     let windowID: UUID
     let generation: UInt64
@@ -107,6 +125,10 @@ private struct SystemNowPlayingPublicationIdentity: Equatable {
     let playerItemIdentifier: ObjectIdentifier
 }
 
+/// 决定是否重新发布的时间轴摘要。
+///
+/// 不含播放位置：正常播放时由系统按速率推算已播时长，只有跳转（`discontinuityGeneration`）、时长、
+/// 速率或状态变化才需要重新发布。
 private struct SystemNowPlayingTimelineFingerprint: Equatable {
     let identity: PlaybackItemIdentity?
     let durationSeconds: Double?
@@ -116,12 +138,15 @@ private struct SystemNowPlayingTimelineFingerprint: Equatable {
     let discontinuityGeneration: UInt64
 }
 
+/// 系统 Now Playing 信息中心的写入 port：`publish` 整体替换信息与播放状态，`clear` 清空信息并置为
+/// stopped。
 @MainActor
 protocol SystemNowPlayingCenterWriting: AnyObject {
     func publish(info: [String: Any], state: MPNowPlayingPlaybackState)
     func clear()
 }
 
+/// 写入 `MPNowPlayingInfoCenter.default()` 的实现。
 @MainActor
 private final class DefaultSystemNowPlayingCenter: SystemNowPlayingCenterWriting {
     private let center: MPNowPlayingInfoCenter
@@ -141,6 +166,10 @@ private final class DefaultSystemNowPlayingCenter: SystemNowPlayingCenterWriting
     }
 }
 
+/// 系统远程命令的注册 port：`install` 注册一次处理闭包（已注册时忽略），`removeHandlers`
+/// 移除全部注册。
+///
+/// 处理闭包的调用线程不固定，且必须同步返回结果。
 @MainActor
 protocol SystemRemoteCommandManaging: AnyObject {
     func install(
@@ -151,6 +180,10 @@ protocol SystemRemoteCommandManaging: AnyObject {
     func removeHandlers()
 }
 
+/// 注册到 `MPRemoteCommandCenter.shared()` 的远程命令：播放、暂停、切换、拖动进度与前后 15 秒跳转。
+///
+/// 同时禁用上一首与下一首。拥有各命令的 target token，`removeHandlers()` 逐个移除；由
+/// `SystemNowPlayingController` 在 `close()` 或 deinit 时调用。MainActor 隔离。
 @MainActor
 private final class DefaultSystemRemoteCommandManager:
     SystemRemoteCommandManaging
@@ -235,6 +268,14 @@ private final class DefaultSystemRemoteCommandManager:
     }
 }
 
+/// 进程级的系统 Now Playing 与远程命令 owner：从所有窗口上报的播放会话里选出一个发布给系统。
+///
+/// 由 `ProcessComposition` 创建并持有到进程结束；每个窗口经 `SystemNowPlayingWindowCoordinator`
+/// 调用 `registerWindow`、`update`、`markWindowActive` 与 `removeWindow`。拥有窗口会话表、
+/// 远程命令注册、已发布的封面与封面加载 Task，以及只用于封面的进程级图片管线（缓存上限
+/// `nowPlayingArtwork`）；不拥有播放器，远程命令经胜出会话的 `perform` 交回窗口执行。`close()` 与
+/// isolated deinit 都取消封面加载、关闭封面管线、移除远程命令并清空系统信息；`close()` 之后
+/// `update` 与远程命令不再生效。MainActor 隔离，远程命令回调经 `handleFromAnyThread` 回到主线程。
 @MainActor
 final class SystemNowPlayingController {
     private let center: any SystemNowPlayingCenterWriting
@@ -243,7 +284,10 @@ final class SystemNowPlayingController {
     /// 进程级封面管线：随 controller 存活，只在 `close()`／`deinit` 关闭，换曲目只取消等待者。
     private let artworkPipelineOwner: NativeVideoImagePipelineOwner?
     private var sessions: [UUID: SystemNowPlayingSession] = [:]
+    /// 窗口选择时钟：会话开始播放、窗口变为活跃、远程命令成功时递增，并赋给该会话的
+    /// `selectionOrder`。
     private var selectionClock: UInt64 = 0
+    /// 当前发布给系统的会话身份；变化时取消旧封面加载并清空封面，封面到达时与它比对，不等即丢弃。
     private var publishedIdentity: SystemNowPlayingPublicationIdentity?
     private var publishedFingerprint: SystemNowPlayingTimelineFingerprint?
     private var publishedArtwork: MPMediaItemArtwork?
@@ -287,6 +331,9 @@ final class SystemNowPlayingController {
         UUID()
     }
 
+    /// 窗口上报当前播放会话，然后重新选择胜出会话并按需发布。
+    ///
+    /// 会话无效（时间轴 identity 不符、没有正时长、空闲、加载中或失败）时移除该窗口的会话。
     func update(
         windowID: UUID,
         generation: UInt64,
@@ -355,6 +402,8 @@ final class SystemNowPlayingController {
         remoteCommands.removeHandlers()
     }
 
+    /// `MPRemoteCommand` 的处理闭包要同步返回结果且调用线程不固定：在主线程时直接执行，
+    /// 否则同步切到主线程等待。
     nonisolated private func handleFromAnyThread(
         _ command: SystemNowPlayingCommand
     ) -> SystemNowPlayingCommandResult {
@@ -364,6 +413,10 @@ final class SystemNowPlayingController {
         return DispatchQueue.main.sync { handle(command) }
     }
 
+    /// 把远程命令交给胜出会话执行，成功后该会话成为最近选择。
+    ///
+    /// 没有会话、已关闭或命令不适用于当前时间轴时为 `.noSuchContent`；窗口拒绝（identity 或 item
+    /// 已变）时为 `.commandFailed`。
     func handle(
         _ command: SystemNowPlayingCommand
     ) -> SystemNowPlayingCommandResult {
@@ -469,6 +522,7 @@ final class SystemNowPlayingController {
         center.publish(info: info, state: playbackState(for: session.timeline))
     }
 
+    /// 构造 Now Playing 信息字典：媒体类型为视频、非直播、不进入系统推荐，速率只在播放中时非零。
     static func info(
         presentation: SystemNowPlayingPresentation,
         timeline: PlaybackTimelineSnapshot,

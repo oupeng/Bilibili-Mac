@@ -12,6 +12,8 @@ enum NativeVideoCardTextLayout {
     /// 尾部图标与文字之间的间距。
     static let footerSymbolSpacing: CGFloat = 4
 
+    /// 按“名字|字号”缓存的尾部图标；名字只来自观看历史的四种设备图标，字号随页脚字体，组合有限，
+    /// 不设上限。
     @MainActor private static var footerSymbolCache: [String: NSImage] = [:]
 
     /// 尾部图标：按页脚字号取小号 SF Symbol，作为遮罩着色；同名同字号复用。

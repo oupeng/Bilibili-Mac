@@ -14,6 +14,7 @@ public enum BiliAvatarImageSize {
 /// 来源校验仍由图片管线负责（见 SECURITY-MODEL §4）。缩略参数写在 path 上（`@{宽}w_{高}h_1c.webp`），
 /// 让 CDN 按显示尺寸裁剪并转成 WebP，减少下载与解码。
 package enum BiliImageThumbnail {
+    /// 请求的缩略尺寸（像素），按显示尺寸乘 2x 屏取值。
     package struct Size: Equatable {
         let width: Int
         let height: Int

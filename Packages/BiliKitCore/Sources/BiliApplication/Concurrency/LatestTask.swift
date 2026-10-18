@@ -7,6 +7,8 @@ package final class LatestTask {
     package typealias IsCurrent = @MainActor () -> Bool
 
     private var task: Task<Void, Never>?
+    /// 每次 `replace` 与 `cancel` 时以 `&+=` 递增；旧 Task 的 `isCurrent()`
+    /// 与结束时清理引用都比对它，不匹配即不写回、不清掉新 Task 的引用。
     private var token = 0
 
     package init() {}

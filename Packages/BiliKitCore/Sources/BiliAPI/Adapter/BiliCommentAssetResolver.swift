@@ -1,6 +1,12 @@
 import BiliModels
 import Foundation
 
+/// 评论资源引用到图片地址的唯一生成处：来源规则与缩略参数只在这里，见
+/// docs/ARCHITECTURE.md「模块与依赖方向」的补充规则。
+///
+/// 无状态；App 经窗口级的 `CommentAssetURLResolver` 闭包调用（`WindowAdapters.live`），
+/// 下载与响应校验在 App 图片管线。来源只认 `BiliBFSImageURLPolicy`，
+/// 加缩略参数后的地址再过一次同一规则，见 SECURITY-MODEL §4。
 public struct BiliCommentAssetResolver: Sendable {
     public init() {}
 

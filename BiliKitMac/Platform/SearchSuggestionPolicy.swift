@@ -4,10 +4,15 @@ import Foundation
 /// 搜索框联想菜单的内容规则：本机历史在前、B 站联想在后，两区不重复。
 enum SearchSuggestionPolicy {
     /// 历史区最多列出的条数；历史只在本机匹配，不联网。
+    ///
+    /// 调大会把 B 站联想挤到菜单更下方。
     static let historyLimit = 3
     /// 停止输入这么久之后才请求 B 站联想；期间的新输入取消旧请求。
+    ///
+    /// 调短请求更频繁，调长联想出现得更慢。
     static let requestDelay: Duration = .milliseconds(250)
 
+    /// 联想菜单的两区内容：匹配当前输入的本机历史，以及去掉历史中已有词的 B 站联想。
     struct Sections: Equatable {
         let history: [String]
         let suggestions: [String]

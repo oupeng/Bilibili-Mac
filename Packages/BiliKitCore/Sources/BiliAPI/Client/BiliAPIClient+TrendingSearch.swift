@@ -3,6 +3,7 @@ import Foundation
 
 /// 搜索页的 B 站热搜。
 extension BiliAPIClient {
+    /// 接受的热搜条数范围；超出按 `invalidRequest` 拒绝，不发请求。
     static let trendingSearchLimitRange = 1...50
 
     /// 始终匿名读取：不带账号 Cookie、不签 WBI，也不附加搜索专用的 buvid3。

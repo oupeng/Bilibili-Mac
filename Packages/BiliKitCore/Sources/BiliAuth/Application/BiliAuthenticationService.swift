@@ -22,7 +22,12 @@ public actor BiliAuthenticationService: AuthenticationServicing {
 
     private var state: AuthenticationState = .signedOut
     private var qrCode: WebQRCode?
+    /// 每次恢复、请求二维码、取消登录与登出时递增，轮询与提交凭据只读取不递增。
+    ///
+    /// 各操作 await 之后比对，不等就不再写 `state`，直接返回新操作已发布的状态。
     private var generation: UInt64 = 0
+    /// 凭据可能仍在 Keychain（已登录、复核中或复核失败）时为 true：期间拒绝新的 QR 登录与取消登录，
+    /// 只在登出成功、复核确认未登录，或扫码登录的远端校验判定未登录时清除。
     private var requiresLogout = false
 
     public init(
@@ -104,8 +109,8 @@ public actor BiliAuthenticationService: AuthenticationServicing {
             state = .failed(.network)
         } catch let error as BiliRequestAuthorizationError {
             guard generation == operationGeneration else { return state }
-            // restoreAccountSession only throws after credential access or validation
-            // becomes unavailable. Keep logout as the sole signed-out transition.
+            // 这里只会是凭据存储或远端校验不可用：凭据是否仍有效未知，保持需先登出，
+            // 不在此转为未登录。
             requiresLogout = true
             state = .failed(Self.map(error))
         } catch {

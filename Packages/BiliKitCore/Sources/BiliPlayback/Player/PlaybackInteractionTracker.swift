@@ -13,6 +13,7 @@ final class PlaybackInteractionTracker: Sendable {
     /// playlist `EXT-X-START` 给出的起播位置；就绪附近落在这里的系统跳变不是用户操作。
     private let startPositionSeconds: Double
 
+    /// 锁内状态：交互 revision、内部 seek 的目标与在途标记、内部起播在途标记，以及是否已开始播放。
     private struct State {
         var revision: UInt64 = 0
         var internalSeekTarget: Double?

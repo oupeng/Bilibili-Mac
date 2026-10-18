@@ -12,6 +12,7 @@ struct CDNBenchmarkPlayURLPayload: Decodable, Sendable {
     let dash: CDNBenchmarkDASHPayload
 }
 
+/// 测速只读的 `dash.video` 列表；音频等字段不声明、不解码。
 struct CDNBenchmarkDASHPayload: Decodable, Sendable {
     let video: [DASHRepresentationPayload]
 }

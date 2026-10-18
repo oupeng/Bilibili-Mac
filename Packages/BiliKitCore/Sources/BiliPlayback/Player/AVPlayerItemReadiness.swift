@@ -1,6 +1,7 @@
 @preconcurrency import AVFoundation
 import Foundation
 
+/// 等待 item 到 `readyToPlay`；失败时只报告错误类型名，不带 URL 等细节（见 SECURITY-MODEL §8）。
 enum AVPlayerItemReadiness {
     static func wait(untilReady item: AVPlayerItem) async throws {
         let (statuses, continuation) = AsyncStream.makeStream(of: AVPlayerItem.Status.self)

@@ -1,6 +1,11 @@
 import BiliApplication
 import SwiftUI
 
+/// 账号 sheet 的内容：按 `AuthenticationViewModel` 的状态显示未登录、进度、二维码、已登录或失败，
+/// 并转发登录、取消、重试与退出意图。
+///
+/// 只负责呈现；出现时触发一次启动恢复并等待当前操作，消失时经 `cancelPresentedLoginWork`
+/// 只取消本界面发起的登录挑战，恢复、确认与登出仍在模型里继续。
 public struct AuthenticationView: View {
     @Environment(\.dismiss) private var dismiss
     private let model: AuthenticationViewModel

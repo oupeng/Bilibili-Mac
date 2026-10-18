@@ -3,6 +3,8 @@ import BiliModels
 import Foundation
 import Observation
 
+/// 一个来源工作集的加载状态；`loaded` 里的 `FeedListing` 另带分页与原地刷新进度，`failed`
+/// 只在没有可显示内容时出现。
 enum FeedState: Sendable, Equatable {
     case idle
     case loading(FeedRequest)
@@ -10,6 +12,8 @@ enum FeedState: Sendable, Equatable {
     case failed(request: FeedRequest, error: ContentApplicationError)
 }
 
+/// 视图读取的单个请求的工作集投影：状态、是否正在原地刷新与最近一次刷新失败；
+/// 该请求不是其来源当前工作集时为 idle。
 struct FeedPresentation: Sendable, Equatable {
     let state: FeedState
     let isRefreshing: Bool
@@ -50,21 +54,31 @@ struct FeedPaginationPresentation: Sendable, Equatable {
     var canLoadMore: Bool { tailIdentity != nil }
 }
 
-@MainActor
-@Observable
 /// 拥有首页推荐、热门与最后一次搜索三份独立工作集，以及当前路由的请求 Task。
 ///
 /// 工作集是唯一的状态来源，路由级的 `state` 等只是当前路由工作集的投影。`LatestTask` 与
 /// `activeRequestIdentity` 共同阻止已取消或已切路由的结果写回；进入播放页时普通 deactivate 会保留三份
 /// 工作集，`reset` 则清空它们；不同请求会替换对应工作集。分页规则由各工作集的 `FeedListing` 承担。
+@MainActor
+@Observable
 public final class BrowseViewModel: AccountRevalidationParticipant {
+    /// 首次加载、刷新或加载更多遇到需要复核账户的失败（`requiresAccountRevalidation`）时递增，
+    /// 由窗口汇总后复核账户（`AccountRevalidationParticipant`）。
     public private(set) var authenticationRevalidationGeneration = 0
+    /// 各来源原地刷新成功的次数，经 `successfulRefreshGeneration(for:)` 读出。
     private var successfulRefreshGenerations: [FeedSource: UInt64] = [:]
+    /// 当前路由的第一页请求，nil 表示没有激活的路由；Task 写回前与发起时的请求比对，
+    /// 不等就丢弃结果。
     private(set) var activeRequestIdentity: FeedRequest?
 
     @ObservationIgnored private let useCase: FeedUseCase
+    /// 首次加载、刷新与加载更多共用的最新意图 Task：新请求替换旧请求；切换路由、`deactivateRoute`、
+    /// `reset` 与账户会话变化时取消。
     @ObservationIgnored private let loadTask = LatestTask()
+    /// 上次同步的账户会话代次：App 在账户范围变化时调用 `synchronizeAuthenticationSession`，
+    /// 代次相同的重复调用直接返回，不丢弃工作集。
     @ObservationIgnored private var authenticationSessionGeneration: UInt64?
+    /// 按来源保存的工作集，每个来源最多一份；同来源的新请求替换旧工作集。
     private var worksets: [FeedSource: FeedWorkset] = [:]
 
     public init(useCase: FeedUseCase) {
@@ -89,6 +103,9 @@ public final class BrowseViewModel: AccountRevalidationParticipant {
     }
 
     /// 热门来源的分页大小；激活（`activate(_:)`）与 `PopularFeedView` 按同一请求匹配 presentation。
+    ///
+    /// 取 `FeedUseCase` 与 API 客户端允许的上限 50：每页条目最多、近尾翻页次数最少；超过 50
+    /// 会被当作无效请求。
     public static let popularPageSize = 50
 
     func activatePopular(page: Int = 1, pageSize: Int = 20) {

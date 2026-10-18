@@ -71,6 +71,10 @@ public struct VideoContext: Sendable, Equatable {
     }
 }
 
+/// 充电专属稿件的访问提示，由 `VideoContext.accessNotice` 从详情权益与播放媒体推出。
+///
+/// `upowerPreview`：详情声明可试看，且拿到的 progressive 媒体短于分 P 全长，附带试看与完整时长；
+/// `upowerExclusive`：充电专属稿件的其余情形（例如已能完整播放）。
 public enum PlaybackAccessNotice: Sendable, Equatable {
     case upowerExclusive
     case upowerPreview(
@@ -79,6 +83,8 @@ public enum PlaybackAccessNotice: Sendable, Equatable {
     )
 }
 
+/// 播放页准备视频的一次性用例：取得详情、选定分 P，再取得该分 P 的播放清单。
+///
 /// 分 P 只来自详情响应；缺失时视为无效响应，不再另行请求分 P。
 ///
 /// 用例不拥有播放器，也不保留可变状态；任何一个阶段取消都会阻止后续播放请求或结果返回。

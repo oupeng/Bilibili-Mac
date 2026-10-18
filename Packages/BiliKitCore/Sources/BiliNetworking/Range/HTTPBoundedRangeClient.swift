@@ -1,6 +1,7 @@
 import Foundation
 import Synchronization
 
+/// 测速 Range 读取的结果：已验证的 `Content-Range`、精确字节数与请求耗时；只有要求保留时才带正文。
 public struct HTTPBoundedRangeResult: Sendable, Equatable {
     public let contentRange: HTTPContentRange
     public let body: Data?
@@ -20,6 +21,10 @@ public struct HTTPBoundedRangeResult: Sendable, Equatable {
     }
 }
 
+/// 线路测速使用的单来源有界 Range 读取 port，生产实现是 `HTTPBoundedRangeClient`。
+///
+/// `invalidate()` 由测速的 owner 在结束或取消时调用，取消在途请求并作废 session；
+/// 默认实现什么都不做。
 public protocol HTTPBoundedRangeFetching: Sendable {
     func fetch(
         from url: URL,
@@ -94,6 +99,7 @@ public struct HTTPBoundedRangeClient: HTTPBoundedRangeFetching, Sendable {
 /// 拥有 data task 与结束回调，直到 `finish` 把它们取出：取消 task、解除 transport 登记，再交付唯一
 /// 结果。可变状态只经 `Mutex` 访问；task 的取消与回调都在锁外执行。
 private final class BoundedRangeOperation: URLSessionRangeOperation, Sendable {
+    /// 一次请求的 task、结束回调、计时、已验证的响应头与计数；只在 `state` 锁内读写。
     private struct State {
         var task: URLSessionDataTask?
         var onFinish: (@Sendable () -> Void)?

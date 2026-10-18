@@ -1,6 +1,10 @@
 import BiliModels
 import Foundation
 
+/// 视频搜索（`/x/web-interface/wbi/search/type`）的 `data`，由 `BiliAPIClient.searchVideos` 映射为
+/// `SearchPage`。
+///
+/// 页码信息不合规时整页失败；BVID 形状不合规的结果先滤掉，其余结果映射失败时整页失败。
 struct SearchPayload: Decodable, Sendable {
     let page: Int
     let pageSize: Int
@@ -33,6 +37,8 @@ struct SearchPayload: Decodable, Sendable {
     }
 }
 
+/// 搜索结果的一项，映射为 `SearchVideo`；标题带高亮标签，经
+/// `RemoteVideoTitleNormalizer.searchResult` 去标签并解码实体。
 struct SearchVideoPayload: Decodable, Sendable {
     let bvid: String
     let title: String
@@ -46,6 +52,7 @@ struct SearchVideoPayload: Decodable, Sendable {
     let danmaku: Int64
     let like: Int64?
 
+    /// `BV` 开头、总长 ≤ 24 的 ASCII 字母数字；不合规的结果在映射前丢弃，不算整页错误。
     var hasUsableBVID: Bool {
         bvid.hasPrefix("BV")
             && bvid.count <= 24

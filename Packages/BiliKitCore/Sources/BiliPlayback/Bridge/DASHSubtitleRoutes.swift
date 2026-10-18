@@ -31,13 +31,13 @@ extension DASHToHLSBridge {
             where entry.characteristics.contains("public.machine-generated")
                 && localizedNames[entry.label] == nil
             {
-                // AVFoundation localizes the machine-generated characteristic
-                // separately. Give it the language's base name so a source
-                // label such as "中文（AI）" does not become
-                // "中文（AI）（生成）" when it is the only rendition.
+                // 系统会按 machine-generated 特征另加本地化标注，所以机器生成字幕的显示名换成
+                // 语言本身的名称，源标签“中文（AI）”就不会显示成“中文（AI）（生成）”。
                 localizedNames[entry.label] = translations
             }
         }
+        // 同一语言里去掉“（AI）”后同名、特征组合又互不相同的多条字幕，也都换成语言名，
+        // 彼此由系统按特征加的标注区分。
         for (language, languageEntries) in subtitleLanguageGroups
         where language != "und" && languageEntries.count > 1 {
             let labelGroups = Dictionary(
@@ -174,6 +174,8 @@ extension DASHToHLSBridge {
             let bodyPath = "subtitle/generated/\(offset).vtt"
             let playlistURL = try server.url(for: playlistPath)
             let bodyURL = try server.url(for: bodyPath)
+            // 生成的 WebVTT 不超过 2 MiB，与字幕正文的下载上限相同（见 SECURITY-MODEL §4）；
+            // 超出时该字幕请求失败。
             let generated = try LoopbackGeneratedResource(
                 contentType: "text/vtt; charset=utf-8",
                 maximumContentLength: 2 * 1_024 * 1_024

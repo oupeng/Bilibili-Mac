@@ -3,6 +3,12 @@ import BiliModels
 import BiliNetworking
 import Foundation
 
+/// playurl（`/x/player/wbi/playurl`）的 `data`，由 `BiliAPIClient` 的播放扩展映射为
+/// `VideoPlayback`。
+///
+/// 有 DASH 时只读 DASH，不解码 `durl`、`format` 与 `support_formats`；响度、
+/// 配音语言与断点字段异常时按缺失处理，不阻断播放。线路测速另用只解码视频轨的
+/// `CDNBenchmarkPlayURLPayload`。
 struct PlayURLPayload: Decodable, Sendable {
     /// 没有 DASH 时 AVPlayer 能直接播放的单段 durl 格式。
     ///
@@ -77,6 +83,7 @@ struct PlayURLPayload: Decodable, Sendable {
         format.map { Self.progressiveMP4Formats.contains($0.lowercased()) } ?? false
     }
 
+    /// 上次播放的分 P 与位置（毫秒）；调用方只在请求实际带凭据发出时采用。
     var resumeMetadata: PlaybackResumeMetadata? {
         guard let lastPlayCID, let lastPlayTime else { return nil }
         return PlaybackResumeMetadata(
@@ -86,11 +93,15 @@ struct PlayURLPayload: Decodable, Sendable {
     }
 }
 
+/// `support_formats` 的一项：清晰度编号与封装格式，只用于找出 MP4 整段清晰度。
 struct SupportFormatPayload: Decodable, Sendable {
     let quality: Int
     let format: String
 }
 
+/// 没有 DASH 时 `durl` 的形状：空、单段或多段。
+///
+/// 只支持单段；多段只记形状、不解码其余分段，由调用方映射为不支持的 progressive 媒体。
 enum DURLPayloadSelection: Decodable, Sendable {
     case empty
     case single(DURLPayload)
@@ -120,9 +131,12 @@ enum DURLPayloadSelection: Decodable, Sendable {
     }
 }
 
+/// 单段 progressive 媒体：时长（毫秒）、字节数与主备地址，映射为 `ProgressivePlaybackSource`。
 struct DURLPayload: Decodable, Sendable {
     let length: Int64
     let size: Int64
+    /// 主地址与 `backup_url` 在映射时逐个经 `BiliMediaCDNURLPolicy` 复核并去重，不合规的丢弃，
+    /// 全部不合规时失败（见 SECURITY-MODEL §4）。
     let url: String?
     let backupURLs: [String]
 
@@ -173,6 +187,10 @@ struct DURLPayload: Decodable, Sendable {
     }
 }
 
+/// `voice_balance=1` 时返回的响度测量值，映射为 `PlaybackLoudnessMetadata`。
+///
+/// 任一值不在合理范围或门限高于积分响度时整体无效（`model` 为 nil），原音量播放；未测量视频的
+/// `0.001` 占位因此被拒绝。见 docs/ARCHITECTURE.md「响度均一化（macOS 27 起）」。
 struct PlaybackVolumePayload: Decodable, Sendable {
     let measuredIntegrated: Double
     let measuredLoudnessRange: Double
@@ -214,6 +232,10 @@ struct PlaybackVolumePayload: Decodable, Sendable {
     }
 }
 
+/// playurl 的 `language`：账户可用的 AI 配音语言目录。
+///
+/// `validatedMachineGeneratedItems` 要求目录声明支持、1–8 项、全部为机器配音（`production_type` 2）、
+/// 语言标签与显示名合规且语言不重复；任一项不符整个目录作废，不请求配音。
 struct AudioLanguageCatalogPayload: Decodable, Sendable {
     let support: Bool
     let items: [AudioLanguageItemPayload]
@@ -234,6 +256,10 @@ struct AudioLanguageCatalogPayload: Decodable, Sendable {
     }
 }
 
+/// 配音目录的一项：语言代码、显示名与制作类型。
+///
+/// 语言标签与显示名会写进 loopback HLS 清单的 `LANGUAGE`／`NAME` 属性：标签只接受 BCP 47 形状的
+/// ASCII，显示名拒绝引号、反斜杠与控制字符并限 128 字节，避免改写清单结构。
 struct AudioLanguageItemPayload: Decodable, Sendable {
     let languageCode: String
     let title: String
@@ -283,11 +309,13 @@ struct AudioLanguageItemPayload: Decodable, Sendable {
     }
 }
 
+/// playurl 的 `dash`：视频与音频 representation 列表，调用方只取其中的 AVC 视频与 AAC 音频。
 struct DASHPayload: Decodable, Sendable {
     let video: [DASHRepresentationPayload]
     let audio: [DASHRepresentationPayload]
 }
 
+/// DASH 的一路 representation，映射为 `MediaRepresentation`；snake_case 与 camelCase 字段名都接受。
 struct DASHRepresentationPayload: Decodable, Sendable {
     let id: Int
     let codecid: Int?
@@ -297,6 +325,8 @@ struct DASHRepresentationPayload: Decodable, Sendable {
     let width: Int?
     let height: Int?
     let frameRate: String?
+    /// `base_url` 与 `backup_url` 在映射时逐个经 `BiliMediaCDNURLPolicy` 复核并去重，
+    /// 全部不合规时失败（见 SECURITY-MODEL §4）。
     let baseURL: String
     let backupURLs: [String]
     let segmentBase: DASHSegmentBasePayload
@@ -408,6 +438,8 @@ struct DASHRepresentationPayload: Decodable, Sendable {
     }
 }
 
+/// DASH 的 `SegmentBase`：init 与 SIDX 的字节区间文本（`起-止`，闭区间），映射为 `SegmentBase`；
+/// 形状或区间不合法时失败。
 struct DASHSegmentBasePayload: Decodable, Sendable {
     let initialization: String
     let indexRange: String

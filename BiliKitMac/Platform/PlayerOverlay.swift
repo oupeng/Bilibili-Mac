@@ -5,6 +5,7 @@ import BiliUI
 import BiliVideoDetailFeature
 import SwiftUI
 
+/// 长按左右键的临时倍速：左 0.5 倍、右 2 倍；`rawValue` 即交给播放器的速率。
 enum PlayerMomentaryRate: Float, Equatable, Sendable {
     case slow = 0.5
     case fast = 2
@@ -31,6 +32,7 @@ enum PlayerMomentaryRate: Float, Equatable, Sendable {
     }
 }
 
+/// 快捷键操作后在播放器顶部显示的反馈徽标内容：文字、SF Symbol 与 VoiceOver 文案。
 enum PlayerShortcutFeedback: Equatable {
     case momentaryRate(PlayerMomentaryRate)
     case relativeSeek(Int)
@@ -93,6 +95,9 @@ enum PlayerShortcutFeedback: Equatable {
     }
 }
 
+/// 快捷键反馈徽标的自动消失时机。
+///
+/// `delay` 是显示多久后淡出，连续操作会生成新反馈并重新计时；调长更久遮挡画面，调短来不及看清。
 enum PlayerShortcutFeedbackDismissalPolicy {
     static let delay: Duration = .milliseconds(800)
     static let fadeDuration: TimeInterval = 0.16
@@ -166,10 +171,15 @@ enum PlayerOverlayLayout {
     static let coordinateSpace = "PlayerOverlay"
 }
 
+/// “从头播放”按钮的标题，按钮文字与 accessibility label 共用。
 enum PlayerResumeNoticePresentation {
     static var title: String { AppStrings.localized("从头播放") }
 }
 
+/// “从头播放”提示的自动收起规则。
+///
+/// `delay` 是续播后提示保留的时长，到时淡出，同一次续播不再出现；调长更久遮挡画面，
+/// 调短用户来不及点。
 enum PlayerResumeNoticeDismissalPolicy {
     static let delay: Duration = .seconds(5)
     static let fadeDurationSeconds: TimeInterval = 0.2
@@ -252,6 +262,10 @@ final class PassthroughHostingView<Content: View>: NSHostingView<Content> {
 @MainActor
 @Observable
 final class PlayerOverlayModel {
+    /// 一次反馈：每次显示都生成新的 `id`。
+    ///
+    /// 视图的消失计时以 `id` 为 `.task(id:)`，重复相同的操作也会重新计时；旧计时到时按 id
+    /// 比对后忽略。
     struct Feedback: Equatable {
         let id = UUID()
         let content: PlayerShortcutFeedback

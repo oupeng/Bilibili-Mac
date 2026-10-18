@@ -41,14 +41,29 @@ public final class AVPlayerEngine:
     private let timeline: AVPlayerTimelineAdapter
     private var loadTask: Task<PreparedPlaybackAsset, any Error>?
     private var readinessTask: Task<Void, any Error>?
+    /// 每次 load、停止、失败与 item 失败都由 `releaseCurrentPlayback` 换新。
+    ///
+    /// 准备、就绪、seek 完成与字幕切换在 await 之后比对，不一致时停止迟到的 loopback
+    /// 会话或丢弃回调。
     private var loadGeneration = UUID()
     private var loadIntent: PlaybackLoadIntent?
+    /// `beginPlayback` 报告续播时发出；只有持同一 token 的“从头播放”才执行，从头开始、release
+    /// 或重新开始成功后清除。
     private var activeResumeToken: PlaybackResumeToken?
+    /// 在途“从头播放”的操作 ID，同时只允许一个；新的 transport 或精确 seek 清掉它，旧的 restart
+    /// 收尾时按被取代处理。
     private var restartOperation: UUID?
+    /// 当前拥有时间线待定 seek 的操作（从头播放、transport 或精确 seek），新 seek 覆盖它。
+    ///
+    /// 只有仍匹配的操作才能经 `settleSeek` 写回时间线；release 与外部时间跳变取代时清除。
     private var activeSeekOperationID: UUID?
     private var preparedAsset: PreparedPlaybackAsset?
     private var subtitleIdentity: PlaybackItemIdentity?
+    /// 字幕缓存按 identity 重置，重置 Task 串成链；新 load 先等上一次重置完成再取字幕目录，
+    /// 旧重置不会清掉新目录。
     private var subtitleResetTask: Task<Void, Never>?
+    /// 最近一次字幕切换的操作 ID；await 字幕组之后比对，不一致（被新切换或 release 取代）时返回
+    /// `.unavailable`、不改选择。
     private var subtitleToggleOperationID: UUID?
     private var lastSubtitleSelection: NativeSubtitleSelectionPreference?
     private var transportSeek = TransportSeekOperationState()

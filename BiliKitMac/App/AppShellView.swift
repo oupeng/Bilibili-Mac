@@ -41,8 +41,10 @@ struct AppShellView: View {
         @Bindable var navigationCoordinator = navigationCoordinator
 
         NavigationSplitView(columnVisibility: guardedColumnVisibility) {
-            // 侧栏 = 底层（导航或播放详情）+ 可选的上下文层（UP 主空间）。两层并列叠放，各自按安全区布局；
-            // 上下文层打开时底层保留状态（关闭后评论位置还在），但不可见、不可点、对辅助功能隐藏。
+            // 侧栏 = 底层（导航或播放详情）+ 可选的上下文层（UP 主空间）。两层并列叠放，
+            // 各自按安全区布局；上下文层打开时底层保留状态（关闭后评论位置还在），但不可见、
+            // 不可点、对辅助功能隐藏。播放详情是 AppKit，另经 `isObscured` 设 `isHidden`：
+            // 只设透明度与 hit testing 管不到 cursor rect 和 tracking area。
             ZStack {
                 Group {
                     if navigationCoordinator.currentPlaybackBVID != nil {

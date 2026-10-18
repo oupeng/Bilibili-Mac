@@ -19,6 +19,7 @@ import SwiftUI
 @MainActor
 final class WindowComposition {
     let process: ProcessComposition
+    /// 本窗口在进程级测速权限汇总（`AppSettingsModel`）里的键；关窗时第一步注销。
     let benchmarkAuthenticationOwnerID = UUID()
     let navigationCoordinator: AppNavigationCoordinator
     let browseModel: BrowseViewModel

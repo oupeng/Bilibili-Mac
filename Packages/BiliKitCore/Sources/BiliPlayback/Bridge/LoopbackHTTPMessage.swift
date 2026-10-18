@@ -92,6 +92,10 @@ extension LoopbackPlaybackServer {
         return headers
     }
 
+    /// 解析下游的单一 Range，见 SECURITY-MODEL §5。
+    ///
+    /// 多段、非 `bytes` 或写法不合法时忽略（内存资源回完整 200，远端资源回 400）；
+    /// 起点越界或后缀长度为 0 时 416；终点超出时截到末尾。
     func parseRange(
         _ value: String?,
         contentLength: Int64

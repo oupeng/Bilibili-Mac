@@ -2,25 +2,36 @@ import BiliApplication
 import BiliModels
 import Foundation
 
-@MainActor
 /// 弹幕数据、时间线订阅、分段加载与 presentation 的会话 owner。
 ///
 /// 同时最多加载两个 segment；失败的 segment 在当前 identity 内不再重试（被 412 间歇风控时的一次
 /// 延迟重试在 API 客户端内完成，等待期间占用加载名额）。generation 阻止切视频或 stop 后的迟到结果
 /// 写回。`stop` 必须取消所有任务（含等待中的重试）并清空 scheduler/presentation。
+///
+/// 拥有时间线订阅 Task 与各分段的加载 Task，取消点是 `stop`（换视频时由 `start` 先调用）与
+/// `deinit`；`stop` 先停止 presentation，再递增 generation、取消任务、清空 scheduler。只弱引用
+/// presentation sink：呈现控制器由 App 的窗口组装持有。
+@MainActor
 public final class DanmakuSession: DanmakuPresentationControlling {
     private let useCase: DanmakuSegmentUseCase
     private let timeline: any PlaybackTimelineProviding
+    /// 弱引用：呈现控制器由 App 的窗口组装持有，会话不延长它的生命周期。
     private weak var presentationSink: (any DanmakuPresentationSink)?
     private var authenticationInvalidationHandler: @MainActor () -> Void = {}
     private var scheduler = DanmakuScheduler()
     private var presentationEnabled = true
     private var presentationFilter = DanmakuFilter()
     private var identity: PlaybackItemIdentity?
+    /// `start` 与 `stop` 时递增；加载 Task 带上发起时的值，返回后比对，不等就丢弃分段、
+    /// 失败记录与账户复核报告。
     private var generation = 0
+    /// 订阅时间线的 Task；弱引用 self，`stop` 与 `deinit` 时取消。
     private var timelineTask: Task<Void, Never>?
+    /// 按分段号的加载 Task；完成或失败时由 Task 自己移除，`stop` 与 `deinit` 时取消。
     private var loadTasks: [Int: Task<Void, Never>] = [:]
+    /// 当前 identity 内失败过的分段，不再请求；`stop` 时清空。
     private var failedSegmentIndices: Set<Int> = []
+    /// 同一会话只报告一次需要复核账户，`stop` 时重置。
     private var authenticationInvalidationReported = false
 
     public init(

@@ -1,12 +1,20 @@
 import Foundation
 import Security
 
+/// Web 凭据持久化 port：读取、原子保存与删除同一个 Keychain item。
+///
+/// 由 QR 会话（验证成功后保存）与两个授权器（按需读取，损坏、过期或登出时删除）使用；没有凭据时
+/// `load` 返回 nil，读到无法解码的内容抛 `WebCredentialStoreError.corruptCredential`。
 protocol WebCredentialStoring: Sendable {
     func load() throws -> WebCredential?
     func save(_ credential: WebCredential) throws
     func delete() throws
 }
 
+/// Keychain 操作的失败分类。
+///
+/// 授权器只把 `corruptCredential` 当作可清除的坏凭据；其余按存储不可用处理（账户读取授权器在窗口
+/// 已确认未登录时按无凭据处理，见 SECURITY-MODEL §2）。
 enum WebCredentialStoreError: Error, Sendable, Equatable {
     case corruptCredential
     case interactionNotAllowed
@@ -114,6 +122,7 @@ struct KeychainWebCredentialStore: WebCredentialStoring, Sendable {
     }
 }
 
+/// Security.framework `SecItem*` 调用的薄封装；store 只经它访问 Keychain。
 protocol KeychainOperating: Sendable {
     func copyMatching(_ query: [String: Any]) -> (OSStatus, Data?)
     func add(_ attributes: [String: Any]) -> OSStatus
@@ -124,6 +133,7 @@ protocol KeychainOperating: Sendable {
     func delete(_ query: [String: Any]) -> OSStatus
 }
 
+/// `KeychainOperating` 的系统实现，逐个转发到 `SecItemCopyMatching`／`Add`／`Update`／`Delete`。
 struct SystemKeychainOperations: KeychainOperating, Sendable {
     func copyMatching(_ query: [String: Any]) -> (OSStatus, Data?) {
         var result: CFTypeRef?

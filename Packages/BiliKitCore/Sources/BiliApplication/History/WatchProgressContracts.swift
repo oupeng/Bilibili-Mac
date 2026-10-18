@@ -112,6 +112,11 @@ public struct WatchProgressReport: Sendable, Equatable {
     }
 }
 
+/// 观看进度写入的失败分类，由 BiliAPI 的 `BiliWatchProgressRepository` 从 `BiliAPIError.Failure`
+/// 映射。
+///
+/// 任何失败都只关闭匹配的报告会话（`WatchProgressSession`），不触发账户复核，也不重试，见
+/// SECURITY-MODEL §3。
 public enum WatchProgressError: Error, Sendable, Equatable {
     case authenticationRequired
     case authenticationInvalid
@@ -121,6 +126,12 @@ public enum WatchProgressError: Error, Sendable, Equatable {
     case invalidResponse
 }
 
+/// 观看进度 heartbeat 的写入 port，是应用唯一的写能力。
+///
+/// 底层实现是 BiliAPI 的 `BiliWatchProgressRepository`，由 `ProcessComposition` 包进进程唯一的
+/// `SerializedWatchProgressRepository` 后交给各窗口的 `WatchProgressSession`。失败抛出
+/// `WatchProgressError`，取消原样传播为 `CancellationError`；调用方不得重试，
+/// 也不得持久化待发送的报告，见 SECURITY-MODEL §3。
 public protocol WatchProgressRepository: Sendable {
     func report(_ progress: WatchProgressReport) async throws
 }
@@ -128,12 +139,23 @@ public protocol WatchProgressRepository: Sendable {
 /// 进程级 writer：所有窗口最多一个在途写入；认证代次变化会取消全部旧等待者。
 ///
 /// 每个窗口 session 自身最多向这里提交一个调用，因此等待规模由存活窗口数而不是播放事件数决定。
+///
+/// 由 `ProcessComposition.installWatchProgressWriter` 创建并登记为账户会话失效者；actor 隔离。
+/// 拥有写入队列与认证代次，不拥有报告的合并与关闭（各窗口的 `WatchProgressSession`），也不拥有底层
+/// transport 的取消（由 `installWatchProgressWriter` 另行登记）。
 public actor SerializedWatchProgressRepository: WatchProgressRepository,
     AuthenticatedSessionInvalidating
 {
     private let base: any WatchProgressRepository
+    /// 队尾：最近登记的写入结束（成功或失败）后才结束的 Task；新写入先等它，形成 FIFO 串行。
     private var tail: Task<Void, Never>?
+    /// 已登记、尚未结束的写入；会话失效时全部取消，每个写入结束时自行移除。
     private var operations: [UUID: Task<Void, Error>] = [:]
+    /// 认证代次：`invalidateAuthenticatedSession` 时以 `&+=` 递增。
+    ///
+    /// 写入登记时记下当时的值，开始发送前与发送完成后各比对一次，不匹配就抛出 `CancellationError`：
+    /// 排队中的写入不再发出；在途写入随 Task 取消，并由同时登记的 transport 失效取消，
+    /// 即使已送达也不报告成功。
     private var authenticationGeneration: UInt64 = 0
 
     public init(base: any WatchProgressRepository) {
@@ -184,6 +206,8 @@ public actor SerializedWatchProgressRepository: WatchProgressRepository,
     }
 }
 
+/// 把观看进度报告交给写入 port 的用例；报告的合法性已由 `WatchProgressReport` 的初始化校验，
+/// 这里不另加规则。
 public struct WatchProgressUseCase: Sendable {
     private let repository: any WatchProgressRepository
 

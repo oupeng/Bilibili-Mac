@@ -4,6 +4,9 @@ import BiliUI
 import BiliVideoCollectionUI
 import SwiftUI
 
+/// 网格的输入：从 `WatchHistoryState` 取出条目与分页状态。
+///
+/// 没有条目的 `loaded`、加载中与失败时构造失败，由空页、骨架或失败页接手；加载更多期间总能构造。
 struct WatchHistoryLoadedSurface: Equatable {
     let items: [WatchHistoryItem]
     let canLoadMore: Bool

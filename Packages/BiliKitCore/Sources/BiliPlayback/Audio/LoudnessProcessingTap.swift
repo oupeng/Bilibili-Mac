@@ -8,8 +8,15 @@ import Synchronization
 ///
 /// macOS 27 起官方支持对 HLS 混音挂 tap；混音 tap 必须用指定处理格式创建，否则格式未定义。
 /// 处理格式固定为 `State.prepare` 接受的 32 位浮点非交错立体声，系统负责前后的格式转换。
+///
+/// 由 `LoudnessNormalizationController` 创建并持有，经 `makeAudioMix` 挂到 item 上。
+/// `@unchecked Sendable` 的依据是只有不可变的 `let`：`tap` 创建后只交给 audio mix，
+/// 跨线程的写入只有 `setTargetGain`，经 `State` 的原子值完成。
 final class LoudnessProcessingTap: @unchecked Sendable {
+    /// 目标增益变化时逐帧线性过渡的时长，避免切换音轨时增益突变；调长过渡更慢，调短更接近突变。
     static let rampDurationSeconds = 0.150
+    /// 处理格式为 48 kHz 立体声：B 站 AAC 音轨均为立体声，多数为 44.1 kHz，由系统重采样（见
+    /// docs/ARCHITECTURE.md「响度均一化（macOS 27 起）」）。
     static let processingSampleRate = 48_000.0
     static let processingChannelCount: UInt32 = 2
 
@@ -27,6 +34,8 @@ final class LoudnessProcessingTap: @unchecked Sendable {
             let processingFormat = processingFormat()
         else { return nil }
         let state = State(initialGain: initialGain)
+        // tap storage 持有 State 的一个引用，由 finalize 回调释放；创建失败时没有 tap 可 finalize，
+        // 由下面的失败分支释放。
         let retainedState = Unmanaged.passRetained(state)
         var callbacks = MTAudioProcessingTapCallbacks(
             version: kMTAudioProcessingTapCallbacksVersion_0,
@@ -106,6 +115,13 @@ final class LoudnessProcessingTap: @unchecked Sendable {
 }
 
 extension LoudnessProcessingTap {
+    /// tap 回调使用的增益状态：原子的目标增益，以及只属于处理回调的格式与逐帧过渡进度。
+    ///
+    /// `@unchecked Sendable`：跨线程的只有 `targetGainBits`（增益的位模式，`setTargetGain` 以
+    /// releasing 写入、处理回调以 acquiring 读取）；其余 `var` 只在 prepare、process、unprepare
+    /// 回调里读写，这些回调由 MediaToolbox 依次调用、彼此不并发，安全靠这一点而不是锁。process
+    /// 在实时音频线程运行，只读写这些固定字段与原子值，不分配、不加锁、不记日志（见
+    /// docs/ARCHITECTURE.md「响度均一化（macOS 27 起）」）。
     final class State: @unchecked Sendable {
         private let targetGainBits: Atomic<UInt32>
         private var formatIsSupported = false
@@ -128,6 +144,8 @@ extension LoudnessProcessingTap {
             targetGainBits.store(gain.bitPattern, ordering: .releasing)
         }
 
+        /// 核对系统给出的处理格式并把增益直接置为目标值；不是 32 位小端 packed 浮点线性 PCM 时，
+        /// process 原样直通。
         func prepare(_ format: AudioStreamBasicDescription) {
             sampleRate = format.mSampleRate
             let flags = format.mFormatFlags
@@ -169,6 +187,10 @@ extension LoudnessProcessingTap {
             rampFrameIndex = 0
         }
 
+        /// 原地给每帧的每个声道乘当前增益。
+        ///
+        /// 流起点（`discontinuity`）直接跳到目标增益，不做过渡；
+        /// 目标变化时从当前增益开始一次新的线性过渡。
         func process(
             buffers: UnsafeMutablePointer<AudioBufferList>,
             frameCount: Int,
@@ -241,12 +263,14 @@ extension LoudnessProcessingTap {
         }
     }
 
+    /// 从 tap storage 取回 State，不改变引用计数；只在 finalize 之前的 tap 回调里调用。
     static func state(for tap: MTAudioProcessingTap) -> State {
         Unmanaged<State>.fromOpaque(
             MTAudioProcessingTapGetStorage(tap)
         ).takeUnretainedValue()
     }
 
+    /// 实时处理回调：先取源音频，再交给 `State.process` 原地改写；取源失败或没有帧时不处理。
     static let process: MTAudioProcessingTapProcessCallback = {
         tap,
         requestedFrames,

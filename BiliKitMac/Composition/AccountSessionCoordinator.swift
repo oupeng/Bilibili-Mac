@@ -11,11 +11,16 @@ import Observation
 @MainActor
 @Observable
 final class AccountSessionCoordinator: AuthenticatedSessionInvalidating {
+    /// 已发布的账户范围每真正变化一次以 `&+=` 递增。
+    ///
+    /// `AppRootView` 以它为 task id：进程范围与本窗口不同时先复核本窗口，
+    /// 复核结束时代次已变就不再通知来源。
     private(set) var generation: UInt64 = 0
     private(set) var scope = AccountSessionScope.unresolved
     @ObservationIgnored
     private var sessionInvalidators: [UUID: any AuthenticatedSessionInvalidating] = [:]
 
+    /// 窗口发布自己已解析的账户范围；`unresolved` 与相同范围不动作。
     func publish(_ scope: AccountSessionScope) {
         guard scope != .unresolved, scope != self.scope else { return }
         self.scope = scope
@@ -34,6 +39,11 @@ final class AccountSessionCoordinator: AuthenticatedSessionInvalidating {
         sessionInvalidators[registrationID] = nil
     }
 
+    /// 并发失效全部登记者，全部完成后返回：各 API client 推进 authentication epoch 并换新
+    /// transport，观看进度 writer 丢弃排队的上报。
+    ///
+    /// 由每个窗口的 `BiliAuthenticationService` 在登出与凭据失效时调用（`WindowAdapters.live`
+    /// 把账户会话作为它的附加失效者），见 SECURITY-MODEL §2。
     func invalidateAuthenticatedSession() async {
         let invalidators = Array(sessionInvalidators.values)
         await withTaskGroup(of: Void.self) { group in

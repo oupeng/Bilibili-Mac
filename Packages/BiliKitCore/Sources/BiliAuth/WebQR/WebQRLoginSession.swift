@@ -12,6 +12,7 @@ public actor WebQRLoginSession {
         }
         return url
     }()
+    /// 待显示二维码 URL 唯一允许的主机，见 SECURITY-MODEL §2。
     private static let qrCodeHost = "account.bilibili.com"
 
     public private(set) var state: WebQRLoginState = .signedOut
@@ -21,9 +22,12 @@ public actor WebQRLoginSession {
     private let credentialStore: any WebCredentialStoring
     private let transportInvalidator: (@Sendable () -> Void)?
     private let decoder = JSONDecoder()
+    /// 每次请求二维码与取消时递增；challenge 与候选凭据记录发起时的值，响应返回后不等即丢弃结果。
     private var generation: UInt64 = 0
     private var activeChallenge: ActiveChallenge?
     private var pendingCredential: PendingCredential?
+    /// 每次轮询与取消时递增，请求新二维码时归零；轮询响应返回时不是最新一次就丢弃，
+    /// 旧轮询不能覆盖状态。
     private var latestPollID: UInt64 = 0
 
     public init() {
@@ -338,17 +342,21 @@ public actor WebQRLoginSession {
         state = .signedOut
     }
 
+    /// `qrcode_key` 只接受 32 个可见 ASCII 字符；其他形状按无效响应失败关闭，见 SECURITY-MODEL §2。
     private static func isValidQRCodeKey(_ key: String) -> Bool {
         key.utf8.count == 32 && !key.utf8.contains(where: { $0 < 0x21 || $0 > 0x7E })
     }
 
-    /// 精确 `https://account.bilibili.com`：公开 HTTPS 基线（无 userinfo／fragment、端口缺省或 443）加固定主机。
+    /// 精确 `https://account.bilibili.com`：公开 HTTPS 基线（无 userinfo／fragment、端口缺省或
+    /// 443）加固定主机，见 SECURITY-MODEL §2。
     private static func isValidQRCodeURL(_ value: String) -> Bool {
         guard let url = URL(string: value) else { return false }
         return PublicHTTPSURLPolicy().allows(url)
             && url.host?.lowercased() == qrCodeHost
     }
 
+    /// 只从成功响应的 `Set-Cookie` 取白名单 Cookie，缺任何一个或校验失败都不产生候选凭据，
+    /// 见 SECURITY-MODEL §1。
     private static func pendingCredential(
         from response: HTTPResponse,
         generation: UInt64

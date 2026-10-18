@@ -2,6 +2,13 @@ import BiliApplication
 import BiliModels
 import Foundation
 
+/// `CommentRepository` 的 B 站实现：根评论与楼中楼读取、错误映射，以及根评论分页游标与
+/// continuation 的映射。
+///
+/// 每个窗口一个（`WindowAdapters.live`）。actor 拥有游标表：服务端 offset 不越过 adapter，
+/// Application 只见随机 UUID continuation；同一游标复用同一 token，表按发出顺序最多保留
+/// `maximumRetainedCursors` 条。continuation 必须与发出时的评论对象和排序一致，不认识（含已被淘汰）
+/// 或不一致时按 `invalidResponse` 失败。请求的取消与旧结果隔离不在这里，归评论 ViewModel。
 public actor BiliCommentRepository: CommentRepository {
     private struct Cursor: Sendable, Equatable, Hashable {
         let subject: CommentSubjectIdentity
@@ -103,7 +110,10 @@ public actor BiliCommentRepository: CommentRepository {
 
     /// 评论区已关闭时 reply endpoint 返回的业务码。
     private static let closedCommentsCode = 12002
-    /// 评论分页游标与不透明 continuation 的映射上限；超出时丢弃最早发出的。
+    /// 评论分页游标与 continuation 的映射上限；超出时丢弃最早发出的。
+    ///
+    /// 被丢弃的 continuation 再用时加载失败；调小会让较早发出、仍在使用的 continuation 更早失效，
+    /// 调大只多占少量内存。
     private static let maximumRetainedCursors = 128
 
     private static func readError(

@@ -4,12 +4,18 @@ import BiliModels
 import Foundation
 import QuartzCore
 
-@MainActor
 /// 有硬上限的 Core Animation 弹幕 backend，负责纹理准备、layer identity、动画时钟与回收。
 ///
 /// Core Text shaping、整行 union mask、vImage 阴影与 RGBA 合成都由有界 preparation owner
 /// 在后台完成。MainActor 只消费不可变像素并安装一个普通 `CALayer`；用户透明度统一落在
 /// `rootLayer.opacity`，活动 layer 不启用实时 shadow。
+///
+/// 用 Core Animation 而不用 SwiftUI：每条弹幕是一个由渲染服务器插值的 layer 动画，暂停与倍速只改
+/// `rootLayer` 的时间，不需要逐帧驱动（见 docs/ARCHITECTURE.md「弹幕」）。拥有 `rootLayer`、活动
+/// layer 与纹理准备 owner；`rootLayer` 挂到哪个视图由 App 的 overlay 决定，内存压力监听由 App 窗口
+/// adapter 持有。`clearAll` 与 `stop` 先递增 `renderEpoch` 再取消准备、移除 layer，
+/// 移除触发的迟到动画回调因此失效。
+@MainActor
 public final class CoreAnimationDanmakuRenderer:
     DanmakuRenderingBackend
 {
@@ -21,6 +27,9 @@ public final class CoreAnimationDanmakuRenderer:
         let relay: AnimationCompletionRelay
     }
 
+    /// 已上屏 layer 的纹理字节总上限；超出时新弹幕不上屏，呈现控制器计为容量丢弃。
+    ///
+    /// 与活动数硬上限一起限定最坏情况的纹理内存：调大允许更多长文本同屏，调小则高峰期更早丢弃。
     static let maximumActiveTextureByteCost = 64 * 1_024 * 1_024
     /// 每个弹幕 layer 上唯一的位移／停留动画的 key。
     static let animationKey = "danmaku"
@@ -28,13 +37,20 @@ public final class CoreAnimationDanmakuRenderer:
     public weak var delegate: (any DanmakuRenderingBackendDelegate)?
     public let rootLayer: CALayer
 
+    /// `clearAll` 与 `stop` 时递增；随动画回调携带，`completeAnimation` 比对不等就丢弃该回调，
+    /// 清屏前的迟到回调因此不会移除清屏后的新 layer，也不会回报给控制器。
     private var renderEpoch: UInt64 = 0
 
+    /// 当前 surface 的 backing scale，已归一到 1...`maximumBackingScale`；变化时取消在途准备，
+    /// 因为纹理按 scale 栅格化。
     private var backingScale: Double
     private var entries: [String: Entry] = [:]
+    /// 每安装一个 layer 递增；同一事件 ID 被移除后再次上屏时，旧 layer 的迟到回调因 identity
+    /// 不等而被丢弃。
     private var nextObjectIdentity: UInt64 = 0
     private var surfaceSize = CGSize.zero
     private let preparationOwner: DanmakuTexturePreparationOwner
+    /// 已上屏 layer 的纹理字节合计，对照 `maximumActiveTextureByteCost`。
     private(set) var activeTextureByteCost = 0
 
     public init(contentsScale: Double = 2) {
@@ -42,6 +58,7 @@ public final class CoreAnimationDanmakuRenderer:
         preparationOwner = DanmakuTexturePreparationOwner()
         rootLayer = CALayer()
         rootLayer.anchorPoint = .zero
+        // y 轴向下，与 allocator 自顶边计算的 `originY` 一致。
         rootLayer.isGeometryFlipped = true
         rootLayer.masksToBounds = true
     }
@@ -129,6 +146,7 @@ public final class CoreAnimationDanmakuRenderer:
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         rootLayer.addSublayer(layer)
+        // 模型值直接设为终点：动画结束到 layer 被异步移除之间，layer 停在画面外，不会闪回起点。
         if event.mode == .scrolling {
             layer.position.x = -layer.bounds.width / 2
         }
@@ -180,6 +198,8 @@ public final class CoreAnimationDanmakuRenderer:
             .convertTime(mediaTime, from: nil)
             ?? mediaTime
         let localTime = rootLayer.convertTime(mediaTime, from: nil)
+        // 局部时间按 (父时间 − beginTime) × speed + timeOffset 换算，只改 speed 会让局部时间跳变；
+        // 先以此刻为 beginTime、以当前局部时间为 timeOffset，再改 speed，动画从原位置按新速率继续。
         rootLayer.beginTime = parentTime
         rootLayer.timeOffset = localTime
         rootLayer.speed = Float(newRate)
@@ -234,6 +254,8 @@ public final class CoreAnimationDanmakuRenderer:
         setPlaybackRate(0)
     }
 
+    /// 由 `AnimationCompletionRelay` 在 MainActor 调用；epoch 与 object identity 都匹配时才移除
+    /// layer 并通知 delegate。
     func completeAnimation(
         eventID: String,
         objectIdentity: UInt64,
@@ -289,6 +311,8 @@ public final class CoreAnimationDanmakuRenderer:
             animation.toValue = -layer.bounds.width / 2
             animation.timingFunction = CAMediaTimingFunction(name: .linear)
         case .top, .bottom:
+            // 顶部与底部弹幕不移动，用一个不改变外观的 opacity 动画计时，结束时同样经 delegate
+            // 回收。
             animation = CABasicAnimation(keyPath: "opacity")
             animation.fromValue = 1
             animation.toValue = 1
@@ -297,6 +321,7 @@ public final class CoreAnimationDanmakuRenderer:
         return animation
     }
 
+    /// 顶部与底部弹幕随新宽度重新居中，底部弹幕随高度变化平移以贴住底边；滚动弹幕保持入场时的运动。
     private func updateFixedGeometry(
         for entry: Entry,
         heightDelta: CGFloat

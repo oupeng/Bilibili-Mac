@@ -1,5 +1,7 @@
 import Foundation
 
+/// Web 凭据唯一允许的 Cookie 名称白名单；QR 成功响应里的其他 Cookie 一律丢弃（见 SECURITY-MODEL
+/// §1）。
 enum WebCredentialCookieName: String, CaseIterable, Codable, Sendable {
     case userID = "DedeUserID"
     case userIDChecksum = "DedeUserID__ckMd5"
@@ -8,6 +10,7 @@ enum WebCredentialCookieName: String, CaseIterable, Codable, Sendable {
     case sessionID = "sid"
 }
 
+/// 白名单内的单个 Cookie 及其属性；`description` 与 Mirror 不展示值（见 SECURITY-MODEL §1）。
 struct WebCredentialCookie: Codable, Sendable, Equatable,
     CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable
 {
@@ -28,6 +31,9 @@ struct WebCredentialCookie: Codable, Sendable, Equatable,
 struct WebCredential: Sendable, Equatable,
     CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable
 {
+    /// Keychain envelope 编码后的大小上限，编码与解码共用；超出按 envelope 无效处理。
+    ///
+    /// 单个值另有 8 KiB 上限。调小可能拒收合法凭据，调大只放宽异常输入。
     static let maximumEncodedSize = 64 * 1_024
 
     let cookies: [WebCredentialCookie]
@@ -63,6 +69,8 @@ struct WebCredential: Sendable, Equatable,
     var customMirror: Mirror { Mirror(self, children: [:], displayStyle: .struct) }
 
     private static func isStructurallyValid(_ cookie: WebCredentialCookie) -> Bool {
+        // 解码后重新校验值字符（可见 ASCII、不含 `;`）与大小，以及 domain、path、Secure，
+        // 见 SECURITY-MODEL §1。
         let valueBytes = cookie.value.utf8
         return !valueBytes.isEmpty
             && valueBytes.count <= 8_192
@@ -75,6 +83,7 @@ struct WebCredential: Sendable, Equatable,
     }
 }
 
+/// 凭据结构或 Keychain envelope 的编解码失败；`KeychainWebCredentialStore` 把它们统一当作凭据损坏。
 enum WebCredentialCodingError: Error, Sendable, Equatable {
     case invalidCredential
     case invalidEnvelope

@@ -66,6 +66,10 @@ enum NativeVideoImageVariant: Hashable, Sendable {
         }
     }
 
+    /// 解码后最长边的像素上限（`kCGImageSourceThumbnailMaxPixelSize`），头像与 BiliUI
+    /// `BiliAvatarImageSize` 同源。
+    ///
+    /// 调大增加解码内存与缓存成本，调小会在较大的显示尺寸或高分屏上发虚。
     var maximumDecodedPixelSize: Int {
         switch self {
         case .cover:
@@ -85,8 +89,9 @@ enum NativeVideoImageVariant: Hashable, Sendable {
 
     /// 单次响应允许的最大字节数。
     ///
-    /// 只有评论图片预览请求原图，按 B 站评论图片 20 MB 的上传上限放宽；其余用途请求的是缩小图或
-    /// 小图，保持较低上限。
+    /// 只有评论图片预览请求原图，按 B 站评论图片 20 MB 的上传上限放宽；
+    /// 其余用途请求的是缩小图或小图，保持较低上限。调大放宽单次下载的内存与流量上限，
+    /// 调小会让较大的图片加载失败；见 SECURITY-MODEL §4。
     var maximumResponseBytes: Int {
         switch self {
         case .commentPicturePreview:
@@ -153,13 +158,25 @@ final class NativeVideoImageWaiter: Sendable {
 /// 拥有无 Cookie 的 ephemeral session、做响应校验与大小上限的 session delegate、内存缓存与在途下载
 /// Task；不拥有显示与动图播放（交给视图层）。`shutdown()` 先取消在途 Task 并唤醒等待者，再经
 /// `sessionGate` 失效 session；deinit 兜底失效。可变状态由 `Mutex` 隔离。
+///
+/// 由 `NativeVideoImagePipelineOwner` 持有：每个窗口一个，Now Playing 封面一个。请求来源、
+/// 响应校验与缓存规则见 SECURITY-MODEL §4。
 final class NativeVideoImagePipeline: Sendable {
+    /// 同一个键的一次在途下载：请求序号 `id`、网络 Task 与等待者表。
+    ///
+    /// Task 在锁外创建后才挂上，因此可能暂时为 nil；最后一个等待者取消时移除本项并取消 Task。
     private struct InFlight {
         let id: UInt64
         var task: Task<Void, Never>?
         var waiters: [UInt64: NativeVideoImageWaiter]
     }
 
+    /// 管线在 `Mutex` 内的全部可变状态：缓存、在途请求、请求与等待者序号、是否已关闭。
+    ///
+    /// `nextRequestID` 在为某个键新建在途请求时递增，挂接 Task、取消等待者与完成请求都比对这个 id；
+    /// 不符说明该键的请求已结束或已被新请求取代，此时挂接方立即取消刚创建的 Task，
+    /// 完成方不再唤醒任何等待者，取消方什么也不做。`isShutdown` 置位后不再查缓存、不再新建请求，
+    /// 迟到的结果也不写回缓存。
     private struct State {
         var cache: NativeVideoImageCache
         var inFlight: [NativeVideoImageKey: InFlight] = [:]
@@ -263,12 +280,14 @@ final class NativeVideoImagePipeline: Sendable {
         return data
     }
 
-    /// 只请求过公开 HTTPS 基线的地址（拒绝 IP、本机与内网域名、非 443 端口）；图片加载与保存原图共用。
+    /// 只请求过公开 HTTPS 基线的地址（拒绝 IP、本机与内网域名、非 443 端口）；
+    /// 图片加载与保存原图共用，见 SECURITY-MODEL §4。
     nonisolated static func acceptsRequestURL(_ url: URL) -> Bool {
         PublicHTTPSURLPolicy().allows(url)
     }
 
-    /// 数据能被 ImageIO 识别为位图（JPEG、PNG、GIF、WebP 等）；SVG、HTML 等不算，保存时拒绝。
+    /// 数据能被 ImageIO 识别为位图（JPEG、PNG、GIF、WebP 等）；SVG、HTML 等不算，保存时拒绝，见
+    /// SECURITY-MODEL §4。
     nonisolated static func isBitmapImage(_ data: Data) -> Bool {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
             CGImageSourceGetType(source) != nil
@@ -311,6 +330,8 @@ final class NativeVideoImagePipeline: Sendable {
         sessionGate.invalidate(session)
     }
 
+    /// 响应头声明的长度是否可接受：未声明（-1）时放行，由正文累积上限兜底；
+    /// 已声明超过上限时直接拒绝。
     nonisolated static func acceptsExpectedLength(_ length: Int64, maximumBytes: Int) -> Bool {
         length < 0 || length <= maximumBytes
     }

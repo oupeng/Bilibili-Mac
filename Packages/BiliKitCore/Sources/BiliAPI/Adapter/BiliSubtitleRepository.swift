@@ -3,11 +3,17 @@ import BiliModels
 import BiliNetworking
 import Foundation
 
-/// 保存当前播放 identity 的字幕轨→正文 URL 映射，并按需读取正文。
+/// 保存当前播放 identity 的字幕轨到正文 URL 的映射，并按需读取正文。
 ///
-/// URL 不越过 adapter；正文使用独立无 Cookie、无缓存、拒绝重定向的 transport。
-/// generation 与 identity 共同防止旧目录或正文结果进入新视频。
+/// URL 不越过 adapter；目录只按账户读取（经 `BiliAPIClient`），正文使用独立的无 Cookie、无缓存、
+/// 拒绝重定向的 transport，只认 `SubtitleURLPolicy` 且正文 ≤ 2 MiB，见 SECURITY-MODEL §4。
+/// 每个窗口一个，由播放侧的 `SubtitleUseCase` 调用。
+///
+/// `generation` 在 `tracks` 开始与 `reset` 时递增；`tracks` 在目录返回后、`cues`
+/// 在正文返回后与发起时记录的值（`cues` 另比对 identity）比对，不一致抛 `CancellationError`，
+/// 丢弃旧目录或旧正文，不让它们进入新视频。
 public actor BiliSubtitleRepository: SubtitleRepository {
+    /// 字幕正文上限，见 SECURITY-MODEL §4；在完整收到正文后检查，超出按响应异常失败。
     private static let maximumBodySize = 2 * 1_024 * 1_024
 
     private let client: BiliAPIClient

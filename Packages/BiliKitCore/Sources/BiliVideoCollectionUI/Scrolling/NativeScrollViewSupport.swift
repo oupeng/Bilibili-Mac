@@ -36,6 +36,7 @@ package enum NativeVideoScrollCoordinateSpace {
 
 /// NSScrollView 子类在 `layout()` 中用它判断 viewport 尺寸与 contentInsets 是否变化（半点容差）。
 package struct NativeScrollViewportTracker: Sendable {
+    /// 一次 `update(for:)` 的结果：视口尺寸是否变化，以及 insets 是否变化。
     package struct Change: Sendable {
         package let sizeChanged: Bool
         /// insets 变化时为变化前的值。

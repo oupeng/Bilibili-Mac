@@ -3,6 +3,7 @@ import BiliApplication
 import BiliModels
 import Foundation
 
+/// 一次 load 的输入：媒体（DASH 或 progressive）、媒体请求 header 与起播位置。
 public struct PlaybackRequest: Sendable, Equatable {
     public let media: PlaybackMedia
     public let mediaHeaders: [String: String]
@@ -86,6 +87,7 @@ extension PlaybackManifest {
     }
 }
 
+/// `togglePlayback` 的动作：已结束时不切换；`paused` 时播放，播放中或等待播放时暂停。
 enum PlaybackToggleAction: Equatable, Sendable {
     case play
     case pause
@@ -99,7 +101,13 @@ enum PlaybackToggleAction: Equatable, Sendable {
     }
 }
 
+/// transport 相对跳转的累加状态，由 `AVPlayerEngine` 持有。
+///
+/// 连续跳转在上一次尚未落地的目标上累加，而不是在还没更新的当前位置上；只有同一 load generation、
+/// 同一 item 时才累加，否则从当前位置算起。完成回调经 `matches` 比对，已被新跳转取代或
+/// `invalidate` 的操作得到 `.ignored`。
 struct TransportSeekOperationState: Sendable {
+    /// 一次跳转：操作 ID、发起时的 load generation 与 item identity，以及截在 0 到时长之间的目标。
     struct Operation: Equatable, Sendable {
         let id: UUID
         let generation: UUID
@@ -107,6 +115,7 @@ struct TransportSeekOperationState: Sendable {
         let targetSeconds: Double
     }
 
+    /// 收尾结论：已被取代（`ignored`）、未完成或落点无效（`failed`），或落在某处（`completed`）。
     enum Completion: Equatable, Sendable {
         case ignored
         case failed

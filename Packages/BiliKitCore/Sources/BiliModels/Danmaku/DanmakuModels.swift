@@ -1,3 +1,4 @@
+/// 弹幕的显示位置：接口 mode 1–3 都按滚动，4 为底部，5 为顶部；其他模式解码时丢弃。
 public enum DanmakuPresentationMode: Sendable, Hashable {
     case scrolling
     case top
@@ -12,6 +13,11 @@ public enum DanmakuColorStyle: Sendable, Hashable {
     case vipGradient
 }
 
+/// 一条弹幕，由 BiliAPI 的 `DanmakuPayloadDecoder` 从分段 protobuf 解码产生，`BiliDanmaku`
+/// 调度与渲染消费。
+///
+/// 解码时限定 ID、时间与正文长度，正文去掉首尾空白且非空；字号只保留 18、25、36，其他按 25；
+/// `weight` 为负的弹幕由调度过滤，不显示。
 public struct DanmakuEvent: Sendable, Hashable, Identifiable {
     public let id: String
     public let timeSeconds: Double
@@ -43,11 +49,13 @@ public struct DanmakuEvent: Sendable, Hashable, Identifiable {
     }
 }
 
+/// 描述不展示弹幕正文与时间，避免日志或断言输出带出用户内容（见 SECURITY-MODEL §8）。
 extension DanmakuEvent: CustomStringConvertible, CustomDebugStringConvertible {
     public var description: String { "DanmakuEvent(redacted)" }
     public var debugDescription: String { description }
 }
 
+/// 弹幕的一个分段；`index` 从 1 开始，每段覆盖 360 秒播放时间，由弹幕仓库按请求的序号回填。
 public struct DanmakuSegment: Sendable, Equatable {
     public let index: Int
     public let events: [DanmakuEvent]

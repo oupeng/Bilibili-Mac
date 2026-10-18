@@ -24,9 +24,13 @@ public struct DanmakuLaneAllocator: Sendable {
     }
 
     private var configuration: DanmakuLaneConfiguration
+    /// 按事件 ID 的活动 placement。
     private var active: [String: ActivePlacement] = [:]
+    /// 顶部与底部弹幕：每个（车道，层）槽位的占用者，到期或移除前独占该槽位。
     private var fixedLaneOccupants: [LaneSlotKey: ActivePlacement] = [:]
+    /// 滚动弹幕：每个槽位最后进入的一条；新弹幕只需与它比较会不会追尾。
     private var scrollingLaneTails: [LaneSlotKey: ActivePlacement] = [:]
+    /// 每条车道跨所有层的活动数；顶部与底部弹幕先找计数为 0 的车道。
     private var activeLaneCounts: [LaneKey: Int] = [:]
 
     public init(configuration: DanmakuLaneConfiguration) {
@@ -88,6 +92,9 @@ public struct DanmakuLaneAllocator: Sendable {
         return placement
     }
 
+    /// 在 `playbackTime` 先回收到期的 placement，再按顺序逐条准入。
+    ///
+    /// 先找完全不叠放也不会追尾的车道；配置允许叠放时，才逐层寻找可用的槽位。
     public mutating func admit(
         _ requests: [DanmakuLaneRequest],
         at playbackTime: Double
@@ -326,6 +333,8 @@ public struct DanmakuLaneAllocator: Sendable {
         }
     }
 
+    /// 新滚动弹幕能否跟在 `previous` 之后：入场时与前一条右缘的间距不小于最小间距，且新弹幕更快时，
+    /// 间距缩小到最小间距之前前一条已经到期。
     private func scrollingRequest(
         _ request: DanmakuLaneRequest,
         canFollow previous: DanmakuLanePlacement,

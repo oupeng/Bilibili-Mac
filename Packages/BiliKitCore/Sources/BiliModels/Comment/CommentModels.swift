@@ -1,5 +1,9 @@
 import Foundation
 
+/// 评论区所属对象（评论接口的 `type` 与 `oid`），是评论读取 port 的请求键。
+///
+/// 目前只用视频（`type` 1，`oid` 为 aid）；`BiliAPIClient` 请求前拒绝其他 `type` 与非正 `oid`，
+/// 映射时 `oid`／`type` 与之不符的评论按解码失败处理。
 public struct CommentSubjectIdentity: Sendable, Equatable, Hashable {
     public let type: Int
     public let oid: Int64
@@ -14,11 +18,13 @@ public struct CommentSubjectIdentity: Sendable, Equatable, Hashable {
     }
 }
 
+/// 根评论列表的排序：`hot` 按热度、`latest` 按时间，请求时分别映射为接口 `mode` 3 与 2。
 public enum CommentSort: Sendable, Equatable, Hashable {
     case hot
     case latest
 }
 
+/// 评论的 `rpid`；BiliAPI 映射时只接受正数。
 public struct CommentID: Sendable, Equatable, Hashable {
     public let rawValue: Int64
 
@@ -27,6 +33,9 @@ public struct CommentID: Sendable, Equatable, Hashable {
     }
 }
 
+/// 评论作者或 @ 用户的 MID，按接口给的字符串原样保留。
+///
+/// 只有 `memberID` 解析出正整数时才可进入空间或生成空间链接。
 public struct CommentAuthorID: Sendable, Equatable, Hashable {
     public let rawValue: String
 
@@ -66,7 +75,12 @@ public struct CommentAssetPixelBox: Sendable, Equatable, Hashable {
     }
 }
 
-/// 资源的进程内不透明引用；远端 URL 只由具体 adapter 解析和消费。
+/// 评论头像、表情、正文图片与链接图标的进程内不透明引用；远端 URL 只由 BiliAPI 的 adapter
+/// 解析和消费。
+///
+/// 映射时只经 `WebImageURL` 升级为 HTTPS、过公开 HTTPS 基线并拒绝 userinfo，图床来源尚未校验；
+/// `BiliCommentAssetResolver` 解析时才执行 `BiliBFSImageURLPolicy`（见 SECURITY-MODEL §4），
+/// Feature 不得绕过解析器直接读取 `remoteURL`。
 public struct CommentAssetReference: Sendable, Equatable, Hashable {
     private enum Storage: Sendable, Equatable, Hashable {
         case opaque(UUID)
@@ -89,7 +103,11 @@ public struct CommentAssetReference: Sendable, Equatable, Hashable {
     }
 }
 
-/// 外部 HTTPS 链接的进程内不透明引用。
+/// 评论与简介里外链和 b23.tv 短链的进程内不透明引用；远端 URL 只由 BiliAPI 的 adapter 读取。
+///
+/// 映射时 `CommentRemoteLink` 只认带 host、无 userinfo 的 HTTPS 地址；用户点击后外链再经
+/// `BiliCommentLinkResolver` 的公开 HTTPS 复核，短链再由 `BiliShortLinkResolver` 收窄为
+/// `https://b23.tv/{短码}` 才发请求（见 SECURITY-MODEL §4）。
 public struct CommentExternalLinkReference: Sendable, Equatable, Hashable {
     private enum Storage: Sendable, Equatable, Hashable {
         case opaque(UUID)
@@ -112,22 +130,29 @@ public struct CommentExternalLinkReference: Sendable, Equatable, Hashable {
     }
 }
 
+/// 作者公开的性别；接口值“男”“女”之外（含“保密”与缺失）都是 `unspecified`。
 public enum CommentAuthorSex: Sendable, Equatable, Hashable {
     case male
     case female
     case unspecified
 }
 
+/// 作者的认证：接口 `official_verify.type` 0 为个人、1 为机构，附认证说明；其他取值不算认证。
 public enum CommentVerification: Sendable, Equatable, Hashable {
     case personal(description: String?)
     case organization(description: String?)
 }
 
+/// 评论作者或正文里 @ 的用户，由 BiliAPI 的评论与简介映射产生，评论行与空间入口消费。
+///
+/// @ 用户只有 MID、昵称与头像，其余字段取缺省值；`isUploader` 表示作者 MID 与评论接口给出的 UP 主
+/// MID 相同。
 public struct CommentAuthor: Sendable, Equatable, Hashable {
     public let id: CommentAuthorID
     public let name: String
     public let avatar: CommentAssetReference?
     public let sex: CommentAuthorSex
+    /// 用户等级；映射时只保留 0–6，超出或缺失为 nil。
     public let level: Int?
     public let isHardcoreMember: Bool
     public let isVIP: Bool
@@ -168,6 +193,7 @@ public struct CommentTextRange: Sendable, Equatable, Hashable {
     }
 }
 
+/// 正文里一处表情原文及其图片；同一表情出现多次时每处一条，映射时去掉互相重叠的范围。
 public struct CommentEmote: Sendable, Equatable, Hashable {
     public let text: String
     public let range: CommentTextRange
@@ -187,12 +213,16 @@ public struct CommentEmote: Sendable, Equatable, Hashable {
     }
 }
 
+/// 表情的显示规格，对应接口 `meta.size` 1 与 2；`unknown` 时评论正文保留表情原文、不换成图片。
 public enum CommentEmoteSize: Sendable, Equatable, Hashable {
     case standard
     case large
     case unknown
 }
 
+/// 评论正文或视频简介里一段链接的去向，由 BiliAPI 的评论与简介映射分类产生。
+///
+/// 各去向的分类规则与点击前复核见 SECURITY-MODEL §4「评论与简介外链」「评论与简介短链」。
 public enum CommentLinkTarget: Sendable, Equatable, Hashable {
     /// 站内视频；`page` 是链接里的分 P 序号（从 1 开始），`startSeconds` 是链接里的起播秒数（`t=`），
     /// 没有时为 nil。
@@ -205,9 +235,11 @@ public enum CommentLinkTarget: Sendable, Equatable, Hashable {
     case space(memberID: Int64)
     /// b23.tv 短链；点击后才解析出真正的去向，解析失败时按外链打开原短链。
     case shortLink(CommentExternalLinkReference)
+    /// 其他 HTTPS 外链；只在用户点击后经公开 HTTPS 复核交给系统打开。
     case external(CommentExternalLinkReference)
 }
 
+/// 正文里一段链接：UTF-16 范围与去向，可带接口给的显示标题和前置图标。
 public struct CommentLink: Sendable, Equatable, Hashable {
     public let range: CommentTextRange
     public let target: CommentLinkTarget
@@ -231,6 +263,10 @@ public struct CommentLink: Sendable, Equatable, Hashable {
     }
 }
 
+/// 评论正文里的一张图片，由 BiliAPI 的 `CommentContentPayload` 映射产生，评论图片格子与预览消费。
+///
+/// `position` 是它在接口图片数组里的下标，无法映射的图片在评论行留下空位；宽高只保留正数，
+/// 缺失时为 nil。
 public struct CommentImage: Sendable, Equatable, Hashable {
     public let asset: CommentAssetReference
     public let position: Int?
@@ -250,11 +286,15 @@ public struct CommentImage: Sendable, Equatable, Hashable {
     }
 }
 
+/// 一条评论的正文：原文、表情、链接与图片，由 BiliAPI 的 `CommentContentPayload` 映射产生。
+///
+/// `links` 按位置排序；表情与链接的范围都是 `message` 的 UTF-16 范围。
 public struct CommentContent: Sendable, Equatable {
     public let message: String
     public let emotes: [CommentEmote]
     public let links: [CommentLink]
     public let pictures: [CommentImage]
+    /// 接口给出的图片数，含无法映射的项；评论行按它预留格子，BiliAPI 映射时超过 9 张整条失败。
     public let pictureCount: Int
 
     public init(
@@ -272,12 +312,17 @@ public struct CommentContent: Sendable, Equatable {
     }
 }
 
+/// 可见评论的展示状态；BiliAPI 当前的评论映射只产生 `normal`。
 public enum CommentVisibility: Sendable, Equatable, Hashable {
     case normal
     case folded
     case unknown(rawValue: Int)
 }
 
+/// 评论只留占位、不展示正文的原因。
+///
+/// BiliAPI 映射时被折叠为 `folded`，接口标记不可见为 `unavailable`，非零 `state` 原样放进
+/// `unknown`；当前映射不产生 `deleted`。
 public enum CommentUnavailableReason: Sendable, Equatable, Hashable {
     case deleted
     case folded
@@ -285,6 +330,10 @@ public enum CommentUnavailableReason: Sendable, Equatable, Hashable {
     case unknown(rawValue: Int)
 }
 
+/// 评论的来源标记，评论行据此显示置顶与 UP 主点赞标签。
+///
+/// BiliAPI 当前映射只产生管理员置顶、UP 主置顶与 UP 主点赞，不产生 `hotList` 与
+/// `highLikeExposure`。
 public enum CommentProvenance: Sendable, Equatable, Hashable {
     case adminPinned
     case uploaderPinned
@@ -293,6 +342,7 @@ public enum CommentProvenance: Sendable, Equatable, Hashable {
     case uploaderLiked
 }
 
+/// 可见评论的作者、正文、发布时间、IP 属地、计数与来源标记；映射时点赞数与回复数只接受非负值。
 public struct CommentDetails: Sendable, Equatable {
     public let author: CommentAuthor
     public let content: CommentContent
@@ -324,11 +374,15 @@ public struct CommentDetails: Sendable, Equatable {
     }
 }
 
+/// 一条评论要么可展示，要么只剩占位原因；被折叠、不可见或状态异常的评论不携带作者与正文。
 public enum CommentPayload: Sendable, Equatable {
     case available(CommentDetails)
     case unavailable(CommentUnavailableReason)
 }
 
+/// 根评论列表与楼中楼里的一条评论，由 BiliAPI 的 `CommentReplyPayload` 映射产生。
+///
+/// `rootID`／`parentID` 在接口给 0 或缺失时为 nil，根评论两者都为 nil。
 public struct Comment: Sendable, Equatable, Identifiable {
     public let id: CommentID
     public let rootID: CommentID?
@@ -348,6 +402,9 @@ public struct Comment: Sendable, Equatable, Identifiable {
     }
 }
 
+/// 根评论与它的楼中楼预览，`id` 取根评论 ID。
+///
+/// 预览只含属于该根评论的回复，按 ID 去重、至多 2 条；完整楼中楼另经回复分页读取。
 public struct CommentThread: Sendable, Equatable, Identifiable {
     public var id: CommentID { root.id }
 

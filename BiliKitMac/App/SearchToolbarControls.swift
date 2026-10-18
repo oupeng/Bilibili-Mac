@@ -129,6 +129,9 @@ struct SearchToolbarControls: View {
     }
 }
 
+/// 筛选弹窗：只编辑父视图交来的草稿，“取消”与“应用”交回 `SearchToolbarControls` 处理。
+///
+/// 自定义日期范围不合法（`SearchFilterSelection.resolvedFilters()` 抛错）时显示原因并禁用“应用”。
 private struct SearchFilterPopover: View {
     @Environment(\.locale) private var locale
     @Binding var draft: SearchFilterSelection

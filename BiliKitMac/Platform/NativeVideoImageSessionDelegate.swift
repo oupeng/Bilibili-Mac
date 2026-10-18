@@ -28,6 +28,7 @@ private enum NativeVideoImageTransferError: Error {
 ///
 /// 状态只经 `Mutex` 访问；`URLSessionTask.cancel()` 在锁外调用。
 private final class NativeVideoImageTaskBox: Sendable {
+    /// data task 与取消标记，只在外层 `Mutex` 内读写。
     private struct State {
         var task: URLSessionTask?
         var isCancelled = false
@@ -83,6 +84,10 @@ final class NativeVideoImageSessionGate: Sendable {
 /// 只经 `Mutex` 访问；session 由 `NativeVideoImagePipeline` 持有并经 `NativeVideoImageSessionGate`
 /// 失效。
 final class NativeVideoImageSessionDelegate: NSObject, URLSessionDataDelegate, Sendable {
+    /// 一个在途 data task 的登记：请求主机（同主机校验用）、continuation、
+    /// 响应头是否通过与累积的正文。
+    ///
+    /// 只在 `pending` 的 `Mutex` 内读写；完成、校验失败或超限时先从登记表移除，再在锁外 resume。
     private struct Pending {
         let expectedHost: String
         let continuation: CheckedContinuation<NativeVideoImageResponse, Error>

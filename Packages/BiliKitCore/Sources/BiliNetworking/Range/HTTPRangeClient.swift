@@ -1,6 +1,7 @@
 import Foundation
 import Synchronization
 
+/// 请求方声明的闭区间字节范围；构造时拒绝负起点与倒置区间，`headerValue` 是唯一的 `Range` 头写法。
 public struct HTTPByteRange: Sendable, Equatable {
     public let start: Int64
     public let endInclusive: Int64
@@ -26,10 +27,14 @@ public struct HTTPByteRange: Sendable, Equatable {
     }
 }
 
+/// `HTTPByteRange` 的构造失败。
 public enum HTTPByteRangeError: Error, Sendable, Equatable {
     case invalidBounds(start: Int64, endInclusive: Int64)
 }
 
+/// 上游 `Content-Range` 的解析结果。
+///
+/// 只接受 `bytes` 单位、合法闭区间与大于终点的完整长度（`*` 表示未知）。
 public struct HTTPContentRange: Sendable, Equatable {
     public let start: Int64
     public let endInclusive: Int64
@@ -99,10 +104,12 @@ public struct HTTPContentRange: Sendable, Equatable {
     }
 }
 
+/// `Content-Range` 无法解析或不合法。
 public enum HTTPContentRangeError: Error, Sendable, Equatable {
     case invalidValue
 }
 
+/// `HTTPRangeClient` 一次成功读取的来源、已验证的 `Content-Range` 与长度精确的正文。
 public struct HTTPRangeFetchResult: Sendable, Equatable {
     public let sourceURL: URL
     public let contentRange: HTTPContentRange
@@ -115,6 +122,7 @@ public struct HTTPRangeFetchResult: Sendable, Equatable {
     }
 }
 
+/// 一个候选来源的失败记录：候选 URL 与失败分类，不含响应正文或底层错误文本。
 public struct HTTPRangeAttempt: Sendable, Equatable {
     public let url: URL
     public let failure: HTTPRangeResponseError
@@ -125,6 +133,7 @@ public struct HTTPRangeAttempt: Sendable, Equatable {
     }
 }
 
+/// `HTTPRangeClient` 的整体失败：没有候选，或全部候选失败（按尝试顺序附带记录）。
 public enum HTTPRangeClientError: Error, Sendable, Equatable {
     case noCandidates
     case allCandidatesFailed([HTTPRangeAttempt])

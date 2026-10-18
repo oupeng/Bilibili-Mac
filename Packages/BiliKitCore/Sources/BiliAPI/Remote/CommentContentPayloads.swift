@@ -98,6 +98,10 @@ struct CommentContentPayload: Decodable, Sendable {
         )
     }
 
+    /// 按出现位置映射正文图片，同一地址共用一个资源引用。
+    ///
+    /// 这里只经 `WebImageURL` 规范并拒绝 userinfo；来源规则由 `BiliCommentAssetResolver`
+    /// 在解析图片地址时用 `BiliBFSImageURLPolicy` 复核（见 SECURITY-MODEL §4）。
     private func mappedPictures() -> [CommentImage] {
         var assetByURL: [URL: CommentAssetReference] = [:]
         return pictures.enumerated().compactMap { position, payload in
