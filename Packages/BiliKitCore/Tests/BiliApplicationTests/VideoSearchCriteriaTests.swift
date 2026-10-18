@@ -166,7 +166,7 @@ struct VideoSearchCriteriaTests {
             calendar.date(byAdding: .day, value: 1, to: today)
         )
 
-        #expect(throws: VideoPublicationRangeError.startAfterEnd) {
+        #expect(throws: DateRangeFilterError.startAfterEnd) {
             try VideoPublicationRangeResolver.resolve(
                 filter: .custom,
                 customStart: today,
@@ -175,7 +175,7 @@ struct VideoSearchCriteriaTests {
                 calendar: calendar
             )
         }
-        #expect(throws: VideoPublicationRangeError.futureDate) {
+        #expect(throws: DateRangeFilterError.futureDate) {
             try VideoPublicationRangeResolver.resolve(
                 filter: .custom,
                 customStart: today,

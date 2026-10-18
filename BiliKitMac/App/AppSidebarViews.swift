@@ -2,11 +2,12 @@ import BiliApplication
 import BiliAuthFeature
 import SwiftUI
 
-/// 使用系统 Sidebar List 表达窗口内当前可用的平级来源；行按 `AppSources` 的顺序与描述渲染。
+/// 使用系统 Sidebar List 表达窗口内当前可用的平级来源；按 `AppSources` 的分段渲染 `Section`，带标题的组显示
+/// 分段标题，行按段内顺序与描述渲染。
 ///
 /// 底部账号行的头像经窗口图片管线加载（`AccountAvatarImage`），不拥有管线。
 struct AppNavigationSidebar: View {
-    let sources: [AppSourceDescriptor]
+    let sections: [AppSourceSection]
     @Binding var selection: AppTab
     let accountState: AccountPresentationState
     let imagePipeline: NativeVideoImagePipeline
@@ -21,16 +22,32 @@ struct AppNavigationSidebar: View {
 
     private var navigationList: some View {
         List(selection: selectionBinding) {
-            ForEach(sources) { source in
-                Label {
-                    Text(source.title)
-                } icon: {
-                    Image(systemName: source.systemImage)
+            ForEach(sections) { section in
+                if let title = section.group.title {
+                    Section {
+                        rows(section.sources)
+                    } header: {
+                        Text(title)
+                    }
+                } else {
+                    Section {
+                        rows(section.sources)
+                    }
                 }
-                .tag(source.id)
             }
         }
         .listStyle(.sidebar)
+    }
+
+    private func rows(_ sources: [AppSourceDescriptor]) -> some View {
+        ForEach(sources) { source in
+            Label {
+                Text(source.title)
+            } icon: {
+                Image(systemName: source.systemImage)
+            }
+            .tag(source.id)
+        }
     }
 
     private var accountBar: some View {

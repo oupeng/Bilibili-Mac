@@ -258,6 +258,7 @@ func makeTestAdapters(
         uploaderVideoRepository: UnavailableUploaderVideoRepository(),
         commentRepository: comments,
         historyRepository: WatchHistoryRepositoryStub(),
+        watchLaterRepository: WatchLaterRepositoryStub(),
         commentAssetURLResolver: { _, _ in nil },
         commentLinkRouter: { _ in nil },
         authenticationService: authentication,

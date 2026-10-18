@@ -9,8 +9,8 @@ import BiliAuthFeature
 struct AccountRevalidationParticipants {
     /// 绑定在某个来源上的参与者只在该来源是当前来源时收到复核结果；`route` 为 nil 的参与者总是收到。
     ///
-    /// 绑定关系只来自来源描述的 `revalidationParticipant`。观看历史复核成功后会 `loadIfNeeded`，即使它没有请求
-    /// 这次复核；不在历史页时不能让它在后台读取账户内容。
+    /// 绑定关系只来自来源描述的 `revalidationParticipant`。稍后再看与观看历史复核成功后会 `loadIfNeeded`，即使它没有
+    /// 请求这次复核；不在本页时不能让它在后台读取账户内容。
     struct Entry {
         let participant: any AccountRevalidationParticipant
         let route: AppTab?

@@ -69,24 +69,13 @@ package enum VideoMetadataFormatting {
         case .yesterday:
             return BiliUIStrings.localized("昨天", locale: locale)
         case .earlier:
-            break
+            return DateDisplayFormatting.calendarDate(
+                date,
+                relativeTo: now,
+                calendar: calendar,
+                locale: locale
+            )
         }
-
-        let sameYear =
-            calendar.component(.year, from: date)
-            == calendar.component(.year, from: now)
-        if sameYear {
-            let month = calendar.component(.month, from: date)
-            let day = calendar.component(.day, from: date)
-            return BiliUIStrings.localized("\(month)月\(day)日", locale: locale)
-        }
-        return DateDisplayFormatting.formatted(
-            date,
-            date: .long,
-            time: .omitted,
-            calendar: calendar,
-            locale: locale
-        )
     }
 
     /// 播放页详情里的完整发布时间（日期与时分秒）。

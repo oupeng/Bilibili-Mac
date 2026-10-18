@@ -53,6 +53,7 @@ struct AccountReadAuthorizationCompositionTests {
                 "/x/player/wbi/v2",
                 "/x/space/wbi/arc/search",
                 "/x/v2/dm/wbi/web/seg.so",
+                "/x/v2/history/toview/web",
                 "/x/v2/reply/reply",
                 "/x/v2/reply/wbi/main",
                 "/x/web-interface/archive/related",
@@ -88,6 +89,7 @@ struct AccountReadAuthorizationCompositionTests {
             (BiliAccountReadPath.relatedVideos, "/x/web-interface/archive/related"),
             (BiliAccountReadPath.uploaderCard, "/x/web-interface/card"),
             (BiliAccountReadPath.watchHistory, "/x/web-interface/history/cursor"),
+            (BiliAccountReadPath.watchLater, "/x/v2/history/toview/web"),
             (BiliAccountReadPath.popular, "/x/web-interface/popular"),
             (BiliAccountReadPath.recommendations, "/x/web-interface/wbi/index/top/feed/rcmd"),
             (BiliAccountReadPath.videoSearch, "/x/web-interface/wbi/search/type")

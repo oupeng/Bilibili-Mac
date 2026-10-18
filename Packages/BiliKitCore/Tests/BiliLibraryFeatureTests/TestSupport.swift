@@ -158,3 +158,75 @@ actor HistoryRepositoryStub: WatchHistoryRepository {
         }
     }
 }
+
+func laterItem(
+    _ bvid: String,
+    unavailability: WatchLaterUnavailability? = nil
+) -> WatchLaterItem {
+    WatchLaterItem(
+        bvid: bvid,
+        title: "手写稍后再看条目",
+        coverURL: nil,
+        owner: VideoOwner(id: 1, name: "测试作者"),
+        durationSeconds: 100,
+        progress: .notStarted,
+        addedAt: Date(timeIntervalSince1970: 1_700_000_000),
+        unavailability: unavailability
+    )
+}
+
+func laterPage(
+    _ bvids: [String],
+    page: Int,
+    next: Int?,
+    total: Int = 0
+) -> Result<WatchLaterPage, any Error> {
+    .success(
+        WatchLaterPage(
+            items: bvids.map { laterItem($0) },
+            pageNumber: page,
+            nextPageNumber: next,
+            totalCount: total
+        )
+    )
+}
+
+/// 本 target 唯一的稍后再看仓库替身：按序返回结果并记录请求，可让指定调用挂起到测试放行。
+actor WatchLaterRepositoryStub: WatchLaterRepository {
+    private var results: [Result<WatchLaterPage, any Error>]
+    private let suspendedCalls: Set<Int>
+    private var callCount = 0
+    private(set) var requests: [WatchLaterRequest] = []
+    var requestedPages: [Int] { requests.map(\.page) }
+    private let callEvents = TestEventCounter()
+    private var releaseWaiters: [Int: CheckedContinuation<Void, Never>] = [:]
+    private var releasedCalls: Set<Int> = []
+
+    init(results: [Result<WatchLaterPage, any Error>], suspendedCalls: Set<Int> = []) {
+        self.results = results
+        self.suspendedCalls = suspendedCalls
+    }
+
+    func watchLater(request: WatchLaterRequest) async throws -> WatchLaterPage {
+        callCount += 1
+        let currentCall = callCount
+        requests.append(request)
+        await callEvents.signal()
+        guard !results.isEmpty else { throw ContentApplicationError.invalidResponse }
+        let result = results.removeFirst()
+        if suspendedCalls.contains(currentCall), !releasedCalls.contains(currentCall) {
+            // 挂起期间忽略取消以模拟迟到结果。
+            await withCheckedContinuation { releaseWaiters[currentCall] = $0 }
+        }
+        return try result.get()
+    }
+
+    func waitUntilCallCount(_ expectedCount: Int) async throws {
+        try await callEvents.wait(until: expectedCount)
+    }
+
+    func releaseCall(_ call: Int) {
+        releasedCalls.insert(call)
+        releaseWaiters.removeValue(forKey: call)?.resume()
+    }
+}

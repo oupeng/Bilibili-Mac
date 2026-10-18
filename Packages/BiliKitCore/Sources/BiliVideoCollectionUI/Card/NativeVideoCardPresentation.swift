@@ -19,6 +19,14 @@ package enum NativeVideoCardFooterTrailingStyle: Equatable, Sendable {
     case brandOutlinedCapsule
 }
 
+/// 卡片能否进入播放：由调用方按业务判断给出，renderer 只按它呈现与拦截激活。
+package enum NativeVideoCardAvailability: Equatable, Sendable {
+    case available
+    /// 不能进入播放：卡片变暗、不显示悬停与按下，点击、回车、空格与读屏按下都不激活；键盘选择仍可停在上面。
+    /// `badge` 是调用方已本地化的原因，显示在封面角标上。
+    case unavailable(badge: String)
+}
+
 /// AppKit 卡片唯一消费的、无业务语义的展示值。
 ///
 /// Feature 的网格与横排包装（Browse、Library 与 VideoDetail）负责图片缩略地址、
@@ -38,6 +46,10 @@ package struct NativeVideoCardPresentation: Equatable, Sendable {
     package let footerTrailingStyle: NativeVideoCardFooterTrailingStyle
     package let accessibilityLabel: String
     package let accessibilityHelp: String?
+    package let availability: NativeVideoCardAvailability
+
+    /// 可进入播放；网格的激活入口与卡片的读屏按下都只看它。
+    var isActivatable: Bool { availability == .available }
 
     package init(
         id: String,
@@ -52,7 +64,8 @@ package struct NativeVideoCardPresentation: Equatable, Sendable {
         footerTrailingSymbolName: String? = nil,
         footerTrailingStyle: NativeVideoCardFooterTrailingStyle = .plain,
         accessibilityLabel: String,
-        accessibilityHelp: String? = nil
+        accessibilityHelp: String? = nil,
+        availability: NativeVideoCardAvailability = .available
     ) {
         self.id = id
         self.title = title
@@ -68,6 +81,7 @@ package struct NativeVideoCardPresentation: Equatable, Sendable {
         self.footerTrailingStyle = footerTrailingStyle
         self.accessibilityLabel = accessibilityLabel
         self.accessibilityHelp = accessibilityHelp
+        self.availability = availability
     }
 }
 

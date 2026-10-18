@@ -19,6 +19,8 @@ struct AppShellView: View {
     let commentsModel: PlaybackCommentsViewModel
     let danmakuModel: DanmakuControlsViewModel
     let authenticationModel: AuthenticationViewModel
+    let watchLaterModel: WatchLaterViewModel
+    let watchLaterSession: WatchLaterSession
     let historyModel: WatchHistoryViewModel
     let trendingSearchModel: TrendingSearchViewModel
     let searchSession: VideoSearchSession
@@ -51,7 +53,7 @@ struct AppShellView: View {
                         playbackSidebar
                     } else {
                         AppNavigationSidebar(
-                            sources: sources.ordered,
+                            sections: sources.sections,
                             selection: $navigationCoordinator.selectedTab,
                             accountState: authenticationModel.accountPresentationState,
                             imagePipeline: imagePipeline,
@@ -138,7 +140,7 @@ struct AppShellView: View {
             else {
                 return
             }
-            // 账户变化会替换每个来源的内容（Browse 丢弃全部工作集，历史随账户重载），所有网格都回到顶部。
+            // 账户变化会替换每个来源的内容（Browse 丢弃全部工作集，稍后再看与观看历史随账户重载），所有网格都回到顶部。
             for tab in AppTab.allCases {
                 scrollToTop(tab)
             }
@@ -334,6 +336,18 @@ struct AppShellView: View {
                 gridHost: gridHost(.popular),
                 onSelect: navigationCoordinator.openPlayback
             )
+        case .watchLater:
+            WatchLaterTabRoot(
+                title: sources[.watchLater].title,
+                model: watchLaterModel,
+                session: watchLaterSession,
+                accountState: authenticationModel.accountPresentationState,
+                gridHost: gridHost(.watchLater),
+                onSelect: navigationCoordinator.openPlayback,
+                onPresentAuthentication: {
+                    isAuthenticationPresented = true
+                }
+            )
         case .history:
             HistoryTabRoot(
                 title: sources[.history].title,
@@ -355,7 +369,7 @@ private struct SourceGridScrollState {
     var reset = NativeVideoGridScrollResetState()
 }
 
-/// 四个来源各自独立的网格滚动状态；来源之间不共享可被互相覆盖的位置。
+/// 各来源独立的网格滚动状态；来源之间不共享可被互相覆盖的位置。
 private struct SourceGridScrollStates {
     private var states: [AppTab: SourceGridScrollState] = [:]
 

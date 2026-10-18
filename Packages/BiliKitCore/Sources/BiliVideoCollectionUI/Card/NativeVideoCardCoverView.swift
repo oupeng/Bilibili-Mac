@@ -112,7 +112,8 @@ enum NativeVideoCardSymbolRasterizer {
     }
 }
 
-/// 卡片封面：图片、占位、底部渐变与指标／时长文字都是同一视图里的持久 layer，不用子视图与 SwiftUI。
+/// 卡片封面：图片、占位、底部渐变、指标／时长文字与右上角的不可用原因角标都是同一视图里的持久 layer，
+/// 不用子视图与 SwiftUI。
 ///
 /// 不接收点击（`hitTest` 返回 nil），由卡片处理；图片由卡片经 `setImage` 设置。
 @MainActor
@@ -125,6 +126,13 @@ final class NativeVideoMergedCoverView: NSView {
     private static let iconTextSpacing: CGFloat = 4
     private static let metricSpacing: CGFloat = 10
     private static let trailingInset: CGFloat = 9
+    /// 不可用卡片封面暗层的不透明度：明显暗于可播放卡片，又仍看得出封面；调高封面几乎全黑，调低则与可播放
+    /// 卡片难以区分。
+    private static let dimmingAlpha: CGFloat = 0.55
+    private static let badgeInset: CGFloat = 8
+    private static let badgeHeight: CGFloat = 18
+    private static let badgeHorizontalPadding: CGFloat = 6
+    private static let badgeCornerRadius: CGFloat = 4
     private let placeholderLayer = CALayer()
     private let imageLayer = CALayer()
     private let gradientLayer = CAGradientLayer()
@@ -157,6 +165,20 @@ final class NativeVideoMergedCoverView: NSView {
         alignmentMode: .right
     )
     private var trailingSize = NSSize.zero
+    /// 不可用卡片盖在图片、渐变与文字上的暗层；角标在它之上，原因始终可读。
+    ///
+    /// 不改图片层的透明度：那是淡入
+    /// 动画的属性。
+    private let dimmingLayer = CALayer()
+    private let badgeBackgroundLayer = CALayer()
+    private let badgeCell = NativeVideoMergedCoverView.makeLabelCell(
+        font: .systemFont(ofSize: 11, weight: .semibold)
+    )
+    private let badgeTextLayer = NativeVideoMergedCoverView.makeTextLayer(
+        font: .systemFont(ofSize: 11, weight: .semibold),
+        alignmentMode: .center
+    )
+    private var badgeSize = NSSize.zero
     private lazy var imageFade = NativeVideoImageFade(
         imageLayer: imageLayer,
         placeholderLayer: placeholderLayer
@@ -197,6 +219,20 @@ final class NativeVideoMergedCoverView: NSView {
         }
         trailingTextLayer.isHidden = true
         layer?.addSublayer(trailingTextLayer)
+        dimmingLayer.backgroundColor =
+            NSColor.black
+            .withAlphaComponent(Self.dimmingAlpha).cgColor
+        dimmingLayer.actions = Self.disabledLayerActions
+        dimmingLayer.isHidden = true
+        layer?.addSublayer(dimmingLayer)
+        // 角标底色固定为深色半透明：叠在任意封面上，白字都要可读，不随外观变化。
+        badgeBackgroundLayer.backgroundColor = NSColor.black.withAlphaComponent(0.6).cgColor
+        badgeBackgroundLayer.cornerRadius = Self.badgeCornerRadius
+        badgeBackgroundLayer.actions = Self.disabledLayerActions
+        badgeBackgroundLayer.isHidden = true
+        layer?.addSublayer(badgeBackgroundLayer)
+        badgeTextLayer.isHidden = true
+        layer?.addSublayer(badgeTextLayer)
         refreshPlaceholderImage()
         setImage(nil, animated: false)
         updateContentsScale()
@@ -207,7 +243,14 @@ final class NativeVideoMergedCoverView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(metrics: [NativeVideoCardMetric], trailingText: String?) {
+    /// `badgeText` 为 nil 或空时不显示角标；`isDimmed` 为 true 时整幅封面盖上暗层（不可用卡片）。
+    func configure(
+        metrics: [NativeVideoCardMetric],
+        trailingText: String?,
+        badgeText: String? = nil,
+        isDimmed: Bool = false
+    ) {
+        dimmingLayer.isHidden = !isDimmed
         metricCount = min(metrics.count, metricCells.count)
         for index in metricCells.indices {
             guard index < metricCount else {
@@ -232,6 +275,7 @@ final class NativeVideoMergedCoverView: NSView {
         trailingTextLayer.string = trailingText ?? ""
         trailingTextLayer.isHidden = trailingText?.isEmpty ?? true
         trailingSize = integralSize(trailingCell.cellSize)
+        setBadge(badgeText)
         refreshMetricIcons()
         needsLayout = true
     }
@@ -252,6 +296,8 @@ final class NativeVideoMergedCoverView: NSView {
         trailingTextLayer.string = nil
         trailingTextLayer.isHidden = true
         trailingSize = .zero
+        setBadge(nil)
+        dimmingLayer.isHidden = true
         setImage(nil, animated: false)
         needsLayout = true
     }
@@ -291,6 +337,7 @@ final class NativeVideoMergedCoverView: NSView {
             height: placeholderSize.height
         )
         imageLayer.frame = bounds
+        dimmingLayer.frame = bounds
         let overlayHeight = min(Self.overlayHeight, bounds.height)
         gradientLayer.frame = NSRect(
             x: 0,
@@ -327,11 +374,39 @@ final class NativeVideoMergedCoverView: NSView {
                 height: trailingSize.height
             )
         }
+        if !badgeCell.stringValue.isEmpty {
+            let badgeWidth = min(
+                badgeSize.width + Self.badgeHorizontalPadding * 2,
+                max(0, bounds.width - Self.badgeInset * 2)
+            )
+            let badgeFrame = NSRect(
+                x: bounds.width - Self.badgeInset - badgeWidth,
+                y: Self.badgeInset,
+                width: badgeWidth,
+                height: Self.badgeHeight
+            )
+            badgeBackgroundLayer.frame = badgeFrame
+            badgeTextLayer.frame = NSRect(
+                x: badgeFrame.minX + Self.badgeHorizontalPadding,
+                y: badgeFrame.minY + floor((Self.badgeHeight - badgeSize.height) / 2),
+                width: max(0, badgeWidth - Self.badgeHorizontalPadding * 2),
+                height: badgeSize.height
+            )
+        }
         placeholderLayer.contentsScale = scale
         imageLayer.contentsScale = scale
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    private func setBadge(_ text: String?) {
+        let text = text ?? ""
+        badgeCell.stringValue = text
+        badgeTextLayer.string = text.isEmpty ? nil : text
+        badgeTextLayer.isHidden = text.isEmpty
+        badgeBackgroundLayer.isHidden = text.isEmpty
+        badgeSize = integralSize(badgeCell.cellSize)
+    }
 
     private func integralSize(_ size: NSSize) -> NSSize {
         NSSize(width: ceil(size.width), height: ceil(size.height))
@@ -379,6 +454,7 @@ final class NativeVideoMergedCoverView: NSView {
             textLayer.contentsScale = scale
         }
         trailingTextLayer.contentsScale = scale
+        badgeTextLayer.contentsScale = scale
     }
 
     private static func makeLabelCell(font: NSFont) -> NSTextFieldCell {

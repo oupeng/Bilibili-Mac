@@ -1,7 +1,7 @@
 import BiliApplication
 
 extension BiliAPIError {
-    /// 内容类 adapter（`BiliContentRepository`、`BiliWatchHistoryRepository`）唯一的错误映射：
+    /// 内容类 adapter（`BiliContentRepository`、`BiliWatchHistoryRepository`、`BiliWatchLaterRepository`）唯一的错误映射：
     /// 取消原样传播，`BiliAPIError` 按 `Failure` 分类，其余错误为 `unavailable`。
     static func contentApplicationError(for error: any Error) -> any Error {
         domainError(

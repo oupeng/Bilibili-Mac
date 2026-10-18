@@ -5,7 +5,8 @@ import Testing
 
 @testable import BiliKit
 
-/// 每个来源恰好一份描述并按侧栏顺序排列；只有观看历史要求账户，离开、换号与关窗的停用与清理经描述作用到来源的模型。
+/// 每个来源恰好一份描述，侧栏按固定的组顺序分段、组内按 case 顺序排列；只有稍后再看与观看历史要求账户，离开、
+/// 换号与关窗的停用与清理经描述作用到来源的模型。
 @Suite(.timeLimit(.minutes(1)))
 @MainActor
 struct AppSourcesTests {
@@ -13,11 +14,28 @@ struct AppSourcesTests {
     func everySourceHasOneDescriptorInSidebarOrder() {
         let sources = makeSources()
 
-        #expect(sources.ordered.map(\.id) == AppTab.allCases)
+        #expect(Set(sources.ordered.map(\.id)) == Set(AppTab.allCases))
+        #expect(sources.ordered.count == AppTab.allCases.count)
         for tab in AppTab.allCases {
             #expect(sources[tab].id == tab)
         }
-        #expect(sources.ordered.filter(\.requiresAccount).map(\.id) == [.history])
+        #expect(sources.ordered.filter(\.requiresAccount).map(\.id) == [.watchLater, .history])
+    }
+
+    /// 顶部无标题的一组是搜索、首页、热门，带标题的「资料库」组依次是稍后再看、观看历史；侧栏顺序就是各段依次展开。
+    @Test
+    func sidebarGroupsSourcesUnderFixedSections() {
+        let sources = makeSources()
+
+        #expect(sources.sections.map(\.group) == [.browse, .library])
+        #expect(
+            sources.sections.map { $0.sources.map(\.id) } == [
+                [.search, .home, .popular], [.watchLater, .history]
+            ]
+        )
+        #expect(sources.ordered.map(\.id) == sources.sections.flatMap { $0.sources.map(\.id) })
+        #expect(AppSourceGroup.browse.title == nil)
+        #expect(AppSourceGroup.library.title != nil)
     }
 
     @Test
@@ -52,13 +70,92 @@ struct AppSourcesTests {
         #expect(historyModel.state == .idle)
     }
 
+    /// 稍后再看的描述跟随它的模型：刷新代次就是模型的加载成功代次，换号前的清理与离开来源都作用到模型。
+    @Test
+    func watchLaterDescriptorFollowsItsModel() async {
+        let watchLaterModel = WatchLaterViewModel(
+            useCase: WatchLaterUseCase(repository: WatchLaterRepositoryStub())
+        )
+        let sources = makeSources(watchLaterModel: watchLaterModel)
+
+        watchLaterModel.loadIfNeeded()
+        await watchLaterModel.waitForCurrentTask()
+        #expect(sources[.watchLater].refreshGeneration() == 1)
+        #expect(sources[.watchLater].revalidationParticipant === watchLaterModel)
+
+        sources.resetAccountContent()
+        #expect(watchLaterModel.state == .idle)
+    }
+
+    @Test
+    func leavingWatchLaterReturnsItsCredentialFailureToIdle() async {
+        let watchLaterModel = WatchLaterViewModel(
+            useCase: WatchLaterUseCase(
+                repository: WatchLaterRepositoryStub(error: .authenticationInvalid)
+            )
+        )
+        let sources = makeSources(watchLaterModel: watchLaterModel)
+        watchLaterModel.loadIfNeeded()
+        await watchLaterModel.waitForCurrentTask()
+        #expect(watchLaterModel.state == .failed(.authenticationInvalid))
+
+        sources[.watchLater].deactivate()
+
+        #expect(watchLaterModel.state == .idle)
+    }
+
+    /// 稍后再看的条件只在窗口内存里：关窗清理与账户变化都经描述把排序、筛选与关键词恢复默认。
+    @Test
+    func watchLaterDescriptorRestoresTheDefaultCriteria() async {
+        let watchLaterModel = WatchLaterViewModel(
+            useCase: WatchLaterUseCase(repository: WatchLaterRepositoryStub())
+        )
+        let session = WatchLaterSession(model: watchLaterModel)
+        let browseModel = BrowseViewModel(useCase: FeedUseCase(repository: EmptyFeedRepository()))
+        let sources = AppSources(
+            browseModel: browseModel,
+            watchLaterModel: watchLaterModel,
+            watchLaterSession: session,
+            historyModel: WatchHistoryViewModel(
+                useCase: WatchHistoryUseCase(repository: WatchHistoryRepositoryStub())
+            ),
+            searchSession: VideoSearchSession(browseModel: browseModel, recordHistory: { _ in }),
+            trendingSearchModel: TrendingSearchViewModel(
+                useCase: TrendingSearchUseCase(repository: EmptyTrendingSearchRepository())
+            )
+        )
+        session.searchDraft = "猫"
+        session.submitSearch()
+        await watchLaterModel.waitForCurrentTask()
+        #expect(session.narrowsResults)
+
+        sources[.watchLater].synchronizeAccountSession(
+            AccountSessionChange(generation: 1, scope: .signedOut, isCurrentRoute: true)
+        )
+        #expect(!session.narrowsResults)
+
+        session.searchDraft = "狗"
+        session.submitSearch()
+        await watchLaterModel.waitForCurrentTask()
+        sources.resetForWindowClosure()
+
+        #expect(!session.narrowsResults)
+        #expect(session.appliedKeyword.isEmpty)
+        #expect(watchLaterModel.state == .idle)
+    }
+
     /// 关窗时搜索来源清空草稿，撤回已提交的搜索。
     @Test
     func windowClosureClearsTheSearchSession() {
         let browseModel = BrowseViewModel(useCase: FeedUseCase(repository: EmptyFeedRepository()))
         let session = VideoSearchSession(browseModel: browseModel, recordHistory: { _ in })
+        let watchLaterModel = WatchLaterViewModel(
+            useCase: WatchLaterUseCase(repository: WatchLaterRepositoryStub())
+        )
         let sources = AppSources(
             browseModel: browseModel,
+            watchLaterModel: watchLaterModel,
+            watchLaterSession: WatchLaterSession(model: watchLaterModel),
             historyModel: WatchHistoryViewModel(
                 useCase: WatchHistoryUseCase(repository: WatchHistoryRepositoryStub())
             ),
@@ -80,8 +177,13 @@ struct AppSourcesTests {
     func accountChangeKeepsTheSearchDraft() {
         let browseModel = BrowseViewModel(useCase: FeedUseCase(repository: EmptyFeedRepository()))
         let session = VideoSearchSession(browseModel: browseModel, recordHistory: { _ in })
+        let watchLaterModel = WatchLaterViewModel(
+            useCase: WatchLaterUseCase(repository: WatchLaterRepositoryStub())
+        )
         let sources = AppSources(
             browseModel: browseModel,
+            watchLaterModel: watchLaterModel,
+            watchLaterSession: WatchLaterSession(model: watchLaterModel),
             historyModel: WatchHistoryViewModel(
                 useCase: WatchHistoryUseCase(repository: WatchHistoryRepositoryStub())
             ),
@@ -109,6 +211,9 @@ struct AppSourcesTests {
     }
 
     private func makeSources(
+        watchLaterModel: WatchLaterViewModel = WatchLaterViewModel(
+            useCase: WatchLaterUseCase(repository: WatchLaterRepositoryStub())
+        ),
         historyModel: WatchHistoryViewModel = WatchHistoryViewModel(
             useCase: WatchHistoryUseCase(repository: WatchHistoryRepositoryStub())
         )
@@ -116,6 +221,8 @@ struct AppSourcesTests {
         let browseModel = BrowseViewModel(useCase: FeedUseCase(repository: EmptyFeedRepository()))
         return AppSources(
             browseModel: browseModel,
+            watchLaterModel: watchLaterModel,
+            watchLaterSession: WatchLaterSession(model: watchLaterModel),
             historyModel: historyModel,
             searchSession: VideoSearchSession(browseModel: browseModel, recordHistory: { _ in }),
             trendingSearchModel: TrendingSearchViewModel(

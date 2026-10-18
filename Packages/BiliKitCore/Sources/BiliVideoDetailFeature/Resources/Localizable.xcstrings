@@ -113,34 +113,6 @@
         }
       }
     },
-    "%lld月%lld日" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$lld/%2$lld"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$lld月%2$lld日"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$lld月%2$lld日"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$lld月%2$lld日"
-          }
-        }
-      }
-    },
     "IP属地：%@" : {
       "localizations" : {
         "en" : {
@@ -1985,34 +1957,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "無法識別的選集"
-          }
-        }
-      }
-    },
-    "时长%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Duration %@"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "長さ %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "时长%@"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "片長 %@"
           }
         }
       }

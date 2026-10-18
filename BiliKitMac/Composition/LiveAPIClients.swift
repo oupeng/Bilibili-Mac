@@ -26,6 +26,7 @@ enum LiveAPIClients {
         BiliAccountReadPath.relatedVideos,
         BiliAccountReadPath.uploaderCard,
         BiliAccountReadPath.watchHistory,
+        BiliAccountReadPath.watchLater,
         BiliAccountReadPath.popular,
         BiliAccountReadPath.recommendations,
         BiliAccountReadPath.videoSearch,
@@ -39,7 +40,7 @@ enum LiveAPIClients {
 
     static let watchProgressAccountReadAllowedPaths: Set<String>? = nil
 
-    /// 窗口主 API：内容、播放、评论、弹幕与历史的读取。
+    /// 窗口主 API：内容、播放、评论、弹幕、观看历史与稍后再看的读取。
     ///
     /// `isConfirmedSignedOut` 只给它：已确认未登录时 Keychain 不可用不影响游客浏览。
     static func main(isConfirmedSignedOut: @escaping @Sendable () -> Bool) -> BiliAPIClient {
