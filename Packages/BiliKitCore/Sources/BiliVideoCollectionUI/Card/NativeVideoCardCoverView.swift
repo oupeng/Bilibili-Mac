@@ -47,6 +47,7 @@ enum NativeVideoCardSymbolRasterizer {
                 pointSize: pointSize,
                 weight: weight
             )
+            // 弹幕图标是多层符号，两层分别上色，文字线条才不会与气泡融成一块；其他图标单层白色。
             let paletteColors: [NSColor] =
                 name == "text.bubble.fill" ? [.black, .white] : [.white]
             let colorConfiguration = NSImage.SymbolConfiguration(

@@ -617,6 +617,8 @@ final class NativeVideoCardView: NSView {
         let duration = animated && !reducesMotion ? 0.12 : 0
         let presentation = layer.presentation()
 
+        // 先关掉隐式动画把 model 值一次写到目标，再从之前取得的 presentation 值显式补动画：
+        // 悬停或按下中途反向时从当前看到的样子接着变，不会跳回起点。
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer.backgroundColor = targetBackground

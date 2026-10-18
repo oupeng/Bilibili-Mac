@@ -5,6 +5,7 @@ import SwiftUI
 /// 首页推荐、热门、搜索与观看历史共用同一种样式（与顶部 `RefreshStatusCapsule` 一致的材质胶囊）。
 /// 只负责排版；标签与动作由调用方的 Feature 本地化并提供，是否给重试由调用方按 `isRetryable` 决定。
 package struct PaginationStatusOverlay: View {
+    /// 胶囊的状态；`idle` 不显示任何内容。
     package enum Status {
         case idle
         /// `label` 只作为转圈的读屏标签，不占可见宽度。

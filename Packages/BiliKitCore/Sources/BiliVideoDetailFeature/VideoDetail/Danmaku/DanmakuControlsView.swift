@@ -311,6 +311,9 @@ private struct DanmakuSettingsPopover: View {
     }
 }
 
+/// 滑块下方的刻度文字：等距排在轨道上，选中档加粗并用主色；读屏隐藏，档位由滑块自身报告。
+///
+/// `trackInset` 让首末文字对准滑块轨道两端，而不是视图边缘。
 private struct SliderScaleLabels: View {
     private let trackInset: CGFloat = 8
 

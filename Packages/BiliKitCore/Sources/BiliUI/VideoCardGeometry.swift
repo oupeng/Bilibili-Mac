@@ -1,6 +1,7 @@
 import Foundation
 
-/// 视频卡片网格的唯一几何来源：App 的原生网格与 Feature 的加载骨架共用。
+/// 视频卡片网格的唯一几何来源：BiliVideoCollectionUI 的原生网格（`NativeVideoGridView`）与 BiliUI
+/// 的加载骨架共用。
 public enum VideoCardGridGeometry {
     public static let horizontalSpacing: CGFloat = 20
     public static let verticalSpacing: CGFloat = 28
@@ -43,7 +44,8 @@ public enum VideoCardGridGeometry {
     }
 }
 
-/// 相关推荐横排的唯一几何来源：App 的原生横排、Feature 的加载骨架与播放页布局共用。
+/// 相关推荐横排的唯一几何来源：BiliVideoDetailFeature 的原生横排（`NativeVideoShelfView`）、
+/// 横排加载骨架与播放页布局共用。
 public enum VideoCardShelfGeometry {
     public static let cardWidth: CGFloat = 224
     public static let cardHeight = VideoCardGeometry.height(forWidth: cardWidth)

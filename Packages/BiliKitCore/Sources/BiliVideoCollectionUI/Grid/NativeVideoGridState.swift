@@ -6,8 +6,8 @@ package typealias NativeVideoGridTailState = NearEndTailState<UInt64>
 
 /// 一次内容更新相对上一次的差异：决定是否应用新快照、只重配内容变了的可见卡片，以及是否保持视口锚点。
 ///
-/// 网格与 App 的相关推荐横排共用这一份差异计算；横排只读 `identityChanged` 与 `changedExistingIDs`，
-/// 锚点与尾部追加判断只属于网格。
+/// 网格与 BiliVideoDetailFeature 的相关推荐横排（`NativeVideoShelfView`）共用这一份差异计算；
+/// 横排只读 `identityChanged` 与 `changedExistingIDs`，锚点与尾部追加判断只属于网格。
 package struct NativeVideoGridUpdatePlan: Equatable {
     /// ID 序列（含顺序）变了，需要应用新快照。
     package let identityChanged: Bool
@@ -197,10 +197,16 @@ typealias NativeVideoGridGeometry = VideoCardGridGeometry
 
 extension VideoCardGridGeometry {
     /// 视野上下各多准备的高度（视野高度的倍数）：卡片提前创建，封面在滚到之前就开始加载。
+    ///
+    /// 调大会提前创建更多卡片、下载更多封面；调小则封面更晚开始加载，快速滚动时更容易先看到占位。
     static let preparedViewportMultiple: CGFloat = 1
     /// 已准备区域在视野某一侧的余量少于这个倍数的视野高度时刷新（已到内容边缘的一侧除外）。
+    ///
+    /// 调大会更频繁地重新准备，调小则余量可能在两次刷新之间耗尽。
     static let preparedRefreshViewportMultiple: CGFloat = 0.5
     /// 视野底边离内容底部不足这么多个视野高度时请求下一页，下一页的卡片与封面在滚到之前就绪。
+    ///
+    /// 调大会更早翻页、多加载用户未必看到的页；调小则快速滚动时可能先到底再等下一页。
     static let nearEndViewportMultiple: CGFloat = 1.5
 
     /// 视野上下各一屏，夹在内容范围内；不并入系统建议，避免准备区域随滚动越积越大。

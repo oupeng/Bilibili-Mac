@@ -2,7 +2,9 @@ import BiliModels
 import BiliUI
 import Foundation
 
-/// History 拥有格式化和真实 AX 文案；平台 renderer 只消费这些已格式化 slot。
+/// 观看历史卡片的已格式化文字、缩略图地址与读屏标签，由 `HistoryNativeGridView` 映射为原生卡片。
+///
+/// 进度、观看时间与设备文案在这里格式化，渲染侧只消费这些文字；作者没有头像地址时不显示头像位。
 public struct WatchHistoryCardPresentation: Sendable, Equatable {
     public let bvid: String
     public let title: String
@@ -45,6 +47,8 @@ public struct WatchHistoryCardPresentation: Sendable, Equatable {
     }
 }
 
+/// 观看历史卡片的文字规则：观看设备的图标与读屏说明、观看进度（看完显示“已看完”）与观看时间（今天、
+/// 昨天或月日，加时刻）。
 enum WatchHistoryCardFormatting {
     static func symbolName(_ device: WatchHistoryDevice) -> String {
         switch device {

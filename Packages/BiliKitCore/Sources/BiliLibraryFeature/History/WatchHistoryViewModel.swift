@@ -3,6 +3,9 @@ import BiliModels
 import Foundation
 import Observation
 
+/// 观看历史页的呈现状态，由 `WatchHistoryViewModel.state` 从加载阶段与 `PagedVideoList` 投影得出。
+///
+/// `loaded` 的 continuation 为 nil 表示已到底；`loadingMore` 的 continuation 是正在请求的那一页。
 public enum WatchHistoryState: Sendable, Equatable {
     case idle
     case loading
@@ -18,14 +21,14 @@ public enum WatchHistoryState: Sendable, Equatable {
     case failed(ContentApplicationError)
 }
 
-@MainActor
-@Observable
 /// 拥有当前登录会话的历史列表（`PagedVideoList`）、加载阶段、凭据复核状态与最新请求 Task。
 ///
 /// 去重、上限、空页之后的显式继续、回环、页数上限、加载更多失败与原地刷新的分页恢复都由 `PagedVideoList`
 /// 承担；空页跳过属于 `WatchHistoryUseCase`。`reset` 会清除个性化内容；普通路由停用只取消在途请求，并在
 /// 分页或刷新中断时保留已显示条目。已有条目时刷新原地进行：条目保持显示，成功后整体替换，失败时保留条目并
 /// 给出 `refreshError`；凭据缺失或失效则放弃条目、转入失败页并请求账户复核。
+@MainActor
+@Observable
 public final class WatchHistoryViewModel: AccountRevalidationParticipant {
     /// `phase` 与列表的投影；`.loadingMore` 时的 continuation 就是正在请求的那一页。
     public var state: WatchHistoryState {
@@ -104,6 +107,8 @@ public final class WatchHistoryViewModel: AccountRevalidationParticipant {
     private var list = WatchHistoryViewModel.emptyList()
 
     @ObservationIgnored private let useCase: WatchHistoryUseCase
+    /// 刷新与加载更多共用的最新意图 Task：新请求替换旧请求，迟到结果经 `isCurrent` 丢弃；`reset` 与
+    /// `deactivateRoute` 取消。
     @ObservationIgnored private let loadTask = LatestTask()
     /// 复核后已自动重载过一次，加载成功或 `reset` 时清除。
     ///
