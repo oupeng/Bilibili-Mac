@@ -2,7 +2,7 @@ import BiliApplication
 
 /// 资料库里只按账户读取的模型共用的账户复核进度：复核代次、是否在等本页请求的复核，以及复核后是否已自动重载过。
 ///
-/// 值类型，由模型持有（`LibraryVideoListModel`），模型的 `authenticationRevalidationGeneration` 与
+/// 值类型，由模型持有（`LibraryVideoListModel`、`FavoriteFolderListModel`、`FavoriteFolderViewModel`），模型的 `authenticationRevalidationGeneration` 与
 /// `isAwaitingAuthenticationRevalidation` 直接读它；请求、加载与复核结果的转交仍归模型。规则见 SECURITY-MODEL §3：
 /// 凭据缺失或失效时请求一次复核（资料库只在已登录时显示，读取时本地没有凭据也说明窗口的登录状态已过期）；复核确认
 /// 仍登录后自动重载至多一次，直到下一次加载成功，挡住“复核 → 重载 → 失效 → 复核”的循环。

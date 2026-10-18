@@ -3,7 +3,9 @@ import BiliModels
 import Foundation
 
 /// 收藏夹读取：自己创建的收藏夹列表与夹内的一页。两者只属于当前账户，所以只按账户读取，本地无凭据时直接失败；
-/// 都不签 WBI。只读，不涉及任何写请求（见 SECURITY-MODEL §3）。
+/// 只读，不涉及任何写请求（见 SECURITY-MODEL §3）。
+///
+/// 都不签 WBI：网页端对这两个接口不签名；签名不是认证，多签反而偏离网页端的请求形状。
 extension BiliAPIClient {
     /// 收藏夹内每页条数；请求的 `ps` 与总页数的推算共用这个值。
     ///
