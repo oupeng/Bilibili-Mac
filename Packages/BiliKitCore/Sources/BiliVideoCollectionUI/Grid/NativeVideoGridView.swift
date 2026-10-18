@@ -2,7 +2,7 @@ import AppKit
 import BiliUI
 import SwiftUI
 
-/// 首页推荐、热门、搜索与历史共用的原生视频网格，用 AppKit 的理由见 ARCHITECTURE「原生 AppKit 集合视图」。
+/// 首页推荐、热门、搜索、观看历史与稍后再看共用的原生视频网格，用 AppKit 的理由见 ARCHITECTURE「原生 AppKit 集合视图」。
 ///
 /// 调用方是 Browse 与 Library 的网格包装，所以是 `package`。只渲染调用方给的卡片、尾部状态与回顶请求；
 /// 内容、分页与选择的意图归调用方，滚动位置、回顶请求与取图 port 来自 App 窗口的

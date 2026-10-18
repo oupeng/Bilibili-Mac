@@ -1,8 +1,9 @@
 import BiliModels
 import BiliUI
+import BiliVideoCollectionUI
 import Foundation
 
-/// 观看历史卡片的已格式化文字、缩略图地址与读屏标签，由 `HistoryNativeGridView` 映射为原生卡片。
+/// 观看历史卡片的已格式化文字、缩略图地址与读屏标签，由列表网格映射为原生卡片（`nativeCard`）。
 ///
 /// 进度、观看时间与设备文案在这里格式化，渲染侧只消费这些文字；作者没有头像地址时不显示头像位。
 public struct WatchHistoryCardPresentation: Sendable, Equatable {
@@ -19,12 +20,12 @@ public struct WatchHistoryCardPresentation: Sendable, Equatable {
     public let accessibilityLabel: String
 
     public init(item: WatchHistoryItem, locale: Locale = .current) {
-        let progress = WatchHistoryCardFormatting.progress(
+        let progress = LibraryCardFormatting.progress(
             progressSeconds: item.progressSeconds,
             durationSeconds: item.durationSeconds,
             locale: locale
         )
-        let viewedAt = WatchHistoryCardFormatting.viewedAt(item.viewedAt, locale: locale)
+        let viewedAt = LibraryCardFormatting.timestamp(item.viewedAt, locale: locale)
         bvid = item.bvid
         title = item.title
         coverURL = BiliImageThumbnail.url(item.coverURL, size: .videoCover)
@@ -45,10 +46,24 @@ public struct WatchHistoryCardPresentation: Sendable, Equatable {
                 .compactMap(\.self)
         )
     }
+
+    var nativeCard: NativeVideoCardPresentation {
+        NativeVideoCardPresentation(
+            id: bvid,
+            title: title,
+            coverURL: coverURL,
+            avatarURL: avatarURL,
+            showsAvatar: showsAvatar,
+            coverTrailingText: progressText,
+            footerLeadingText: footerLeadingText,
+            footerTrailingText: footerTrailingText,
+            footerTrailingSymbolName: footerTrailingSymbolName,
+            accessibilityLabel: accessibilityLabel
+        )
+    }
 }
 
-/// 观看历史卡片的文字规则：观看设备的图标与读屏说明、观看进度（看完显示“已看完”）与观看时间（今天、
-/// 昨天或月日，加时刻）。
+/// 观看历史卡片特有的文字规则：观看设备的图标与读屏说明；进度与观看时间见 `LibraryCardFormatting`。
 enum WatchHistoryCardFormatting {
     static func symbolName(_ device: WatchHistoryDevice) -> String {
         switch device {
@@ -65,48 +80,6 @@ enum WatchHistoryCardFormatting {
         case .pad: LibraryFeatureStrings.localized("在平板上观看", locale: locale)
         case .web: LibraryFeatureStrings.localized("在网页上观看", locale: locale)
         case .tv: LibraryFeatureStrings.localized("在电视上观看", locale: locale)
-        }
-    }
-
-    static func progress(
-        progressSeconds: Int,
-        durationSeconds: Int,
-        locale: Locale = .current
-    ) -> String {
-        let duration = max(0, durationSeconds)
-        let progress = min(max(0, progressSeconds), duration)
-        if duration > 0, progress >= duration {
-            return LibraryFeatureStrings.localized("已看完", locale: locale)
-        }
-        return "\(VideoDurationFormatting.string(seconds: progress))/"
-            + VideoDurationFormatting.string(seconds: duration)
-    }
-
-    static func viewedAt(
-        _ date: Date,
-        now: Date = .now,
-        calendar: Calendar = .current,
-        locale: Locale = .current
-    ) -> String {
-        let time = DateDisplayFormatting.formatted(
-            date,
-            date: .omitted,
-            time: .shortened,
-            calendar: calendar,
-            locale: locale
-        )
-        switch DateDisplayFormatting.dayRelation(of: date, relativeTo: now, calendar: calendar) {
-        case .today:
-            return LibraryFeatureStrings.localized("今天 \(time)", locale: locale)
-        case .yesterday:
-            return LibraryFeatureStrings.localized("昨天 \(time)", locale: locale)
-        case .earlier:
-            let month = calendar.component(.month, from: date)
-            let day = calendar.component(.day, from: date)
-            return LibraryFeatureStrings.localized(
-                "\(month)月\(day)日 \(time)",
-                locale: locale
-            )
         }
     }
 }

@@ -49,7 +49,7 @@ BiliNetworking 不依赖任何 Bili 模块
 | `BiliAuth` | Web QR 状态机、Cookie envelope、Keychain store、请求授权器，实现 `AuthenticationServicing` | `BiliAPI`、`BiliPlayback`、`BiliDanmaku`、Feature、UI 框架 |
 | `BiliPlayback` | DASH→HLS bridge、loopback server、SIDX、`AVPlayerEngine`、线路偏好与测速、响度 tap | `BiliAPI`、`BiliAuth` |
 | `BiliDanmaku` | 弹幕会话、按媒体时间调度、lane 分配、Core Animation renderer | `BiliAPI`、`BiliAuth`、`BiliNetworking`、`BiliPlayback`、Feature、SwiftUI |
-| `Bili*Feature` | SwiftUI View 与 `@MainActor` ViewModel；Browse（Feed/Search，含推荐、热门、搜索的原生网格、热搜图标的取图 port `TrendingSearchIconLoading`、搜索会话 `VideoSearchSession`（草稿、排序与筛选、提交，以及来源到工作集的激活 `BrowseActivation`））、Library（History，含按账户呈现状态渲染的登录门槛、刷新与原生网格）、Auth（扫码登录、登出与账户投影的来源），播放页见下一行。共享的 AppKit 卡片与网格经 `BiliVideoCollectionUI` 渲染 | adapter target、其他 Feature、直接 import AppKit/AVKit/AVFoundation（播放页的例外见下一行） |
+| `Bili*Feature` | SwiftUI View 与 `@MainActor` ViewModel；Browse（Feed/Search，含推荐、热门、搜索的原生网格、热搜图标的取图 port `TrendingSearchIconLoading`、搜索会话 `VideoSearchSession`（草稿、排序与筛选、提交，以及来源到工作集的激活 `BrowseActivation`））、Library（观看历史与稍后再看：两者共用的资料库列表 ViewModel `LibraryVideoListModel`、按账户呈现状态渲染的登录门槛、刷新与原生网格，各来源只给出读取、翻页策略、文案与卡片映射；稍后再看的不可用条目映射为不可用卡片）、Auth（扫码登录、登出与账户投影的来源），播放页见下一行。共享的 AppKit 卡片与网格经 `BiliVideoCollectionUI` 渲染 | adapter target、其他 Feature、直接 import AppKit/AVKit/AVFoundation（播放页的例外见下一行） |
 | `BiliVideoDetailFeature` | 播放页（VideoDetail）与侧栏上下文层 UP 主空间（UploaderSpace）：视频与分 P 意图、续播与链接起播、相关推荐与 UP 主名片（`VideoViewModel`；导航给出的 `PlaybackSelectionIntent` 怎样落到当前视频——就地换分 P、链接 `t=` 原地跳转或重新加载——以及失败后由模型重试还是交回导航，也只在这里），合集选集的分 P（`CollectionEpisodePagesController`），评论（`PlaybackCommentsViewModel`），弹幕设置，空间投稿列表（`UploaderSpaceViewModel`），以及主区布局、骨架、相关推荐横排与选集、评论、投稿行的呈现投影；播放页失败（`VideoLoadFailure`）的标题、说明与是否可重试只在这里。这些页面的 AppKit 视图也在这里：播放侧栏（`NativePlaybackSidebarView`，含评论原生 item）、评论图片预览与保存（`NativeCommentImagePreviewView`、`NativeCommentImageSaver`、动图播放）、相关推荐横排（`RelatedNativeShelfView`）与空间列表（`UploaderSpaceSidebarView`）。取图 port `VideoDetailImageLoading`（头像、封面、表情、评论图片与预览；结果含图、可选的动图数据 `NativeAnimatedImage` 与是否淡入，评论图片另可取原图数据；相关推荐横排是共享卡片，仍走卡片 port `NativeVideoImageLoading`，不为本 Feature 的其他用途放宽它），App 构造的评论资源地址闭包`CommentAssetURLResolver`，以及 App 键盘控制器检查的 `PlayerKeyboardFocusOwner`。拥有自己的字符串目录；App 用到的类型为 `public`，有 library product | 同其他 Feature，但可直接 import AppKit、CoreText（评论正文排版）与 ImageIO（动图逐帧解码）；横排卡片与集合视图支撑经 `BiliVideoCollectionUI`；不依赖 AVKit/AVFoundation、网络与 adapter；下载、来源与响应校验、首帧解码、动图播放门槛和缓存只在 App 管线，本 target 只对管线按门槛放行的 `NativeAnimatedImage` 数据逐帧解码播放 |
 | `BiliUI` | Feature 共享的 SwiftUI 呈现层：卡片几何、网格、骨架、加载过渡、刷新与分页状态胶囊、整页失败视图，只按账户读取的来源共用的登录门槛（`AccountGateView`，形态映射为 `AccountGatePhase`），`ContentApplicationError` 的失败文案（`ContentFailureText`），计数、时长与日期格式化，视频卡片的 B 站图片缩略地址；拥有自己的字符串目录。默认 `package` 访问级别，App 直接使用的卡片几何、时长格式化、播放器加载转圈、单行失败说明（`ContentFailureText.message`）、头像图片的像素边长（`BiliAvatarImageSize`：卡片、评论与侧栏账号头像的请求框、图片管线的头像解码上限都取它）与头像缩略地址（`BiliImageThumbnail` 的头像尺寸，侧栏账号头像请求前经它改写）为 `public`；AppKit target `BiliVideoCollectionUI` 也经 `package` 接口取用它的文案（卡片选中与不可播放的读屏值 `VideoCardAccessibilityText`）。无 library product | 除 Foundation、SwiftUI、BiliApplication 外的任何模块（含 BiliModels、AppKit 与其他 Feature） |
 | `BiliVideoCollectionUI` | 浏览网格与横排共用的 AppKit 卡片（`NativeVideoCollectionItem`、封面与文字层；调用方可把卡片标为不可用 `NativeVideoCardAvailability.unavailable`：变暗、封面角标写调用方给的原因、不画悬停与按下，网格拒绝鼠标选中，点击、回车、空格与读屏按下都不激活，键盘选择仍可停留，读屏呈现为不可用的按钮）、原生网格 `NativeVideoGridView` 及其状态（回顶握手、锚点、预备区域），集合视图的悬停、键盘与通知观察，卡片与评论图片共用的淡入动画 `NativeImageFadeAnimation`，近尾部分页 `NearEndPagination`，滚动坐标换算，取图 port `NativeVideoImageLoading`（只分封面与头像，结果只含图与是否淡入），来源网格从 App 窗口拿到的依赖 `NativeVideoGridHostContext`（滚动位置、回顶请求、取图 port），以及网格与横排共用的内容差异 `NativeVideoGridUpdatePlan`。App 用到的类型为 `public`（取图 port 及其结果类型、网格依赖 `NativeVideoGridHostContext` 与回顶请求、通知观察集合，以及 SwiftUI 一侧的新图淡入 `NativeImageFadeTransition`：评论图片预览与侧栏账号头像共用，时长与 `NativeImageFadeAnimation` 相同），只有 Package 内 Feature 用到的为 `package`（除上述 `public` 类型外，凡是 Feature 用到的都是），其余为 `internal`，有 library product | 除 BiliUI 外的 Bili 模块（含 BiliNetworking、adapter 与 Feature）；图片下载与缓存只经 port 注入 |
@@ -78,7 +78,7 @@ BiliNetworking 不依赖任何 Bili 模块
   自己的标题。视频卡片封面与头像的缩略参数只由 `BiliImageThumbnail` 追加；评论资源是不透明引用，其图片
   地址与缩略参数只由 BiliAPI 的 resolver 生成。
 - 网格与横排共用的 AppKit 卡片、网格与集合视图支撑放在 `BiliVideoCollectionUI`。各来源把条目映射为卡片的
-  网格包装放在拥有该来源的 Feature（推荐、热门、搜索在 Browse，历史在 Library），Feature 视图直接渲染它们，
+  网格包装放在拥有该来源的 Feature（推荐、热门、搜索在 Browse，观看历史与稍后再看在 Library），Feature 视图直接渲染它们，
   不经 App 填充的泛型内容插槽；相关推荐横排、播放侧栏、评论图片预览与 UP 主空间的 AppKit 视图与它们读取的
   ViewModel、呈现投影都在 `BiliVideoDetailFeature`，横排同样由播放页视图直接渲染、不经插槽；App 只注入窗口级依赖
   （图片管线经卡片与播放页两个取图 port、评论资源地址闭包、保存图片的窗口级 owner）。Browse 与播放页之间的跳转（选卡片进入播放、返回来源）由 App 协调。
@@ -189,7 +189,7 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   正文使用可选择、不可编辑的 `NSTextView`；diffable identity 为 subject + root `CommentID`；
   高度缓存按 identity、宽度桶、内容 revision 做有界 LRU，resize 分批精测并恢复语义 anchor。
   `PlaybackCommentsViewModel` 仍唯一拥有 subject、排序、分页、并发上限与 generation。
-- **浏览网格与 shelf**：首页推荐、热门、搜索、历史的网格和相关推荐 shelf 使用
+- **浏览网格与 shelf**：首页推荐、热门、搜索、观看历史、稍后再看的网格和相关推荐 shelf 使用
   `NSCollectionView` + 复用的原生卡片；卡片与网格在 `BiliVideoCollectionUI`，各来源的网格包装在拥有它的
   Feature，shelf 在 `BiliVideoDetailFeature`。热门 50 卡 A/B 表明 SwiftUI `LazyVGrid`/AttributeGraph 是主要滚动成本；卡片 overlay
   与文字改为持久 `CALayer`／`CATextLayer` 后，同样约 20 秒滚动 cycles 下降约 39%，0 hitch。来源的
@@ -200,25 +200,27 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   视野相交的卡片，不取准备区域里看不见的卡片。视野底边离内容底部不足 1.5 屏时请求
   下一页；新一页到来时若仍在阈值内（一页可能比阈值矮）立即再布防，保持内容储备，仍是每个尾部一次、
   一次滚动手势最多一页。评论侧栏的阈值比一页矮，保留“先离开阈值再布防”。
-- 首页推荐、热门、搜索与观看历史的分页都由 `PagedVideoList`（BiliApplication）承担；来源只把远端页适配为
-  “条目 + 下一页游标”（Feed 的游标是下一页请求，历史是 adapter 生成的不透明 continuation），Feed 另校验响应
-  属于所请求的页。各来源最多保留 1000 条（`VideoListRetention`），按 BVID 去重后截断（这四个分页来源只在 `PagedVideoList`
+- 首页推荐、热门、搜索、观看历史与稍后再看的分页都由 `PagedVideoList`（BiliApplication）承担；来源只把远端页
+  适配为“条目 + 下一页游标”（Feed 的游标是下一页请求，历史是 adapter 生成的不透明 continuation，稍后再看是页码），
+  Feed 与稍后再看另校验响应属于所请求的页（稍后再看：条数不超过每页条数、有条目时总条数多于前面各页，页码衔接在
+  `WatchLaterUseCase`）。稍后再看本页有条目且已请求条数少于接口给的总条数才有下一页，不另设条数上限。各来源最多
+  保留 1000 条（`VideoListRetention`），按 BVID 去重后截断（这五个分页来源只在 `PagedVideoList`
   去重，adapter 映射与网格卡片映射不另做；集合层的 `NativeVideoCardContents` 另按卡片 ID 兜底）；达到上限即收起分页
-  尾标、不再请求下一页。没有新条目的页：推荐、热门与搜索停止翻页；历史保留 continuation、收起尾标，由用户
+  尾标、不再请求下一页。没有新条目的页：推荐、热门、搜索与稍后再看停止翻页；历史保留 continuation、收起尾标，由用户
   点“加载更早的记录”显式继续（空页跳过与游标前进校验在 `WatchHistoryUseCase`）。下一页游标回环（含不前进）
-  按无效响应报告并停止，即使同时达到条目上限。历史一次分页会话最多加载更多 100 页；推荐、热门与搜索每页
+  按无效响应报告并停止，即使同时达到条目上限。历史一次分页会话最多加载更多 100 页；推荐、热门、搜索与稍后再看每页
   至少新增一条，页数已被条目上限封住，不另设页数上限。分页尾标是只在并入新条目时递增的计数。加载更多失败
   保留条目与游标、暂停自动加载（不给尾标），底部重试请求同一游标；被失败或离开页面打断的显式继续仍需显式
   继续，不会变成自动扫描。
-- 首页推荐、热门、搜索与观看历史在已有内容时都原地刷新：网格不卸载，顶部显示共用的 `RefreshStatusCapsule`
+- 首页推荐、热门、搜索、观看历史与稍后再看在已有内容时都原地刷新：网格不卸载，顶部显示共用的 `RefreshStatusCapsule`
   （BiliUI；结果为空时也显示），成功后整体替换并由刷新代次把该来源的网格滚回顶部；失败保留已显示内容并在
   胶囊里给出原因。底部的加载更多转圈、失败原因与重试，以及历史空页之后的“加载更早的记录”按钮共用
   `PaginationStatusOverlay`（BiliUI）。刷新期间各来源都收起分页尾标（历史的“加载更早的记录”也一并收起），
   结束后重新给出：
   网格对同一尾标只触发一次，刷新中被忽略的近尾事件要靠尾标重新出现才能再布防。账户变化替换所有来源的内容，所有网格都回到顶部。
-  历史在刷新或加载更多遇到凭据缺失或失效时放弃已显示内容、转入失败页并请求账户复核；复核期间显示“正在
-  重新确认”，确认仍登录后自动重载一次（直到下一次加载成功前不再自动重载），复核结束仍失败时给静态说明。
-  离开历史页时停止等待复核，凭据失败页回到初始状态，回来时重新加载。本地凭据读不到与复核失败显示
+  观看历史与稍后再看（同一 `LibraryVideoListModel`）在刷新或加载更多遇到凭据缺失或失效时放弃已显示内容、转入
+  失败页并请求账户复核；复核期间显示“正在重新确认”，确认仍登录后自动重载一次（直到下一次加载成功前不再自动
+  重载），复核结束仍失败时给静态说明。离开页面时停止等待复核，凭据失败页回到初始状态，回来时重新加载。本地凭据读不到与复核失败显示
   “无法读取登录状态”并可重试。首次加载仍是骨架屏。程序回到顶部后、用户再次滚动前，内容整体
   替换保持在顶部（`NativeVideoGridTopPin`），不按旧内容第一张可见卡片做锚点恢复；锚点卡片已不在新内容里时
   也直接回到顶部，不停在被新内容高度截断的旧偏移上。网格的 snapshot 不做差异动画：动画结束前新卡片不会

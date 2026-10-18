@@ -4,17 +4,43 @@ import BiliUI
 import BiliVideoCollectionUI
 import SwiftUI
 
-/// 网格的输入：从 `WatchHistoryState` 取出条目与分页状态。
+/// 资料库列表页的来源文案，由来源的根视图按当前 locale 本地化后交给共用视图。
+struct LibraryVideoListText {
+    /// 显式继续策略的来源（观看历史）空页之后的文案。
+    struct ManualContinue {
+        /// 当前页没有可显示条目、但还能继续时的空态说明。
+        let emptyDescription: String
+        /// 显式继续按钮的标题。
+        let actionTitle: String
+    }
+
+    let signInTitle: String
+    let signInDescription: String
+    let loading: String
+    let emptyTitle: String
+    let emptySymbol: String
+    let emptyDescription: String
+    let failureTitle: String
+    let refreshing: String
+    let loadingMore: String
+    let gridAccessibilityLabel: String
+    /// 只有显式继续策略的来源给出；停止策略的来源没有显式继续入口。
+    let manualContinue: ManualContinue?
+}
+
+/// 网格的输入：从列表状态取出条目与分页状态。
 ///
 /// 没有条目的 `loaded`、加载中与失败时构造失败，由空页、骨架或失败页接手；加载更多期间总能构造。
-struct WatchHistoryLoadedSurface: Equatable {
-    let items: [WatchHistoryItem]
+struct LibraryVideoListLoadedSurface<Item: Sendable & Equatable, Cursor: Equatable & Sendable>:
+    Equatable
+{
+    let items: [Item]
     let canLoadMore: Bool
     let isLoadingMore: Bool
     let requiresManualLoadMore: Bool
     let loadMoreError: ContentApplicationError?
 
-    init?(state: WatchHistoryState, requiresManualLoadMore: Bool) {
+    init?(state: LibraryVideoListState<Item, Cursor>, requiresManualLoadMore: Bool) {
         switch state {
         case .loaded(let items, let continuation, let loadMoreError)
         where !items.isEmpty:
@@ -35,15 +61,17 @@ struct WatchHistoryLoadedSurface: Equatable {
     }
 }
 
-/// 已登录时的观看历史主区：按 `WatchHistoryViewModel` 的状态显示骨架、空页、失败页或原生网格，叠加刷新与
+/// 已登录时的资料库列表主区：按 `LibraryVideoListModel` 的状态显示骨架、空页、失败页或原生网格，叠加刷新与
 /// 分页状态胶囊；凭据失败的说明按模型的账户复核进度区分。
 ///
-/// 不拥有请求、分页与复核（`WatchHistoryViewModel`），滚动位置、回顶请求与图片管线由 `WatchHistoryView`
-/// 从 App 窗口转交。
-struct WatchHistoryContentView: View {
+/// 不拥有请求、分页与复核（`LibraryVideoListModel`）；条目到卡片的映射由来源给出，滚动位置、回顶请求与图片
+/// 管线由根视图从 App 窗口转交。
+struct LibraryVideoListContentView<Item: Sendable & Equatable, Cursor: Equatable & Sendable>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.locale) private var locale
-    let model: WatchHistoryViewModel
+    let model: LibraryVideoListModel<Item, Cursor>
+    let text: LibraryVideoListText
+    let card: (Item, Locale) -> NativeVideoCardPresentation
     let gridHost: NativeVideoGridHostContext
     let onSelect: (String) -> Void
 
@@ -62,14 +90,9 @@ struct WatchHistoryContentView: View {
     private var content: some View {
         switch model.state {
         case .idle, .loading:
-            VideoCardGridSkeleton(
-                loadingLabel: LibraryFeatureStrings.localized(
-                    "正在加载观看历史",
-                    locale: locale
-                )
-            )
+            VideoCardGridSkeleton(loadingLabel: text.loading)
         case .loaded(let items, let continuation, let loadMoreError) where items.isEmpty:
-            emptyHistory(
+            emptyList(
                 canLoadMore: continuation != nil,
                 loadMoreError: loadMoreError
             )
@@ -78,17 +101,11 @@ struct WatchHistoryContentView: View {
         case .loaded, .loadingMore:
             // 有条目的 loaded 与加载更多共用这一支，网格在加载更多前后保持同一视图身份；
             // 这两种状态下 surface 总能构造。
-            if let surface = WatchHistoryLoadedSurface(
+            if let surface = LibraryVideoListLoadedSurface(
                 state: model.state,
                 requiresManualLoadMore: model.requiresManualLoadMore
             ) {
-                historyList(
-                    items: surface.items,
-                    canLoadMore: surface.canLoadMore,
-                    isLoadingMore: surface.isLoadingMore,
-                    requiresManualLoadMore: surface.requiresManualLoadMore,
-                    loadMoreError: surface.loadMoreError
-                )
+                videoList(surface)
             }
         }
     }
@@ -106,26 +123,25 @@ struct WatchHistoryContentView: View {
         }
     }
 
-    private func emptyHistory(
+    private func emptyList(
         canLoadMore: Bool,
         loadMoreError: ContentApplicationError?
     ) -> some View {
         ContentUnavailableView {
-            Label(
-                LibraryFeatureStrings.localized("暂无可显示的观看历史", locale: locale),
-                systemImage: "clock.arrow.circlepath"
-            )
+            Label(text.emptyTitle, systemImage: text.emptySymbol)
         } description: {
             if let loadMoreError {
                 Text(message(for: loadMoreError))
-            } else if canLoadMore {
-                Text(LibraryFeatureStrings.localized("当前页没有普通视频记录，可以继续检查更早的历史。", locale: locale))
+            } else if canLoadMore, let manualContinue = text.manualContinue {
+                Text(manualContinue.emptyDescription)
             } else {
-                Text(LibraryFeatureStrings.localized("在哔哩哔哩观看过的普通视频会显示在这里。", locale: locale))
+                Text(text.emptyDescription)
             }
         } actions: {
-            if canLoadMore, loadMoreError?.isRetryable ?? true {
-                Button(LibraryFeatureStrings.localized("加载更早的记录", locale: locale)) {
+            if canLoadMore, loadMoreError?.isRetryable ?? true,
+                let manualContinue = text.manualContinue
+            {
+                Button(manualContinue.actionTitle) {
                     model.loadMore()
                 }
                 .buttonStyle(.borderedProminent)
@@ -133,68 +149,51 @@ struct WatchHistoryContentView: View {
         }
     }
 
-    private func historyList(
-        items: [WatchHistoryItem],
-        canLoadMore: Bool,
-        isLoadingMore: Bool,
-        requiresManualLoadMore: Bool,
-        loadMoreError: ContentApplicationError?
+    private func videoList(
+        _ surface: LibraryVideoListLoadedSurface<Item, Cursor>
     ) -> some View {
-        HistoryNativeGridView(
-            content: LoadedHistoryContent(
-                items: items.map { WatchHistoryCardPresentation(item: $0, locale: locale) },
-                // 尾标只在可自动加载时存在：显式继续门、加载更多失败与原地刷新都暂停近尾触发。
-                tailState: NativeVideoGridTailState(
-                    canLoadMore: model.paginationTailIdentity != nil,
-                    tailIdentity: model.paginationTailIdentity,
-                    isLoading: isLoadingMore
-                ),
-                loadMore: model.loadMore,
-                select: onSelect
+        NativeVideoGridView(
+            items: surface.items.map { card($0, locale) },
+            accessibilityLabel: text.gridAccessibilityLabel,
+            // 尾标只在可自动加载时存在：显式继续门、加载更多失败与原地刷新都暂停近尾触发。
+            tailState: NativeVideoGridTailState(
+                canLoadMore: model.paginationTailIdentity != nil,
+                tailIdentity: model.paginationTailIdentity,
+                isLoading: surface.isLoadingMore
             ),
-            host: gridHost
+            host: gridHost,
+            onNearEnd: model.loadMore,
+            onSelect: onSelect
         )
         .ignoresSafeArea(.container, edges: .top)
         .overlay(alignment: .top) {
             RefreshStatusCapsule(
                 isRefreshing: model.isRefreshing,
-                refreshingLabel: LibraryFeatureStrings.localized("正在刷新观看历史", locale: locale),
+                refreshingLabel: text.refreshing,
                 errorMessage: model.refreshError.map(message(for:))
             )
         }
         .overlay(alignment: .bottom) {
-            PaginationStatusOverlay(
-                paginationStatus(
-                    canLoadMore: canLoadMore,
-                    isLoadingMore: isLoadingMore,
-                    requiresManualLoadMore: requiresManualLoadMore,
-                    loadMoreError: loadMoreError
-                )
-            )
+            PaginationStatusOverlay(paginationStatus(surface))
         }
     }
 
     private func paginationStatus(
-        canLoadMore: Bool,
-        isLoadingMore: Bool,
-        requiresManualLoadMore: Bool,
-        loadMoreError: ContentApplicationError?
+        _ surface: LibraryVideoListLoadedSurface<Item, Cursor>
     ) -> PaginationStatusOverlay.Status {
-        if isLoadingMore {
-            return .loadingMore(
-                label: LibraryFeatureStrings.localized("正在加载更早的记录…", locale: locale)
-            )
+        if surface.isLoadingMore {
+            return .loadingMore(label: text.loadingMore)
         }
-        if let loadMoreError {
-            let canRetry = canLoadMore && loadMoreError.isRetryable
+        if let loadMoreError = surface.loadMoreError {
+            let canRetry = surface.canLoadMore && loadMoreError.isRetryable
             return .failed(
                 message: message(for: loadMoreError),
                 retry: canRetry ? { model.loadMore() } : nil
             )
         }
-        if requiresManualLoadMore {
+        if surface.requiresManualLoadMore, let manualContinue = text.manualContinue {
             return .manualLoadMore(
-                title: LibraryFeatureStrings.localized("加载更早的记录", locale: locale),
+                title: manualContinue.actionTitle,
                 action: { model.loadMore() }
             )
         }
@@ -202,15 +201,15 @@ struct WatchHistoryContentView: View {
     }
 
     private func failure(_ error: ContentApplicationError) -> some View {
-        let text = ContentFailureText(
+        let failureText = ContentFailureText(
             error: error,
-            fallbackTitle: LibraryFeatureStrings.localized("无法加载观看历史", locale: locale),
+            fallbackTitle: text.failureTitle,
             revalidation: revalidation,
             locale: locale
         )
         return ContentFailureView(
-            title: text.title,
-            message: text.message,
+            title: failureText.title,
+            message: failureText.message,
             retry: error.isRetryable ? { model.reload() } : nil
         )
     }
@@ -219,7 +218,7 @@ struct WatchHistoryContentView: View {
         ContentFailureText.message(for: error, revalidation: revalidation, locale: locale)
     }
 
-    /// 历史页的凭据失败总会请求账户复核：复核进行中说“正在重新确认”，结束仍失败时给静态说明。
+    /// 资料库列表的凭据失败总会请求账户复核：复核进行中说“正在重新确认”，结束仍失败时给静态说明。
     private var revalidation: ContentFailureText.Revalidation {
         model.isAwaitingAuthenticationRevalidation ? .awaiting : .finished
     }

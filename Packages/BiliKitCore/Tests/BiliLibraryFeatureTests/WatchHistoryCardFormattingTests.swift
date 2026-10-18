@@ -64,7 +64,7 @@ struct WatchHistoryCardFormattingTests {
             viewedAt: .now
         )
         let continuation = WatchHistoryContinuation(rawValue: "opaque")
-        let loaded = WatchHistoryLoadedSurface(
+        let loaded = LibraryVideoListLoadedSurface<WatchHistoryItem, WatchHistoryContinuation>(
             state: .loaded(
                 items: [item],
                 continuation: continuation,
@@ -72,11 +72,11 @@ struct WatchHistoryCardFormattingTests {
             ),
             requiresManualLoadMore: false
         )
-        let loadingMore = WatchHistoryLoadedSurface(
+        let loadingMore = LibraryVideoListLoadedSurface<WatchHistoryItem, WatchHistoryContinuation>(
             state: .loadingMore(items: [item], continuation: continuation),
             requiresManualLoadMore: false
         )
-        let retry = WatchHistoryLoadedSurface(
+        let retry = LibraryVideoListLoadedSurface<WatchHistoryItem, WatchHistoryContinuation>(
             state: .loaded(
                 items: [item],
                 continuation: continuation,
@@ -141,7 +141,7 @@ struct WatchHistoryCardFormattingTests {
         expected: String
     ) {
         #expect(
-            WatchHistoryCardFormatting.progress(
+            LibraryCardFormatting.progress(
                 progressSeconds: progress,
                 durationSeconds: duration
             ) == expected
@@ -175,7 +175,7 @@ struct WatchHistoryCardFormattingTests {
         )
 
         #expect(
-            WatchHistoryCardFormatting.viewedAt(
+            LibraryCardFormatting.timestamp(
                 viewedAt,
                 now: now,
                 calendar: calendar,

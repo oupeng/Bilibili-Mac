@@ -1,0 +1,254 @@
+import BiliApplication
+import BiliModels
+import Foundation
+import Testing
+
+@testable import BiliLibraryFeature
+
+/// 稍后再看按页码翻页、没有下一页即停止，加载更多失败保留条目并重试同一页，刷新原地进行，`reset` 清空、
+/// 离开页面只停用，账户变化丢弃条目且只在已登录并是当前来源时重载，凭据失败请求复核。
+@Suite(.timeLimit(.minutes(1)))
+struct WatchLaterViewModelTests {
+    @Test
+    @MainActor
+    func loadsAndAutoLoadsTheNextPageUntilTheLastPage() async {
+        let repository = WatchLaterRepositoryStub(
+            results: [
+                laterPage(["BV1LaterA1"], page: 1, next: 2),
+                laterPage(["BV1LaterA1", "BV1LaterB2"], page: 2, next: nil)
+            ]
+        )
+        let model = WatchLaterViewModel(useCase: WatchLaterUseCase(repository: repository))
+
+        model.loadIfNeeded()
+        await model.waitForCurrentTask()
+        #expect(model.paginationTailIdentity != nil)
+        #expect(!model.requiresManualLoadMore)
+        model.loadMore()
+        await model.waitForCurrentTask()
+
+        #expect(
+            model.state
+                == .loaded(
+                    items: [laterItem("BV1LaterA1"), laterItem("BV1LaterB2")],
+                    continuation: nil,
+                    loadMoreError: nil
+                )
+        )
+        #expect(model.paginationTailIdentity == nil)
+        #expect(await repository.requestedPages == [1, 2])
+    }
+
+    /// 没有新条目的页（全重复）停止翻页，不要求用户显式继续。
+    @Test
+    @MainActor
+    func pageWithoutNewItemsStopsPaginating() async {
+        let repository = WatchLaterRepositoryStub(
+            results: [
+                laterPage(["BV1LaterA1"], page: 1, next: 2),
+                laterPage(["BV1LaterA1"], page: 2, next: 3)
+            ]
+        )
+        let model = WatchLaterViewModel(useCase: WatchLaterUseCase(repository: repository))
+
+        model.loadIfNeeded()
+        await model.waitForCurrentTask()
+        model.loadMore()
+        await model.waitForCurrentTask()
+
+        #expect(
+            model.state
+                == .loaded(items: [laterItem("BV1LaterA1")], continuation: nil, loadMoreError: nil)
+        )
+        #expect(!model.requiresManualLoadMore)
+    }
+
+    @Test
+    @MainActor
+    func loadMoreFailureKeepsItemsAndRetriesTheSamePage() async {
+        let repository = WatchLaterRepositoryStub(
+            results: [
+                laterPage(["BV1LaterA1"], page: 1, next: 2),
+                .failure(ContentApplicationError.transportFailure),
+                laterPage(["BV1LaterB2"], page: 2, next: nil)
+            ]
+        )
+        let model = WatchLaterViewModel(useCase: WatchLaterUseCase(repository: repository))
+
+        model.loadIfNeeded()
+        await model.waitForCurrentTask()
+        model.loadMore()
+        await model.waitForCurrentTask()
+        #expect(
+            model.state
+                == .loaded(
+                    items: [laterItem("BV1LaterA1")],
+                    continuation: 2,
+                    loadMoreError: .transportFailure
+                )
+        )
+        // 失败期间暂停自动加载。
+        #expect(model.paginationTailIdentity == nil)
+
+        model.loadMore()
+        await model.waitForCurrentTask()
+
+        #expect(
+            model.state
+                == .loaded(
+                    items: [laterItem("BV1LaterA1"), laterItem("BV1LaterB2")],
+                    continuation: nil,
+                    loadMoreError: nil
+                )
+        )
+        #expect(await repository.requestedPages == [1, 2, 2])
+    }
+
+    @Test
+    @MainActor
+    func refreshKeepsItemsOnFailureAndReplacesThemOnSuccess() async {
+        let repository = WatchLaterRepositoryStub(
+            results: [
+                laterPage(["BV1LaterA1"], page: 1, next: nil),
+                .failure(ContentApplicationError.transportFailure),
+                laterPage(["BV1LaterC3"], page: 1, next: nil)
+            ]
+        )
+        let model = WatchLaterViewModel(useCase: WatchLaterUseCase(repository: repository))
+
+        model.loadIfNeeded()
+        await model.waitForCurrentTask()
+        model.reload()
+        #expect(model.isRefreshing)
+        await model.waitForCurrentTask()
+        #expect(model.refreshError == .transportFailure)
+        #expect(
+            model.state
+                == .loaded(items: [laterItem("BV1LaterA1")], continuation: nil, loadMoreError: nil)
+        )
+
+        model.reload()
+        await model.waitForCurrentTask()
+
+        #expect(model.refreshError == nil)
+        #expect(model.successfulReloadGeneration == 2)
+        #expect(
+            model.state
+                == .loaded(items: [laterItem("BV1LaterC3")], continuation: nil, loadMoreError: nil)
+        )
+    }
+
+    /// 页码与请求不符的响应不并入列表。
+    @Test
+    @MainActor
+    func misplacedPageIsReportedAsALoadMoreFailure() async {
+        let repository = WatchLaterRepositoryStub(
+            results: [
+                laterPage(["BV1LaterA1"], page: 1, next: 2),
+                laterPage(["BV1LaterB2"], page: 3, next: nil)
+            ]
+        )
+        let model = WatchLaterViewModel(useCase: WatchLaterUseCase(repository: repository))
+
+        model.loadIfNeeded()
+        await model.waitForCurrentTask()
+        model.loadMore()
+        await model.waitForCurrentTask()
+
+        #expect(
+            model.state
+                == .loaded(
+                    items: [laterItem("BV1LaterA1")],
+                    continuation: 2,
+                    loadMoreError: .invalidResponse
+                )
+        )
+    }
+
+    @Test
+    @MainActor
+    func resetClearsAndDeactivationKeepsLoadedItems() async {
+        let repository = WatchLaterRepositoryStub(
+            results: [laterPage(["BV1LaterA1"], page: 1, next: nil)]
+        )
+        let model = WatchLaterViewModel(useCase: WatchLaterUseCase(repository: repository))
+
+        model.loadIfNeeded()
+        await model.waitForCurrentTask()
+        model.deactivateRoute()
+        #expect(
+            model.state
+                == .loaded(items: [laterItem("BV1LaterA1")], continuation: nil, loadMoreError: nil)
+        )
+
+        model.reset()
+
+        #expect(model.state == .idle)
+    }
+
+    @Test(arguments: [
+        (AccountSessionScope.signedIn(accountID: 2), true, [1, 1]),
+        (.signedIn(accountID: 2), false, [1]),
+        (.signedOut, true, [1])
+    ])
+    @MainActor
+    func accountChangeDropsItemsAndReloadsOnlyWhenSignedInAndCurrent(
+        scope: AccountSessionScope,
+        isCurrentRoute: Bool,
+        expectedPages: [Int]
+    ) async {
+        let repository = WatchLaterRepositoryStub(
+            results: [
+                laterPage(["BV1LaterA1"], page: 1, next: nil),
+                laterPage(["BV1LaterB2"], page: 1, next: nil)
+            ]
+        )
+        let model = WatchLaterViewModel(useCase: WatchLaterUseCase(repository: repository))
+        model.loadIfNeeded()
+        await model.waitForCurrentTask()
+
+        model.synchronizeAuthenticationSession(scope: scope, isCurrentRoute: isCurrentRoute)
+        await model.waitForCurrentTask()
+
+        #expect(await repository.requestedPages == expectedPages)
+        if expectedPages.count == 1 {
+            #expect(model.state == .idle)
+        }
+    }
+
+    /// 稍后再看只在已登录时显示：凭据失效与本地无凭据都放弃条目并请求复核，复核确认后自动重载一次。
+    @Test(arguments: [
+        ContentApplicationError.authenticationInvalid,
+        .authenticationRequired
+    ])
+    @MainActor
+    func credentialFailureRequestsRevalidationAndReloadsOnce(
+        failure: ContentApplicationError
+    ) async {
+        let repository = WatchLaterRepositoryStub(
+            results: [
+                laterPage(["BV1LaterA1"], page: 1, next: 2),
+                .failure(failure),
+                laterPage(["BV1LaterA1"], page: 1, next: nil)
+            ]
+        )
+        let model = WatchLaterViewModel(useCase: WatchLaterUseCase(repository: repository))
+
+        model.loadIfNeeded()
+        await model.waitForCurrentTask()
+        model.loadMore()
+        await model.waitForCurrentTask()
+        #expect(model.state == .failed(failure))
+        #expect(model.authenticationRevalidationGeneration == 1)
+        #expect(model.isAwaitingAuthenticationRevalidation)
+
+        model.authenticationRevalidationSucceeded()
+        await model.waitForCurrentTask()
+
+        #expect(
+            model.state
+                == .loaded(items: [laterItem("BV1LaterA1")], continuation: nil, loadMoreError: nil)
+        )
+        #expect(await repository.requestedPages == [1, 2, 1])
+    }
+}

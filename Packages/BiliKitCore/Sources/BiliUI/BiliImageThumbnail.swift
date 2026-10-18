@@ -9,7 +9,7 @@ public enum BiliAvatarImageSize {
     public static let pixelSide = 96
 }
 
-/// 视频卡片（推荐、热门、搜索、观看历史）封面与作者头像，以及侧栏账号头像的 B 站图片缩略地址。
+/// 视频卡片（推荐、热门、搜索、观看历史、稍后再看）封面与作者头像，以及侧栏账号头像的 B 站图片缩略地址。
 ///
 /// 只改写 `hdslb.com` 及其子域、没有 query／fragment、path 里还没有缩略参数的地址；其他来源原样返回，
 /// 来源校验仍由图片管线负责（见 SECURITY-MODEL §4）。缩略参数写在 path 上（`@{宽}w_{高}h_1c.webp`），
