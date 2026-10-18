@@ -1,6 +1,7 @@
 import BiliModels
 import Foundation
 
+/// WebVTT 编码失败：时间基无效、时间戳溢出，或某条 cue 的时间或文本不合规，整份字幕不可用。
 public enum WebVTTEncoderError: Error, Sendable, Equatable {
     case invalidTimescale
     case timestampOverflow
@@ -10,6 +11,7 @@ public enum WebVTTEncoderError: Error, Sendable, Equatable {
 
 /// 把已验证 cue 编码为与 DASH presentation timeline 对齐的 WebVTT。
 public struct WebVTTEncoder: Sendable {
+    /// cue 结束时间上限 24 小时：超出视为数据异常，整份字幕编码失败。
     private static let maximumCueSeconds = 24.0 * 60.0 * 60.0
 
     public init() {}
@@ -49,6 +51,8 @@ public struct WebVTTEncoder: Sendable {
         return Data(lines.joined(separator: "\n").utf8)
     }
 
+    /// 把视频 SIDX 起点换算到 90 kHz 的 MPEG-TS 时钟写进 `X-TIMESTAMP-MAP`，
+    /// 让 cue 的 0 秒对齐视频时间轴起点。
     private func mpegTimestamp(
         earliestPresentationTime: UInt64,
         timescale: UInt32
@@ -90,6 +94,9 @@ public struct WebVTTEncoder: Sendable {
         )
     }
 
+    /// 拒绝除换行与 Tab 外的控制字符，并转义 `&`、`<`、`>`，正文不会被当作 WebVTT 标签。
+    ///
+    /// 空行换成一个空格：WebVTT 里空行会结束 cue。
     private func safeText(_ rawValue: String, index: Int) throws -> String {
         let normalized =
             rawValue

@@ -1,6 +1,7 @@
 import BiliModels
 import Foundation
 
+/// 解析后的 SIDX：时间基、起始呈现时间与按顺序排列的分段引用（绝对字节范围）。
 public struct SegmentIndex: Sendable, Equatable {
     public let referenceID: UInt32
     public let timescale: UInt32
@@ -23,6 +24,8 @@ public struct SegmentIndex: Sendable, Equatable {
     }
 }
 
+/// 一个分段的绝对字节范围、以 `timescale` 计的时长与 SAP 信息；独立分段与 I-frame 判定依赖 SAP
+/// 字段。
 public struct SegmentReference: Sendable, Equatable {
     public let byteRange: MediaByteRange
     public let duration: UInt32
@@ -45,6 +48,7 @@ public struct SegmentReference: Sendable, Equatable {
     }
 }
 
+/// SIDX 不合规或超出支持范围；读取时这个候选按失败处理。
 public enum SIDXParserError: Error, Sendable, Equatable {
     case truncated
     case invalidBoxSize(declared: UInt32, actual: Int)
@@ -191,6 +195,7 @@ public struct SIDXParser: Sendable {
     }
 }
 
+/// 在 `data` 上按大端顺序前进读取的游标，越界即抛 `truncated`。
 private struct BigEndianReader {
     let data: Data
     private(set) var offset = 0

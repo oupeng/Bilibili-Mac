@@ -12,6 +12,10 @@ final class LoudnessNormalizationController {
     private var audioTracks: [PlaybackAudioTrack] = []
     private var selectionObserver: (any NSObjectProtocol)?
     private var selectionTask: Task<Void, Never>?
+    /// 每次 `activate` 与每次音轨选择变化时换新，`clear` 时置 nil。
+    ///
+    /// `updateGain` 在每个 await 之后与之比对（同时核对 item 与 tap 仍是当前的），
+    /// 不一致即放弃写增益。
     private var selectionOperationID: UUID?
 
     deinit {
@@ -66,6 +70,8 @@ final class LoudnessNormalizationController {
         await updateGain(operationID: operationID)
     }
 
+    /// 由 `AVPlayerEngine` 在换掉或移除 item 之前调用：取消在途更新、注销选择 observer，并放下 tap
+    /// 与 item。
     func clear() {
         selectionTask?.cancel()
         selectionTask = nil

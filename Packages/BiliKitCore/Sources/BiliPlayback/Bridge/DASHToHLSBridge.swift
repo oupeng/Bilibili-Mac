@@ -96,6 +96,7 @@ public struct DASHToHLSBridge: Sendable {
                 candidateURLs: source.urlCandidates,
                 contentLength: source.contentLength,
                 contentType: source.contentType,
+                // 源声明为 MP4 容器且全部候选 URL 的扩展名都是 `.mp4`，才算有容器证据。
                 allowsOctetStreamWithContainerEvidence:
                     source.container == .mp4
                     && source.urlCandidates.allSatisfy {
@@ -172,7 +173,7 @@ public struct DASHToHLSBridge: Sendable {
             }
         }
 
-        // SIDX 读取就是首个上游连接；此前复核每个候选来源，失败关闭。
+        // SIDX 读取就是首个上游连接；此前复核每个候选来源，失败关闭，见 SECURITY-MODEL §4。
         let mediaURLPolicy = BiliMediaCDNURLPolicy()
         for representation in videos + audioTracks.map(\.representation)
         where !representation.urlCandidates.allSatisfy(mediaURLPolicy.allows) {
@@ -358,6 +359,8 @@ public struct DASHToHLSBridge: Sendable {
                 )
                 localizedSubtitleCatalog = subtitleCatalog
             } catch {
+                // 字幕 route 或带字幕的 master 生成失败只放弃字幕，按无字幕重新生成 master；
+                // 这次再失败才让播放失败。
                 registrations.removeSubrange(mediaRegistrationCount...)
                 masterPlaylist = try masterPlaylistBuilder.build(
                     videoVariants: variants,
@@ -395,6 +398,7 @@ public struct DASHToHLSBridge: Sendable {
         }
     }
 
+    /// 只有全部 reference 从 type-1 SAP 开始且 `SAP_delta_time` 为 0 时才发布 I-frame rendition。
     private func isEligibleForIFramePlaylist(_ index: SegmentIndex) -> Bool {
         !index.references.isEmpty
             && index.references.allSatisfy { reference in
@@ -418,6 +422,8 @@ public struct DASHToHLSBridge: Sendable {
         hasMatchingTimelineOrigin(candidate, canonical: canonical)
     }
 
+    /// 两份 SIDX 的起始呈现时间换算成秒后相差不超过 1/90000 秒（HLS 90 kHz 时钟的一个 tick）
+    /// 即视为同一起点。
     private func hasMatchingTimelineOrigin(
         _ candidate: SegmentIndex,
         canonical: SegmentIndex
