@@ -1,8 +1,8 @@
 import BiliUI
 import Foundation
 
-/// 资料库卡片（观看历史、稍后再看）共用的文字规则：观看进度（看完显示“已看完”）与时间点（今天、昨天或
-/// 月日，加时刻）。
+/// 资料库卡片（观看历史、稍后再看）共用的文字规则：观看进度（看完显示“已看完”）与时间点（今天、昨天，更早为
+/// 日历日期：同年月日、跨年带年份的系统日期；都加时刻）。
 ///
 /// 观看历史的观看时间与稍后再看的加入时间都经 `timestamp`，同一格式只在这里。
 enum LibraryCardFormatting {
@@ -43,12 +43,14 @@ enum LibraryCardFormatting {
         case .yesterday:
             return LibraryFeatureStrings.localized("昨天 \(time)", locale: locale)
         case .earlier:
-            let month = calendar.component(.month, from: date)
-            let day = calendar.component(.day, from: date)
-            return LibraryFeatureStrings.localized(
-                "\(month)月\(day)日 \(time)",
+            // 日期部分取共用的日历日期：同年「M月D日」，跨年带年份的系统日期。
+            let day = DateDisplayFormatting.calendarDate(
+                date,
+                relativeTo: now,
+                calendar: calendar,
                 locale: locale
             )
+            return LibraryFeatureStrings.localized("\(day) \(time)", locale: locale)
         }
     }
 }
