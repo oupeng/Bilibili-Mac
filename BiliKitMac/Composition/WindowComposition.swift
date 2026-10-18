@@ -8,7 +8,7 @@ import SwiftUI
 /// 窗口级组装：一个窗口必须同代、跨 SwiftUI `body` 重算保持稳定的整个对象图，由 `AppRootView` 在视图身份首次
 /// 出现时构造一次（`ProcessComposition.makeWindow()`）。
 ///
-/// 拥有本窗口的全部模型（浏览、视频、评论、弹幕、认证、历史、UP 主空间、热搜与联想、搜索会话）、导航协调、
+/// 拥有本窗口的全部模型（浏览、视频、评论、弹幕、认证、稍后再看、观看历史、UP 主空间、热搜与联想、搜索会话）、导航协调、
 /// 来源描述与复核参与者、播放器视图、窗口图片管线、评论短链解析与图片保存、Now Playing 与观看进度的连接，以及
 /// 经 `WindowAdapters` 拿到的具体实现。只引用进程级对象（账户会话、设置、Now Playing 控制器、搜索历史），不创建
 /// 也不关闭它们。视频、弹幕模型与播放器视图必须共享 adapter 里同一个播放器；分别重建会让画面、时间线与弹幕指向
@@ -27,6 +27,7 @@ final class WindowComposition {
     let commentsModel: PlaybackCommentsViewModel
     let danmakuModel: DanmakuControlsViewModel
     let authenticationModel: AuthenticationViewModel
+    let watchLaterModel: WatchLaterViewModel
     let historyModel: WatchHistoryViewModel
     let trendingSearchModel: TrendingSearchViewModel
     let searchSuggestionSource: SearchSuggestionSource
@@ -86,6 +87,9 @@ final class WindowComposition {
         let commentsModel = PlaybackCommentsViewModel(
             useCase: CommentUseCase(repository: adapters.commentRepository)
         )
+        let watchLaterModel = WatchLaterViewModel(
+            useCase: WatchLaterUseCase(repository: adapters.watchLaterRepository)
+        )
         let historyModel = WatchHistoryViewModel(
             useCase: WatchHistoryUseCase(repository: adapters.historyRepository)
         )
@@ -101,6 +105,7 @@ final class WindowComposition {
             service: adapters.authenticationService,
             qrCodeProvider: adapters.authenticationQRCodeProvider
         )
+        self.watchLaterModel = watchLaterModel
         self.historyModel = historyModel
         self.trendingSearchModel = trendingSearchModel
         searchSuggestionSource = SearchSuggestionSource(
@@ -113,6 +118,7 @@ final class WindowComposition {
         self.searchSession = searchSession
         let sources = AppSources(
             browseModel: browseModel,
+            watchLaterModel: watchLaterModel,
             historyModel: historyModel,
             searchSession: searchSession,
             trendingSearchModel: trendingSearchModel

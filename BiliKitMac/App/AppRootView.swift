@@ -36,6 +36,7 @@ struct AppRootView: View {
             commentsModel: commentsModel,
             danmakuModel: danmakuModel,
             authenticationModel: authenticationModel,
+            watchLaterModel: window.watchLaterModel,
             historyModel: historyModel,
             trendingSearchModel: window.trendingSearchModel,
             searchSession: window.searchSession,
@@ -86,8 +87,8 @@ struct AppRootView: View {
                 return
             }
             accountSessionCoordinator.publish(scope)
-            // 先通知不要求账户的来源（Browse 重启当前路由），关闭播放，再通知要求账户的来源（观看历史清空并
-            // 按需重载）。
+            // 先通知不要求账户的来源（Browse 重启当前路由），关闭播放，再通知要求账户的来源（稍后再看与观看历史
+            // 清空并按需重载）。
             notifyAccountSessionChange(
                 generation: accountSessionCoordinator.generation,
                 scope: scope,
@@ -216,7 +217,7 @@ struct AppRootView: View {
             .popular
         case .search:
             window.searchSession.browseActivation
-        case .history:
+        case .watchLater, .history:
             .inactive
         }
     }

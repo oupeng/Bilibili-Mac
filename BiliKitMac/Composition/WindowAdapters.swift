@@ -29,6 +29,7 @@ struct WindowAdapters {
     let uploaderVideoRepository: any UploaderVideoRepository
     let commentRepository: any CommentRepository
     let historyRepository: any WatchHistoryRepository
+    let watchLaterRepository: any WatchLaterRepository
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentLinkRouter: CommentLinkRouter
     let authenticationService: any AuthenticationServicing
@@ -111,6 +112,7 @@ extension WindowAdapters {
             uploaderVideoRepository: contentRepository,
             commentRepository: BiliCommentRepository(client: api),
             historyRepository: BiliWatchHistoryRepository(client: api),
+            watchLaterRepository: BiliWatchLaterRepository(client: api),
             commentAssetURLResolver: { reference, box in
                 commentAssetResolver.imageURL(for: reference, fitting: box)
             },

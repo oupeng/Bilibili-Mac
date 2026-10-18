@@ -10,7 +10,7 @@ import Foundation
 enum AppSourceGroup: CaseIterable {
     /// 顶部不带标题的一组：搜索、首页、热门。
     case browse
-    /// 「资料库」：只属于当前账户的个人列表。
+    /// 「资料库」：只属于当前账户的个人列表（稍后再看、观看历史）。
     case library
 
     /// 侧栏分段标题；nil 表示不显示标题。
@@ -42,7 +42,8 @@ struct AppSourceDescriptor: Identifiable {
     let requiresAccount: Bool
     /// 内容被整体替换的代次；`AppShellView` 在它前进时只把这个来源的网格滚回顶部。
     ///
-    /// 按各来源现有语义透传：推荐、热门与搜索只在原地刷新成功时前进，历史每次加载成功（含首次加载）都前进。
+    /// 按各来源现有语义透传：推荐、热门与搜索只在原地刷新成功时前进，稍后再看与观看历史每次加载成功（含首次加载）
+    /// 都前进。
     let refreshGeneration: @MainActor () -> UInt64
     /// 从本来源切到另一个来源时调用一次；推荐、热门与搜索的停用由 Browse 激活（`AppRootView.browseActivation`）
     /// 统一承担，这里不动作。
@@ -55,10 +56,10 @@ struct AppSourceDescriptor: Identifiable {
     let synchronizeAccountSession: @MainActor (AccountSessionChange) -> Void
     /// 绑定本来源的账户复核参与者：只在本来源是当前来源时收到复核结果（`AccountRevalidationParticipants`）。
     ///
-    /// 观看历史复核成功后会 `loadIfNeeded`，不在历史页时不能让它在后台读取账户内容。不绑定来源的参与者
+    /// 稍后再看与观看历史复核成功后会 `loadIfNeeded`，不在本页时不能让它在后台读取账户内容。不绑定来源的参与者
     /// （视频、弹幕、评论、UP 主空间与三个来源共用的 Browse）由 `WindowComposition` 另行登记。
     let revalidationParticipant: (any AccountRevalidationParticipant)?
-    /// 取消本来源自己的请求并丢弃自己的内容（搜索的草稿与热搜、观看历史）。
+    /// 取消本来源自己的请求并丢弃自己的内容（搜索的草稿与热搜、稍后再看、观看历史）。
     ///
     /// 由 `AppSources` 调用：关窗时对所有来源，其他窗口换号时只对 `requiresAccount` 的来源。推荐、热门与搜索
     /// 共用的 Browse 工作集不属于某一个来源，不在这里，由 `AppSources.resetForWindowClosure` 整体丢弃一次。
@@ -100,6 +101,7 @@ struct AppSources {
 
     init(
         browseModel: BrowseViewModel,
+        watchLaterModel: WatchLaterViewModel,
         historyModel: WatchHistoryViewModel,
         searchSession: VideoSearchSession,
         trendingSearchModel: TrendingSearchViewModel
@@ -156,6 +158,24 @@ struct AppSources {
                     revalidationParticipant: nil,
                     // 推荐与热门只有共用的 Browse 工作集，没有自己的内容。
                     reset: {}
+                )
+            case .watchLater:
+                AppSourceDescriptor(
+                    id: tab,
+                    title: "稍后再看",
+                    systemImage: "play.square.stack",
+                    group: .library,
+                    requiresAccount: true,
+                    refreshGeneration: { watchLaterModel.successfulReloadGeneration },
+                    deactivate: watchLaterModel.deactivateRoute,
+                    synchronizeAccountSession: {
+                        watchLaterModel.synchronizeAuthenticationSession(
+                            scope: $0.scope,
+                            isCurrentRoute: $0.isCurrentRoute
+                        )
+                    },
+                    revalidationParticipant: watchLaterModel,
+                    reset: watchLaterModel.reset
                 )
             case .history:
                 AppSourceDescriptor(

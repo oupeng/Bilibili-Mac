@@ -9,6 +9,7 @@ enum AppTab: Hashable, CaseIterable {
     case search
     case home
     case popular
+    case watchLater
     case history
 }
 

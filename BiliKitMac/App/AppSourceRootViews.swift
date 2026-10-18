@@ -105,6 +105,28 @@ struct SearchTabRoot: View {
     }
 }
 
+/// 稍后再看来源的 App 接线：登录门槛、刷新、加载语义与原生网格在 Library 的 `WatchLaterView`，这里只转交
+/// 账户呈现状态、窗口级网格依赖、标题与打开登录页的动作。
+struct WatchLaterTabRoot: View {
+    let title: LocalizedStringResource
+    let model: WatchLaterViewModel
+    let accountState: AccountPresentationState
+    let gridHost: NativeVideoGridHostContext
+    let onSelect: (String) -> Void
+    let onPresentAuthentication: () -> Void
+
+    var body: some View {
+        WatchLaterView(
+            model: model,
+            accountState: accountState,
+            gridHost: gridHost,
+            onSelect: onSelect,
+            onPresentAuthentication: onPresentAuthentication
+        )
+        .navigationTitle(Text(title))
+    }
+}
+
 /// 观看历史来源的 App 接线：登录门槛、刷新、加载语义与原生网格在 Library 的 `WatchHistoryView`，这里只转交
 /// 账户呈现状态、窗口级网格依赖、标题与打开登录页的动作。
 struct HistoryTabRoot: View {

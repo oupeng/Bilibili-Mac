@@ -175,6 +175,16 @@ struct WatchHistoryRepositoryStub: WatchHistoryRepository {
     }
 }
 
+/// 稍后再看 port 的唯一测试替身：给了 `error` 时每次读取都失败，否则返回所请求页的空页。
+struct WatchLaterRepositoryStub: WatchLaterRepository {
+    var error: ContentApplicationError?
+
+    func watchLater(page: Int) async throws -> WatchLaterPage {
+        if let error { throw error }
+        return WatchLaterPage(items: [], pageNumber: page, nextPageNumber: nil)
+    }
+}
+
 /// 单个视频的手写详情、分 P 与播放地址；`FixtureVideoRepository` 按它回答。
 struct VideoFixture: Sendable {
     let aid: Int64

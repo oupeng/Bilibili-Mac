@@ -101,7 +101,7 @@ BiliNetworking 不依赖任何 Bili 模块
   失效）、设置与线路测速（测速用自己的 API client，同样登记进账户会话）、系统 Now Playing、本机搜索历史与更新器。
   生产 `BiliAPIClient` 只由 `LiveAPIClients` 构造，账户读取 allowlist 也只在那里声明。
 - 窗口级 `WindowComposition`（`Composition/`，每个窗口一份，由 `AppRootView` 在视图身份首次出现时经
-  `ProcessComposition.makeWindow()` 构造一次）：全部模型（浏览、视频、评论、弹幕、认证、历史、UP 主空间、热搜与
+  `ProcessComposition.makeWindow()` 构造一次）：全部模型（浏览、视频、评论、弹幕、认证、稍后再看、观看历史、UP 主空间、热搜与
   联想、搜索会话）、导航协调、来源描述与复核参与者、播放器视图、窗口图片管线、评论短链解析与图片保存、Now
   Playing 与观看进度的连接。它只引用进程级对象，不替它们创建或关闭。具体实现只经 `WindowAdapters`（仓库、
   认证服务、播放控制与播放器视图、弹幕呈现与偏好、Now Playing 与观看进度连接、窗口打开与关闭时 adapter 自己
@@ -287,11 +287,11 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
 
 ### 动线与侧栏上下文层
 
-- 平级来源（搜索、首页、热门、观看历史）以 `AppTab` 为 id，各由一份 `AppSourceDescriptor` 描述：标题、SF Symbol、
-  所属侧栏分组、是否要求账户、内容整体替换的代次（推荐、热门与搜索只计原地刷新，历史含首次加载）、离开来源时的停用、
+- 平级来源（搜索、首页、热门、稍后再看、观看历史）以 `AppTab` 为 id，各由一份 `AppSourceDescriptor` 描述：标题、SF Symbol、
+  所属侧栏分组、是否要求账户、内容整体替换的代次（推荐、热门与搜索只计原地刷新，稍后再看与观看历史含首次加载）、离开来源时的停用、
   账户变化的通知、绑定本来源的复核参与者与丢弃内容的 reset。`AppSources` 由 `WindowComposition` 对 `AppTab.allCases`
   穷尽构造一次，每个来源必须给出所属的组。侧栏按 `AppSourceGroup` 分段（`Section`）：顶部不带标题的一组（搜索、
-  首页、热门）与带标题的「资料库」（观看历史）；组的顺序由 `AppSourceGroup` 固定，组内按 case 顺序。分组只决定
+  首页、热门）与带标题的「资料库」（稍后再看、观看历史）；组的顺序由 `AppSourceGroup` 固定，组内按 case 顺序。分组只决定
   侧栏的分段与标题，不改变来源的停用、账户与清理语义。侧栏行、
   刷新回顶、离开停用、账户变化、关窗清理与其他窗口换号时的提前清理（只对要求账户的来源）都遍历它。来源描述的 reset 只丢弃
   本来源自己的内容，推荐、热门与搜索共用的 Browse 工作集关窗时由 `AppSources` 整体丢弃一次。根视图构造与 Browse
@@ -382,20 +382,20 @@ Repository adapter 只调用 endpoint 方法，不自行构造 `RequestAccess`�
 [`SECURITY-MODEL.md`](SECURITY-MODEL.md)。
 
 窗口复核契约：凭据失效只由 ViewModel 记录。参与者实现 BiliApplication 的 `@MainActor` 协议
-`AccountRevalidationParticipant`（推荐／热门／搜索、视频、弹幕、评论、UP 主空间、观看历史；字幕目录由
+`AccountRevalidationParticipant`（推荐／热门／搜索、视频、弹幕、评论、UP 主空间、稍后再看、观看历史；字幕目录由
 `SubtitleUseCase` 报告给视频模型，播放侧仍把失败的目录当作没有字幕）：发现需要复核的失败时以 `&+=` 递增
 `authenticationRevalidationGeneration`，复核结束的 `authenticationRevalidationSucceeded`／`Failed` 默认不动作。
 参与者集合 `AccountRevalidationParticipants` 由 `WindowComposition` 构造一次，`AppRootView` 只读取各参与者的代次，前后
 不等（不比大小，回绕仍算）就调用一次 `revalidate()`；复核离开 restoring 时把结果交给参与者，绑定来源的参与者
-只在该来源是当前来源时收到（绑定关系只来自来源描述）（观看历史：复核成功后自动重载至多一次、失败时给可重试说明）。Feature 不直接调用
+只在该来源是当前来源时收到（绑定关系只来自来源描述）（稍后再看与观看历史：复核成功后自动重载至多一次、失败时给可重试说明）。Feature 不直接调用
 认证服务，也不经单独回调。heartbeat 写请求例外，不触发复核。
 
 多窗口共享一个 App 级账户 session coordinator：窗口出现后注册其 API transport，登出／换号／凭据
 失效时先全局推进 authentication epoch，其他窗口再复核 Keychain 并按新 generation 重启依赖账户的
 内容；窗口关闭时注销。账户变化由来源自己处理，App 只经来源描述通知（进程代次、窗口账户范围、是否当前来源）：
-Browse 按代次去重，丢弃三份工作集并重启当前路由；关闭播放之后再通知观看历史：丢弃条目，已登录且是当前
+Browse 按代次去重，丢弃三份工作集并重启当前路由；关闭播放之后再通知稍后再看与观看历史：丢弃条目，已登录且是当前
 来源时立即重载。其他窗口
-换号时，本窗口先丢弃要求账户的来源的内容再复核，复核结束后只通知不要求账户的来源，历史由复核得出的范围变化
+换号时，本窗口先丢弃要求账户的来源的内容再复核，复核结束后只通知不要求账户的来源，稍后再看与观看历史由复核得出的范围变化
 重新加载。
 
 ### 播放线路偏好与测速
