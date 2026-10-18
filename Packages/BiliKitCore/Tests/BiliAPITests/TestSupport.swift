@@ -1,10 +1,12 @@
 import BiliAPI
+import BiliModels
 import BiliNetworking
 import Foundation
 import Synchronization
 import Testing
 
-// BiliAPITests 共用的 fixture 读取与 HTTP 测试替身：每个 port 在本 target 内只保留一份可配置 stub。
+// BiliAPITests 共用的 fixture 读取、HTTP 测试替身与评论结果的取值帮手：
+// 每个 port 在本 target 内只保留一份可配置 stub。
 
 func fixtureResponse(
     _ name: String,
@@ -309,4 +311,27 @@ actor StubAuthorizer: HTTPRequestAuthorizing {
 
 struct StubAuthorizationFailure: HTTPRequestAuthorizationFailure {
     let authorizationFailureKind: HTTPRequestAuthorizationFailureKind
+}
+
+/// 评论可读时取出正文与作者；不可读的标记返回 nil。
+func available(_ comment: BiliModels.Comment) -> CommentDetails? {
+    guard case .available(let details) = comment.payload else { return nil }
+    return details
+}
+
+/// 按顺序交出预先准备的 transport：认证会话失效后 client 换入下一个，测试据此确认旧 transport
+/// 被 invalidate、新 transport 没有收到旧请求；取用次数超过准备的数量即为测试错误。
+final class SequentialTransportFactory: Sendable {
+    private let transports: Mutex<[any HTTPTransport]>
+
+    init(transports: [any HTTPTransport]) {
+        self.transports = Mutex(transports)
+    }
+
+    func makeTransport() -> any HTTPTransport {
+        transports.withLock { transports in
+            precondition(!transports.isEmpty)
+            return transports.removeFirst()
+        }
+    }
 }
