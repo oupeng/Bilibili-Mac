@@ -63,7 +63,10 @@ struct WatchLaterSessionTests {
         #expect(model.totalCount == nil)
         await model.waitForCurrentTask()
         #expect(session.narrowsResults)
-        #expect(await repository.requests.last == WatchLaterRequest(criteria: WatchLaterCriteria(keyword: "猫")))
+        #expect(
+            await repository.requests.last
+                == WatchLaterRequest(criteria: WatchLaterCriteria(keyword: "猫"))
+        )
     }
 
     /// 下一页沿用当前条件。
@@ -104,7 +107,8 @@ struct WatchLaterSessionTests {
     @Test
     @MainActor
     func editingTheSelectionWithoutApplyingSendsNothing() async {
-        let repository = WatchLaterRepositoryStub(results: [laterPage(["BV1A"], page: 1, next: nil)])
+        let repository = WatchLaterRepositoryStub(results: [laterPage(["BV1A"], page: 1, next: nil)]
+        )
         let model = WatchLaterViewModel(useCase: WatchLaterUseCase(repository: repository))
         let session = WatchLaterSession(model: model)
         model.loadIfNeeded()
@@ -193,18 +197,23 @@ struct WatchLaterSessionTests {
         session.filterSelection.order = .oldestAdded
         session.selectOrder(.oldestAdded)
         await model.waitForCurrentTask()
-        session.synchronizeAuthenticationSession(scope: .signedIn(accountID: 2), isCurrentRoute: true)
+        session.synchronizeAuthenticationSession(
+            scope: .signedIn(accountID: 2),
+            isCurrentRoute: true
+        )
         await model.waitForCurrentTask()
 
         #expect(session.filterSelection.order == .newestAdded)
         #expect(session.filterSelection.activeFilterCount == 0)
         let requests = await repository.requests
-        #expect(requests.map(\.criteria) == [
-            WatchLaterCriteria(),
-            WatchLaterCriteria(keyword: "猫"),
-            WatchLaterCriteria(),
-            WatchLaterCriteria(order: .oldestAdded),
-            WatchLaterCriteria()
-        ])
+        #expect(
+            requests.map(\.criteria) == [
+                WatchLaterCriteria(),
+                WatchLaterCriteria(keyword: "猫"),
+                WatchLaterCriteria(),
+                WatchLaterCriteria(order: .oldestAdded),
+                WatchLaterCriteria()
+            ]
+        )
     }
 }

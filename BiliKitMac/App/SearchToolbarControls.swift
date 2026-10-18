@@ -16,7 +16,9 @@ extension SearchFilterSelection {
 }
 
 /// 搜索页工具栏的排序菜单与筛选按钮（弹窗）：只编辑 `VideoSearchSession` 的筛选选择，并在排序变化或弹窗“应用”时
-/// 通知会话；弹窗里的草稿在“应用”前不影响选择。菜单、按钮与弹窗外壳与稍后再看共用（`ToolbarFilterControls`）。
+/// 通知会话；弹窗里的草稿在“应用”前不影响选择。
+///
+/// 菜单、按钮与弹窗外壳与稍后再看共用（`ToolbarFilterControls`）。
 struct SearchToolbarControls: View {
     @Environment(\.locale) private var locale
     @Binding var selection: SearchFilterSelection
@@ -41,10 +43,11 @@ struct SearchToolbarControls: View {
                 selection: $selection,
                 activeFilterCount: \.activeFilterCount,
                 help: filterButtonHelp,
-                onApply: onApplyFilters
-            ) { draft, cancel, apply in
-                SearchFilterPopover(draft: draft, onCancel: cancel, onApply: apply)
-            }
+                onApply: onApplyFilters,
+                popover: { draft, cancel, apply in
+                    SearchFilterPopover(draft: draft, onCancel: cancel, onApply: apply)
+                }
+            )
         }
     }
 
@@ -70,7 +73,7 @@ private struct SearchFilterPopover: View {
             title: AppStrings.localized("筛选搜索结果", locale: locale),
             canReset: draft.activeFilterCount > 0,
             canApply: validationMessage == nil,
-            onReset: { draft.resetFilters() },
+            onReset: resetDraft,
             onCancel: onCancel,
             onApply: onApply
         ) {
@@ -96,6 +99,10 @@ private struct SearchFilterPopover: View {
                 optionTitle: { $0.localizedTitle(locale: locale) }
             )
         }
+    }
+
+    private func resetDraft() {
+        draft.resetFilters()
     }
 
     private var validationMessage: String? {

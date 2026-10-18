@@ -55,7 +55,9 @@ struct WatchLaterAddedTimeRangeTests {
 
         // 东京 7/24 0 点在 UTC 仍是 7/23，必须按日历时区取日界。
         #expect(today == range(try date(calendar, 2026, 7, 24), now))
-        #expect(yesterday == range(try date(calendar, 2026, 7, 23), try date(calendar, 2026, 7, 24)))
+        #expect(
+            yesterday == range(try date(calendar, 2026, 7, 23), try date(calendar, 2026, 7, 24))
+        )
         #expect(lastWeek == range(now.addingTimeInterval(-7 * 86_400), now))
         #expect(try resolve(.all, now: now, calendar: calendar) == nil)
     }
@@ -67,13 +69,15 @@ struct WatchLaterAddedTimeRangeTests {
         let start = try date(calendar, 2026, 3, 7, hour: 15)
         let end = try date(calendar, 2026, 3, 8, hour: 9)
 
-        let resolved = try #require(try WatchLaterAddedTimeRangeResolver.resolve(
-            filter: .custom,
-            customStart: start,
-            customEnd: end,
-            now: try date(calendar, 2026, 3, 20),
-            calendar: calendar
-        ))
+        let resolved = try #require(
+            try WatchLaterAddedTimeRangeResolver.resolve(
+                filter: .custom,
+                customStart: start,
+                customEnd: end,
+                now: try date(calendar, 2026, 3, 20),
+                calendar: calendar
+            )
+        )
 
         #expect(resolved == range(try date(calendar, 2026, 3, 7), try date(calendar, 2026, 3, 9)))
         #expect(resolved.endTimestamp - resolved.startTimestamp == 47 * 3_600)
@@ -128,7 +132,9 @@ struct WatchLaterAddedTimeRangeTests {
         _ day: Int,
         hour: Int = 0
     ) throws -> Date {
-        try #require(calendar.date(from: DateComponents(year: year, month: month, day: day, hour: hour)))
+        try #require(
+            calendar.date(from: DateComponents(year: year, month: month, day: day, hour: hour))
+        )
     }
 }
 

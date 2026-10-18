@@ -2,7 +2,9 @@ import BiliApplication
 import Foundation
 import SwiftUI
 
-/// 工具栏的排序菜单：每个选项一个勾选项，选中即生效。搜索与稍后再看共用，选项与文案由调用方给出。
+/// 工具栏的排序菜单：每个选项一个勾选项，选中即生效。
+///
+/// 搜索与稍后再看共用，选项与文案由调用方给出。
 struct ToolbarSortMenu<Option: Hashable & Identifiable>: View {
     let options: [Option]
     @Binding var selection: Option
@@ -50,19 +52,21 @@ struct ToolbarFilterButton<Selection: Equatable, Popover: View>: View {
     let activeFilterCount: (Selection) -> Int
     let help: String
     let onApply: (Selection) -> Void
-    let popover: (_ draft: Binding<Selection>, _ cancel: @escaping () -> Void, _ apply: @escaping () -> Void)
-        -> Popover
+    let popover:
+        (_ draft: Binding<Selection>, _ cancel: @escaping () -> Void, _ apply: @escaping () -> Void)
+            -> Popover
 
     init(
         selection: Binding<Selection>,
         activeFilterCount: @escaping (Selection) -> Int,
         help: String,
         onApply: @escaping (Selection) -> Void,
-        @ViewBuilder popover: @escaping (
-            _ draft: Binding<Selection>,
-            _ cancel: @escaping () -> Void,
-            _ apply: @escaping () -> Void
-        ) -> Popover
+        @ViewBuilder popover:
+            @escaping (
+                _ draft: Binding<Selection>,
+                _ cancel: @escaping () -> Void,
+                _ apply: @escaping () -> Void
+            ) -> Popover
     ) {
         _selection = selection
         _draft = State(initialValue: selection.wrappedValue)
@@ -117,7 +121,9 @@ struct ToolbarFilterButton<Selection: Equatable, Popover: View>: View {
     }
 }
 
-/// 筛选弹窗的外壳：标题、调用方的筛选行，以及“恢复默认／取消／应用”。搜索与稍后再看共用。
+/// 筛选弹窗的外壳：标题、调用方的筛选行，以及“恢复默认／取消／应用”。
+///
+/// 搜索与稍后再看共用。
 struct FilterPopoverChrome<Content: View>: View {
     @Environment(\.locale) private var locale
     let title: String

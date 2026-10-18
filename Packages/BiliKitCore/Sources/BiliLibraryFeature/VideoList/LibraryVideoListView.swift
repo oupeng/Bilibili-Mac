@@ -56,7 +56,8 @@ struct LibraryVideoListView<Item: Sendable & Equatable, Cursor: Equatable & Send
 }
 
 /// 单独成一个 View：只有它读取 `isBusy`，加载状态变化时不让整个根视图重新求值。
-private struct LibraryRefreshButton<Item: Sendable & Equatable, Cursor: Equatable & Sendable>: View {
+private struct LibraryRefreshButton<Item: Sendable & Equatable, Cursor: Equatable & Sendable>: View
+{
     @Environment(\.locale) private var locale
     let model: LibraryVideoListModel<Item, Cursor>
 

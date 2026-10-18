@@ -4,7 +4,9 @@ import Foundation
 import SwiftUI
 
 /// 稍后再看工具栏的排序菜单与筛选按钮（弹窗）：只编辑 `WatchLaterSession` 的筛选选择，并在排序变化或弹窗“应用”时
-/// 通知会话；弹窗里的草稿在“应用”前不影响选择。菜单、按钮与弹窗外壳与搜索共用（`ToolbarFilterControls`）。
+/// 通知会话；弹窗里的草稿在“应用”前不影响选择。
+///
+/// 菜单、按钮与弹窗外壳与搜索共用（`ToolbarFilterControls`）。
 struct WatchLaterToolbarControls: View {
     @Environment(\.locale) private var locale
     @Bindable var session: WatchLaterSession
@@ -26,10 +28,11 @@ struct WatchLaterToolbarControls: View {
                 selection: $session.filterSelection,
                 activeFilterCount: \.activeFilterCount,
                 help: filterButtonHelp,
-                onApply: session.applyFilters
-            ) { draft, cancel, apply in
-                WatchLaterFilterPopover(draft: draft, onCancel: cancel, onApply: apply)
-            }
+                onApply: session.applyFilters,
+                popover: { draft, cancel, apply in
+                    WatchLaterFilterPopover(draft: draft, onCancel: cancel, onApply: apply)
+                }
+            )
         }
     }
 
@@ -37,8 +40,10 @@ struct WatchLaterToolbarControls: View {
         let selection = session.filterSelection
         let summary = ListFormatter.localizedString(
             byJoining: [
-                selection.progress == .all ? nil : selection.progress.localizedTitle(locale: locale),
-                selection.addedTime == .all ? nil : selection.addedTime.localizedTitle(locale: locale),
+                selection.progress == .all
+                    ? nil : selection.progress.localizedTitle(locale: locale),
+                selection.addedTime == .all
+                    ? nil : selection.addedTime.localizedTitle(locale: locale),
                 selection.duration == .all ? nil : selection.duration.localizedTitle(locale: locale)
             ].compactMap { $0 }
         )
@@ -62,7 +67,7 @@ private struct WatchLaterFilterPopover: View {
             title: AppStrings.localized("筛选稍后再看", locale: locale),
             canReset: draft.activeFilterCount > 0,
             canApply: validationMessage == nil,
-            onReset: { draft.resetFilters() },
+            onReset: resetDraft,
             onCancel: onCancel,
             onApply: onApply
         ) {
@@ -95,6 +100,10 @@ private struct WatchLaterFilterPopover: View {
                 optionTitle: { $0.localizedTitle(locale: locale) }
             )
         }
+    }
+
+    private func resetDraft() {
+        draft.resetFilters()
     }
 
     private var validationMessage: String? {

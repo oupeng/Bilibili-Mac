@@ -2,7 +2,9 @@ import BiliUI
 import Foundation
 
 /// 资料库卡片（观看历史、稍后再看）共用的文字规则：观看进度（看完显示“已看完”）与时间点（今天、昨天或
-/// 月日，加时刻）。观看历史的观看时间与稍后再看的加入时间都经 `timestamp`，同一格式只在这里。
+/// 月日，加时刻）。
+///
+/// 观看历史的观看时间与稍后再看的加入时间都经 `timestamp`，同一格式只在这里。
 enum LibraryCardFormatting {
     static func progress(
         progressSeconds: Int,

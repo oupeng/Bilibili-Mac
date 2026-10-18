@@ -32,7 +32,8 @@ struct WatchLaterCardFormattingTests {
 
         #expect(presentation.footerLeadingText == "稍后作者")
         #expect(
-            presentation.footerTrailingText == LibraryCardFormatting.timestamp(item.addedAt, locale: locale)
+            presentation.footerTrailingText
+                == LibraryCardFormatting.timestamp(item.addedAt, locale: locale)
         )
         #expect(presentation.nativeCard.isActivatable)
     }
@@ -75,5 +76,9 @@ struct WatchLaterCardFormattingTests {
 private let completedText = localized("已看完")
 
 private func localized(_ key: String.LocalizationValue) -> String {
-    String(localized: key, bundle: LibraryFeatureStrings.bundle, locale: Locale(identifier: "zh-Hans"))
+    String(
+        localized: key,
+        bundle: LibraryFeatureStrings.bundle,
+        locale: Locale(identifier: "zh-Hans")
+    )
 }

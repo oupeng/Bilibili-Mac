@@ -106,7 +106,9 @@ struct SearchTabRoot: View {
 }
 
 /// 稍后再看来源的 App 接线：登录门槛、刷新、加载语义、筛选空态与原生网格在 Library 的 `WatchLaterView`，条件在
-/// Library 的 `WatchLaterSession`。这里转交账户呈现状态、窗口级网格依赖、标题与打开登录页的动作，并宿主已登录时的
+/// Library 的 `WatchLaterSession`。
+///
+/// 这里转交账户呈现状态、窗口级网格依赖、标题与打开登录页的动作，并宿主已登录时的
 /// 排序菜单与筛选按钮（排在刷新之前）、工具栏尾部的紧凑搜索框（系统 `.searchable`，回车提交、清空恢复全部），以及
 /// 当前条件下总数的副标题。搜索框不放工具栏正中：那是搜索来源的全局搜索框，这里只过滤本列表。
 struct WatchLaterTabRoot: View {

@@ -58,7 +58,10 @@ struct NativeVideoCardInteractionTests {
         var activations = 0
 
         card.configure(
-            presentation: Self.presentation(id: "BV1Gone", availability: .unavailable(badge: "已失效")),
+            presentation: Self.presentation(
+                id: "BV1Gone",
+                availability: .unavailable(badge: "已失效")
+            ),
             hoverDidChange: { _ in },
             activation: { activations += 1 }
         )
@@ -95,7 +98,10 @@ struct NativeVideoCardInteractionTests {
         #expect(!contents.isActivatable("BV1Missing"))
         #expect(
             contents.activatableIndexPaths(
-                in: [IndexPath(item: 0, section: 0), IndexPath(item: 1, section: 0), IndexPath(item: 5, section: 0)]
+                in: [
+                    IndexPath(item: 0, section: 0), IndexPath(item: 1, section: 0),
+                    IndexPath(item: 5, section: 0)
+                ]
             ) == [IndexPath(item: 0, section: 0)]
         )
     }

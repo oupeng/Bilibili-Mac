@@ -6,7 +6,8 @@ import Observation
 /// 资料库视频列表页的呈现状态，由 `LibraryVideoListModel.state` 从加载阶段与 `PagedVideoList` 投影得出。
 ///
 /// `loaded` 的 continuation 为 nil 表示已到底；`loadingMore` 的 continuation 是正在请求的那一页。
-public enum LibraryVideoListState<Item: Sendable & Equatable, Cursor: Equatable & Sendable>: Sendable,
+public enum LibraryVideoListState<Item: Sendable & Equatable, Cursor: Equatable & Sendable>:
+    Sendable,
     Equatable
 {
     case idle
@@ -40,8 +41,11 @@ public final class LibraryVideoListModel<
     Cursor: Equatable & Sendable
 >: AccountRevalidationParticipant {
     /// 读取一页：传入第一页游标（来源没有时为 nil）或列表给出的下一页游标，返回这一页与来源给出的总条数（没有时
-    /// 为 nil）。失败抛出 `ContentApplicationError`，取消原样传播。
-    typealias Load = @MainActor (Cursor?) async throws -> (page: VideoListPage<Item, Cursor>, totalCount: Int?)
+    /// 为 nil）。
+    ///
+    /// 失败抛出 `ContentApplicationError`，取消原样传播。
+    typealias Load =
+        @MainActor (Cursor?) async throws -> (page: VideoListPage<Item, Cursor>, totalCount: Int?)
 
     /// `phase` 与列表的投影；`.loadingMore` 时的 continuation 就是正在请求的那一页。
     public var state: LibraryVideoListState<Item, Cursor> {
@@ -94,7 +98,9 @@ public final class LibraryVideoListModel<
     }
 
     /// 无进展页保留游标时（显式继续策略），必须由用户显式继续，避免 near-end 连续扫描；原地刷新期间收起，
-    /// 刷新失败后恢复。停止策略的来源总是 false。
+    /// 刷新失败后恢复。
+    ///
+    /// 停止策略的来源总是 false。
     public var requiresManualLoadMore: Bool {
         list.offersManualContinue
     }

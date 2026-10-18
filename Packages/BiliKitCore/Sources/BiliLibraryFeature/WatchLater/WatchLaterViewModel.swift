@@ -9,9 +9,12 @@ public typealias WatchLaterViewModel = LibraryVideoListModel<WatchLaterItem, Wat
 
 extension LibraryVideoListModel where Item == WatchLaterItem, Cursor == WatchLaterRequest {
     /// 以默认条件的第一页起步；按页码翻页，没有新条目的页即停止：稍后再看没有需要跳过的空页，再请求下一页也不会
-    /// 更有进展。下一页沿用本页的条件，总条数随页返回。
+    /// 更有进展。
+    ///
+    /// 下一页沿用本页的条件，总条数随页返回。
     public convenience init(useCase: WatchLaterUseCase) {
-        self.init(stallPolicy: .stop, firstPageCursor: WatchLaterRequest(), bvid: \.bvid) { request in
+        self.init(stallPolicy: .stop, firstPageCursor: WatchLaterRequest(), bvid: \.bvid) {
+            request in
             let request = request ?? WatchLaterRequest()
             let result = try await useCase.load(request)
             let next = result.nextPageNumber.map {

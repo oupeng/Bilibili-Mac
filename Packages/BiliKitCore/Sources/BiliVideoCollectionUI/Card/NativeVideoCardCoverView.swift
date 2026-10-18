@@ -165,7 +165,9 @@ final class NativeVideoMergedCoverView: NSView {
         alignmentMode: .right
     )
     private var trailingSize = NSSize.zero
-    /// 不可用卡片盖在图片、渐变与文字上的暗层；角标在它之上，原因始终可读。不改图片层的透明度：那是淡入
+    /// 不可用卡片盖在图片、渐变与文字上的暗层；角标在它之上，原因始终可读。
+    ///
+    /// 不改图片层的透明度：那是淡入
     /// 动画的属性。
     private let dimmingLayer = CALayer()
     private let badgeBackgroundLayer = CALayer()
@@ -217,7 +219,8 @@ final class NativeVideoMergedCoverView: NSView {
         }
         trailingTextLayer.isHidden = true
         layer?.addSublayer(trailingTextLayer)
-        dimmingLayer.backgroundColor = NSColor.black
+        dimmingLayer.backgroundColor =
+            NSColor.black
             .withAlphaComponent(Self.dimmingAlpha).cgColor
         dimmingLayer.actions = Self.disabledLayerActions
         dimmingLayer.isHidden = true

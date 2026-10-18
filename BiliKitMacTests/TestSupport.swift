@@ -181,7 +181,12 @@ struct WatchLaterRepositoryStub: WatchLaterRepository {
 
     func watchLater(request: WatchLaterRequest) async throws -> WatchLaterPage {
         if let error { throw error }
-        return WatchLaterPage(items: [], pageNumber: request.page, nextPageNumber: nil, totalCount: 0)
+        return WatchLaterPage(
+            items: [],
+            pageNumber: request.page,
+            nextPageNumber: nil,
+            totalCount: 0
+        )
     }
 }
 

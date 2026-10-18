@@ -1,6 +1,8 @@
 import Foundation
 
-/// 稍后再看的排序：按加入时间从新到旧（默认）或从旧到新。BiliAPI 把它映射为 `asc`。
+/// 稍后再看的排序：按加入时间从新到旧（默认）或从旧到新。
+///
+/// BiliAPI 把它映射为 `asc`。
 public enum WatchLaterOrder: Sendable, Hashable, CaseIterable, Identifiable {
     case newestAdded
     case oldestAdded
@@ -8,7 +10,9 @@ public enum WatchLaterOrder: Sendable, Hashable, CaseIterable, Identifiable {
     public var id: Self { self }
 }
 
-/// 稍后再看的观看进度筛选：全部（默认）或只看未看完的。BiliAPI 把它映射为 `viewed`。
+/// 稍后再看的观看进度筛选：全部（默认）或只看未看完的。
+///
+/// BiliAPI 把它映射为 `viewed`。
 public enum WatchLaterProgressFilter: Sendable, Hashable, CaseIterable, Identifiable {
     case all
     case unfinished
@@ -134,7 +138,9 @@ public struct WatchLaterCriteria: Sendable, Hashable {
     }
 }
 
-/// 稍后再看的一次请求：完整条件加页码。也是分页游标，翻页只改变 `page`，旧条件的页因此不会并入新条件的列表。
+/// 稍后再看的一次请求：完整条件加页码。
+///
+/// 也是分页游标，翻页只改变 `page`，旧条件的页因此不会并入新条件的列表。
 public struct WatchLaterRequest: Sendable, Hashable {
     public let criteria: WatchLaterCriteria
     public let page: Int

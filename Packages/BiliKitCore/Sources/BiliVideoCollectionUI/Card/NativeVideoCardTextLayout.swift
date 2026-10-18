@@ -166,7 +166,8 @@ final class NativeVideoCardTextRenderer {
     func setContentOpacity(_ opacity: Float) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        for layer in [titleLayer, footerLeadingLayer, footerTrailingLayer, footerTrailingIconLayer] {
+        for layer in [titleLayer, footerLeadingLayer, footerTrailingLayer, footerTrailingIconLayer]
+        {
             layer.opacity = opacity
         }
         CATransaction.commit()

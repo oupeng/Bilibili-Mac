@@ -84,7 +84,10 @@ public struct WatchLaterCardPresentation: Sendable, Equatable {
 /// 稍后再看卡片特有的文字规则：不可用原因的角标文字。
 enum WatchLaterCardFormatting {
     /// 番剧与影视用接口给的分类原文（如“电影”），没有分类时写“番剧”；课程写“课程”；失效写“已失效”。
-    static func reason(_ unavailability: WatchLaterUnavailability, locale: Locale = .current) -> String {
+    static func reason(
+        _ unavailability: WatchLaterUnavailability,
+        locale: Locale = .current
+    ) -> String {
         switch unavailability {
         case .pgc(let label):
             label ?? LibraryFeatureStrings.localized("番剧", locale: locale)

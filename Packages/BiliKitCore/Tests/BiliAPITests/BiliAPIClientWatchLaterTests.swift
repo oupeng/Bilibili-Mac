@@ -83,7 +83,9 @@ struct BiliAPIClientWatchLaterTests {
         let defaults = [
             "pn": "2", "ps": "20", "viewed": "0", "key": "", "asc": "0", "web_location": "333.881"
         ]
-        let filterNames: Set = ["add_time_start", "add_time_end", "arc_min_duration", "arc_max_duration"]
+        let filterNames: Set = [
+            "add_time_start", "add_time_end", "arc_min_duration", "arc_max_duration"
+        ]
 
         for (name, value) in defaults where expected[name] == nil {
             #expect(query[name] == value)
@@ -122,7 +124,9 @@ struct BiliAPIClientWatchLaterTests {
     /// 关键词过长或加入时间倒置时不发请求。
     @Test(arguments: [
         WatchLaterCriteria(keyword: String(repeating: "长", count: 101)),
-        WatchLaterCriteria(addedTime: WatchLaterAddedTimeRange(startTimestamp: 20, endTimestamp: 20))
+        WatchLaterCriteria(
+            addedTime: WatchLaterAddedTimeRange(startTimestamp: 20, endTimestamp: 20)
+        )
     ])
     func invalidCriteriaSendNothing(criteria: WatchLaterCriteria) async {
         let transport = StubTransport(responses: [])
@@ -157,11 +161,14 @@ struct BiliAPIClientWatchLaterTests {
         let first = page.items[0]
         #expect(first.title == "稍后 & 再看 一")
         #expect(first.coverURL?.absoluteString == "https://images.example.invalid/a.jpg")
-        #expect(first.owner == VideoOwner(
-            id: 20_001,
-            name: "作者甲",
-            avatarURL: URL(string: "https://images.example.invalid/face-a.jpg")
-        ))
+        #expect(
+            first.owner
+                == VideoOwner(
+                    id: 20_001,
+                    name: "作者甲",
+                    avatarURL: URL(string: "https://images.example.invalid/face-a.jpg")
+                )
+        )
         #expect(first.durationSeconds == 300)
         #expect(first.progress == .watched(seconds: 125))
         #expect(first.addedAt == Date(timeIntervalSince1970: 1_700_000_000))

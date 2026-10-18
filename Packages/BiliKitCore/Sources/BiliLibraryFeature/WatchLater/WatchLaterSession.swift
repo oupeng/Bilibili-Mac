@@ -93,7 +93,9 @@ public final class WatchLaterSession {
         replaceCriteria(order: order)
     }
 
-    /// 筛选弹窗“应用”；自定义日期不合法时不生效（弹窗已禁用应用按钮）。相对时间按此刻解析并冻结。
+    /// 筛选弹窗“应用”；自定义日期不合法时不生效（弹窗已禁用应用按钮）。
+    ///
+    /// 相对时间按此刻解析并冻结。
     public func applyFilters(_ selection: WatchLaterFilterSelection) {
         // 不用 `try?`：它会把“不限加入时间”的 nil 与解析失败压成同一个 nil。
         let addedTime: WatchLaterAddedTimeRange?

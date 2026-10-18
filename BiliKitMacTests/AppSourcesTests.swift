@@ -28,7 +28,11 @@ struct AppSourcesTests {
         let sources = makeSources()
 
         #expect(sources.sections.map(\.group) == [.browse, .library])
-        #expect(sources.sections.map { $0.sources.map(\.id) } == [[.search, .home, .popular], [.watchLater, .history]])
+        #expect(
+            sources.sections.map { $0.sources.map(\.id) } == [
+                [.search, .home, .popular], [.watchLater, .history]
+            ]
+        )
         #expect(sources.ordered.map(\.id) == sources.sections.flatMap { $0.sources.map(\.id) })
         #expect(AppSourceGroup.browse.title == nil)
         #expect(AppSourceGroup.library.title != nil)

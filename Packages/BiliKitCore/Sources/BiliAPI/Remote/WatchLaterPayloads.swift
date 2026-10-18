@@ -13,7 +13,9 @@ struct WatchLaterPayload: Decodable, Sendable {
     let list: [WatchLaterItemPayload]?
 
     /// 响应必须属于所请求的页，否则整页按解码失败：条数不超过每页条数，本页有条目时总条数必须多于前面各页的
-    /// 条数。总条数为负同样失败。
+    /// 条数。
+    ///
+    /// 总条数为负同样失败。
     func model(pageNumber: Int, pageSize: Int) throws -> WatchLaterPage {
         let rows = list ?? []
         let (precedingCount, precedingOverflow) = (pageNumber - 1)
@@ -26,7 +28,9 @@ struct WatchLaterPayload: Decodable, Sendable {
             throw BiliAPIError.decodingFailed
         }
         let items = try rows.compactMap { try $0.model() }
-        let (requestedCount, requestedOverflow) = pageNumber.multipliedReportingOverflow(by: pageSize)
+        let (requestedCount, requestedOverflow) = pageNumber.multipliedReportingOverflow(
+            by: pageSize
+        )
         let hasNextPage = !rows.isEmpty && !requestedOverflow && requestedCount < count
         return WatchLaterPage(
             items: items,
@@ -108,6 +112,7 @@ struct WatchLaterItemPayload: Decodable, Sendable {
     }
 
     /// 已失效优先：失效的番剧或课程同样无法打开，“已失效”比分类更准确；其次番剧与影视，最后课程。
+    ///
     /// 充电专属不算不可用，由播放页处理。
     var unavailability: WatchLaterUnavailability? {
         if let state, state < 0 {

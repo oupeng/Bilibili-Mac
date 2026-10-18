@@ -4,7 +4,9 @@ import BiliVideoCollectionUI
 import SwiftUI
 
 /// 稍后再看来源的根视图：给资料库列表的共用根视图（`LibraryVideoListView`）提供稍后再看的文案与卡片映射；登录
-/// 门槛、加载、刷新、近尾自动加载与网格的语义都在共用视图。不可用条目由卡片映射标出，网格拒绝激活。有筛选或关键词
+/// 门槛、加载、刷新、近尾自动加载与网格的语义都在共用视图。
+///
+/// 不可用条目由卡片映射标出，网格拒绝激活。有筛选或关键词
 /// 而结果为空时，空态改为“没有符合条件的视频”并经会话清除条件；排序、筛选与搜索框的宿主在 App。
 public struct WatchLaterView: View {
     @Environment(\.locale) private var locale
