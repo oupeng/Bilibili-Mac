@@ -103,11 +103,8 @@ public enum WatchLaterAddedTimeRangeResolver {
 
 /// 稍后再看一个列表的完整条件：排序、观看进度、加入时间、时长与关键词。
 ///
-/// 关键词在初始化时去掉首尾空白，空串表示不按关键词过滤（由服务端匹配）。
+/// 关键词在初始化时按 `SearchText` 规范化，空串表示不按关键词过滤（由服务端匹配）。
 public struct WatchLaterCriteria: Sendable, Hashable {
-    /// 关键词长度上限（按字符计）：远超网页端输入框的实际用途，只用来拒绝异常输入；超出时不发请求。
-    public static let maximumKeywordLength = 100
-
     public let order: WatchLaterOrder
     public let progress: WatchLaterProgressFilter
     public let addedTime: WatchLaterAddedTimeRange?
@@ -125,19 +122,14 @@ public struct WatchLaterCriteria: Sendable, Hashable {
         self.progress = progress
         self.addedTime = addedTime
         self.duration = duration
-        self.keyword = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.keyword = SearchText.normalized(keyword)
     }
 
-    /// 关键词不超过上限，加入时间区间不为负且开始早于结束。
+    /// 关键词不超过 `SearchText` 的长度上限，加入时间区间不为负且开始早于结束。
     public var isValid: Bool {
-        guard keyword.count <= Self.maximumKeywordLength else { return false }
+        guard SearchText.isWithinLimit(keyword) else { return false }
         guard let addedTime else { return true }
         return addedTime.startTimestamp >= 0 && addedTime.startTimestamp < addedTime.endTimestamp
-    }
-
-    /// 有筛选或关键词在起作用（排序不算）：结果为空时说明是条件筛掉了，而不是列表本身为空。
-    public var narrowsResults: Bool {
-        progress != .all || addedTime != nil || duration != .all || !keyword.isEmpty
     }
 }
 

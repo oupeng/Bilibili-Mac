@@ -6,7 +6,7 @@ import Testing
 struct TrendingSearchUseCaseTests {
     @Test
     func keepsOnlySearchableUniqueKeywordsUpToTheLimit() async throws {
-        let overlong = String(repeating: "长", count: VideoSearchCriteria.maximumQueryLength + 1)
+        let overlong = String(repeating: "长", count: SearchText.maximumLength + 1)
         let repository = TrendingSearchRepositoryStub(
             keywords: [
                 .fixture(" 词一 ", displayName: " "),

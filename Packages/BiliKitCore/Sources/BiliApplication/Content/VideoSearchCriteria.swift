@@ -25,7 +25,7 @@ public enum VideoDurationFilter: Int, Sendable, Hashable, CaseIterable, Identifi
     public var id: Self { self }
 
     /// 这一档的时长下限与上限（秒）；nil 表示该侧不限，`all` 两侧都不限。
-    public var secondsRange: (minimum: Int?, maximum: Int?) {
+    package var secondsRange: (minimum: Int?, maximum: Int?) {
         switch self {
         case .all: (nil, nil)
         case .underTenMinutes: (nil, 600)
@@ -135,21 +135,17 @@ public struct VideoSearchCriteria: Sendable, Hashable {
         duration: VideoDurationFilter = .all,
         publicationRange: VideoPublicationTimeRange? = nil
     ) {
-        self.query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.query = SearchText.normalized(query)
         self.order = order
         self.duration = duration
         self.publicationRange = publicationRange
         self.pageSize = Self.pageSize
     }
 
-    /// 查询词长度上限（按字符计）；超过的输入不发搜索或联想请求，联想会发送未提交的输入，见
-    /// SECURITY-MODEL §3。
-    public static let maximumQueryLength = 100
-
-    /// 查询非空且不超过上限、使用固定页大小、发布时间范围不为负且不倒置。
+    /// 查询非空且不超过 `SearchText` 的长度上限、使用固定页大小、发布时间范围不为负且不倒置。
     public var isValid: Bool {
         guard !query.isEmpty,
-            query.count <= Self.maximumQueryLength,
+            SearchText.isWithinLimit(query),
             pageSize == Self.pageSize
         else { return false }
         guard let range = publicationRange else { return true }

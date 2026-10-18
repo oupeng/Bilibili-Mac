@@ -8,7 +8,7 @@ extension BiliAPIClient {
 
     /// 始终匿名读取：不带账号 Cookie、不签 WBI，也不附加搜索专用的 buvid3。
     public func searchSuggestions(for term: String) async throws -> [String] {
-        guard !term.isEmpty, term.count <= VideoSearchCriteria.maximumQueryLength,
+        guard !term.isEmpty, SearchText.isWithinLimit(term),
             let encodedTerm = URLQueryUnreservedEncoding.encode(term)
         else {
             throw BiliAPIError.invalidRequest

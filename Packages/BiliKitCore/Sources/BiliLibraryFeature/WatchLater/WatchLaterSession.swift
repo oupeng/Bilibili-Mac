@@ -173,6 +173,6 @@ public final class WatchLaterSession {
     }
 
     private static func normalized(_ draft: String) -> String {
-        draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        SearchText.normalized(draft)
     }
 }

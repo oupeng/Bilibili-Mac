@@ -4,7 +4,7 @@ import Testing
 @Suite(.timeLimit(.minutes(1)))
 struct SearchSuggestionUseCaseTests {
     @Test(arguments: [
-        "", "   ", String(repeating: "长", count: VideoSearchCriteria.maximumQueryLength + 1)
+        "", "   ", String(repeating: "长", count: SearchText.maximumLength + 1)
     ])
     func inputThatCannotBeSearchedSendsNoRequest(input: String) async throws {
         let repository = SearchSuggestionRepositoryStub(suggestions: ["词一"])
@@ -16,7 +16,7 @@ struct SearchSuggestionUseCaseTests {
 
     @Test
     func keepsSearchableUniqueSuggestionsUpToTheLimit() async throws {
-        let overlong = String(repeating: "长", count: VideoSearchCriteria.maximumQueryLength + 1)
+        let overlong = String(repeating: "长", count: SearchText.maximumLength + 1)
         let repository = SearchSuggestionRepositoryStub(
             suggestions: [" 词一 ", "词一", "  ", overlong, "词二"] + (3...20).map { "词\($0)" }
         )
