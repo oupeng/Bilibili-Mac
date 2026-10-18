@@ -6,14 +6,14 @@ import Foundation
 /// 观看历史（`/x/web-interface/history/cursor`）的 `data`，由 `BiliAPIClient.watchHistory` 映射为
 /// `WatchHistoryPage`。
 ///
-/// 只按账户读取（见 SECURITY-MODEL §3）；非稿件条目跳过，同一 BVID 只保留第一次出现；
+/// 只按账户读取（见 SECURITY-MODEL §3）；非稿件条目跳过，按 BVID 去重交给分页列表 `PagedVideoList`；
 /// 本页条数少于每页条数或没有游标时没有下一页。
 struct WatchHistoryPayload: Decodable, Sendable {
     let cursor: WatchHistoryCursorPayload?
     let list: [WatchHistoryItemPayload]
 
     func model(pageSize: Int) throws -> WatchHistoryPage {
-        let items = try list.compactMap { try $0.model() }.uniquedByBVID(\.bvid)
+        let items = try list.compactMap { try $0.model() }
         let continuation: WatchHistoryContinuation?
         if list.count >= pageSize, let cursor {
             continuation = try cursor.continuation()

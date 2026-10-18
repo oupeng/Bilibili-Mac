@@ -28,9 +28,8 @@ struct PopularNativeGridView: View {
         _ videos: [PopularVideo],
         locale: Locale = .current
     ) -> [NativeVideoCardPresentation] {
-        var seenBVIDs: Set<String> = []
-        return videos.compactMap { video in
-            guard seenBVIDs.insert(video.bvid).inserted else { return nil }
+        // 条目已由 `PagedVideoList` 按 BVID 去重，卡片 ID 因此唯一。
+        videos.map { video in
             let presentation = PopularVideoCardPresentation(video: video, locale: locale)
             return NativeVideoCardPresentation(
                 id: presentation.bvid,

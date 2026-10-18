@@ -224,9 +224,11 @@ struct VideoFixture: Sendable {
 
     var playback: VideoPlayback {
         VideoPlayback(
-            manifest: PlaybackManifest(
-                videoRepresentations: [],
-                originalAudioRepresentations: []
+            media: .dash(
+                PlaybackManifest(
+                    videoRepresentations: [],
+                    audioTracks: []
+                )
             ),
             mediaHeaders: [:]
         )

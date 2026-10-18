@@ -13,7 +13,8 @@ package enum VideoListRetention {
 extension Array {
     /// 按 BVID 去重：丢弃与 `existing` 或自身前文重复的条目，保持原顺序。
     ///
-    /// 列表分页（`PagedVideoList`）、UP 主空间投稿页与历史接口映射共用。
+    /// 列表分页（`PagedVideoList`，首页推荐、热门、搜索与观看历史唯一的去重处）、UP 主空间投稿页与
+    /// 相关推荐共用。
     package func uniquedByBVID(
         after existing: [Element] = [],
         _ bvid: (Element) -> String

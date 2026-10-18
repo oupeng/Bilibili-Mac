@@ -234,14 +234,9 @@ extension BiliAPIClient {
         guard !audio.isEmpty else { throw BiliAPIError.noAACAudio }
 
         var audioTracks = [
-            PlaybackAudioTrack(
-                id: "original",
-                displayName: "原声",
-                role: .original,
-                isDefault: true,
-                isAutoselect: true,
-                loudnessMetadata: payload.volume?.model,
-                representations: audio
+            PlaybackAudioTrack.original(
+                representations: audio,
+                loudnessMetadata: payload.volume?.model
             )
         ]
         if authorizationProvenance == .authenticated {
@@ -290,7 +285,7 @@ extension BiliAPIClient {
         let items = catalog?.validatedMachineGeneratedItems() ?? []
         guard !items.isEmpty else { return [] }
         var usedPaths = Self.mediaResourcePaths(originalAudio)
-        var displayNames: Set<String> = ["原声"]
+        var displayNames: Set<String> = [PlaybackAudioTrack.originalDisplayName]
         var tracks: [PlaybackAudioTrack] = []
         tracks.reserveCapacity(items.count)
         for item in items {

@@ -294,9 +294,11 @@ func makeVideoContext(detail: VideoDetail) -> VideoContext {
         pages: detail.pages,
         selectedPage: detail.pages[0],
         playback: VideoPlayback(
-            manifest: PlaybackManifest(
-                videoRepresentations: [],
-                originalAudioRepresentations: []
+            media: .dash(
+                PlaybackManifest(
+                    videoRepresentations: [],
+                    audioTracks: []
+                )
             ),
             mediaHeaders: [:]
         )
@@ -341,9 +343,11 @@ struct ContentFixtures: Sendable {
 
     var playback: VideoPlayback {
         VideoPlayback(
-            manifest: PlaybackManifest(
-                videoRepresentations: [],
-                originalAudioRepresentations: []
+            media: .dash(
+                PlaybackManifest(
+                    videoRepresentations: [],
+                    audioTracks: []
+                )
             ),
             mediaHeaders: [
                 "Referer": "https://www.bilibili.com/video/\(bvid)/",

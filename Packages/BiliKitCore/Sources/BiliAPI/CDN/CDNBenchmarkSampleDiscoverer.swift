@@ -1,3 +1,4 @@
+import BiliApplication
 import BiliModels
 import BiliNetworking
 import Foundation
@@ -31,8 +32,6 @@ public actor CDNBenchmarkSampleDiscoverer {
     public static let maximumDetailRequestCount = 8
     /// 一轮最多请求的 playurl 次数；每个详情至多引出一次，实际不超过详情次数。
     public static let maximumPlaybackRequestCount = 8
-    /// 一次发现可请求的样本数；超出按 `invalidRequest` 拒绝。
-    public static let supportedSampleCounts = 1...3
 
     /// 依次查询的分区 ID；每个分区至多取一个样本，同一 UP 主不重复，
     /// 让多个样本来自不同内容与上传者。
@@ -70,7 +69,8 @@ public actor CDNBenchmarkSampleDiscoverer {
     }
 
     public func discover(targetCount: Int = 1) async throws -> [CDNBenchmarkDiscoveredSample] {
-        guard Self.supportedSampleCounts.contains(targetCount) else {
+        // 样本数超出 `PlaybackRouteBenchmarkPolicy.supportedSampleCounts` 按 `invalidRequest` 拒绝。
+        guard PlaybackRouteBenchmarkPolicy.supportedSampleCounts.contains(targetCount) else {
             throw BiliAPIError.invalidRequest
         }
         var qualified: [(bvid: String, sample: CDNBenchmarkDiscoveredSample)] = []

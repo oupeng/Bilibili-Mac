@@ -1,3 +1,4 @@
+import BiliApplication
 import BiliModels
 import BiliNetworking
 import Foundation
@@ -109,8 +110,6 @@ public actor BilivideoRouteBenchmark {
     /// 30 秒总时限防止单个样本拖住整轮测速；调大让坏候选拖慢测速，调小会把慢但可用的线路误判失败。
     public static let requestTimeout: TimeInterval = 10
     public static let resourceTimeout: TimeInterval = 30
-    /// 一次测速接受的样本数，超出范围直接拒绝；每多一个样本，流量与时长都再加一整轮。
-    public static let supportedRepetitions = 1...3
 
     private let makeRangeFetcher: @Sendable () -> any HTTPBoundedRangeFetching
 
@@ -137,7 +136,7 @@ public actor BilivideoRouteBenchmark {
         samples: [PlaybackRouteBenchmarkSample],
         progress: @escaping @Sendable (Int, Int) async -> Void
     ) async throws -> [PlaybackRouteMeasurement] {
-        guard Self.supportedRepetitions.contains(samples.count) else {
+        guard PlaybackRouteBenchmarkPolicy.supportedSampleCounts.contains(samples.count) else {
             throw BilivideoRouteBenchmarkError.invalidRepetitionCount(samples.count)
         }
         let targets = PlaybackRouteTarget.allCases

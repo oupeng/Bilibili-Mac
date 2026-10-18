@@ -402,9 +402,11 @@ private struct BoundedCollectionCacheFixtures: Sendable {
 
     var playback: VideoPlayback {
         VideoPlayback(
-            manifest: PlaybackManifest(
-                videoRepresentations: [],
-                originalAudioRepresentations: []
+            media: .dash(
+                PlaybackManifest(
+                    videoRepresentations: [],
+                    audioTracks: []
+                )
             ),
             mediaHeaders: [:]
         )
@@ -514,9 +516,11 @@ private struct CollectionFixtures: Sendable {
 
     var playback: VideoPlayback {
         VideoPlayback(
-            manifest: PlaybackManifest(
-                videoRepresentations: [],
-                originalAudioRepresentations: []
+            media: .dash(
+                PlaybackManifest(
+                    videoRepresentations: [],
+                    audioTracks: []
+                )
             ),
             mediaHeaders: [:]
         )

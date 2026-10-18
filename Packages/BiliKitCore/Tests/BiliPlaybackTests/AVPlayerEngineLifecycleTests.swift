@@ -55,7 +55,7 @@ extension AVPlayerEngineSuites {
                 media: .dash(
                     PlaybackManifest(
                         videoRepresentations: [video],
-                        originalAudioRepresentations: [audio]
+                        audioTracks: [.original(representations: [audio], loudnessMetadata: nil)]
                     )
                 )
             )
@@ -240,7 +240,9 @@ extension AVPlayerEngineSuites {
                     media: .dash(
                         PlaybackManifest(
                             videoRepresentations: [video],
-                            originalAudioRepresentations: [audio]
+                            audioTracks: [
+                                .original(representations: [audio], loudnessMetadata: nil)
+                            ]
                         )
                     )
                 ),
@@ -327,7 +329,7 @@ extension AVPlayerEngineSuites {
                 media: .dash(
                     PlaybackManifest(
                         videoRepresentations: [oldVideo],
-                        originalAudioRepresentations: [oldAudio]
+                        audioTracks: [.original(representations: [oldAudio], loudnessMetadata: nil)]
                     )
                 )
             )
@@ -335,7 +337,7 @@ extension AVPlayerEngineSuites {
                 media: .dash(
                     PlaybackManifest(
                         videoRepresentations: [newVideo],
-                        originalAudioRepresentations: [newAudio]
+                        audioTracks: [.original(representations: [newAudio], loudnessMetadata: nil)]
                     )
                 )
             )
@@ -382,7 +384,9 @@ extension AVPlayerEngineSuites {
                 media: .dash(
                     PlaybackManifest(
                         videoRepresentations: [fixture.video],
-                        originalAudioRepresentations: [fixture.audio]
+                        audioTracks: [
+                            .original(representations: [fixture.audio], loudnessMetadata: nil)
+                        ]
                     )
                 )
             )

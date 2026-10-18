@@ -1,3 +1,4 @@
+import BiliApplication
 import BiliPlayback
 import Foundation
 import SwiftUI
@@ -50,7 +51,7 @@ struct PlaybackSourceSettingsView: View {
 
             Section("线路测速参考") {
                 Picker("不同样本", selection: benchmarkSampleCount) {
-                    ForEach(AppSettingsModel.supportedBenchmarkSampleCounts, id: \.self) {
+                    ForEach(PlaybackRouteBenchmarkPolicy.supportedSampleCounts, id: \.self) {
                         Text("\($0) 个").tag($0)
                     }
                 }

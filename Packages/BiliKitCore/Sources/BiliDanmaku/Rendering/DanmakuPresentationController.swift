@@ -71,7 +71,7 @@ public final class DanmakuPresentationController:
     /// 当前持有 surface 的 overlay；只有它的尺寸更新与 detach 生效。
     private var surfaceOwnerID: UUID?
     /// 当前 surface 的 backing scale；变化时取消在途准备，因为纹理按 scale 栅格化。
-    private var backingScale = 2.0
+    private var backingScale = DanmakuTextureRasterizer.defaultBackingScale
     /// `cancelPendingPreparations` 时递增；准备请求带上入队时的值，完成回调、处理与上屏（backend
     /// 的 `consume`）时比对，不等就丢弃这次准备。
     private var preparationGeneration: UInt64 = 0
@@ -230,7 +230,7 @@ public final class DanmakuPresentationController:
         height: Double,
         backingScale: Double
     ) {
-        let normalizedScale = Self.normalizedBackingScale(backingScale)
+        let normalizedScale = DanmakuTextureRasterizer.normalizedBackingScale(backingScale)
         if normalizedScale != self.backingScale {
             self.backingScale = normalizedScale
             cancelPendingPreparations()
@@ -499,12 +499,6 @@ public final class DanmakuPresentationController:
         pendingOrder.removeAll(keepingCapacity: false)
         completedPreparations.removeAll(keepingCapacity: false)
         backend.cancelPendingPreparations()
-    }
-
-    private static func normalizedBackingScale(_ scale: Double) -> Double {
-        scale.isFinite
-            ? min(max(scale, 1), DanmakuTextureRasterizer.maximumBackingScale)
-            : 2
     }
 
     private func updateAdmissionPolicy() {

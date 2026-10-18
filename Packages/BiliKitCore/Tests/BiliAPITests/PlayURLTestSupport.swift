@@ -1,3 +1,4 @@
+import BiliModels
 import BiliNetworking
 import Foundation
 
@@ -86,4 +87,12 @@ func semanticAudioResponse(
             options: [.sortedKeys]
         )
     )
+}
+
+extension VideoPlayback {
+    /// DASH 播放的清单，progressive 为 nil；只供本 target 的断言取用。
+    var dashManifest: PlaybackManifest? {
+        guard case .dash(let manifest) = media else { return nil }
+        return manifest
+    }
 }

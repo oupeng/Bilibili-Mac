@@ -43,7 +43,7 @@ BiliNetworking 不依赖任何 Bili 模块
 | target | 拥有 | 不得依赖 |
 | --- | --- | --- |
 | `BiliModels` | 跨层稳定实体与值类型（视频、播放清单、字幕、弹幕、评论、账户投影） | 任何 Bili 模块、SwiftUI、AppKit、AVFoundation、Network |
-| `BiliApplication` | Use Case、port（Feed、视频详情与播放地址、相关推荐、热搜、搜索联想、UP 主资料与投稿、播放控制与时间轴、字幕、弹幕分段与呈现、评论、认证与会话失效、观看历史、观看进度）、窗口账户复核的参与者契约 `AccountRevalidationParticipant`（由 Feature ViewModel 实现、App 窗口汇总，不是 adapter 实现的 port）、应用级错误、界面可用的账户投影（`AccountSessionScope`、`AccountPresentationState`，由窗口的账户会话状态得出），以及 `package` 并发原语（Feature 共用的 `LatestTask`、时间线与播放失败事件共用的多订阅广播 `AsyncBroadcast`）与列表来源共用的分页状态机 `PagedVideoList` | 除 `BiliModels` 外的 Bili 模块、UI/播放/网络框架、DTO、Keychain、Cookie |
+| `BiliApplication` | Use Case、port（Feed、视频详情与播放地址、相关推荐、热搜、搜索联想、UP 主资料与投稿、播放控制与时间轴、字幕、弹幕分段与呈现、评论、认证与会话失效、观看历史、观看进度）、窗口账户复核的参与者契约 `AccountRevalidationParticipant`（由 Feature ViewModel 实现、App 窗口汇总，不是 adapter 实现的 port）、应用级错误、界面可用的账户投影（`AccountSessionScope`、`AccountPresentationState`，由窗口的账户会话状态得出），以及 `package` 并发原语（Feature 共用的 `LatestTask`、时间线与播放失败事件共用的多订阅广播 `AsyncBroadcast`）与列表来源共用的分页状态机 `PagedVideoList`；设置界面、样本发现与测速共用的线路测速样本数（`PlaybackRouteBenchmarkPolicy`） | 除 `BiliModels` 外的 Bili 模块、UI/播放/网络框架、DTO、Keychain、Cookie |
 | `BiliNetworking` | 无业务语义的 HTTP client、Range client、`HTTPRequestAuthorizing`、URL 形状策略（含 BiliAPI 与 BiliAuth 共用的远端图片地址 HTTPS 升级 `WebImageURL`）与 JSON 响应判定 | Bili 模块、`Security`、UI/播放框架 |
 | `BiliAPI` | endpoint DTO、WBI、解码、protobuf wire、远端错误映射，并实现 Application 仓库 port | `BiliAuth`（只接受注入的授权器） |
 | `BiliAuth` | Web QR 状态机、Cookie envelope、Keychain store、请求授权器，实现 `AuthenticationServicing` | `BiliAPI`、`BiliPlayback`、`BiliDanmaku`、Feature、UI 框架 |
@@ -202,7 +202,8 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   一次滚动手势最多一页。评论侧栏的阈值比一页矮，保留“先离开阈值再布防”。
 - 首页推荐、热门、搜索与观看历史的分页都由 `PagedVideoList`（BiliApplication）承担；来源只把远端页适配为
   “条目 + 下一页游标”（Feed 的游标是下一页请求，历史是 adapter 生成的不透明 continuation），Feed 另校验响应
-  属于所请求的页。各来源最多保留 1000 条（`VideoListRetention`），按 BVID 去重后截断；达到上限即收起分页
+  属于所请求的页。各来源最多保留 1000 条（`VideoListRetention`），按 BVID 去重后截断（这四个分页来源只在 `PagedVideoList`
+  去重，adapter 映射与网格卡片映射不另做；集合层的 `NativeVideoCardContents` 另按卡片 ID 兜底）；达到上限即收起分页
   尾标、不再请求下一页。没有新条目的页：推荐、热门与搜索停止翻页；历史保留 continuation、收起尾标，由用户
   点“加载更早的记录”显式继续（空页跳过与游标前进校验在 `WatchHistoryUseCase`）。下一页游标回环（含不前进）
   按无效响应报告并停止，即使同时达到条目上限。历史一次分页会话最多加载更多 100 页；推荐、热门与搜索每页

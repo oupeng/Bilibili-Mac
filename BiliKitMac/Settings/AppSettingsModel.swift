@@ -1,4 +1,5 @@
 import BiliAPI
+import BiliApplication
 import BiliPlayback
 import Foundation
 import Observation
@@ -80,9 +81,6 @@ enum PlaybackRouteBenchmarkOperationError: Error {
 @MainActor
 @Observable
 final class AppSettingsModel {
-    /// 一次测速可选的样本数；流量上限随样本数线性增长（`maximumTrafficBytes`），上限 3
-    /// 限制了单次测速的最大流量。
-    static let supportedBenchmarkSampleCounts = 1...3
     typealias Discover = @Sendable (Int) async throws -> [PlaybackRouteBenchmarkSample]
     typealias ResetDiscovery = @Sendable () async -> Void
     typealias Run =
@@ -194,14 +192,14 @@ final class AppSettingsModel {
 
     func setBenchmarkSampleCount(_ value: Int) {
         guard !state.isRunning,
-            Self.supportedBenchmarkSampleCounts.contains(value)
+            PlaybackRouteBenchmarkPolicy.supportedSampleCounts.contains(value)
         else { return }
         benchmarkSampleCount = value
     }
 
     /// 一次测速的流量上限，设置界面据此显示“最多约 N MiB”；样本数不在支持范围内时返回 nil。
     static func maximumTrafficBytes(repetitions: Int) -> UInt64? {
-        guard Self.supportedBenchmarkSampleCounts.contains(repetitions) else {
+        guard PlaybackRouteBenchmarkPolicy.supportedSampleCounts.contains(repetitions) else {
             return nil
         }
         let targetCount = UInt64(PlaybackRouteTarget.allCases.count)

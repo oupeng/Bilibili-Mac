@@ -479,11 +479,6 @@ public struct VideoPlayback: Sendable, Equatable {
     /// 已认证 playurl 返回的账户级断点；匿名响应与异常字段保持为 nil。
     public let resumeMetadata: PlaybackResumeMetadata?
 
-    public var dashManifest: PlaybackManifest? {
-        guard case .dash(let manifest) = media else { return nil }
-        return manifest
-    }
-
     public init(
         media: PlaybackMedia,
         mediaHeaders: [String: String],
@@ -492,18 +487,6 @@ public struct VideoPlayback: Sendable, Equatable {
         self.media = media
         self.mediaHeaders = mediaHeaders
         self.resumeMetadata = resumeMetadata
-    }
-
-    public init(
-        manifest: PlaybackManifest,
-        mediaHeaders: [String: String],
-        resumeMetadata: PlaybackResumeMetadata? = nil
-    ) {
-        self.init(
-            media: .dash(manifest),
-            mediaHeaders: mediaHeaders,
-            resumeMetadata: resumeMetadata
-        )
     }
 }
 

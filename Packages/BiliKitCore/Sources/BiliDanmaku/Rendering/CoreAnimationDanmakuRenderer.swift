@@ -53,9 +53,9 @@ public final class CoreAnimationDanmakuRenderer:
     /// 已上屏 layer 的纹理字节合计，对照 `maximumActiveTextureByteCost`。
     private(set) var activeTextureByteCost = 0
 
-    /// 初始 backing scale 取 2；宿主挂上 surface 后经 `updateSurfaceSize` 换成窗口的实际值。
+    /// 初始 backing scale 取默认值；宿主挂上 surface 后经 `updateSurfaceSize` 换成窗口的实际值。
     public init() {
-        backingScale = 2
+        backingScale = DanmakuTextureRasterizer.defaultBackingScale
         preparationOwner = DanmakuTexturePreparationOwner()
         rootLayer = CALayer()
         rootLayer.anchorPoint = .zero
@@ -74,7 +74,7 @@ public final class CoreAnimationDanmakuRenderer:
                 DanmakuPreparationResult
             ) -> Void
     ) {
-        let normalizedScale = Self.normalizedBackingScale(backingScale)
+        let normalizedScale = DanmakuTextureRasterizer.normalizedBackingScale(backingScale)
         guard normalizedScale == self.backingScale else {
             completion(.rejected(.cancelled))
             return
@@ -218,7 +218,7 @@ public final class CoreAnimationDanmakuRenderer:
         height: Double,
         backingScale: Double
     ) {
-        let normalizedScale = Self.normalizedBackingScale(backingScale)
+        let normalizedScale = DanmakuTextureRasterizer.normalizedBackingScale(backingScale)
         if normalizedScale != self.backingScale {
             self.backingScale = normalizedScale
             preparationOwner.cancelAllPreparations()
@@ -351,12 +351,6 @@ public final class CoreAnimationDanmakuRenderer:
         activeTextureByteCost -= entry.textureByteCost
         entry.layer.removeAllAnimations()
         entry.layer.removeFromSuperlayer()
-    }
-
-    private static func normalizedBackingScale(_ scale: Double) -> Double {
-        scale.isFinite
-            ? min(max(scale, 1), DanmakuTextureRasterizer.maximumBackingScale)
-            : 2
     }
 
     private static func makeImage(

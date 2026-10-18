@@ -5,8 +5,7 @@ import Testing
 
 @testable import BiliBrowseFeature
 
-/// 首页推荐映射到原生卡片时：同一 BVID 只出一张卡，推荐理由只在存在时显示为品牌描边胶囊，读屏标签与卡片
-/// 呈现一致。
+/// 首页推荐映射到原生卡片时：推荐理由只在存在时显示为品牌描边胶囊，读屏标签与卡片呈现一致。
 struct FeedNativeGridMappingTests {
     @Test @MainActor
     func recommendationMappingUsesBrandCapsuleOnlyWhenReasonExists() throws {
@@ -22,9 +21,8 @@ struct FeedNativeGridMappingTests {
         )
 
         let content = try #require(
-            RecommendedNativeGridView.makePresentations([video, video]).first
+            RecommendedNativeGridView.makePresentations([video]).first
         )
-        #expect(RecommendedNativeGridView.makePresentations([video, video]).count == 1)
         #expect(content.footerTrailingText == "正在流行")
         #expect(content.footerTrailingStyle == .brandOutlinedCapsule)
         #expect(
