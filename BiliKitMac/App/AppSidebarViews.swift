@@ -3,11 +3,13 @@ import BiliAuthFeature
 import SwiftUI
 
 /// 使用系统 Sidebar List 表达窗口内当前可用的平级来源；行按 `AppSources` 的顺序与描述渲染。
+///
+/// 底部账号行的头像经窗口图片管线加载（`AccountAvatarImage`），不拥有管线。
 struct AppNavigationSidebar: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let sources: [AppSourceDescriptor]
     @Binding var selection: AppTab
     let accountState: AccountPresentationState
+    let imagePipeline: NativeVideoImagePipeline
     let onPresentAuthentication: () -> Void
 
     var body: some View {
@@ -91,21 +93,11 @@ struct AppNavigationSidebar: View {
 
     private var accountAvatar: some View {
         Group {
-            if let avatarURL = accountState.avatarURL {
-                AsyncImage(
-                    url: avatarURL,
-                    transaction: avatarLoadingTransaction
-                ) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .scaledToFill()
-                            .transition(.opacity)
-                    default:
-                        fallbackAvatar
-                            .transition(.opacity)
-                    }
+            if let requestURL = NativeVideoImagePipeline.accountAvatarRequestURL(
+                for: accountState.avatarURL
+            ) {
+                AccountAvatarImage(requestURL: requestURL, imagePipeline: imagePipeline) {
+                    fallbackAvatar
                 }
             } else {
                 fallbackAvatar
@@ -121,11 +113,5 @@ struct AppNavigationSidebar: View {
             .resizable()
             .scaledToFit()
             .symbolRenderingMode(.hierarchical)
-    }
-
-    private var avatarLoadingTransaction: Transaction {
-        Transaction(
-            animation: reduceMotion ? nil : .easeOut(duration: 0.16)
-        )
     }
 }

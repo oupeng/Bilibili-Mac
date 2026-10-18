@@ -64,7 +64,7 @@ enum DanmakuPayloadDecoder {
                 timeSeconds: Double(element.progressMilliseconds) / 1_000,
                 mode: mode,
                 text: text,
-                fontSize: normalizedFontSize(element.fontSize),
+                fontSize: DanmakuEvent.normalizedFontSize(Double(element.fontSize)),
                 // 字段 5 只给基础 RRGGBB 颜色；大会员渐变来自字段 24，作为独立样式保留，
                 // 不压进 RGB。
                 colorRGB: element.colorRgb & baseColorRGBMask,
@@ -92,14 +92,5 @@ enum DanmakuPayloadDecoder {
     /// 只认大会员渐变（60001）；其他或将来新增的彩色类型按普通弹幕显示。
     private static func colorStyle(_ value: Int32) -> DanmakuColorStyle {
         value == vipGradientColorfulType ? .vipGradient : .solid
-    }
-
-    private static func normalizedFontSize(_ value: Int32) -> Double {
-        switch value {
-        case 18, 25, 36:
-            Double(value)
-        default:
-            25
-        }
     }
 }

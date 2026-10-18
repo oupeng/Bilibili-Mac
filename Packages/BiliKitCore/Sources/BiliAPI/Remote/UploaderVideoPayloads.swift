@@ -1,4 +1,5 @@
 import BiliModels
+import BiliNetworking
 import Foundation
 
 /// UP 主空间投稿（`/x/space/wbi/arc/search`）的 `data`，由 `BiliAPIClient` 的空间扩展映射为
@@ -44,7 +45,7 @@ struct UploaderVideoItemPayload: Decodable, Sendable {
     let isUnionVideo: Int?
 
     /// 投稿项的接口字段名。
-    enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey {
         case bvid, title, pic, length, play, created
         case videoReview = "video_review"
         case isUnionVideo = "is_union_video"

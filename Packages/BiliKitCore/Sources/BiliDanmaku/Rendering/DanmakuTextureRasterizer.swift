@@ -51,6 +51,16 @@ enum DanmakuTextureRasterizer {
     static let maximumTextureByteCost = 8 * 1_024 * 1_024
     /// 支持的最大 backing scale；renderer 与呈现控制器把更大的值夹到这里。
     static let maximumBackingScale = 4.0
+    /// 宿主还没报告窗口 backing scale 时的初值，也是非有限值的回退：Retina 屏是 2。
+    static let defaultBackingScale = 2.0
+
+    /// renderer 与呈现控制器共用的 backing scale 归一。
+    ///
+    /// 夹到 1...`maximumBackingScale`，非有限值回退到 `defaultBackingScale`。两边必须一致，否则
+    /// 控制器认为 scale 没变而 renderer 已经换了栅格倍率，或反过来多取消一轮准备。
+    static func normalizedBackingScale(_ scale: Double) -> Double {
+        scale.isFinite ? min(max(scale, 1), maximumBackingScale) : defaultBackingScale
+    }
     /// 描边宽度（point），由字形 alpha 向外膨胀得到。
     static let outlineWidthPoints = 0.5
     /// 字重与阴影是产品固定视觉，不随设置变化；阴影是预烘焙 tent convolution 的 point 半径。
@@ -84,10 +94,7 @@ enum DanmakuTextureRasterizer {
         else {
             return nil
         }
-        // 只接受 B 站的三档字号（小、标准、大），其余按标准字号处理，任意字号不会把缓存 key 打散。
-        let fontSize =
-            [18.0, 25.0, 36.0].contains(event.fontSize)
-            ? event.fontSize : 25
+        let fontSize = DanmakuEvent.normalizedFontSize(event.fontSize)
         return DanmakuTextureCacheKey(
             text: event.text,
             fontSize: fontSize,

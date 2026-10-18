@@ -28,12 +28,12 @@ struct FeedWorksetTests {
 
         model.search(VideoSearchCriteria(query: "旧搜索"))
         try await searchGate.waitForEntries()
-        model.refreshPopular()
+        model.refreshPopular(pageSize: 50)
         try await searchGate.waitForCancellations()
         await model.waitForCurrentTask()
         await searchGate.open()
 
-        #expect(model.activeRequestIdentity == .popular(page: 1, pageSize: 20))
+        #expect(model.activeRequestIdentity == .popular(page: 1, pageSize: 50))
         #expect(BrowseFeed.popular.loadedBVIDs(model) == [fixture.bvid])
     }
 

@@ -39,14 +39,12 @@ struct PlaybackSidebarHeaderTests: PlaybackSidebarFixtures {
     @MainActor
     func uploaderSignatureStaysOneLineAtAnyWidth() {
         let long = VideoUploaderHeaderContent(
-            owner: VideoOwner(
-                id: 1,
-                name: "UP 主",
-                signature: String(repeating: "签名", count: 40)
-            )
+            owner: VideoOwner(id: 1, name: "UP 主"),
+            profileState: .loaded(UploaderProfile(signature: String(repeating: "签名", count: 40)))
         )
         let short = VideoUploaderHeaderContent(
-            owner: VideoOwner(id: 1, name: "UP 主", signature: "短签名")
+            owner: VideoOwner(id: 1, name: "UP 主"),
+            profileState: .loaded(UploaderProfile(signature: "短签名"))
         )
         let wide = NativePlaybackUploaderGeometry(content: long, width: 720)
         let narrow = NativePlaybackUploaderGeometry(content: long, width: 408)
@@ -74,7 +72,8 @@ struct PlaybackSidebarHeaderTests: PlaybackSidebarFixtures {
         )
         let withSignature = NativePlaybackUploaderGeometry(
             content: VideoUploaderHeaderContent(
-                owner: VideoOwner(id: 1, name: "UP 主", signature: "签名")
+                owner: VideoOwner(id: 1, name: "UP 主"),
+                profileState: .loaded(UploaderProfile(signature: "签名"))
             ),
             width: 520
         )

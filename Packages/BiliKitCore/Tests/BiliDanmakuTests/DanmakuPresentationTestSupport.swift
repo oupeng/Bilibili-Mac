@@ -77,6 +77,8 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
     /// `+id` 表示安装、`-id` 表示移除，只用于断言移除先于新准入。
     private(set) var lifecycle: [String] = []
     private(set) var renderedEventIDs: [String] = []
+    /// 已安装且尚未被移除、清屏或停止的弹幕，即此刻在屏上的弹幕。
+    private(set) var activeEventIDs: Set<String> = []
     private(set) var renderedPlacements: [DanmakuLanePlacement] = []
     private(set) var renderedElapsedSeconds: [Double] = []
     private(set) var rates: [Double] = []
@@ -120,6 +122,7 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
         let eventID = placement.request.event.id
         lifecycle.append("+" + eventID)
         renderedEventIDs.append(eventID)
+        activeEventIDs.insert(eventID)
         renderedPlacements.append(placement)
         renderedElapsedSeconds.append(elapsedSeconds)
         return true
@@ -139,10 +142,12 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
 
     func remove(eventID: String) {
         lifecycle.append("-" + eventID)
+        activeEventIDs.remove(eventID)
     }
 
     func clearAll() {
         clearCount += 1
+        activeEventIDs.removeAll()
     }
 
     func setPlaybackRate(_ rate: Double) {
@@ -159,5 +164,6 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
 
     func stop() {
         stopCount += 1
+        activeEventIDs.removeAll()
     }
 }

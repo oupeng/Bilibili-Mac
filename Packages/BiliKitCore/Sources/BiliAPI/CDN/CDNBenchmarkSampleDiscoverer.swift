@@ -1,3 +1,4 @@
+import BiliApplication
 import BiliModels
 import BiliNetworking
 import Foundation
@@ -24,21 +25,18 @@ public struct CDNBenchmarkDiscoveredSample: Sendable, Equatable {
 /// 之后的发现跳过它们，让再次测速换一批样本；设置窗口关闭或失去测速资格时调用方经
 /// `resetSeenSamples()` 清空。
 public actor CDNBenchmarkSampleDiscoverer {
-    /// 一轮最多计入的近期投稿条数（8 个分区 × 每页 5 条）；与下面两个上限一起限定发现阶段的请求量。
-    public static let maximumMetadataCount = 40
-    /// 一轮最多请求的稿件详情次数；调大更容易凑满样本但多发账户读取，
-    /// 调小会让候选不合格时更常找不到样本。
-    public static let maximumDetailRequestCount = 8
-    /// 一轮最多请求的 playurl 次数；每个详情至多引出一次，实际不超过详情次数。
-    public static let maximumPlaybackRequestCount = 8
-    /// 一次发现可请求的样本数；超出按 `invalidRequest` 拒绝。
-    public static let supportedSampleCounts = 1...3
+    /// 一轮最多计入的近期投稿条数（分区数 × 每页条数）；与下面的详情上限一起限定发现阶段的请求量。
+    private static let maximumMetadataCount = regionIDs.count * pageSize
+    /// 一轮最多请求的稿件详情次数；每个详情至多引出一次 playurl，playurl 次数因此也以它为上限。
+    ///
+    /// 调大更容易凑满样本但多发账户读取，调小会让候选不合格时更常找不到样本。
+    private static let maximumDetailRequestCount = 8
 
     /// 依次查询的分区 ID；每个分区至多取一个样本，同一 UP 主不重复，
     /// 让多个样本来自不同内容与上传者。
     private static let regionIDs = [201, 124, 228, 207, 208, 209, 229, 231]
-    /// 每个分区读取的近期投稿条数，`recentSubmissions` 只接受 1–5。
-    private static let pageSize = 5
+    /// 每个分区读取的近期投稿条数，取近期投稿读取允许的上限。
+    private static let pageSize = BiliAPIClient.maximumRecentSubmissionPageSize
     /// 样本条件（设置界面所说的“近期、低播放量且足够长”）：播放量 20–9999、发布 6 小时到 14 天、
     /// 时长至少 3 分钟。
     ///
@@ -56,28 +54,22 @@ public actor CDNBenchmarkSampleDiscoverer {
     private static let minimumShortSide = 720
 
     private let client: BiliAPIClient
+    /// 时钟边界：样本条件按发布时间筛选、查询窗口按日期计算；`init(client:)` 读系统时间。
     private let now: @Sendable () -> Date
-    private let regionIDs: [Int]
     private var seenBVIDs: Set<String> = []
 
     public init(client: BiliAPIClient) {
-        self.client = client
-        now = Date.init
-        regionIDs = Self.regionIDs
+        self.init(client: client, now: Date.init)
     }
 
-    init(
-        client: BiliAPIClient,
-        now: @escaping @Sendable () -> Date,
-        regionIDs: [Int] = CDNBenchmarkSampleDiscoverer.regionIDs
-    ) {
+    init(client: BiliAPIClient, now: @escaping @Sendable () -> Date) {
         self.client = client
         self.now = now
-        self.regionIDs = Array(regionIDs.prefix(Self.maximumPlaybackRequestCount))
     }
 
     public func discover(targetCount: Int = 1) async throws -> [CDNBenchmarkDiscoveredSample] {
-        guard Self.supportedSampleCounts.contains(targetCount) else {
+        // 样本数超出 `PlaybackRouteBenchmarkPolicy.supportedSampleCounts` 按 `invalidRequest` 拒绝。
+        guard PlaybackRouteBenchmarkPolicy.supportedSampleCounts.contains(targetCount) else {
             throw BiliAPIError.invalidRequest
         }
         var qualified: [(bvid: String, sample: CDNBenchmarkDiscoveredSample)] = []
@@ -86,7 +78,7 @@ public actor CDNBenchmarkSampleDiscoverer {
         var detailRequestCount = 0
         let dateWindow = try dateWindow(at: now())
 
-        for regionID in regionIDs {
+        for regionID in Self.regionIDs {
             try Task.checkCancellation()
             guard qualified.count < targetCount,
                 metadataCount < Self.maximumMetadataCount,
@@ -106,9 +98,7 @@ public actor CDNBenchmarkSampleDiscoverer {
                 && !uploaderIDs.contains(submission.mid)
             {
                 try Task.checkCancellation()
-                guard detailRequestCount < Self.maximumDetailRequestCount,
-                    detailRequestCount < Self.maximumPlaybackRequestCount
-                else { break }
+                guard detailRequestCount < Self.maximumDetailRequestCount else { break }
                 detailRequestCount += 1
                 do {
                     let detail = try await client.recentSubmissionDetail(

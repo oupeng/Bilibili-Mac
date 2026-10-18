@@ -183,7 +183,7 @@ protocol SystemRemoteCommandManaging: AnyObject {
 /// 注册到 `MPRemoteCommandCenter.shared()` 的远程命令：播放、暂停、切换、拖动进度与前后 15 秒跳转。
 ///
 /// 同时禁用上一首与下一首。拥有各命令的 target token，`removeHandlers()` 逐个移除；由
-/// `SystemNowPlayingController` 在 `close()` 或 deinit 时调用。MainActor 隔离。
+/// `SystemNowPlayingController` 在 deinit 时调用。MainActor 隔离。
 @MainActor
 private final class DefaultSystemRemoteCommandManager:
     SystemRemoteCommandManaging
@@ -273,15 +273,16 @@ private final class DefaultSystemRemoteCommandManager:
 /// 由 `ProcessComposition` 创建并持有到进程结束；每个窗口经 `SystemNowPlayingWindowCoordinator`
 /// 调用 `registerWindow`、`update`、`markWindowActive` 与 `removeWindow`。拥有窗口会话表、
 /// 远程命令注册、已发布的封面与封面加载 Task，以及只用于封面的进程级图片管线（缓存上限
-/// `nowPlayingArtwork`）；不拥有播放器，远程命令经胜出会话的 `perform` 交回窗口执行。`close()` 与
-/// isolated deinit 都取消封面加载、关闭封面管线、移除远程命令并清空系统信息；`close()` 之后
-/// `update` 与远程命令不再生效。MainActor 隔离，远程命令回调经 `handleFromAnyThread` 回到主线程。
+/// `nowPlayingArtwork`）；不拥有播放器，远程命令经胜出会话的 `perform` 交回窗口执行。
+/// 生产里随进程存活、不提前关闭；isolated deinit 取消封面加载、关闭封面管线、移除远程命令并清空
+/// 系统信息。`center`、`remoteCommands` 与 `artworkLoader` 是系统 Now Playing、远程命令与封面网络的
+/// 边界，生产传 nil，由本类型构造系统实现与进程级封面管线。MainActor 隔离，远程命令回调经 `handleFromAnyThread` 回到主线程。
 @MainActor
 final class SystemNowPlayingController {
     private let center: any SystemNowPlayingCenterWriting
     private let remoteCommands: any SystemRemoteCommandManaging
     private let artworkLoader: @Sendable (URL) async -> CGImage?
-    /// 进程级封面管线：随 controller 存活，只在 `close()`／`deinit` 关闭，换曲目只取消等待者。
+    /// 进程级封面管线：随 controller 存活，只在 deinit 关闭，换曲目只取消等待者。
     private let artworkPipelineOwner: NativeVideoImagePipelineOwner?
     private var sessions: [UUID: SystemNowPlayingSession] = [:]
     /// 窗口选择时钟：会话开始播放、窗口变为活跃、远程命令成功时递增，并赋给该会话的
@@ -292,7 +293,6 @@ final class SystemNowPlayingController {
     private var publishedFingerprint: SystemNowPlayingTimelineFingerprint?
     private var publishedArtwork: MPMediaItemArtwork?
     private var artworkTask: Task<Void, Never>?
-    private var isClosed = false
 
     init(
         center: (any SystemNowPlayingCenterWriting)? = nil,
@@ -349,7 +349,6 @@ final class SystemNowPlayingController {
                 ObjectIdentifier
             ) -> Bool
     ) {
-        guard !isClosed else { return }
         let previous = sessions[windowID]
         var selectionOrder = previous?.selectionOrder ?? 0
         let beganPlaying =
@@ -393,15 +392,6 @@ final class SystemNowPlayingController {
         reconcile()
     }
 
-    func close() {
-        guard !isClosed else { return }
-        isClosed = true
-        sessions.removeAll()
-        clearPublishedSession()
-        artworkPipelineOwner?.shutdown()
-        remoteCommands.removeHandlers()
-    }
-
     /// `MPRemoteCommand` 的处理闭包要同步返回结果且调用线程不固定：在主线程时直接执行，
     /// 否则同步切到主线程等待。
     nonisolated private func handleFromAnyThread(
@@ -420,7 +410,7 @@ final class SystemNowPlayingController {
     func handle(
         _ command: SystemNowPlayingCommand
     ) -> SystemNowPlayingCommandResult {
-        guard !isClosed, var winner = winningSession() else {
+        guard var winner = winningSession() else {
             return .noSuchContent
         }
         guard commandIsValid(command, for: winner.timeline) else {

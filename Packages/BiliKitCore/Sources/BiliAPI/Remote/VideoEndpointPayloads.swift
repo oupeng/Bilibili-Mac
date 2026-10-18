@@ -1,5 +1,6 @@
 import BiliApplication
 import BiliModels
+import BiliNetworking
 import Foundation
 
 /// 热门（`/x/web-interface/popular`）的 `data`，由 `BiliAPIClient.popular` 映射为 `PopularPage`；

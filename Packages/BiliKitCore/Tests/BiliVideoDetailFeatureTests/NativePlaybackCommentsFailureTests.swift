@@ -36,7 +36,7 @@ struct NativePlaybackCommentsFailureTests {
         let comments = await liveCommentsPresentation(
             threads: [
                 CommentThread(
-                    root: Comment(id: CommentID(rawValue: 1), payload: .unavailable(.deleted))
+                    root: Comment(id: CommentID(rawValue: 1), payload: .unavailable(.unavailable))
                 )
             ],
             totalCount: 2,

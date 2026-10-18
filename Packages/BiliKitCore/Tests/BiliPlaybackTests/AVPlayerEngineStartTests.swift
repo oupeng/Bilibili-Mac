@@ -66,7 +66,9 @@ extension AVPlayerEngineSuites {
                     media: .dash(
                         PlaybackManifest(
                             videoRepresentations: [video],
-                            originalAudioRepresentations: [audio]
+                            audioTracks: [
+                                .original(representations: [audio], loudnessMetadata: nil)
+                            ]
                         )
                     ),
                     startPositionSeconds: offset
@@ -149,7 +151,7 @@ extension AVPlayerEngineSuites {
                 media: .dash(
                     PlaybackManifest(
                         videoRepresentations: [video],
-                        originalAudioRepresentations: [audio]
+                        audioTracks: [.original(representations: [audio], loudnessMetadata: nil)]
                     )
                 )
             )

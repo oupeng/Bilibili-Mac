@@ -30,7 +30,7 @@ struct NativePlaybackCommentAssetSizingTests {
             return nil
         }
         let pipeline = StubVideoDetailImageLoader()
-        let reference = CommentAssetReference()
+        let reference = fixtureAssetReference()
 
         _ = NativePlaybackCommentPictureLoader(imagePipeline: pipeline, resolveURL: resolver)
             .cachedImage(for: reference)
@@ -57,7 +57,7 @@ struct NativePlaybackCommentAssetSizingTests {
     func savingSuggestsTheOriginalFileName() throws {
         let original = try #require(URL(string: "https://i0.hdslb.com/bfs/new_dyn/abc123.gif"))
         let pipeline = StubVideoDetailImageLoader()
-        let reference = CommentAssetReference()
+        let reference = fixtureAssetReference()
         let requested = RequestedBoxes()
 
         let loader = NativePlaybackCommentPictureLoader(
@@ -93,7 +93,7 @@ struct NativePlaybackCommentAssetSizingTests {
             purpose: .commentPicturePreview
         )
 
-        #expect(loader.suggestedFileName(for: CommentAssetReference()) == "abc.png")
+        #expect(loader.suggestedFileName(for: fixtureAssetReference()) == "abc.png")
     }
 }
 

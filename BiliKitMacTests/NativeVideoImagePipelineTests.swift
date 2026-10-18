@@ -1,4 +1,5 @@
 import AppKit
+import BiliUI
 import BiliVideoDetailFeature
 import CoreGraphics
 import Foundation
@@ -8,8 +9,9 @@ import UniformTypeIdentifiers
 
 @testable import BiliKit
 
-/// 窗口图片管线的边界：只请求公开 HTTPS 地址，响应、解码尺寸与缓存都有上界，各用途缓存互不覆盖，动图只在
-/// 评论图片且不超限时保留，关闭后不再接受请求。
+/// 窗口图片管线的边界：只请求公开 HTTPS 地址（侧栏账号头像与卡片头像同样先缩略再校验），响应、解码尺寸与
+/// 缓存都有上界，解码按 EXIF 方向转正、损坏数据失败不崩溃，各用途缓存互不覆盖，动图只在评论图片且不超限时
+/// 保留，关闭后不再接受请求。
 @Suite(.timeLimit(.minutes(1)))
 struct NativeVideoImagePipelineTests {
     @Test(arguments: [
@@ -24,6 +26,34 @@ struct NativeVideoImagePipelineTests {
     func requestsOnlyPublicHTTPSImageAddresses(urlString: String, accepted: Bool) throws {
         let url = try #require(URL(string: urlString))
         #expect(NativeVideoImagePipeline.acceptsRequestURL(url) == accepted)
+    }
+
+    @Test
+    func accountAvatarRequestsTheAvatarThumbnailLikeCardAvatars() throws {
+        let face = try #require(URL(string: "https://i1.hdslb.com/bfs/face/fixture.jpg"))
+        let elsewhere = try #require(URL(string: "https://images.example/face.jpg"))
+
+        #expect(
+            NativeVideoImagePipeline.accountAvatarRequestURL(for: face)?.absoluteString
+                == "https://i1.hdslb.com/bfs/face/fixture.jpg@96w_96h_1c.webp"
+        )
+        #expect(NativeVideoImagePipeline.accountAvatarRequestURL(for: elsewhere) == elsewhere)
+        #expect(NativeVideoImagePipeline.accountAvatarRequestURL(for: nil) == nil)
+        #expect(
+            NativeVideoImageVariant.avatar.maximumDecodedPixelSize == BiliAvatarImageSize.pixelSide
+        )
+    }
+
+    @Test(arguments: [
+        "http://i1.hdslb.com/bfs/face/fixture.jpg",
+        "https://127.0.0.1/face.jpg",
+        "https://localhost/face.jpg",
+        "https://i1.hdslb.com:8443/bfs/face/fixture.jpg",
+        "https://user@i1.hdslb.com/bfs/face/fixture.jpg"
+    ])
+    func accountAvatarSkipsAddressesThePipelineWouldNotRequest(urlString: String) throws {
+        let url = try #require(URL(string: urlString))
+        #expect(NativeVideoImagePipeline.accountAvatarRequestURL(for: url) == nil)
     }
 
     @Test
@@ -220,6 +250,91 @@ struct NativeVideoImagePipelineTests {
     }
 
     @Test
+    func largeImagesShrinkToEachVariantsBound() throws {
+        let source = try #require(Self.makeSplitImage(width: 5_000, height: 2_500))
+        let data = try #require(Self.encode(source, as: .png))
+
+        for variant in [NativeVideoImageVariant.commentPicturePreview, .commentPicture] {
+            let image = try #require(NativeVideoImagePipeline.decodeImage(data, variant: variant))
+            #expect(image.width == variant.maximumDecodedPixelSize)
+            #expect(image.height == variant.maximumDecodedPixelSize / 2)
+        }
+    }
+
+    @Test
+    func decodingAppliesEXIFOrientation() throws {
+        // 存储为左红右蓝的横图，方向 6（顺时针转 90°）显示为上红下蓝的竖图。
+        let source = try #require(Self.makeSplitImage(width: 2_000, height: 1_000))
+        let data = try #require(
+            Self.encode(source, as: .jpeg, properties: [kCGImagePropertyOrientation: 6])
+        )
+
+        let image = try #require(NativeVideoImagePipeline.decodeImage(data, variant: .cover))
+
+        #expect(image.width == 320)
+        #expect(image.height == 640)
+        let top = try #require(Self.pixel(of: image, x: image.width / 2, y: 4))
+        let bottom = try #require(Self.pixel(of: image, x: image.width / 2, y: image.height - 5))
+        #expect(top.red > 200 && top.blue < 60)
+        #expect(bottom.blue > 200 && bottom.red < 60)
+    }
+
+    @Test
+    func cmykJPEGDecodesWithItsColors() throws {
+        let cmyk = CGColorSpaceCreateDeviceCMYK()
+        let context = try #require(
+            CGContext(
+                data: nil,
+                width: 300,
+                height: 200,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: cmyk,
+                bitmapInfo: CGImageAlphaInfo.none.rawValue
+            )
+        )
+        context.setFillColor(try #require(CGColor(colorSpace: cmyk, components: [0, 1, 1, 0, 1])))
+        context.fill(CGRect(x: 0, y: 0, width: 300, height: 200))
+        let source = try #require(context.makeImage())
+        let data = try #require(Self.encode(source, as: .jpeg))
+
+        let image = try #require(
+            NativeVideoImagePipeline.decodeImage(data, variant: .commentPicture)
+        )
+
+        #expect(image.width == 300)
+        #expect(image.height == 200)
+        let center = try #require(Self.pixel(of: image, x: 150, y: 100))
+        #expect(center.red > 150 && center.green < 100 && center.blue < 100)
+    }
+
+    @Test
+    func corruptOrHeaderTruncatedDataFailsToDecode() throws {
+        // 管线只在 decodeImage 成功后写缓存，解码失败的数据因此不进缓存。
+        let source = try #require(Self.makeSplitImage(width: 400, height: 300))
+        let jpeg = try #require(Self.encode(source, as: .jpeg))
+        let png = try #require(Self.encode(source, as: .png))
+        let corrupt: [Data] = [
+            Data(),
+            jpeg.prefix(64),
+            png.prefix(32),
+            Data([0xFF, 0xD8, 0xFF, 0xE0]) + Data(repeating: 0x5A, count: 2_000),
+            Data(repeating: 0xA5, count: 4_096)
+        ]
+
+        for data in corrupt {
+            for variant in [NativeVideoImageVariant.cover, .commentPicturePreview] {
+                #expect(NativeVideoImagePipeline.decodeImage(data, variant: variant) == nil)
+            }
+            let animation = NativeVideoImagePipeline.decodeAnimation(
+                data,
+                variant: .commentPicturePreview
+            )
+            #expect(animation == nil)
+        }
+    }
+
+    @Test
     func imagePipelineShutdownRejectsFutureRequestsBeforeTouchingSession() async {
         let pipeline = NativeVideoImagePipeline(cacheLimits: .window)
         pipeline.shutdown()
@@ -354,6 +469,69 @@ struct NativeVideoImagePipelineTests {
         }
         guard CGImageDestinationFinalize(destination) else { return nil }
         return data as Data
+    }
+
+    /// 左半纯红、右半纯蓝的 RGB 图，用来辨认解码后的方向。
+    private static func makeSplitImage(width: Int, height: Int) -> CGImage? {
+        let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )
+        context?.setFillColor(red: 1, green: 0, blue: 0, alpha: 1)
+        context?.fill(CGRect(x: 0, y: 0, width: width / 2, height: height))
+        context?.setFillColor(red: 0, green: 0, blue: 1, alpha: 1)
+        context?.fill(CGRect(x: width / 2, y: 0, width: width - width / 2, height: height))
+        return context?.makeImage()
+    }
+
+    private static func encode(
+        _ image: CGImage,
+        as type: UTType,
+        properties: [CFString: Any] = [:]
+    ) -> Data? {
+        let data = NSMutableData()
+        guard
+            let destination = CGImageDestinationCreateWithData(
+                data,
+                type.identifier as CFString,
+                1,
+                nil
+            )
+        else { return nil }
+        CGImageDestinationAddImage(destination, image, properties as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return data as Data
+    }
+
+    /// 把图画进 RGBA 位图后读一个像素；`y` 从上边起算。
+    private static func pixel(
+        of image: CGImage,
+        x: Int,
+        y: Int
+    ) -> (red: UInt8, green: UInt8, blue: UInt8)? {
+        let width = image.width
+        let height = image.height
+        guard
+            let context = CGContext(
+                data: nil,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: width * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            )
+        else { return nil }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let bytes = context.data?.assumingMemoryBound(to: UInt8.self) else { return nil }
+        // 位图内存的第一行是图的上边。
+        let offset = y * width * 4 + x * 4
+        return (bytes[offset], bytes[offset + 1], bytes[offset + 2])
     }
 
     private static func makeImage(width: Int = 2, height: Int = 2) -> CGImage? {

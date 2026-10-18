@@ -16,9 +16,6 @@ public struct RelatedVideoUseCase: Sendable {
         }
         let videos = try await repository.relatedVideos(to: bvid)
         try Task.checkCancellation()
-        var seenBVIDs: Set<String> = []
-        return videos.filter { video in
-            video.bvid != bvid && seenBVIDs.insert(video.bvid).inserted
-        }
+        return videos.filter { $0.bvid != bvid }.uniquedByBVID(\.bvid)
     }
 }

@@ -129,8 +129,7 @@ struct TransportSeekOperationState: Sendable {
         currentSeconds: Double,
         durationSeconds: Double,
         generation: UUID,
-        itemIdentity: ObjectIdentifier,
-        makeOperationID: () -> UUID = UUID.init
+        itemIdentity: ObjectIdentifier
     ) -> Operation? {
         guard offsetSeconds.isFinite,
             currentSeconds.isFinite,
@@ -148,7 +147,7 @@ struct TransportSeekOperationState: Sendable {
                 currentSeconds
             }
         let operation = Operation(
-            id: makeOperationID(),
+            id: UUID(),
             generation: generation,
             itemIdentity: itemIdentity,
             targetSeconds: min(max(base + offsetSeconds, 0), durationSeconds)

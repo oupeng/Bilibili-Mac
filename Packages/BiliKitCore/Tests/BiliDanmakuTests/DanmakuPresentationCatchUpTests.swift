@@ -39,7 +39,6 @@ struct DanmakuPresentationCatchUpTests {
         #expect(backend.renderedEventIDs == ["mid-way", "top", "just-entered"])
         #expect(backend.renderedPlacements.map(\.admittedAtSeconds) == [95, 97, 99.5])
         #expect(backend.renderedElapsedSeconds == [5, 3, 0.5])
-        #expect(controller.statistics.droppedCapacity == 0)
     }
 
     /// 纹理准备乱序完成时，补位弹幕仍按时间先后准入，车道按连续播放时的位置计算。
@@ -150,10 +149,10 @@ struct DanmakuPresentationCatchUpTests {
 
         #expect(backend.renderedEventIDs == ["later"])
         #expect(backend.renderedPlacements.map(\.laneIndex) == [0])
-        #expect(controller.statistics.active == 1)
+        #expect(backend.activeEventIDs.count == 1)
     }
 
-    /// 补位候选超过车道能容纳的数量时只准备最新的，其余计为容量丢弃。
+    /// 补位候选超过车道能容纳的数量时只准备最新的，其余不准备也不上屏。
     @Test
     func catchUpPreparesOnlyTheNewestCandidatesTheLanesCanHold() {
         let backend = RecordingRenderingBackend()
@@ -178,7 +177,6 @@ struct DanmakuPresentationCatchUpTests {
         )
 
         #expect(backend.preparationIDs.count == limit)
-        #expect(controller.statistics.droppedCapacity >= 2)
         #expect(!backend.renderedEventIDs.contains("candidate-0"))
         #expect(!backend.renderedEventIDs.contains("candidate-1"))
     }

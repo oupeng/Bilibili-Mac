@@ -104,11 +104,10 @@ public final class BrowseViewModel: AccountRevalidationParticipant {
 
     /// 热门来源的分页大小；激活（`activate(_:)`）与 `PopularFeedView` 按同一请求匹配 presentation。
     ///
-    /// 取 `FeedUseCase` 与 API 客户端允许的上限 50：每页条目最多、近尾翻页次数最少；超过 50
-    /// 会被当作无效请求。
-    public static let popularPageSize = 50
+    /// 取 `FeedUseCase.maximumPopularPageSize`：每页条目最多、近尾翻页次数最少；超过它会被当作无效请求。
+    public static let popularPageSize = FeedUseCase.maximumPopularPageSize
 
-    func activatePopular(page: Int = 1, pageSize: Int = 20) {
+    func activatePopular(page: Int = 1, pageSize: Int) {
         activateWorkset(.popular(page: page, pageSize: pageSize))
     }
 
@@ -123,7 +122,7 @@ public final class BrowseViewModel: AccountRevalidationParticipant {
         activateWorkset(request)
     }
 
-    func refreshPopular(page: Int = 1, pageSize: Int = 20) {
+    func refreshPopular(page: Int = 1, pageSize: Int) {
         refresh(.popular(page: page, pageSize: pageSize))
     }
 

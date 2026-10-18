@@ -1,3 +1,4 @@
+import BiliApplication
 import BiliPlayback
 import Foundation
 import SwiftUI
@@ -50,7 +51,7 @@ struct PlaybackSourceSettingsView: View {
 
             Section("线路测速参考") {
                 Picker("不同样本", selection: benchmarkSampleCount) {
-                    ForEach(AppSettingsModel.supportedBenchmarkSampleCounts, id: \.self) {
+                    ForEach(PlaybackRouteBenchmarkPolicy.supportedSampleCounts, id: \.self) {
                         Text("\($0) 个").tag($0)
                     }
                 }
@@ -100,7 +101,7 @@ struct PlaybackSourceSettingsView: View {
             }
 
             Text(
-                "测速需要登录，Cookie 仅用于 api.bilibili.com 的 playurl 请求，不会发给媒体线路。结果仅存在于当前设置窗口，不会保存、推荐线路或更改手动选择。"
+                "测速需要登录，Cookie 仅用于 api.bilibili.com 的测速样本详情与 playurl 请求，不会发给媒体线路。结果仅存在于当前设置窗口，不会保存、推荐线路或更改手动选择。"
             )
             .font(.footnote)
             .foregroundStyle(.secondary)

@@ -6,7 +6,8 @@ import Foundation
 /// generation 隔离新旧二维码，poll ID 隔离同一二维码的并发轮询；取消或未知协议状态会
 /// 失败关闭并清除临时秘密。成功响应仍须登录态验证后才能写入 Keychain。
 public actor WebQRLoginSession {
-    public static let productionBaseURL: URL = {
+    /// QR 生成与轮询唯一连接的来源，见 SECURITY-MODEL §2。
+    private static let baseURL: URL = {
         guard let url = URL(string: "https://passport.bilibili.com") else {
             preconditionFailure("Static Web QR base URL must be valid")
         }
@@ -18,7 +19,6 @@ public actor WebQRLoginSession {
     public private(set) var state: WebQRLoginState = .signedOut
 
     private let httpClient: HTTPClient
-    private let baseURL: URL
     private let credentialStore: any WebCredentialStoring
     private let transportInvalidator: (@Sendable () -> Void)?
     private let decoder = JSONDecoder()
@@ -33,18 +33,16 @@ public actor WebQRLoginSession {
     public init() {
         let transport = AuthenticationHTTP.makeProductionTransport()
         httpClient = HTTPClient(transport: transport)
-        baseURL = Self.productionBaseURL
         credentialStore = KeychainWebCredentialStore()
         transportInvalidator = { transport.invalidateAndCancel() }
     }
 
+    /// 网络与 Keychain 两个系统边界；`init()` 由此接入认证专用 session 与 Keychain store。
     init(
         transport: any HTTPTransport,
-        baseURL: URL = WebQRLoginSession.productionBaseURL,
-        credentialStore: any WebCredentialStoring = KeychainWebCredentialStore()
+        credentialStore: any WebCredentialStoring
     ) {
         httpClient = HTTPClient(transport: transport)
-        self.baseURL = baseURL
         self.credentialStore = credentialStore
         if let invalidating = transport as? any HTTPTransportInvalidating {
             transportInvalidator = { invalidating.invalidateAndCancel() }
@@ -293,7 +291,7 @@ public actor WebQRLoginSession {
     ) throws -> URL {
         guard
             var components = URLComponents(
-                url: baseURL,
+                url: Self.baseURL,
                 resolvingAgainstBaseURL: false
             )
         else {
@@ -364,7 +362,7 @@ public actor WebQRLoginSession {
         let allowedNames = Set(WebCredentialCookieName.allCases.map(\.rawValue))
         let cookies = HTTPCookie.cookies(
             withResponseHeaderFields: response.headers,
-            for: productionBaseURL
+            for: baseURL
         ).filter { allowedNames.contains($0.name) }
         guard cookies.count == allowedNames.count,
             Set(cookies.map(\.name)) == allowedNames

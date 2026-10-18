@@ -4,30 +4,10 @@ import Testing
 
 @testable import BiliAPI
 
+/// 评论外链与短链回退：只有通过公开 HTTPS 复核的地址原样交给浏览器。
 @Suite("Comment link resolver")
 struct CommentLinkResolverTests {
     private let resolver = BiliCommentLinkResolver()
-
-    @Test
-    func resolvesPositiveMemberIDsToThePublicSpacePage() throws {
-        let url = try #require(
-            resolver.externalURL(
-                for: .member(CommentAuthor(id: CommentAuthorID(rawValue: "123456"), name: "用户"))
-            )
-        )
-
-        #expect(url.absoluteString == "https://space.bilibili.com/123456")
-    }
-
-    /// 空间链接只在没有空间功能时回退到网页，地址与 @ 成员相同。
-    @Test
-    func spaceLinksFallBackToTheSamePublicSpacePage() {
-        #expect(
-            resolver.externalURL(for: .space(memberID: 123456))?.absoluteString
-                == "https://space.bilibili.com/123456"
-        )
-        #expect(resolver.externalURL(for: .space(memberID: 0)) == nil)
-    }
 
     /// 短链解析不出时的回退：原短链经同一公开 HTTPS 复核后交给浏览器。
     @Test
@@ -35,18 +15,8 @@ struct CommentLinkResolverTests {
         let url = try #require(URL(string: "https://b23.tv/AbCd123"))
 
         #expect(
-            resolver.externalURL(for: .shortLink(CommentExternalLinkReference(remoteURL: url)))
+            resolver.externalURL(for: CommentExternalLinkReference(remoteURL: url))
                 == url
-        )
-        #expect(resolver.externalURL(for: .shortLink(CommentExternalLinkReference())) == nil)
-    }
-
-    @Test(arguments: ["", "0", "-1", "abc", "１２３", "999999999999999999999999"])
-    func rejectsInvalidMemberIDs(_ value: String) {
-        #expect(
-            resolver.externalURL(
-                for: .member(CommentAuthor(id: CommentAuthorID(rawValue: value), name: "用户"))
-            ) == nil
         )
     }
 
@@ -57,7 +27,7 @@ struct CommentLinkResolverTests {
         )
         let reference = CommentExternalLinkReference(remoteURL: url)
 
-        #expect(resolver.externalURL(for: .external(reference)) == url)
+        #expect(resolver.externalURL(for: reference) == url)
     }
 
     @Test(
@@ -78,14 +48,6 @@ struct CommentLinkResolverTests {
         let url = try #require(URL(string: value))
         let reference = CommentExternalLinkReference(remoteURL: url)
 
-        #expect(resolver.externalURL(for: .external(reference)) == nil)
-    }
-
-    @Test
-    func leavesVideoLinksForInAppNavigation() {
-        #expect(
-            resolver.externalURL(for: .video(bvid: "BV1FixtureA1", page: nil, startSeconds: nil))
-                == nil
-        )
+        #expect(resolver.externalURL(for: reference) == nil)
     }
 }

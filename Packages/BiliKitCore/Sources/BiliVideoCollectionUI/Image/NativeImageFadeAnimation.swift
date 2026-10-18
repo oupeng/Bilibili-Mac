@@ -1,5 +1,19 @@
 import AppKit
 import QuartzCore
+import SwiftUI
+
+/// SwiftUI 一侧新到图片的淡入：评论图片预览与 App 侧栏账号头像共用，时长与 AppKit 侧的
+/// `NativeImageFadeAnimation` 相同，观感一致。
+///
+/// 只给出动画，调用方用它包住写入新图的状态变更；`reduceMotion` 取调用方视图的
+/// `accessibilityReduceMotion` 环境值。`public` 是因为 App 的侧栏账号头像也用它。
+public enum NativeImageFadeTransition {
+    /// 需要淡入且没开「减少动态效果」时为 ease-out 淡入，否则为 nil（直接显示）。
+    @MainActor
+    public static func animation(fadesIn: Bool, reduceMotion: Bool) -> Animation? {
+        fadesIn && !reduceMotion ? .easeOut(duration: NativeImageFadeAnimation.duration) : nil
+    }
+}
 
 /// 新到图片的淡入动画核心：卡片封面与头像（`NativeVideoImageFade`）、评论头像与评论图片格子共用，观感一致。
 ///
@@ -11,7 +25,7 @@ import QuartzCore
 package final class NativeImageFadeAnimation {
     /// 淡入时长：够看出新图到达，又短到快速滚动时不拖尾。
     ///
-    /// 评论图片预览的 SwiftUI 过渡沿用同一时长。
+    /// SwiftUI 一侧的 `NativeImageFadeTransition` 沿用同一时长。
     package static let duration: CFTimeInterval = 0.15
 
     private let key: String

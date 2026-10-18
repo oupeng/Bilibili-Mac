@@ -86,20 +86,6 @@ public struct BiliContentRepository: FeedRepository, VideoRepository,
         }
     }
 
-    public func playback(
-        for bvid: String,
-        cid: Int64,
-        quality: Int
-    ) async throws -> VideoPlayback {
-        try await mapError {
-            try await client.playback(
-                for: bvid,
-                cid: cid,
-                quality: quality
-            )
-        }
-    }
-
     private func mapError<Value: Sendable>(
         _ operation: @Sendable () async throws -> Value
     ) async throws -> Value {

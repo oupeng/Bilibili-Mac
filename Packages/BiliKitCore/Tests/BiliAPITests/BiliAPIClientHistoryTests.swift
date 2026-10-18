@@ -84,7 +84,7 @@ struct BiliAPIClientHistoryTests {
     }
 
     @Test
-    func historyAcceptsDefaultAndMaximumPageSizeAndRejectsOutOfRangeBeforeTransport()
+    func historyAcceptsMinimumAndMaximumPageSizeAndRejectsOutOfRangeBeforeTransport()
         async throws
     {
         let transport = StubTransport(
@@ -98,12 +98,12 @@ struct BiliAPIClientHistoryTests {
             requestAuthorizer: StubAuthorizer()
         )
 
-        _ = try await client.watchHistory()
+        _ = try await client.watchHistory(pageSize: 1)
         _ = try await client.watchHistory(pageSize: 30)
 
         let validRequests = transport.capturedRequests()
         #expect(validRequests.count == 2)
-        let defaultQuery = URLComponents(
+        let minimumQuery = URLComponents(
             url: validRequests[0].url,
             resolvingAgainstBaseURL: false
         )?.queryItems
@@ -111,7 +111,7 @@ struct BiliAPIClientHistoryTests {
             url: validRequests[1].url,
             resolvingAgainstBaseURL: false
         )?.queryItems
-        #expect(defaultQuery?.contains(URLQueryItem(name: "ps", value: "20")) == true)
+        #expect(minimumQuery?.contains(URLQueryItem(name: "ps", value: "1")) == true)
         #expect(maximumQuery?.contains(URLQueryItem(name: "ps", value: "30")) == true)
 
         for pageSize in [31, 0, -1] {

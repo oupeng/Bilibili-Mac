@@ -45,7 +45,7 @@ struct PlaybackManifestTests {
 
         let manifest = PlaybackManifest(
             videoRepresentations: [],
-            originalAudioRepresentations: [low, high]
+            audioTracks: [.original(representations: [low, high], loudnessMetadata: nil)]
         )
 
         let track = try #require(manifest.audioTracks.first)
@@ -57,16 +57,6 @@ struct PlaybackManifestTests {
         #expect(track.isDefault)
         #expect(track.isAutoselect)
         #expect(track.representations == [low, high])
-    }
-
-    @Test
-    func emptyOriginalRepresentationsProduceNoSyntheticTrack() {
-        let manifest = PlaybackManifest(
-            videoRepresentations: [],
-            originalAudioRepresentations: []
-        )
-
-        #expect(manifest.audioTracks.isEmpty)
     }
 
     @Test

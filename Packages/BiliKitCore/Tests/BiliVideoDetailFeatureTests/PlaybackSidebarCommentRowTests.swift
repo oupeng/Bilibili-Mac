@@ -156,13 +156,13 @@ struct PlaybackSidebarCommentRowTests: PlaybackSidebarFixtures {
     @MainActor
     func commentPictureLayoutMatchesTheBoundedOfficialWebFlow() {
         let portrait = CommentImage(
-            asset: CommentAssetReference(),
+            asset: fixtureAssetReference(),
             position: 0,
             pixelWidth: 270,
             pixelHeight: 360
         )
         let landscape = CommentImage(
-            asset: CommentAssetReference(),
+            asset: fixtureAssetReference(),
             position: 1,
             pixelWidth: 446,
             pixelHeight: 270
@@ -186,8 +186,8 @@ struct PlaybackSidebarCommentRowTests: PlaybackSidebarFixtures {
     @Test
     @MainActor
     func commentPicturesOpenAMetadataDrivenGalleryAndSkipStaleFocusRestore() throws {
-        let first = CommentAssetReference()
-        let third = CommentAssetReference()
+        let first = fixtureAssetReference()
+        let third = fixtureAssetReference()
         let pictures = [
             CommentImage(
                 asset: first,
@@ -274,7 +274,7 @@ struct PlaybackSidebarCommentRowTests: PlaybackSidebarFixtures {
         let fallbackResponder = NSButton()
         item.view.addSubview(fallbackResponder)
         focusWindow.contentView = item.view
-        let replacement = CommentAssetReference()
+        let replacement = fixtureAssetReference()
         let replacementRow = NativePlaybackCommentThreadPresentation(
             subject: .video(aid: 700_001),
             thread: commentThread(
@@ -472,7 +472,7 @@ struct PlaybackSidebarCommentRowTests: PlaybackSidebarFixtures {
     /// 进入空间的身份：正整数 MID、评论昵称，头像经评论资源解析器取得。
     @Test
     func commentAuthorSpaceOwnerUsesMemberIDAndResolvedAvatar() throws {
-        let avatar = CommentAssetReference()
+        let avatar = fixtureAssetReference()
         let avatarURL = try #require(URL(string: "https://i0.hdslb.com/bfs/face/a.jpg"))
         let resolver: CommentAssetURLResolver = { reference, _ in
             reference == avatar ? avatarURL : nil

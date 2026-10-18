@@ -43,16 +43,16 @@ struct CommentLinkRouting: Sendable {
         case .member(let user):
             // 播放侧栏已把 @ 提及直接打开为空间；经这里的同样进空间，非正整数 MID 没有去向。
             return user.id.memberID.map { .space(memberID: $0) }
-        case .external:
-            return linkResolver.externalURL(for: target).map(CommentLinkRoute.web)
-        case .shortLink:
+        case .external(let reference):
+            return linkResolver.externalURL(for: reference).map(CommentLinkRoute.web)
+        case .shortLink(let reference):
             let routing = self
             return .shortLink(
                 resolve: {
                     // 解析结果不会再是短链；其余目标与正文里的链接走同一翻译。
                     await shortLinkResolver.resolve(target).flatMap(routing.route(for:))
                 },
-                webFallback: linkResolver.externalURL(for: target)
+                webFallback: linkResolver.externalURL(for: reference)
             )
         }
     }

@@ -79,7 +79,6 @@ struct NativePlaybackCommentThreadPresentation: Equatable {
             hasher.combine(details.location)
             hasher.combine(details.likeCount)
             hasher.combine(details.replyCount)
-            hasher.combine(details.visibility)
             hasher.combine(details.provenance)
         }
     }

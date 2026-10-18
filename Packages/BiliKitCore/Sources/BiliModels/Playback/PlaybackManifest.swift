@@ -194,6 +194,27 @@ public struct PlaybackAudioTrack: Sendable, Equatable, Identifiable {
         self.loudnessMetadata = loudnessMetadata
         self.representations = representations
     }
+
+    /// 默认原声音轨的显示名；AI 配音的显示名不得与它重复。
+    public static let originalDisplayName = "原声"
+
+    /// 默认原声音轨的唯一构造处，BiliAPI 的 playurl 映射经它组装清单。
+    ///
+    /// 原声同时是默认与自动选择、不带语言标记，满足播放桥对原声音轨的要求。
+    public static func original(
+        representations: [MediaRepresentation],
+        loudnessMetadata: PlaybackLoudnessMetadata?
+    ) -> PlaybackAudioTrack {
+        PlaybackAudioTrack(
+            id: "original",
+            displayName: originalDisplayName,
+            role: .original,
+            isDefault: true,
+            isAutoselect: true,
+            loudnessMetadata: loudnessMetadata,
+            representations: representations
+        )
+    }
 }
 
 /// DASH 播放所需的视频表示与语义音轨，由 `BiliAPIClient` 的 playurl 映射组装，`DASHToHLSBridge`
@@ -211,27 +232,6 @@ public struct PlaybackManifest: Sendable, Equatable {
     ) {
         self.videoRepresentations = videoRepresentations
         self.audioTracks = audioTracks
-    }
-
-    /// 把一组 DASH 音频表示包装成唯一的默认原声音轨；空输入得到空音轨列表，表示缺少可播放音频。
-    public init(
-        videoRepresentations: [MediaRepresentation],
-        originalAudioRepresentations: [MediaRepresentation]
-    ) {
-        self.videoRepresentations = videoRepresentations
-        audioTracks =
-            originalAudioRepresentations.isEmpty
-            ? []
-            : [
-                PlaybackAudioTrack(
-                    id: "original",
-                    displayName: "原声",
-                    role: .original,
-                    isDefault: true,
-                    isAutoselect: true,
-                    representations: originalAudioRepresentations
-                )
-            ]
     }
 }
 

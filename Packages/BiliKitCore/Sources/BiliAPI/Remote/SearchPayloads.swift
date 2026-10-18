@@ -1,4 +1,5 @@
 import BiliModels
+import BiliNetworking
 import Foundation
 
 /// 视频搜索（`/x/web-interface/wbi/search/type`）的 `data`，由 `BiliAPIClient.searchVideos` 映射为

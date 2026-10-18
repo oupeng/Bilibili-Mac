@@ -3753,34 +3753,6 @@
         }
       }
     },
-    "该评论已删除" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This comment was deleted"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このコメントは削除されました"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "该评论已删除"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "這則評論已刪除"
-          }
-        }
-      }
-    },
     "该评论已折叠" : {
       "localizations" : {
         "en" : {

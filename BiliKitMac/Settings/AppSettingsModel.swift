@@ -1,4 +1,5 @@
 import BiliAPI
+import BiliApplication
 import BiliPlayback
 import Foundation
 import Observation
@@ -80,9 +81,6 @@ enum PlaybackRouteBenchmarkOperationError: Error {
 @MainActor
 @Observable
 final class AppSettingsModel {
-    /// 一次测速可选的样本数；流量上限随样本数线性增长（`maximumTrafficBytes`），上限 3
-    /// 限制了单次测速的最大流量。
-    static let supportedBenchmarkSampleCounts = 1...3
     typealias Discover = @Sendable (Int) async throws -> [PlaybackRouteBenchmarkSample]
     typealias ResetDiscovery = @Sendable () async -> Void
     typealias Run =
@@ -92,7 +90,7 @@ final class AppSettingsModel {
         ) async throws -> [PlaybackRouteMeasurement]
 
     private(set) var state: PlaybackRouteBenchmarkState = .notTested
-    private(set) var benchmarkAccess: PlaybackRouteBenchmarkAccess
+    private(set) var benchmarkAccess: PlaybackRouteBenchmarkAccess = .resolving
     private(set) var record: PlaybackSourcePreferenceRecord
     private(set) var measurements: [PlaybackRouteMeasurement] = []
     private(set) var benchmarkSampleCount = 1
@@ -108,19 +106,19 @@ final class AppSettingsModel {
     /// 各主窗口报告的测速权限，键是窗口的 `benchmarkAuthenticationOwnerID`，关窗时注销。
     ///
     /// 按最保守的结果汇总：任一窗口未登录（含正在登出）即不允许测速，否则任一窗口已登录即允许，
-    /// 其余为确认中。
+    /// 其余（含还没有窗口报告）为确认中。
     @ObservationIgnored private var authenticationAccessByOwner:
         [UUID: PlaybackRouteBenchmarkAccess] = [:]
 
+    /// `discover`、`resetDiscovery` 与 `run` 是样本发现与测速的网络边界，由 `ProcessComposition`
+    /// 接到测速 API client 与 `BilivideoRouteBenchmark`。
     init(
         store: any PlaybackSourcePreferenceStoring,
-        benchmarkAccess: PlaybackRouteBenchmarkAccess = .signedIn,
         discover: @escaping Discover,
-        resetDiscovery: @escaping ResetDiscovery = {},
+        resetDiscovery: @escaping ResetDiscovery,
         run: @escaping Run
     ) {
         self.store = store
-        self.benchmarkAccess = benchmarkAccess
         self.discover = discover
         self.resetDiscovery = resetDiscovery
         self.run = run
@@ -130,10 +128,6 @@ final class AppSettingsModel {
     deinit {
         task?.cancel()
         discoveryResetTask?.cancel()
-    }
-
-    func synchronizeAuthentication(_ access: PlaybackRouteBenchmarkAccess) {
-        synchronizeAuthentication(access, ownerID: Self.unscopedAuthenticationOwnerID)
     }
 
     func synchronizeAuthentication(
@@ -148,8 +142,6 @@ final class AppSettingsModel {
         authenticationAccessByOwner[ownerID] = nil
         applyAuthenticationAccess()
     }
-
-    private static let unscopedAuthenticationOwnerID = UUID()
 
     private func applyAuthenticationAccess() {
         let access: PlaybackRouteBenchmarkAccess
@@ -200,14 +192,14 @@ final class AppSettingsModel {
 
     func setBenchmarkSampleCount(_ value: Int) {
         guard !state.isRunning,
-            Self.supportedBenchmarkSampleCounts.contains(value)
+            PlaybackRouteBenchmarkPolicy.supportedSampleCounts.contains(value)
         else { return }
         benchmarkSampleCount = value
     }
 
     /// 一次测速的流量上限，设置界面据此显示“最多约 N MiB”；样本数不在支持范围内时返回 nil。
     static func maximumTrafficBytes(repetitions: Int) -> UInt64? {
-        guard Self.supportedBenchmarkSampleCounts.contains(repetitions) else {
+        guard PlaybackRouteBenchmarkPolicy.supportedSampleCounts.contains(repetitions) else {
             return nil
         }
         let targetCount = UInt64(PlaybackRouteTarget.allCases.count)

@@ -10,8 +10,8 @@ struct NavigationAuthenticationEnvelope: Decodable, Sendable {
 
 /// nav 的 `data`：只解码 `isLogin` 与显示用的 MID、昵称、头像。
 ///
-/// 身份字段缺失或不合法时仍算已登录，只是没有身份投影；头像地址升级为 HTTPS 并须通过公共 HTTPS
-/// 基线。
+/// 身份字段缺失或不合法时仍算已登录，只是没有身份投影；头像地址经 BiliNetworking 的 `WebImageURL`
+/// 升级为 HTTPS 并须通过公共 HTTPS 基线，不合规时只丢头像。
 struct NavigationAuthenticationPayload: Decodable, Sendable {
     let isLogin: Bool
     private let mid: Int64?
@@ -44,27 +44,9 @@ struct NavigationAuthenticationPayload: Decodable, Sendable {
             AccountIdentity(
                 id: mid,
                 displayName: displayName,
-                avatarURL: Self.imageURL(from: face)
+                avatarURL: face.flatMap(WebImageURL.parse)
             )
         )
-    }
-
-    private static func imageURL(from value: String?) -> URL? {
-        guard let value, !value.isEmpty else { return nil }
-        let normalized: String
-        if value.hasPrefix("//") {
-            normalized = "https:\(value)"
-        } else if value.lowercased().hasPrefix("http://") {
-            normalized = "https://" + value.dropFirst("http://".count)
-        } else {
-            normalized = value
-        }
-        guard let url = URL(string: normalized),
-            PublicHTTPSURLPolicy().allows(url)
-        else {
-            return nil
-        }
-        return url
     }
 }
 

@@ -15,7 +15,12 @@ public struct DanmakuLaneConfiguration: Sendable, Equatable {
     /// 但合成与内存开销随之上升；调小则高峰期更早以容量不足丢弃。
     public static let hardMaximumActiveCount = 640
 
-    /// 产品默认配置：36pt 车道基元、普通密度的水平间距、不叠放、整个画面都是显示区域。
+    /// 产品的车道基元高度（point），与最大字号同为 36；更高的纹理占用连续多条车道。
+    ///
+    /// 调大同屏行数变少，调小则更多弹幕跨多条车道。
+    public static let productionLaneHeight = 36.0
+
+    /// 产品默认配置：`productionLaneHeight` 车道基元、普通密度的水平间距、不叠放、整个画面都是显示区域。
     ///
     /// 初始尺寸可以为 0，surface 布局后由呈现控制器更新；显示区域与密度由用户偏好经呈现控制器覆盖。
     public static func production(
@@ -25,7 +30,7 @@ public struct DanmakuLaneConfiguration: Sendable, Equatable {
         Self(
             surfaceWidth: surfaceWidth,
             surfaceHeight: surfaceHeight,
-            laneHeight: 36,
+            laneHeight: productionLaneHeight,
             minimumHorizontalGap: DanmakuDensityAdmissionPolicy(.default).minimumHorizontalGap,
             maximumActiveCount: hardMaximumActiveCount,
             displayAreaFraction: 1
@@ -162,30 +167,10 @@ public enum DanmakuLaneDropReason: Error, Sendable, Equatable {
     case invalidRequest
 }
 
-/// 一次准入中按原因累计的丢弃数。
-public struct DanmakuLaneDropCounts: Sendable, Equatable {
-    public private(set) var capacity = 0
-    public private(set) var noLane = 0
-    public private(set) var invalidRequest = 0
-
-    public init() {}
-
-    public var total: Int { capacity + noLane + invalidRequest }
-
-    mutating func record(_ reason: DanmakuLaneDropReason) {
-        switch reason {
-        case .capacity: capacity += 1
-        case .noLane: noLane += 1
-        case .invalidRequest: invalidRequest += 1
-        }
-    }
-}
-
-/// 一次 `admit` 的结果：本次到期回收的 placement、新准入的 placement 与丢弃计数。
+/// 一次 `admit` 的结果：本次到期回收的 placement 与新准入的 placement；没准入的请求直接丢弃，不排队。
 ///
 /// `expired` 已从 allocator 移除，调用方负责移除对应的 layer。
 public struct DanmakuLaneAdmission: Sendable, Equatable {
     public let expired: [DanmakuLanePlacement]
     public let admitted: [DanmakuLanePlacement]
-    public let dropCounts: DanmakuLaneDropCounts
 }

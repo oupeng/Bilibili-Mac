@@ -5,11 +5,14 @@ import Foundation
 
 /// 首页推荐、热门与搜索，以及线路测速用的匿名近期投稿发现。
 extension BiliAPIClient {
+    /// 近期投稿列表一页最多读取的条数；只供线路测速的样本发现，保持元数据读取有界。
+    static let maximumRecentSubmissionPageSize = 5
+
     public func popular(
-        page: Int = 1,
-        pageSize: Int = 20
+        page: Int,
+        pageSize: Int
     ) async throws -> PopularPage {
-        guard page > 0, (1...50).contains(pageSize) else {
+        guard page > 0, (1...FeedUseCase.maximumPopularPageSize).contains(pageSize) else {
             throw BiliAPIError.invalidRequest
         }
         let payload: PopularPayload = try await get(
@@ -39,7 +42,7 @@ extension BiliAPIClient {
         dateFrom: String,
         dateTo: String
     ) async throws -> [RecentRankSubmissionPayload] {
-        guard regionID > 0, (1...5).contains(pageSize),
+        guard regionID > 0, (1...Self.maximumRecentSubmissionPageSize).contains(pageSize),
             dateFrom.count == 8, dateFrom.allSatisfy(\.isNumber),
             dateTo.count == 8, dateTo.allSatisfy(\.isNumber),
             dateFrom <= dateTo

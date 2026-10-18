@@ -105,7 +105,7 @@ struct CommentRemoteLinkTests {
             Issue.record("合规的 b23.tv 地址应识别为短链")
             return
         }
-        let url = try #require(reference.remoteURL)
+        let url = reference.remoteURL
         #expect(CommentRemoteLink.shortLinkRequestURL(url)?.absoluteString == requestURL)
     }
 
@@ -186,7 +186,7 @@ struct CommentRemoteLinkTests {
             Issue.record("键为 b23.tv 网址、pc_url 为空时应识别为短链")
             return
         }
-        #expect(reference.remoteURL?.absoluteString == short)
+        #expect(reference.remoteURL.absoluteString == short)
         #expect(targets.last == .video(bvid: "BV1xx411c7mD", page: nil, startSeconds: nil))
     }
 
@@ -220,7 +220,7 @@ struct CommentRemoteLinkTests {
         #expect(links.map(\.range.location) == [0, 23, 26, 49])
         #expect(links.first?.title == "韩语版《朋友的酒》")
         #expect(
-            links.first?.icon?.remoteURL?.absoluteString
+            links.first?.icon?.remoteURL.absoluteString
                 == "https://i0.hdslb.com/bfs/activity-plat/static/icon.png"
         )
         #expect(links.dropFirst().allSatisfy { $0.title == nil && $0.icon == nil })

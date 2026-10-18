@@ -77,7 +77,6 @@ final class ProcessComposition {
         let benchmark = BilivideoRouteBenchmark()
         return AppSettingsModel(
             store: UserDefaultsPlaybackSourcePreferenceStore(),
-            benchmarkAccess: .resolving,
             discover: { targetCount in
                 do {
                     return try await discoverer.discover(targetCount: targetCount).map {

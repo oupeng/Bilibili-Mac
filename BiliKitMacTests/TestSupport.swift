@@ -224,9 +224,11 @@ struct VideoFixture: Sendable {
 
     var playback: VideoPlayback {
         VideoPlayback(
-            manifest: PlaybackManifest(
-                videoRepresentations: [],
-                originalAudioRepresentations: []
+            media: .dash(
+                PlaybackManifest(
+                    videoRepresentations: [],
+                    audioTracks: []
+                )
             ),
             mediaHeaders: [:]
         )
@@ -522,6 +524,7 @@ func makeTestProcess() -> ProcessComposition {
         settings: AppSettingsModel(
             store: MemoryPlaybackSourcePreferenceStore(),
             discover: { _ in [] },
+            resetDiscovery: {},
             run: { _, _ in [] }
         ),
         nowPlaying: SystemNowPlayingController(
@@ -530,7 +533,7 @@ func makeTestProcess() -> ProcessComposition {
             artworkLoader: { _ in nil }
         ),
         searchHistory: SearchHistoryStore(defaults: defaults),
-        updater: AppUpdater(info: [:])
+        updater: AppUpdater()
     )
 }
 

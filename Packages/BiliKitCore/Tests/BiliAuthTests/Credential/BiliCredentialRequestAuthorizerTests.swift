@@ -21,7 +21,8 @@ struct BiliCredentialRequestAuthorizerTests {
         let credential = try makeFixtureCredential()
         let authorizer = BiliCredentialRequestAuthorizer(
             store: MemoryWebCredentialStore(credential: credential),
-            allowedPaths: allowedPaths
+            allowedPaths: allowedPaths,
+            transport: RecordingAuthTransport()
         )
         for path in allowedPaths {
             let request = HTTPRequest(
@@ -48,11 +49,13 @@ struct BiliCredentialRequestAuthorizerTests {
         let store = MemoryWebCredentialStore(credential: try makeFixtureCredential())
         let validationAuthorizer = BiliCredentialRequestAuthorizer(
             store: store,
-            allowedPaths: fixtureNavigationAllowedPaths
+            allowedPaths: fixtureNavigationAllowedPaths,
+            transport: RecordingAuthTransport()
         )
         let apiAuthorizer = BiliCredentialRequestAuthorizer(
             store: store,
-            allowedPaths: fixturePlaybackAllowedPaths
+            allowedPaths: fixturePlaybackAllowedPaths,
+            transport: RecordingAuthTransport()
         )
         let navigationRequest = HTTPRequest(
             url: try #require(
@@ -98,7 +101,8 @@ struct BiliCredentialRequestAuthorizerTests {
     func rejectsNonAPIReadCapabilities(urlString: String, method: HTTPMethod) async throws {
         let authorizer = BiliCredentialRequestAuthorizer(
             store: MemoryWebCredentialStore(credential: try makeFixtureCredential()),
-            allowedPaths: fixturePlaybackAllowedPaths
+            allowedPaths: fixturePlaybackAllowedPaths,
+            transport: RecordingAuthTransport()
         )
         let request = HTTPRequest(
             url: try #require(URL(string: urlString)),
@@ -114,7 +118,8 @@ struct BiliCredentialRequestAuthorizerTests {
     func rejectsPreexistingCredentialHeadersCaseInsensitively(header: String) async throws {
         let authorizer = BiliCredentialRequestAuthorizer(
             store: MemoryWebCredentialStore(credential: try makeFixtureCredential()),
-            allowedPaths: fixtureNavigationAllowedPaths
+            allowedPaths: fixtureNavigationAllowedPaths,
+            transport: RecordingAuthTransport()
         )
         let request = HTTPRequest(
             url: try #require(
@@ -134,7 +139,8 @@ struct BiliCredentialRequestAuthorizerTests {
     func missingCredentialFailsWithoutChangingRequest() async throws {
         let authorizer = BiliCredentialRequestAuthorizer(
             store: MemoryWebCredentialStore(),
-            allowedPaths: fixtureNavigationAllowedPaths
+            allowedPaths: fixtureNavigationAllowedPaths,
+            transport: RecordingAuthTransport()
         )
         let request = HTTPRequest(
             url: try #require(
@@ -157,7 +163,8 @@ struct BiliCredentialRequestAuthorizerTests {
         )
         let expiredAuthorizer = BiliCredentialRequestAuthorizer(
             store: expiredStore,
-            allowedPaths: fixtureNavigationAllowedPaths
+            allowedPaths: fixtureNavigationAllowedPaths,
+            transport: RecordingAuthTransport()
         )
 
         await #expect(throws: BiliRequestAuthorizationError.expiredCredential) {
@@ -170,7 +177,8 @@ struct BiliCredentialRequestAuthorizerTests {
         )
         let corruptAuthorizer = BiliCredentialRequestAuthorizer(
             store: corruptStore,
-            allowedPaths: fixtureNavigationAllowedPaths
+            allowedPaths: fixtureNavigationAllowedPaths,
+            transport: RecordingAuthTransport()
         )
         await #expect(throws: BiliRequestAuthorizationError.invalidCredential) {
             try await corruptAuthorizer.authorize(HTTPRequest(url: endpoint))
@@ -183,7 +191,8 @@ struct BiliCredentialRequestAuthorizerTests {
         )
         let deletionFailureAuthorizer = BiliCredentialRequestAuthorizer(
             store: deletionFailure,
-            allowedPaths: fixtureNavigationAllowedPaths
+            allowedPaths: fixtureNavigationAllowedPaths,
+            transport: RecordingAuthTransport()
         )
         await #expect(
             throws: BiliRequestAuthorizationError.credentialStoreUnavailable
@@ -210,6 +219,7 @@ struct BiliCredentialRequestAuthorizerTests {
         let authorizer = BiliCredentialRequestAuthorizer(
             store: store,
             allowedPaths: fixtureNavigationAllowedPaths,
+            transport: RecordingAuthTransport(),
             isConfirmedSignedOut: { isConfirmedSignedOut }
         )
 

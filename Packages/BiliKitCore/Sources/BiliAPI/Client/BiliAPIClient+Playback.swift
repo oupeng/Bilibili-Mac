@@ -18,6 +18,9 @@ extension BiliAPIClient {
         "gaia_source": "pre-load",
         "isGaiaAvoided": "true"
     ]
+    /// playurl 请求的清晰度 `qn`：120 是 4K 档，服务端按账户权限与稿件实际档位返回不高于它的全部
+    /// DASH 档位，播放器再自适应选择；较早视频只有 FLV 时按不高于它的最高 MP4 重取一次。
+    static let requestedPlaybackQuality = 120
     /// 只用于本地无凭据的匿名请求：`try_look=1` 让游客可取得 720P/1080P。
     private static let guestPlayURLParameters = ["try_look": "1"]
     private static let riskControlInteractionParameter = #"{"ds":[],"wh":[0,0,0],"of":[0,0,0]}"#
@@ -51,12 +54,12 @@ extension BiliAPIClient {
     /// 取得 AVC/AAC DASH 清单；仅 playurl 可按本地凭据状态选择精确授权或匿名请求。
     public func playback(
         for bvid: String,
-        cid: Int64,
-        quality: Int = 120
+        cid: Int64
     ) async throws -> VideoPlayback {
-        guard Self.isValidBVID(bvid), cid > 0, quality > 0 else {
+        guard Self.isValidBVID(bvid), cid > 0 else {
             throw BiliAPIError.invalidRequest
         }
+        let quality = Self.requestedPlaybackQuality
         // 进入时记录认证 epoch：带凭据得到的 playurl、续播位置与 AI 配音在使用前都与它比对，
         // 不一致抛 `CancellationError`，不把两个会话的结果拼进同一次播放。
         let playbackSessionEpoch = authenticatedSessionEpoch
@@ -156,10 +159,9 @@ extension BiliAPIClient {
     /// 测速样本必须来自当前账户可消费的 playurl；没有凭据时失败而不匿名降级。
     func authenticatedPlaybackForCDNBenchmark(
         for bvid: String,
-        cid: Int64,
-        quality: Int = 120
+        cid: Int64
     ) async throws -> CDNBenchmarkPlayback {
-        guard Self.isValidBVID(bvid), cid > 0, quality > 0 else {
+        guard Self.isValidBVID(bvid), cid > 0 else {
             throw BiliAPIError.invalidRequest
         }
         let playbackSessionEpoch = authenticatedSessionEpoch
@@ -167,7 +169,7 @@ extension BiliAPIClient {
             try await signedPlayURL(
                 bvid: bvid,
                 cid: cid,
-                quality: quality,
+                quality: Self.requestedPlaybackQuality,
                 parameters: [:],
                 access: .accountRead(missingCredential: .fail)
             )
@@ -234,14 +236,9 @@ extension BiliAPIClient {
         guard !audio.isEmpty else { throw BiliAPIError.noAACAudio }
 
         var audioTracks = [
-            PlaybackAudioTrack(
-                id: "original",
-                displayName: "原声",
-                role: .original,
-                isDefault: true,
-                isAutoselect: true,
-                loudnessMetadata: payload.volume?.model,
-                representations: audio
+            PlaybackAudioTrack.original(
+                representations: audio,
+                loudnessMetadata: payload.volume?.model
             )
         ]
         if authorizationProvenance == .authenticated {
@@ -290,7 +287,7 @@ extension BiliAPIClient {
         let items = catalog?.validatedMachineGeneratedItems() ?? []
         guard !items.isEmpty else { return [] }
         var usedPaths = Self.mediaResourcePaths(originalAudio)
-        var displayNames: Set<String> = ["原声"]
+        var displayNames: Set<String> = [PlaybackAudioTrack.originalDisplayName]
         var tracks: [PlaybackAudioTrack] = []
         tracks.reserveCapacity(items.count)
         for item in items {

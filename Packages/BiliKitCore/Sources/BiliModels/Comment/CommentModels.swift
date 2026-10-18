@@ -82,24 +82,10 @@ public struct CommentAssetPixelBox: Sendable, Equatable, Hashable {
 /// `BiliCommentAssetResolver` 解析时才执行 `BiliBFSImageURLPolicy`（见 SECURITY-MODEL §4），
 /// Feature 不得绕过解析器直接读取 `remoteURL`。
 public struct CommentAssetReference: Sendable, Equatable, Hashable {
-    private enum Storage: Sendable, Equatable, Hashable {
-        case opaque(UUID)
-        case remote(URL)
-    }
-
-    private let storage: Storage
-
-    package var remoteURL: URL? {
-        guard case .remote(let url) = storage else { return nil }
-        return url
-    }
-
-    public init() {
-        storage = .opaque(UUID())
-    }
+    package let remoteURL: URL
 
     package init(remoteURL: URL) {
-        storage = .remote(remoteURL)
+        self.remoteURL = remoteURL
     }
 }
 
@@ -109,24 +95,10 @@ public struct CommentAssetReference: Sendable, Equatable, Hashable {
 /// `BiliCommentLinkResolver` 的公开 HTTPS 复核，短链再由 `BiliShortLinkResolver` 收窄为
 /// `https://b23.tv/{短码}` 才发请求（见 SECURITY-MODEL §4）。
 public struct CommentExternalLinkReference: Sendable, Equatable, Hashable {
-    private enum Storage: Sendable, Equatable, Hashable {
-        case opaque(UUID)
-        case remote(URL)
-    }
-
-    private let storage: Storage
-
-    package var remoteURL: URL? {
-        guard case .remote(let url) = storage else { return nil }
-        return url
-    }
-
-    public init() {
-        storage = .opaque(UUID())
-    }
+    package let remoteURL: URL
 
     package init(remoteURL: URL) {
-        storage = .remote(remoteURL)
+        self.remoteURL = remoteURL
     }
 }
 
@@ -312,33 +284,21 @@ public struct CommentContent: Sendable, Equatable {
     }
 }
 
-/// 可见评论的展示状态；BiliAPI 当前的评论映射只产生 `normal`。
-public enum CommentVisibility: Sendable, Equatable, Hashable {
-    case normal
-    case folded
-    case unknown(rawValue: Int)
-}
-
 /// 评论只留占位、不展示正文的原因。
 ///
 /// BiliAPI 映射时被折叠为 `folded`，接口标记不可见为 `unavailable`，非零 `state` 原样放进
-/// `unknown`；当前映射不产生 `deleted`。
+/// `unknown`。
 public enum CommentUnavailableReason: Sendable, Equatable, Hashable {
-    case deleted
     case folded
     case unavailable
     case unknown(rawValue: Int)
 }
 
-/// 评论的来源标记，评论行据此显示置顶与 UP 主点赞标签。
-///
-/// BiliAPI 当前映射只产生管理员置顶、UP 主置顶与 UP 主点赞，不产生 `hotList` 与
-/// `highLikeExposure`。
+/// 评论的来源标记，评论行据此显示置顶与 UP 主点赞标签；BiliAPI 按根评论页的置顶 ID 与
+/// `reply_control.up_like` 映射。
 public enum CommentProvenance: Sendable, Equatable, Hashable {
     case adminPinned
     case uploaderPinned
-    case hotList
-    case highLikeExposure
     case uploaderLiked
 }
 
@@ -350,7 +310,6 @@ public struct CommentDetails: Sendable, Equatable {
     public let location: String?
     public let likeCount: Int64
     public let replyCount: Int
-    public let visibility: CommentVisibility
     public let provenance: [CommentProvenance]
 
     public init(
@@ -360,7 +319,6 @@ public struct CommentDetails: Sendable, Equatable {
         location: String? = nil,
         likeCount: Int64,
         replyCount: Int = 0,
-        visibility: CommentVisibility = .normal,
         provenance: [CommentProvenance] = []
     ) {
         self.author = author
@@ -369,7 +327,6 @@ public struct CommentDetails: Sendable, Equatable {
         self.location = location
         self.likeCount = likeCount
         self.replyCount = replyCount
-        self.visibility = visibility
         self.provenance = provenance
     }
 }

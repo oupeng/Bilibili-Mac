@@ -30,9 +30,9 @@ struct PlaybackCommentTextTests: PlaybackSidebarFixtures {
                         location: shortRange.location,
                         length: shortRange.length
                     ),
-                    target: .shortLink(CommentExternalLinkReference()),
+                    target: .shortLink(fixtureLinkReference()),
                     title: "韩语版《朋友的酒》",
-                    icon: CommentAssetReference()
+                    icon: fixtureAssetReference()
                 ),
                 CommentLink(
                     range: CommentTextRange(location: bvidRange.location, length: bvidRange.length),
@@ -76,9 +76,9 @@ struct PlaybackCommentTextTests: PlaybackSidebarFixtures {
             links: [
                 CommentLink(
                     range: CommentTextRange(location: 0, length: 22),
-                    target: .shortLink(CommentExternalLinkReference()),
+                    target: .shortLink(fixtureLinkReference()),
                     title: "视频标题",
-                    icon: CommentAssetReference()
+                    icon: fixtureAssetReference()
                 )
             ]
         )
@@ -101,14 +101,14 @@ struct PlaybackCommentTextTests: PlaybackSidebarFixtures {
     @Test
     @MainActor
     func failedLinkIconsFallBackToTheTitle() throws {
-        let icon = CommentAssetReference()
+        let icon = fixtureAssetReference()
         let iconURL = try #require(URL(string: "https://i0.hdslb.com/bfs/icon.png"))
         let content = CommentContent(
             message: "看 https://b23.tv/Jf3cvv2",
             links: [
                 CommentLink(
                     range: CommentTextRange(location: 2, length: 22),
-                    target: .shortLink(CommentExternalLinkReference()),
+                    target: .shortLink(fixtureLinkReference()),
                     title: "视频标题",
                     icon: icon
                 )
@@ -142,7 +142,7 @@ struct PlaybackCommentTextTests: PlaybackSidebarFixtures {
                 CommentEmote(
                     text: "[原神_哈哈]",
                     range: CommentTextRange(location: 0, length: 7),
-                    asset: CommentAssetReference(),
+                    asset: fixtureAssetReference(),
                     size: .standard
                 )
             ],
@@ -151,7 +151,7 @@ struct PlaybackCommentTextTests: PlaybackSidebarFixtures {
                     range: CommentTextRange(location: 1, length: 2),
                     target: .video(bvid: "BV1xx411c7mD", page: nil, startSeconds: nil),
                     title: "游戏",
-                    icon: CommentAssetReference()
+                    icon: fixtureAssetReference()
                 )
             ]
         )
@@ -332,7 +332,7 @@ struct PlaybackCommentTextTests: PlaybackSidebarFixtures {
     @Test
     @MainActor
     func commentEmoteRendererUsesFixedTextKitAttachmentsAndLiteralFallback() throws {
-        let asset = CommentAssetReference()
+        let asset = fixtureAssetReference()
         let url = try #require(
             URL(string: "https://i0.hdslb.com/bfs/emote/doge.png")
         )
@@ -391,7 +391,7 @@ struct PlaybackCommentTextTests: PlaybackSidebarFixtures {
     @Test
     @MainActor
     func commentEmoteFailureCacheIsBoundedByStableRenderScope() throws {
-        let asset = CommentAssetReference()
+        let asset = fixtureAssetReference()
         let url = try #require(
             URL(string: "https://i0.hdslb.com/bfs/emote/doge.png")
         )
@@ -429,7 +429,7 @@ struct PlaybackCommentTextTests: PlaybackSidebarFixtures {
     @Test
     @MainActor
     func lateCommentEmoteFailureCannotReenterAnInactiveScope() throws {
-        let asset = CommentAssetReference()
+        let asset = fixtureAssetReference()
         let url = try #require(
             URL(string: "https://i0.hdslb.com/bfs/emote/doge.png")
         )
@@ -469,8 +469,8 @@ struct PlaybackCommentTextTests: PlaybackSidebarFixtures {
     @Test
     @MainActor
     func largeAndUnknownCommentEmotesKeepExplicitMeasurementSemantics() throws {
-        let largeAsset = CommentAssetReference()
-        let unknownAsset = CommentAssetReference()
+        let largeAsset = fixtureAssetReference()
+        let unknownAsset = fixtureAssetReference()
         let url = try #require(
             URL(string: "https://i0.hdslb.com/bfs/emote/large.png")
         )

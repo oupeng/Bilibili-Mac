@@ -9,7 +9,10 @@ struct WebQRLoginSessionTests {
     @Test
     func requestsQRCodeAndKeepsRawValuesOutOfDescription() async throws {
         let transport = RecordingAuthTransport(responses: [try fixtureResponse("qr-generate")])
-        let session = WebQRLoginSession(transport: transport)
+        let session = WebQRLoginSession(
+            transport: transport,
+            credentialStore: MemoryWebCredentialStore()
+        )
 
         let state = try await session.requestQRCode()
 
@@ -51,7 +54,10 @@ struct WebQRLoginSessionTests {
                 try fixtureResponse(fixture)
             ]
         )
-        let session = WebQRLoginSession(transport: transport)
+        let session = WebQRLoginSession(
+            transport: transport,
+            credentialStore: MemoryWebCredentialStore()
+        )
 
         _ = try await session.requestQRCode()
         let state = try await session.pollOnce()
@@ -170,7 +176,8 @@ struct WebQRLoginSessionTests {
         let session = WebQRLoginSession(
             transport: RecordingAuthTransport(
                 responses: [try fixtureResponse("qr-generate"), poll]
-            )
+            ),
+            credentialStore: MemoryWebCredentialStore()
         )
 
         _ = try await session.requestQRCode()
@@ -186,7 +193,10 @@ struct WebQRLoginSessionTests {
 
     @Test(arguments: GenerateFailureCase.allCases)
     func generateFailureMapsToSafeState(_ failureCase: GenerateFailureCase) async throws {
-        let session = WebQRLoginSession(transport: failureCase.transport())
+        let session = WebQRLoginSession(
+            transport: failureCase.transport(),
+            credentialStore: MemoryWebCredentialStore()
+        )
 
         #expect(try await session.requestQRCode() == .failed(failureCase.expected))
     }
@@ -194,7 +204,10 @@ struct WebQRLoginSessionTests {
     @Test
     func pollingWithoutChallengeDoesNotSendRequest() async throws {
         let transport = RecordingAuthTransport()
-        let session = WebQRLoginSession(transport: transport)
+        let session = WebQRLoginSession(
+            transport: transport,
+            credentialStore: MemoryWebCredentialStore()
+        )
 
         let state = try await session.pollOnce()
 
@@ -205,7 +218,10 @@ struct WebQRLoginSessionTests {
     @Test
     func cancellationClearsStateAndPropagates() async throws {
         let transport = RecordingAuthTransport(suspendingRequest: 1)
-        let session = WebQRLoginSession(transport: transport)
+        let session = WebQRLoginSession(
+            transport: transport,
+            credentialStore: MemoryWebCredentialStore()
+        )
         let task = Task { try await session.requestQRCode() }
 
         await transport.waitForSuspendedRequest()
@@ -227,7 +243,10 @@ struct WebQRLoginSessionTests {
             ],
             suspendingRequest: 1
         )
-        let session = WebQRLoginSession(transport: transport)
+        let session = WebQRLoginSession(
+            transport: transport,
+            credentialStore: MemoryWebCredentialStore()
+        )
         let first = Task { try await session.requestQRCode() }
 
         await transport.waitForSuspendedRequest()
@@ -251,7 +270,10 @@ struct WebQRLoginSessionTests {
             ],
             suspendingRequest: 2
         )
-        let session = WebQRLoginSession(transport: transport)
+        let session = WebQRLoginSession(
+            transport: transport,
+            credentialStore: MemoryWebCredentialStore()
+        )
         _ = try await session.requestQRCode()
         let firstPoll = Task { try await session.pollOnce() }
 

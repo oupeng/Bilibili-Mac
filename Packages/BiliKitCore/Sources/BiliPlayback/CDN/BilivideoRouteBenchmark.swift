@@ -1,3 +1,4 @@
+import BiliApplication
 import BiliModels
 import BiliNetworking
 import Foundation
@@ -109,8 +110,6 @@ public actor BilivideoRouteBenchmark {
     /// 30 秒总时限防止单个样本拖住整轮测速；调大让坏候选拖慢测速，调小会把慢但可用的线路误判失败。
     public static let requestTimeout: TimeInterval = 10
     public static let resourceTimeout: TimeInterval = 30
-    /// 一次测速接受的样本数，超出范围直接拒绝；每多一个样本，流量与时长都再加一整轮。
-    public static let supportedRepetitions = 1...3
 
     private let makeRangeFetcher: @Sendable () -> any HTTPBoundedRangeFetching
 
@@ -123,6 +122,7 @@ public actor BilivideoRouteBenchmark {
         }
     }
 
+    /// CDN Range 网络边界；`init()` 每轮新建有界 Range client。
     init(rangeFetcher: any HTTPBoundedRangeFetching) {
         makeRangeFetcher = { rangeFetcher }
     }
@@ -134,9 +134,9 @@ public actor BilivideoRouteBenchmark {
     /// 轮转一段，各目标不总在同一位置被测。
     public func benchmarkUnifiedPool(
         samples: [PlaybackRouteBenchmarkSample],
-        progress: @escaping @Sendable (Int, Int) async -> Void = { _, _ in }
+        progress: @escaping @Sendable (Int, Int) async -> Void
     ) async throws -> [PlaybackRouteMeasurement] {
-        guard Self.supportedRepetitions.contains(samples.count) else {
+        guard PlaybackRouteBenchmarkPolicy.supportedSampleCounts.contains(samples.count) else {
             throw BilivideoRouteBenchmarkError.invalidRepetitionCount(samples.count)
         }
         let targets = PlaybackRouteTarget.allCases
@@ -181,22 +181,6 @@ public actor BilivideoRouteBenchmark {
                 totalRuns: $0.totalRuns
             )
         }
-    }
-
-    /// 用同一模板作为 `repetitions` 个样本的便捷形式。
-    public func benchmarkUnifiedPool(
-        template: MediaRepresentation,
-        headers: [String: String],
-        repetitions: Int = 1,
-        progress: @escaping @Sendable (Int, Int) async -> Void = { _, _ in }
-    ) async throws -> [PlaybackRouteMeasurement] {
-        try await benchmarkUnifiedPool(
-            samples: Array(
-                repeating: PlaybackRouteBenchmarkSample(template: template, headers: headers),
-                count: repetitions
-            ),
-            progress: progress
-        )
     }
 
     private func probeSample<Target: Hashable & Sendable>(

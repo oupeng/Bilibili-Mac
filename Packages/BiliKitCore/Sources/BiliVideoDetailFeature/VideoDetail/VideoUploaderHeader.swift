@@ -32,7 +32,7 @@ public struct VideoUploaderHeaderContent: Equatable, Sendable {
         let normalizedName = UploaderProfileUseCase.singleLine(owner.name)
         name = normalizedName ?? VideoDetailFeatureStrings.localized("未知 UP 主")
         avatarURL = owner.avatarURL
-        switch profileState ?? .loaded(UploaderProfile(signature: owner.signature)) {
+        switch profileState ?? .loaded(UploaderProfile()) {
         case .loading:
             signature = .loading
             isVIP = false

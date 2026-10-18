@@ -12,8 +12,8 @@ import Testing
 struct CoreAnimationDanmakuRendererTests {
     @Test
     func rendererAppliesUserOpacityAtRootAndReleasesTextureBytes() async throws {
-        let renderer = CoreAnimationDanmakuRenderer(contentsScale: 2)
-        renderer.updateSurfaceSize(width: 800, height: 240)
+        let renderer = CoreAnimationDanmakuRenderer()
+        renderer.updateSurfaceSize(width: 800, height: 240, backingScale: 2)
         let fixture = fixtureEvent(
             id: "one-layer",
             mode: .scrolling,
@@ -75,8 +75,8 @@ struct CoreAnimationDanmakuRendererTests {
     /// 内存压力只拒绝当时在途的准备；之后重新准备同一事件仍能上屏。
     @Test
     func memoryPressureRejectsInflightPreparationWithoutBlockingLaterRender() async throws {
-        let renderer = CoreAnimationDanmakuRenderer(contentsScale: 2)
-        renderer.updateSurfaceSize(width: 800, height: 240)
+        let renderer = CoreAnimationDanmakuRenderer()
+        renderer.updateSurfaceSize(width: 800, height: 240, backingScale: 2)
         let fixture = fixtureEvent(id: "pressure", mode: .scrolling)
 
         let rejected = await withCheckedContinuation { continuation in
@@ -136,10 +136,10 @@ struct CoreAnimationDanmakuRendererTests {
 
     @Test
     func staleAnimationCompletionCannotRemoveReplacement() async throws {
-        let renderer = CoreAnimationDanmakuRenderer(contentsScale: 2)
+        let renderer = CoreAnimationDanmakuRenderer()
         let delegate = RecordingRendererDelegate()
         renderer.delegate = delegate
-        renderer.updateSurfaceSize(width: 800, height: 200)
+        renderer.updateSurfaceSize(width: 800, height: 200, backingScale: 2)
         let fixture = fixtureEvent(id: "reused", mode: .top)
         _ = try await prepareAndRender(
             renderer: renderer,
@@ -199,9 +199,9 @@ struct CoreAnimationDanmakuRendererTests {
     func stoppedPreparationOwnerAndRendererAreReleased() async throws {
         weak var weakRenderer: CoreAnimationDanmakuRenderer?
         do {
-            let renderer = CoreAnimationDanmakuRenderer(contentsScale: 2)
+            let renderer = CoreAnimationDanmakuRenderer()
             weakRenderer = renderer
-            renderer.updateSurfaceSize(width: 800, height: 300)
+            renderer.updateSurfaceSize(width: 800, height: 300, backingScale: 2)
             _ = try await prepareAndRender(
                 renderer: renderer,
                 event: fixtureEvent(id: "release", mode: .scrolling),
@@ -215,8 +215,8 @@ struct CoreAnimationDanmakuRendererTests {
 
     @Test
     func invalidAndOversizedTextFailClosedBeforeLaneAdmission() async {
-        let renderer = CoreAnimationDanmakuRenderer(contentsScale: 2)
-        renderer.updateSurfaceSize(width: 800, height: 300)
+        let renderer = CoreAnimationDanmakuRenderer()
+        renderer.updateSurfaceSize(width: 800, height: 300, backingScale: 2)
         let invalid = DanmakuEvent(
             id: "invalid",
             timeSeconds: 1,
@@ -270,8 +270,8 @@ struct CoreAnimationDanmakuRendererTests {
     /// 补位弹幕的动画开始时间移到过去，从已经走过的位置继续，而不是从右边缘重新进场。
     @Test
     func catchUpRenderStartsTheAnimationPartWay() async throws {
-        let renderer = CoreAnimationDanmakuRenderer(contentsScale: 2)
-        renderer.updateSurfaceSize(width: 800, height: 240)
+        let renderer = CoreAnimationDanmakuRenderer()
+        renderer.updateSurfaceSize(width: 800, height: 240, backingScale: 2)
         let fixture = fixtureEvent(id: "catch-up", mode: .scrolling)
 
         _ = try await prepareAndRender(

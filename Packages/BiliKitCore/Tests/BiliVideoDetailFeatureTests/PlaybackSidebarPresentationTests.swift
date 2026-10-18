@@ -137,7 +137,8 @@ struct PlaybackSidebarPresentationTests: PlaybackSidebarFixtures {
             content: NativePlaybackSidebarContent(
                 bvid: content.bvid,
                 uploader: VideoUploaderHeaderContent(
-                    owner: VideoOwner(id: 1, name: "UP 主", signature: "新签名")
+                    owner: VideoOwner(id: 1, name: "UP 主"),
+                    profileState: .loaded(UploaderProfile(signature: "新签名"))
                 ),
                 summary: content.summary,
                 summaryLinks: content.summaryLinks,
@@ -281,7 +282,7 @@ struct PlaybackSidebarPresentationTests: PlaybackSidebarFixtures {
         let avatarAuthor = CommentAuthor(
             id: CommentAuthorID(rawValue: "author"),
             name: "评论者",
-            avatar: CommentAssetReference()
+            avatar: fixtureAssetReference()
         )
         let plain = NativePlaybackCommentThreadPresentation(
             subject: subject,
@@ -324,7 +325,7 @@ struct PlaybackSidebarPresentationTests: PlaybackSidebarFixtures {
                         target: .video(bvid: "BV1FixtureA1", page: nil, startSeconds: nil)
                     )
                 ],
-                pictures: [CommentImage(asset: CommentAssetReference())],
+                pictures: [CommentImage(asset: fixtureAssetReference())],
                 author: verifiedAuthor
             ),
             replyState: nil
