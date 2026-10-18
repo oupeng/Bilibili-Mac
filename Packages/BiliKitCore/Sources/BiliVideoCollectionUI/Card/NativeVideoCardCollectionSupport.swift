@@ -22,6 +22,19 @@ package struct NativeVideoCardContents: Sendable {
         orderedIDs.firstIndex(of: id).map { IndexPath(item: $0, section: Self.section) }
     }
 
+    /// 该 ID 的卡片存在且可进入播放；不在内容里的 ID 按不可激活处理。
+    package func isActivatable(_ id: String) -> Bool {
+        byID[id]?.isActivatable ?? false
+    }
+
+    /// 只保留可进入播放的卡片位置：网格据此拒绝鼠标选中与按下高亮不可用卡片。
+    package func activatableIndexPaths(in indexPaths: Set<IndexPath>) -> Set<IndexPath> {
+        indexPaths.filter {
+            $0.section == Self.section && orderedIDs.indices.contains($0.item)
+                && isActivatable(orderedIDs[$0.item])
+        }
+    }
+
     package func makeSnapshot() -> NSDiffableDataSourceSnapshot<Int, String> {
         var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
         snapshot.appendSections([Self.section])

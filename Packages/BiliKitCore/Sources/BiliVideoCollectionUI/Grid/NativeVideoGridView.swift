@@ -7,6 +7,8 @@ import SwiftUI
 /// 调用方是 Browse 与 Library 的网格包装，所以是 `package`。只渲染调用方给的卡片、尾部状态与回顶请求；
 /// 内容、分页与选择的意图归调用方，滚动位置、回顶请求与取图 port 来自 App 窗口的
 /// `NativeVideoGridHostContext`。滚动位置经 binding 双向同步，回顶请求经 `scrollReset` 握手确认。
+/// 不可用卡片（`NativeVideoCardAvailability.unavailable`）不能被鼠标选中或按下高亮，点击、回车、空格与读屏按下都不回调
+/// `onSelect`；键盘方向键仍可把选择停在上面。
 package struct NativeVideoGridView: NSViewRepresentable {
     let items: [NativeVideoCardPresentation]
     @Binding var scrollOffsetY: CGFloat
@@ -187,7 +189,7 @@ package struct NativeVideoGridView: NSViewRepresentable {
             collectionView.allowsMultipleSelection = false
             collectionView.backgroundColors = [.clear]
             collectionView.onActivateSelection = { [weak self] id in
-                self?.onSelect(id)
+                self?.activate(id)
             }
             collectionView.register(
                 NativeVideoCollectionItem.self,
@@ -408,13 +410,21 @@ package struct NativeVideoGridView: NSViewRepresentable {
                 hoverChanged: { [weak self] item, isHovered in
                     self?.item(item, didChangeHover: isHovered)
                 },
-                activation: { [weak self, weak collectionView] selectedID in
-                    if let indexPath = self?.contents.indexPath(of: selectedID) {
-                        collectionView?.selectionIndexPaths = [indexPath]
-                    }
-                    self?.onSelect(selectedID)
+                activation: { [weak self] selectedID in
+                    self?.activate(selectedID, selecting: true)
                 }
             )
+        }
+
+        /// 网格激活的唯一入口：点击、回车／空格与读屏按下都经这里；不可用或已不在内容里的卡片不回调 `onSelect`。
+        ///
+        /// 读屏按下不经集合视图的选择，`selecting` 为 true 时先把选择移到这张卡片。
+        private func activate(_ id: String, selecting: Bool = false) {
+            guard !isReset, contents.isActivatable(id) else { return }
+            if selecting, let indexPath = contents.indexPath(of: id) {
+                collectionView.selectionIndexPaths = [indexPath]
+            }
+            onSelect(id)
         }
 
         /// `restoringViewport` 为 false 时无条件重排 document，且不恢复语义 anchor。
@@ -678,6 +688,25 @@ package struct NativeVideoGridView: NSViewRepresentable {
             sizeForItemAt indexPath: IndexPath
         ) -> NSSize {
             NativeVideoGridGeometry.itemSize(for: collectionView.bounds.width)
+        }
+
+        /// 鼠标选中只接受可进入播放的卡片；键盘方向键直接设置选择、不经这里，焦点仍可停在不可用卡片上。
+        package func collectionView(
+            _ collectionView: NSCollectionView,
+            shouldSelectItemsAt indexPaths: Set<IndexPath>
+        ) -> Set<IndexPath> {
+            contents.activatableIndexPaths(in: indexPaths)
+        }
+
+        /// 按下高亮只给可进入播放的卡片，其他高亮状态照常。
+        package func collectionView(
+            _ collectionView: NSCollectionView,
+            shouldChangeItemsAt indexPaths: Set<IndexPath>,
+            to highlightState: NSCollectionViewItem.HighlightState
+        ) -> Set<IndexPath> {
+            highlightState == .forSelection
+                ? contents.activatableIndexPaths(in: indexPaths)
+                : indexPaths
         }
 
         package func collectionView(

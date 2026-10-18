@@ -162,7 +162,18 @@ final class NativeVideoCardTextRenderer {
         self.footerTrailingStyle = footerTrailingStyle
     }
 
+    /// 全部文字层（含尾部图标）的不透明度；不可用卡片变暗时由卡片设置，`reset` 恢复为 1。
+    func setContentOpacity(_ opacity: Float) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for layer in [titleLayer, footerLeadingLayer, footerTrailingLayer, footerTrailingIconLayer] {
+            layer.opacity = opacity
+        }
+        CATransaction.commit()
+    }
+
     func reset() {
+        setContentOpacity(1)
         title = ""
         footerLeading = ""
         footerTrailing = nil
