@@ -65,9 +65,7 @@ public struct UploaderVideoPage: Sendable, Equatable {
 
     /// 至少为 1；没有投稿时也有一页（空页）。
     public var pageCount: Int {
-        guard pageSize > 0 else { return 1 }
-        let (quotient, remainder) = totalCount.quotientAndRemainder(dividingBy: pageSize)
-        return max(1, quotient + (remainder == 0 ? 0 : 1))
+        PageNumbering.pageCount(totalCount: totalCount, pageSize: pageSize)
     }
 
     public var hasMore: Bool {
