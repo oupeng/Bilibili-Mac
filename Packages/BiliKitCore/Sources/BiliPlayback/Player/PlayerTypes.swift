@@ -48,7 +48,10 @@ extension PlaybackManifest {
         return videoRepresentations
     }
 
-    /// 每条语义音轨取其首个 representation，并在释放旧播放项之前验证音轨契约。
+    /// 每条语义音轨取其码率最高的 representation，并在释放旧播放项之前验证音轨契约。
+    ///
+    /// playurl 的 `dash.audio` 不按码率排序（首条常是 30232 而非更高的 30280），所以不能取首个。
+    /// 有 `bandwidth` 的候选优先于缺失的；码率相同或都缺失时保留输入中靠前的一条，结果只由输入决定。
     func selectedAudioTracks() throws -> [SelectedPlaybackAudioTrack] {
         guard !audioTracks.isEmpty else {
             throw AVPlayerEngineError.missingAudioRepresentation
@@ -74,7 +77,12 @@ extension PlaybackManifest {
                     representationID: representation.id
                 )
             }
-            guard let representation = track.representations.first else {
+            guard
+                let representation = track.representations.reduce(
+                    nil,
+                    Self.preferredAudioRepresentation
+                )
+            else {
                 throw AVPlayerEngineError.missingAudioTrackRepresentation(
                     track.id
                 )
@@ -83,6 +91,22 @@ extension PlaybackManifest {
                 track: track,
                 representation: representation
             )
+        }
+    }
+
+    /// 两条候选中保留码率更高者；只有严格更高才替换，相同码率或都缺失时保留先出现的 `current`。
+    private static func preferredAudioRepresentation(
+        _ current: MediaRepresentation?,
+        _ candidate: MediaRepresentation
+    ) -> MediaRepresentation? {
+        guard let current else { return candidate }
+        switch (current.bandwidth, candidate.bandwidth) {
+        case (let currentBandwidth?, let candidateBandwidth?):
+            return candidateBandwidth > currentBandwidth ? candidate : current
+        case (nil, _?):
+            return candidate
+        case (_, nil):
+            return current
         }
     }
 }
