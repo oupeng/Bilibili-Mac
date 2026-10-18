@@ -336,6 +336,12 @@ final class NativeVideoImagePipeline: Sendable {
         length < 0 || length <= maximumBytes
     }
 
+    /// 按用途的最长边上限缩略第一帧，并按 EXIF 方向转正；ImageIO 识别不了或文件头不完整时为 nil，
+    /// 调用方此时不写缓存。
+    ///
+    /// 服务端正常结束响应但内容被截断的 JPEG／PNG（无论是否声明长度）会被 ImageIO 容错解码（缺失部分留空）
+    /// 并照常显示、缓存；连接中断由 URLSession 报错，在 session delegate 里就失败，不会走到这里。见
+    /// SECURITY-MODEL §9。
     nonisolated static func decodeImage(
         _ data: Data,
         variant: NativeVideoImageVariant
