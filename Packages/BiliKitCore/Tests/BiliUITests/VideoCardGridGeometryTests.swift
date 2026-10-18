@@ -45,6 +45,62 @@ struct VideoCardGridGeometryTests {
         )
     }
 
+    @Test(arguments: [
+        // 窄窗口 2 列、常见窗口 4 列、大窗口 5 列；末行只露出一部分时也算一行。
+        (width: CGFloat(760), height: CGFloat(600), count: 6),
+        (width: 1_080, height: 720, count: 16),
+        (width: 1_600, height: 1_000, count: 20),
+        (width: 2_560, height: 1_440, count: 20),
+        // 高度不足一行仍画一行。
+        (width: 1_080, height: 1, count: 4)
+    ])
+    func placeholderCountCoversTheVisibleArea(
+        _ sample: (width: CGFloat, height: CGFloat, count: Int)
+    ) {
+        #expect(
+            VideoCardGridGeometry.placeholderCount(
+                for: CGSize(width: sample.width, height: sample.height)
+            ) == sample.count
+        )
+    }
+
+    @Test
+    func placeholderCountAddsARowOnlyWhenPartOfItIsVisible() {
+        let width: CGFloat = 1_080
+        let columns = VideoCardGridGeometry.columnCount(for: width)
+        let rowHeight = VideoCardGridGeometry.itemSize(for: width).height
+        let threeRows =
+            VideoCardGridGeometry.topContentPadding
+            + rowHeight * 3
+            + VideoCardGridGeometry.verticalSpacing * 2
+        #expect(
+            VideoCardGridGeometry.placeholderCount(for: CGSize(width: width, height: threeRows))
+                == columns * 3
+        )
+        #expect(
+            VideoCardGridGeometry.placeholderCount(
+                for: CGSize(
+                    width: width,
+                    height: threeRows + VideoCardGridGeometry.verticalSpacing + rowHeight / 2
+                )
+            ) == columns * 4
+        )
+    }
+
+    @Test(arguments: [
+        CGSize(width: 0, height: 0),
+        CGSize(width: 1_080, height: 0),
+        CGSize(width: 1_080, height: -1),
+        CGSize(width: 69, height: 720),
+        CGSize(width: 1_080, height: .infinity),
+        CGSize(width: .infinity, height: 720),
+        CGSize(width: .nan, height: 720),
+        CGSize(width: 1_080, height: .nan)
+    ])
+    func placeholderCountIsZeroWithoutARenderableViewport(_ size: CGSize) {
+        #expect(VideoCardGridGeometry.placeholderCount(for: size) == 0)
+    }
+
     @Test(arguments: [CGFloat.zero, 1, 48, 67])
     func provisionalWidthsStillProducePositiveCards(_ width: CGFloat) {
         let size = VideoCardGridGeometry.itemSize(for: width)

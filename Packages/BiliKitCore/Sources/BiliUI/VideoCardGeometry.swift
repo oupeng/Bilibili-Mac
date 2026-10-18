@@ -49,6 +49,25 @@ public enum VideoCardGridGeometry {
             + contentPadding
             + bottomInset
     }
+
+    /// 加载骨架铺满可见区域所需的占位卡片数：列数与真实网格相同，行数向上取整，露出一半的那一行也画出来。
+    ///
+    /// 行数是 `contentHeight` 行高公式的反解，高度刚好容纳整行时不多画；只露出行间距时多画一行，
+    /// 这一行在视野外，不可见。宽度不足以排出网格（真实网格此时也不布局）或高度不是正的有限值时
+    /// 返回 0：首次布局常给出零尺寸，下一次布局拿到真实尺寸后再铺满。
+    public static func placeholderCount(for size: CGSize) -> Int {
+        guard
+            isRenderableViewport(width: size.width),
+            size.height.isFinite,
+            size.height > 0
+        else { return 0 }
+        let rowStride = itemSize(for: size.width).height + verticalSpacing
+        let rows = max(
+            1,
+            Int(ceil((size.height - topContentPadding + verticalSpacing) / rowStride))
+        )
+        return rows * columnCount(for: size.width)
+    }
 }
 
 /// 相关推荐横排的唯一几何来源：BiliVideoDetailFeature 的原生横排（`NativeVideoShelfView`）、

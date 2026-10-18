@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// 首载骨架：列数、卡片尺寸、间距与内容边距都取自生产网格的 `VideoCardGridGeometry`。
+/// 首载骨架：列数、卡片尺寸、间距、内容边距与占位卡片数都取自生产网格的 `VideoCardGridGeometry`。
+///
+/// 卡片数按可见尺寸计算（`placeholderCount(for:)`），窗口缩放时跟着增减，任何窗口都铺满可见区域；
+/// 骨架禁用滚动，只画视野内的卡片。
 package struct VideoCardGridSkeleton: View {
-    /// 占位卡片数：铺满常见窗口的首屏即可；骨架禁用滚动，超出视口的部分不会显示，调大只多建视图。
-    private static let placeholderCount = 12
     private let loadingLabel: String
 
     package init(loadingLabel: String) {
@@ -25,7 +26,10 @@ package struct VideoCardGridSkeleton: View {
                     alignment: .leading,
                     spacing: VideoCardGridGeometry.verticalSpacing
                 ) {
-                    ForEach(0..<Self.placeholderCount, id: \.self) { _ in
+                    ForEach(
+                        0..<VideoCardGridGeometry.placeholderCount(for: geometry.size),
+                        id: \.self
+                    ) { _ in
                         VideoCardSkeleton(size: itemSize)
                     }
                 }
