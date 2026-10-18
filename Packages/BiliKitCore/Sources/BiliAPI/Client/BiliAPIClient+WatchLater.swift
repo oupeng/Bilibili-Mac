@@ -4,12 +4,6 @@ import Foundation
 /// 稍后再看读取。列表只属于当前账户，所以只按账户读取，本地无凭据时直接失败（见 SECURITY-MODEL §3）；
 /// 只读，不涉及任何写请求。
 extension BiliAPIClient {
-    /// 稍后再看每页条数；请求的 `ps` 与“是否还有下一页”的推算共用这个值。
-    ///
-    /// 与网页端相同取 20。接口允许的上限未经确认：调大前先核对接口仍按请求的条数返回，否则按总条数推出的
-    /// 下一页会与实际错位。
-    static let watchLaterPageSize = 20
-
     /// 按请求的条件读取第 `page` 页（从 1 开始）。
     ///
     /// 参数名与取值来自网页端稍后再看页：`asc` 0 最新加入在前、1 最早在前；`viewed` 0 全部、2 未看完；`key`
@@ -23,7 +17,7 @@ extension BiliAPIClient {
         }
         var parameters = [
             "pn": String(page),
-            "ps": String(Self.watchLaterPageSize),
+            "ps": String(WatchLaterUseCase.pageSize),
             "viewed": criteria.progress.apiValue,
             "key": criteria.keyword,
             "asc": criteria.order.apiValue,
@@ -51,7 +45,7 @@ extension BiliAPIClient {
                 )
             }
         )
-        return try payload.model(pageNumber: page, pageSize: Self.watchLaterPageSize)
+        return try payload.model(pageNumber: page, pageSize: WatchLaterUseCase.pageSize)
     }
 }
 

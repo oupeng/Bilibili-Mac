@@ -45,7 +45,8 @@ struct FavoriteFolderContentView: View {
             switch model.phase {
             case .idle, .loading:
                 VideoCardGridSkeleton(
-                    loadingLabel: LibraryFeatureStrings.localized("正在加载收藏夹", locale: locale)
+                    loadingLabel: LibraryFeatureStrings.localized("正在加载收藏夹", locale: locale),
+                    expectedItemCount: model.expectedPageItemCount
                 )
             case .failed(_, let error):
                 failures.view(

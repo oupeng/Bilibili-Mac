@@ -89,6 +89,12 @@ public final class LibraryVideoListModel<
     /// 来源给出的当前条件下的总条数：第一页与加载更多成功时都按响应更新；首次加载、条件变化、失败与 `reset` 时
     /// 清空，只在已显示内容时有值。
     public private(set) var totalCount: Int?
+    /// 加载中的骨架应画的本页条数。
+    ///
+    /// 每次清空重载开始时求值：上次成功加载得到的总条数属于这次要加载的同一第一页游标（同一条件）时，取它与每页
+    /// 条数的较小者，否则为 nil、骨架铺满。首次进入、条件变化与 `reset` 后为 nil；观看历史没有总数，始终为 nil。
+    /// 只用已经拿到的总数，不另发请求。
+    package private(set) var expectedLoadingItemCount: Int?
 
     /// 已有条目时的原地刷新正在进行；首次加载仍是 `.loading`。
     public var isRefreshing: Bool {
@@ -140,6 +146,13 @@ public final class LibraryVideoListModel<
     @ObservationIgnored var firstPageCursor: @MainActor () -> Cursor?
     /// 当前显示内容来自哪个第一页游标；第一页加载成功时记录，`reset` 与失败时清空。
     @ObservationIgnored private var displayedFirstPageCursor: Cursor?
+    /// 最近一次成功加载得到的总条数与它所属的第一页游标。
+    ///
+    /// 第一页与加载更多成功时按响应更新，条件变化与 `reset` 时清空。失败不清空：同条件重试时骨架仍按它画，
+    /// 账户变化由 `reset` 清除。
+    @ObservationIgnored private var knownTotal: (firstPageCursor: Cursor?, count: Int)?
+    /// 来源每页条数，用来把已知总数封顶为一页；来源没有总数（观看历史）时为 nil。
+    @ObservationIgnored private let pageSize: Int?
     @ObservationIgnored private let stallPolicy: PagedVideoList<Item, Cursor>.StallPolicy
     @ObservationIgnored private let load: Load
     @ObservationIgnored private let bvid: (Item) -> String
@@ -151,12 +164,14 @@ public final class LibraryVideoListModel<
 
     init(
         stallPolicy: PagedVideoList<Item, Cursor>.StallPolicy,
+        pageSize: Int?,
         firstPageCursor: @escaping @MainActor () -> Cursor? = { nil },
         bvid: @escaping (Item) -> String,
         load: @escaping Load
     ) {
         self.firstPageCursor = firstPageCursor
         self.stallPolicy = stallPolicy
+        self.pageSize = pageSize
         self.bvid = bvid
         self.load = load
         list = PagedVideoList(stallPolicy: stallPolicy)
@@ -181,6 +196,7 @@ public final class LibraryVideoListModel<
             list = emptyList()
             totalCount = nil
             displayedFirstPageCursor = nil
+            expectedLoadingItemCount = expectedItemCount(firstPageCursor: firstPageCursor)
             phase = .loading
         }
         loadTask.replace { [weak self] isCurrent in
@@ -191,6 +207,7 @@ public final class LibraryVideoListModel<
                 list.replaceFirstPage(result.page, bvid: bvid)
                 displayedFirstPageCursor = firstPageCursor
                 totalCount = result.totalCount
+                knownTotal = result.totalCount.map { (firstPageCursor, $0) }
                 phase = .loaded
                 successfulReloadGeneration &+= 1
                 revalidation.loadSucceeded()
@@ -228,6 +245,7 @@ public final class LibraryVideoListModel<
                 list.apply(result.page, requested: continuation, bvid: bvid)
                 if let totalCount = result.totalCount {
                     self.totalCount = totalCount
+                    knownTotal = (displayedFirstPageCursor, totalCount)
                 }
             } catch is CancellationError {
                 // 认证切换带来的取消只保留已显示条目，不变成自动扫描。显式继续策略的来源（历史）要求用户显式继续；
@@ -260,6 +278,7 @@ public final class LibraryVideoListModel<
     func reloadReplacingContent() {
         list = emptyList()
         displayedFirstPageCursor = nil
+        knownTotal = nil
         phase = .idle
         reload()
     }
@@ -285,6 +304,8 @@ public final class LibraryVideoListModel<
         list = emptyList()
         totalCount = nil
         displayedFirstPageCursor = nil
+        knownTotal = nil
+        expectedLoadingItemCount = nil
         refreshError = nil
         revalidation.reset()
         phase = .idle
@@ -340,6 +361,14 @@ public final class LibraryVideoListModel<
         case .loading, .loaded, .failed:
             break
         }
+    }
+
+    /// 已知总数属于 `firstPageCursor`（同一条件）时，本页条数为它与每页条数的较小者；否则不知道。
+    private func expectedItemCount(firstPageCursor: Cursor?) -> Int? {
+        guard let pageSize, let knownTotal, knownTotal.firstPageCursor == firstPageCursor else {
+            return nil
+        }
+        return min(pageSize, max(0, knownTotal.count))
     }
 
     private func emptyList() -> PagedVideoList<Item, Cursor> {

@@ -7,10 +7,6 @@ import Foundation
 ///
 /// 都不签 WBI：网页端对这两个接口不签名；签名不是认证，多签反而偏离网页端的请求形状。
 extension BiliAPIClient {
-    /// 收藏夹内每页条数；请求的 `ps` 与总页数的推算共用这个值。
-    ///
-    /// 接口接受 1–40，取与网页端相同的上限 40：页数最少，越界与空页也最少。
-    static let favoriteFolderPageSize = 40
     /// 收藏夹业务码：请求的收藏夹不存在（已删除或不属于当前账户）。
     static let favoriteFolderMissingCode = 11_010
 
@@ -49,7 +45,7 @@ extension BiliAPIClient {
         let parameters = [
             ("media_id", String(request.folderID)),
             ("pn", String(request.page)),
-            ("ps", String(Self.favoriteFolderPageSize)),
+            ("ps", String(FavoritesUseCase.pageSize)),
             ("keyword", request.keyword),
             ("order", request.order.apiValue),
             ("type", "0"),
@@ -71,7 +67,7 @@ extension BiliAPIClient {
             referer: "https://space.bilibili.com/",
             access: .accountRead(missingCredential: .fail)
         )
-        return try payload.model(pageNumber: request.page, pageSize: Self.favoriteFolderPageSize)
+        return try payload.model(pageNumber: request.page, pageSize: FavoritesUseCase.pageSize)
     }
 }
 

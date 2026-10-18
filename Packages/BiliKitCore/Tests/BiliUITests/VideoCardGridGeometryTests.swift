@@ -103,6 +103,25 @@ struct VideoCardGridGeometryTests {
         #expect(VideoCardGridGeometry.placeholderCount(for: size) == 0)
     }
 
+    @Test(arguments: [
+        // 不知道条数时铺满；已知条数少于铺满张数时取条数，多于时仍只铺满；0 与负数不画。
+        (expected: Int?.none, count: 16),
+        (expected: 5, count: 5),
+        (expected: 40, count: 16),
+        (expected: 0, count: 0),
+        (expected: -3, count: 0)
+    ])
+    func placeholderCountNeverExceedsTheKnownPageItemCount(
+        _ sample: (expected: Int?, count: Int)
+    ) {
+        #expect(
+            VideoCardGridGeometry.placeholderCount(
+                for: CGSize(width: 1_080, height: 760),
+                expectedItemCount: sample.expected
+            ) == sample.count
+        )
+    }
+
     @Test(arguments: [CGFloat.zero, 1, 48, 67])
     func provisionalWidthsStillProducePositiveCards(_ width: CGFloat) {
         let size = VideoCardGridGeometry.itemSize(for: width)
