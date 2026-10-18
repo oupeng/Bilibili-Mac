@@ -2,6 +2,10 @@ import BiliApplication
 import BiliModels
 import Foundation
 
+/// 弹幕密度到车道准入参数的映射：同车道滚动弹幕的最小水平间距（point）与可叠放层数。
+///
+/// 只有显示区域为全屏时才采用用户选的密度，其余显示区域按普通密度（见 `updateAdmissionPolicy`）。
+/// 间距越小、层数越多，同屏弹幕越多，也越容易互相遮挡。
 struct DanmakuDensityAdmissionPolicy: Sendable, Equatable {
     let minimumHorizontalGap: Double
     let maximumOverlapDepth: Int
@@ -21,6 +25,10 @@ struct DanmakuDensityAdmissionPolicy: Sendable, Equatable {
     }
 }
 
+/// 呈现控制器累计的弹幕丢弃数与当前活动数，不参与呈现决策。
+///
+/// `droppedNoLane` 含没有车道、文本无效与纹理过大；`droppedCapacity` 含活动数或准备数上限、
+/// 纹理字节超限与上屏失败；准备被取消与车道请求无效不计入。
 public struct DanmakuRendererStatistics: Sendable, Equatable {
     public private(set) var droppedNoLane = 0
     public private(set) var droppedCapacity = 0
@@ -55,11 +63,15 @@ public struct DanmakuRendererStatistics: Sendable, Equatable {
     }
 }
 
-@MainActor
 /// 在调度 batch 与具体 renderer 之间执行 identity/generation 检查、lane 分配与容量治理。
 ///
-/// surface owner ID 防止旧 `AVPlayerView` 的迟到 resize/detach 操作清空新宿主；换 identity、
-/// seek generation 或显式清屏都会同步清空 allocator 与 backend。
+/// surface owner ID 防止旧 `AVPlayerView` 的迟到 resize/detach 操作清空新宿主；换 surface owner、
+/// 换 identity、discontinuity generation 变化或显式清屏都会同步清空 allocator 与 backend。
+///
+/// 拥有 lane allocator、待准备队列与补位批次；不拥有纹理与 layer（交给 backend），
+/// 也不拥有时间线与分段（交给 `DanmakuSession`）。准备结果按入队顺序处理，先完成的等前面的完成，
+/// 准入时间因此不倒退。
+@MainActor
 public final class DanmakuPresentationController:
     DanmakuPresentationSink,
     DanmakuRenderingBackendDelegate
@@ -92,17 +104,29 @@ public final class DanmakuPresentationController:
     private var speedLevel = DanmakuSpeedLevel.default
     private var displayArea = DanmakuDisplayArea.default
     private var density = DanmakuDensity.default
+    /// 当前呈现的播放 identity 与 discontinuity generation；任一变化先清屏，
+    /// 准备完成时与发起时不一致的结果被丢弃。
     private var identity: PlaybackItemIdentity?
     private var discontinuityGeneration: UInt64?
+    /// 当前持有 surface 的 overlay；只有它的尺寸更新与 detach 生效。
     private var surfaceOwnerID: UUID?
+    /// 当前 surface 的 backing scale；变化时取消在途准备，因为纹理按 scale 栅格化。
     private var backingScale = 2.0
+    /// `cancelPendingPreparations` 时递增；准备请求带上入队时的值，完成回调、处理与上屏（backend
+    /// 的 `consume`）时比对，不等就丢弃这次准备。
     private var preparationGeneration: UInt64 = 0
+    /// 每个准备请求递增分配的 ID，在 backend 内标识这次准备。
     private var nextPreparationID: UInt64 = 0
     private var pendingPreparations: [UInt64: PendingPreparation] = [:]
+    /// 准备请求的入队顺序；完成结果按此顺序处理。
     private var pendingOrder: [UInt64] = []
+    /// 已完成、但前面还有未完成请求而暂存的结果。
     private var completedPreparations: [UInt64: DanmakuPreparationResult] = [:]
+    /// 最近一次快照；准入与补位上屏用它的位置作为当前时刻。
     private var latestSnapshot: PlaybackTimelineSnapshot?
+    /// 每个补位批次递增分配的编号。
     private var nextCatchUpGroup: UInt64 = 0
+    /// 按补位批次暂存已准入、等同批其余准备完成后一起上屏的弹幕；它们已占用车道。
     private var deferredCatchUps: [UInt64: [DeferredCatchUp]] = [:]
 
     public init(
@@ -272,6 +296,7 @@ public final class DanmakuPresentationController:
         )
     }
 
+    /// 新 overlay 接管 surface：记下 owner 并清屏；同一 owner 重复调用是空操作。
     @discardableResult
     public func attachSurface(ownerID: UUID) -> Bool {
         guard surfaceOwnerID != ownerID else { return true }
@@ -280,6 +305,7 @@ public final class DanmakuPresentationController:
         return true
     }
 
+    /// 只有当前 owner 能交还 surface，交还时清屏；返回是否生效。
     @discardableResult
     public func detachSurface(ownerID: UUID) -> Bool {
         guard surfaceOwnerID == ownerID else { return false }
@@ -288,6 +314,7 @@ public final class DanmakuPresentationController:
         return true
     }
 
+    /// 只接受当前 owner 的尺寸更新；返回是否生效。
     @discardableResult
     public func updateSurface(
         width: Double,

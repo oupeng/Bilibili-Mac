@@ -2,6 +2,7 @@ import BiliApplication
 import BiliModels
 import Foundation
 
+/// 准备好的弹幕纹理在 point 下的尺寸（含描边与阴影留白），用于车道准入与运动时长。
 public struct DanmakuTextMetrics: Sendable, Equatable {
     public let width: Double
     public let height: Double
@@ -12,6 +13,11 @@ public struct DanmakuTextMetrics: Sendable, Equatable {
     }
 }
 
+/// 纹理准备被拒绝的原因。
+///
+/// `capacity`：未完成请求已满、准备 ID 重复，或被内存压力清掉；`invalidInput`：文本为空或过长、
+/// 字号或 backing scale 无效；`oversized`：栅格化失败或纹理超出尺寸与字节上限；`cancelled`：请求的
+/// backing scale 与 renderer 当前的不一致。
 public enum DanmakuPreparationRejectionReason: Sendable, Equatable {
     case capacity
     case invalidInput
@@ -19,6 +25,7 @@ public enum DanmakuPreparationRejectionReason: Sendable, Equatable {
     case cancelled
 }
 
+/// 纹理准备的结果：就绪时带纹理尺寸，否则带拒绝原因。
 public enum DanmakuPreparationResult: Sendable, Equatable {
     case ready(DanmakuTextMetrics)
     case rejected(DanmakuPreparationRejectionReason)
@@ -91,20 +98,28 @@ enum DanmakuMotionPolicy {
     }
 }
 
+/// renderer 回报弹幕动画自然结束的通道，由 `DanmakuPresentationController` 实现以回收车道。
+///
+/// 只对仍是当前对象的 layer 回调；经 `remove`、`clearAll`、`stop` 移除的不回调，
+/// 车道由调用方自己清理。
 @MainActor
 public protocol DanmakuRenderingBackendDelegate: AnyObject {
     func rendererDidFinish(eventID: String)
 }
 
-@MainActor
 /// Renderer 的最小平台 port。
 ///
-/// `clearAll` 只移除活动对象；`stop` 还把播放速率归零。尺寸变化只更新 surface geometry；
-/// 已有对象保持自己的运动快照，新对象使用新尺寸。
+/// `clearAll` 取消在途准备并移除活动对象；`stop` 还把播放速率归零。尺寸变化只更新 surface
+/// geometry：已有滚动弹幕保持入场时的运动，顶部与底部弹幕随新宽度重新居中、底部弹幕随高度变化平移；
+/// 新对象使用新尺寸。backing scale 变化会取消在途准备。
+@MainActor
 public protocol DanmakuRenderingBackend: AnyObject {
     var delegate: (any DanmakuRenderingBackendDelegate)? { get set }
 
     /// 准备完成回调必须返回 MainActor；controller 只会在 `.ready` 后执行 lane 准入。
+    ///
+    /// 缓存命中与立即拒绝会在调用内同步回调，调用方必须先登记请求再调用。`generation`
+    /// 随准备记录保存，`renderPrepared` 时复核。
     func prepare(
         _ event: DanmakuEvent,
         preparationID: UInt64,
@@ -117,6 +132,10 @@ public protocol DanmakuRenderingBackend: AnyObject {
     )
 
     /// `elapsedSeconds` 是这条弹幕进场后已经走过的媒体时长；补位时大于 0，从对应位置开始运动。
+    ///
+    /// 返回 false 表示没有上屏：同一事件 ID 已在屏、活动数或纹理字节超限、画面尺寸为 0、
+    /// 准备已失效或被淘汰，或 CGImage 创建失败。返回前 renderer 已消费或丢弃这条准备记录；
+    /// 调用方归还车道即可，再调用 `discardPreparation` 也无害。
     @discardableResult
     func renderPrepared(
         _ placement: DanmakuLanePlacement,
@@ -124,7 +143,9 @@ public protocol DanmakuRenderingBackend: AnyObject {
         generation: UInt64,
         elapsedSeconds: Double
     ) -> Bool
+    /// 丢弃一条没有上屏的准备记录；对未知 ID 是空操作。
     func discardPreparation(preparationID: UInt64)
+    /// 取消全部在途与已就绪未上屏的准备，被取消的请求不再回调。
     func cancelPendingPreparations()
     func remove(eventID: String)
     func clearAll()
