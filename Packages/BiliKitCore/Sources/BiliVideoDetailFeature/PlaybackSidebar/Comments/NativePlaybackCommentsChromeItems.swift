@@ -160,11 +160,15 @@ final class NativePlaybackCommentsStateItem: NSCollectionViewItem {
     }
 }
 
-/// 状态条目的内容视图：按状态切换文字与重试按钮，加载中自绘四行骨架，并给出与显示一致的读屏标签。
+/// 状态条目的内容视图：按状态切换文字与重试按钮，加载中在行内居中转圈，并给出与显示一致的读屏标签。
+///
+/// 加载不画骨架：评论形态不一，占位行会误导条数与长度，与 UP 主空间一致用转圈。转圈只在加载中转动，
+/// 其他状态与 `reset()`（条目复用）停止并隐藏。
 @MainActor
 private final class NativePlaybackCommentsStateView: NSView {
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { false }
+    private let spinner = NSProgressIndicator.commentsLoadingSpinner(controlSize: .large)
     private let titleLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(wrappingLabelWithString: "")
     private let retryButton = NSButton(
@@ -188,6 +192,7 @@ private final class NativePlaybackCommentsStateView: NSView {
         retryButton.bezelStyle = .rounded
         retryButton.target = self
         retryButton.action = #selector(retry)
+        addSubview(spinner)
         addSubview(titleLabel)
         addSubview(detailLabel)
         addSubview(retryButton)
@@ -229,13 +234,14 @@ private final class NativePlaybackCommentsStateView: NSView {
             retryButton.isHidden = !error.isRetryable
             setAccessibilityLabel(title)
         }
+        spinner.setCommentsLoading(kind == .loading)
         setAccessibilityElement(true)
         needsLayout = true
-        needsDisplay = true
     }
 
     override func layout() {
         super.layout()
+        spinner.frame = spinner.centeredFrame(in: bounds)
         guard kind != .loading else { return }
         let contentWidth = max(120, bounds.width - 24)
         if case .failed = kind {
@@ -255,38 +261,12 @@ private final class NativePlaybackCommentsStateView: NSView {
         detailLabel.frame = NSRect(x: 12, y: 59, width: contentWidth, height: 38)
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        guard kind == .loading else { return }
-        let contentWidth = max(80, bounds.width - 42)
-        var y: CGFloat = 8
-        for _ in 0..<4 {
-            NSColor.quaternaryLabelColor.setFill()
-            NSBezierPath(
-                roundedRect: NSRect(x: 0, y: y, width: 32, height: 32),
-                xRadius: 16,
-                yRadius: 16
-            ).fill()
-            NSBezierPath(
-                roundedRect: NSRect(x: 42, y: y + 1, width: min(100, contentWidth), height: 12),
-                xRadius: 4,
-                yRadius: 4
-            ).fill()
-            NSColor.quinaryLabelColor.setFill()
-            NSBezierPath(
-                roundedRect: NSRect(x: 42, y: y + 20, width: contentWidth, height: 30),
-                xRadius: 4,
-                yRadius: 4
-            ).fill()
-            y += 58
-        }
-    }
-
     func reset() {
         onRetry = nil
         titleLabel.stringValue = ""
         detailLabel.stringValue = ""
         retryButton.isHidden = true
+        spinner.setCommentsLoading(false)
     }
 
     @objc private func retry() { onRetry?() }
@@ -333,11 +313,14 @@ extension NativePlaybackCommentsFooter {
     }
 }
 
-/// 页脚的内容视图：持有重试与加载更多回调，按页脚状态切换文字与按钮，加载中自绘两行骨架。
+/// 页脚的内容视图：持有重试与加载更多回调，按页脚状态切换文字与按钮，追加加载中在行内居中转圈。
+///
+/// 转圈只在加载中转动，其他状态与 `reset()`（条目复用）停止并隐藏；读屏只读页脚自己的“后续评论加载中”。
 @MainActor
 private final class NativePlaybackCommentsFooterView: NSView {
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { false }
+    private let spinner = NSProgressIndicator.commentsLoadingSpinner(controlSize: .small)
     private let label = NSTextField(labelWithString: "")
     private let actionButton = NSButton(
         title: VideoDetailFeatureStrings.localized("重试"),
@@ -356,6 +339,7 @@ private final class NativePlaybackCommentsFooterView: NSView {
         actionButton.bezelStyle = .rounded
         actionButton.target = self
         actionButton.action = #selector(performAction)
+        addSubview(spinner)
         addSubview(label)
         addSubview(actionButton)
     }
@@ -407,12 +391,13 @@ private final class NativePlaybackCommentsFooterView: NSView {
             setAccessibilityElement(false)
             setAccessibilityValue(nil)
         }
+        spinner.setCommentsLoading(footer == .loading)
         needsLayout = true
-        needsDisplay = true
     }
 
     override func layout() {
         super.layout()
+        spinner.frame = spinner.centeredFrame(in: bounds)
         if footer.isInlineStatus {
             label.alignment = .left
             label.frame = NSRect(x: 0, y: 14, width: max(1, bounds.width - 84), height: 20)
@@ -433,38 +418,12 @@ private final class NativePlaybackCommentsFooterView: NSView {
         }
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        guard footer == .loading else { return }
-        let contentWidth = max(80, bounds.width - 42)
-        var y: CGFloat = 4
-        for _ in 0..<2 {
-            NSColor.quaternaryLabelColor.setFill()
-            NSBezierPath(
-                roundedRect: NSRect(x: 0, y: y, width: 32, height: 32),
-                xRadius: 16,
-                yRadius: 16
-            ).fill()
-            NSBezierPath(
-                roundedRect: NSRect(x: 42, y: y + 1, width: min(100, contentWidth), height: 12),
-                xRadius: 4,
-                yRadius: 4
-            ).fill()
-            NSColor.quinaryLabelColor.setFill()
-            NSBezierPath(
-                roundedRect: NSRect(x: 42, y: y + 20, width: contentWidth, height: 30),
-                xRadius: 4,
-                yRadius: 4
-            ).fill()
-            y += 58
-        }
-    }
-
     func reset() {
         onRetry = nil
         onLoadMore = nil
         label.stringValue = ""
         actionButton.isHidden = true
+        spinner.setCommentsLoading(false)
         setAccessibilityElement(false)
         setAccessibilityValue(nil)
     }
@@ -478,5 +437,46 @@ private final class NativePlaybackCommentsFooterView: NSView {
         case .loading, .end:
             break
         }
+    }
+}
+
+extension NSProgressIndicator {
+    /// 评论状态行与页脚共用的加载转圈：系统转圈样式，停止时不绘制，初始隐藏。
+    ///
+    /// 不作为读屏元素：所在行已经读出“评论加载中”或“后续评论加载中”，转圈再读会重复。
+    fileprivate static func commentsLoadingSpinner(
+        controlSize: NSControl.ControlSize
+    ) -> NSProgressIndicator {
+        let spinner = NSProgressIndicator()
+        spinner.style = .spinning
+        spinner.controlSize = controlSize
+        spinner.isDisplayedWhenStopped = false
+        spinner.isHidden = true
+        spinner.setAccessibilityElement(false)
+        return spinner
+    }
+
+    /// 加载中显示并转动，否则停止并隐藏。
+    ///
+    /// 条目离屏后被复用时由 `reset()` 走到停止分支，不留下仍在转的转圈。
+    fileprivate func setCommentsLoading(_ isLoading: Bool) {
+        isHidden = !isLoading
+        if isLoading {
+            startAnimation(nil)
+        } else {
+            stopAnimation(nil)
+        }
+    }
+
+    /// 按系统给出的转圈尺寸居中在行内；行高由 `NativePlaybackCommentsItemMeasurement` 决定，
+    /// 布局与测量因此用同一个高度。
+    fileprivate func centeredFrame(in bounds: NSRect) -> NSRect {
+        let size = intrinsicContentSize
+        return NSRect(
+            x: round((bounds.width - size.width) / 2),
+            y: round((bounds.height - size.height) / 2),
+            width: size.width,
+            height: size.height
+        )
     }
 }
