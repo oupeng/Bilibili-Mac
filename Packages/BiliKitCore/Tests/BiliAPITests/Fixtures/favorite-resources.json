@@ -1,0 +1,13 @@
+{"code":0,"message":"0","ttl":1,"data":{"info":{"id":3001,"fid":30,"mid":10001,"attr":0,"title":"默认收藏夹","media_count":45,"upper":{"mid":10001,"name":"收藏者"}},"medias":[
+  {"id":10001,"type":2,"title":"收藏 &amp; 视频","cover":"http://images.example.invalid/a.jpg","duration":300,"upper":{"mid":20001,"name":"作者甲","face":"//images.example.invalid/face-a.jpg"},"attr":0,"fav_time":1700000000,"pubtime":1690000000,"bvid":"BV1FavA1","bv_id":"BV1FavA1","ugc":{"first_cid":900001},"ogv":null,"link":"bilibili://video/10001","cnt_info":{"play":10}},
+  {"id":10002,"type":2,"title":"仅自己可见","cover":"https://images.example.invalid/b.jpg","duration":0,"upper":{"mid":20002,"name":"作者乙","face":""},"attr":128,"fav_time":1700000100,"bv_id":"BV1FavB2","ogv":null},
+  {"id":10003,"type":2,"title":"失效的视频","cover":"","duration":0,"upper":{"mid":0,"name":"","face":""},"attr":9,"fav_time":1700000200,"bvid":"BV1FavC3","ogv":null},
+  {"id":10004,"type":2,"title":"已失效视频","cover":"","duration":0,"upper":null,"attr":0,"fav_time":0,"bvid":"BV1FavD4","ogv":null},
+  {"id":40001,"type":21,"title":"一个合集","cover":"https://images.example.invalid/d.jpg","duration":0,"upper":{"mid":20004,"name":"合集作者","face":""},"attr":0,"fav_time":1700000300,"bvid":"","ogv":null},
+  {"id":40002,"type":21,"title":"该合集已失效","cover":"","duration":0,"upper":null,"attr":0,"fav_time":0,"bvid":""},
+  {"id":50001,"type":12,"title":"一段音频","cover":"https://images.example.invalid/e.jpg","duration":200,"upper":{"mid":20005,"name":"音频作者","face":""},"attr":0,"fav_time":1700000500,"bvid":""},
+  {"id":10006,"type":24,"title":"番剧一集","cover":"https://images.example.invalid/f.jpg","duration":1420,"upper":{"mid":20006,"name":"番剧出品","face":""},"attr":0,"fav_time":1700000600,"bvid":"BV1FavF6","ogv":{"type_name":"电影","type_id":2,"season_id":1}},
+  {"id":10007,"type":2,"title":"没有分类名的影视","cover":"https://images.example.invalid/g.jpg","duration":5400,"upper":{"mid":20007,"name":"影视出品","face":""},"attr":0,"fav_time":1700000700,"bvid":"BV1FavG7","ogv":{"type_name":"","season_id":2}},
+  {"id":60001,"type":99,"title":"未知类型","cover":"","duration":0,"attr":0,"fav_time":1700000800},
+  {"type":21,"title":"没有标识的合集","bvid":""}
+],"has_more":true}}
