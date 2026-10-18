@@ -80,7 +80,7 @@ public struct UploaderSpaceSidebarView: View {
         }
         .overlay(alignment: .bottom) {
             if let pager = frame?.pager {
-                UploaderSpacePager(
+                PageNumberPager(
                     currentPage: pager.currentPage,
                     pageCount: pager.pageCount,
                     onShowPage: model.showPage

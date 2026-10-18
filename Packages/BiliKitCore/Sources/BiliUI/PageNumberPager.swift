@@ -1,37 +1,48 @@
 import SwiftUI
 
-/// 空间列表底部悬浮的玻璃页码条。
+/// 按页整体替换的列表（UP 主空间投稿、收藏夹）底部悬浮的玻璃页码条。
 ///
 /// 收起时只显示“第 n / 总 页”；指针移上去展开为 `‹ 1 … 5 6 [7] 8 9 … N ›`，点数字翻页，
 /// 点当前页原地输入页码跳转。指针移开、Esc 或失焦时取消输入并收起。VoiceOver 用户无法悬停，
-/// 收起状态提供上下调整翻页与“输入页码跳转”操作。
-struct UploaderSpacePager: View {
-    let currentPage: Int
-    let pageCount: Int
-    let onShowPage: (Int) -> Void
+/// 收起状态提供上下调整翻页与“输入页码跳转”操作。只拥有悬停与输入草稿；当前页、总页数与翻页意图归调用方，
+/// 是否显示（总页数大于 1）也由调用方决定，列表为它留出 `PageNumberPagerGeometry.reservedHeight`。
+package struct PageNumberPager: View {
+    private typealias Geometry = PageNumberPagerGeometry
+
+    private let currentPage: Int
+    private let pageCount: Int
+    private let onShowPage: (Int) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.locale) private var locale
     @State private var isHovered = false
     @State private var isEditing = false
     @State private var editText = ""
     @FocusState private var isFieldFocused: Bool
 
+    /// `onShowPage` 只收到已夹进 1…`pageCount` 且不等于当前页的页码。
+    package init(currentPage: Int, pageCount: Int, onShowPage: @escaping (Int) -> Void) {
+        self.currentPage = currentPage
+        self.pageCount = pageCount
+        self.onShowPage = onShowPage
+    }
+
     private var isExpanded: Bool {
         isHovered || isEditing
     }
 
-    var body: some View {
+    package var body: some View {
         // 同一行里逐个插入／移除元素，宽度变化由玻璃条本身做过渡，而不是整块内容替换。
-        HStack(spacing: UploaderSpaceGeometry.pagerItemSpacing) {
+        HStack(spacing: Geometry.itemSpacing) {
             if isExpanded {
                 arrow(
                     "chevron.left",
-                    label: VideoDetailFeatureStrings.localized("上一页"),
+                    label: BiliUIStrings.localized("上一页", locale: locale),
                     target: currentPage - 1
                 )
                 .transition(expansionTransition)
                 ForEach(
-                    UploaderSpacePageSlots.slots(currentPage: currentPage, pageCount: pageCount),
+                    PageNumberSlots.slots(currentPage: currentPage, pageCount: pageCount),
                     id: \.self
                 ) { slot in
                     switch slot {
@@ -42,14 +53,14 @@ struct UploaderSpacePager: View {
                     case .gap:
                         Text(verbatim: "…")
                             .foregroundStyle(.secondary)
-                            .frame(minWidth: UploaderSpaceGeometry.pagerGapWidth)
+                            .frame(minWidth: Geometry.gapWidth)
                             .accessibilityHidden(true)
                     }
                 }
                 .transition(expansionTransition)
                 arrow(
                     "chevron.right",
-                    label: VideoDetailFeatureStrings.localized("下一页"),
+                    label: BiliUIStrings.localized("下一页", locale: locale),
                     target: currentPage + 1
                 )
                 .transition(expansionTransition)
@@ -59,12 +70,12 @@ struct UploaderSpacePager: View {
             }
         }
         .buttonStyle(.borderless)
-        .padding(.horizontal, UploaderSpaceGeometry.pagerHorizontalPadding)
-        .padding(.vertical, UploaderSpaceGeometry.pagerVerticalPadding)
-        .modifier(UploaderSpacePagerBackground())
+        .padding(.horizontal, Geometry.horizontalPadding)
+        .padding(.vertical, Geometry.verticalPadding)
+        .modifier(PageNumberPagerBackground())
         .contentShape(Capsule())
         .animation(
-            reduceMotion ? nil : .snappy(duration: UploaderSpaceGeometry.pagerExpansionDuration),
+            reduceMotion ? nil : .snappy(duration: Geometry.expansionDuration),
             value: isExpanded
         )
         .onHover { hovering in
@@ -72,25 +83,27 @@ struct UploaderSpacePager: View {
             // 移开即恢复原样：取消输入、收起。
             if !hovering { endEditing() }
         }
-        .padding(.bottom, UploaderSpaceGeometry.pagerBottomInset)
+        .padding(.bottom, Geometry.bottomInset)
         .frame(maxWidth: .infinity)
     }
 
     private var expansionTransition: AnyTransition {
         reduceMotion
             ? .opacity
-            : .opacity.combined(with: .scale(scale: UploaderSpaceGeometry.pagerExpansionScale))
+            : .opacity.combined(with: .scale(scale: Geometry.expansionScale))
+    }
+
+    private var pageOfTotal: String {
+        BiliUIStrings.localized("第 \(currentPage) 页，共 \(pageCount) 页", locale: locale)
     }
 
     private var collapsedLabel: some View {
-        Text(VideoDetailFeatureStrings.localized("第 \(currentPage) / \(pageCount) 页"))
+        Text(BiliUIStrings.localized("第 \(currentPage) / \(pageCount) 页", locale: locale))
             .monospacedDigit()
-            .padding(.horizontal, UploaderSpaceGeometry.pagerCollapsedLabelPadding)
+            .padding(.horizontal, Geometry.collapsedLabelPadding)
             .accessibilityElement()
-            .accessibilityLabel(VideoDetailFeatureStrings.localized("页码"))
-            .accessibilityValue(
-                VideoDetailFeatureStrings.localized("第 \(currentPage) 页，共 \(pageCount) 页")
-            )
+            .accessibilityLabel(BiliUIStrings.localized("页码", locale: locale))
+            .accessibilityValue(pageOfTotal)
             .accessibilityAdjustableAction { direction in
                 switch direction {
                 case .increment: commit(currentPage + 1)
@@ -98,7 +111,7 @@ struct UploaderSpacePager: View {
                 @unknown default: break
                 }
             }
-            .accessibilityAction(named: VideoDetailFeatureStrings.localized("输入页码跳转")) {
+            .accessibilityAction(named: BiliUIStrings.localized("输入页码跳转", locale: locale)) {
                 beginEditing()
             }
     }
@@ -108,10 +121,7 @@ struct UploaderSpacePager: View {
             commit(target)
         } label: {
             Image(systemName: symbol)
-                .frame(
-                    width: UploaderSpaceGeometry.pagerItemSize,
-                    height: UploaderSpaceGeometry.pagerItemSize
-                )
+                .frame(width: Geometry.itemSize, height: Geometry.itemSize)
                 .contentShape(Rectangle())
         }
         .disabled(target < 1 || target > pageCount)
@@ -125,20 +135,19 @@ struct UploaderSpacePager: View {
         } label: {
             pageNumber(page, isCurrent: false)
         }
-        .accessibilityLabel(VideoDetailFeatureStrings.localized("第 \(page) 页，共 \(pageCount) 页"))
+        .accessibilityLabel(
+            BiliUIStrings.localized("第 \(page) 页，共 \(pageCount) 页", locale: locale)
+        )
     }
 
     @ViewBuilder
     private var currentPageControl: some View {
         if isEditing {
-            TextField(VideoDetailFeatureStrings.localized("页码"), text: $editText)
+            TextField(BiliUIStrings.localized("页码", locale: locale), text: $editText)
                 .textFieldStyle(.plain)
                 .multilineTextAlignment(.center)
                 .monospacedDigit()
-                .frame(
-                    width: UploaderSpaceGeometry.pagerFieldWidth,
-                    height: UploaderSpaceGeometry.pagerItemSize
-                )
+                .frame(width: Geometry.fieldWidth, height: Geometry.itemSize)
                 .background(Capsule().fill(Color.accentColor.opacity(0.25)))
                 .focused($isFieldFocused)
                 .onSubmit(submitEdit)
@@ -150,11 +159,9 @@ struct UploaderSpacePager: View {
             Button(action: beginEditing) {
                 pageNumber(currentPage, isCurrent: true)
             }
-            .help(VideoDetailFeatureStrings.localized("输入页码跳转"))
-            .accessibilityLabel(
-                VideoDetailFeatureStrings.localized("第 \(currentPage) 页，共 \(pageCount) 页")
-            )
-            .accessibilityHint(VideoDetailFeatureStrings.localized("输入页码跳转"))
+            .help(BiliUIStrings.localized("输入页码跳转", locale: locale))
+            .accessibilityLabel(pageOfTotal)
+            .accessibilityHint(BiliUIStrings.localized("输入页码跳转", locale: locale))
             .accessibilityAddTraits(.isSelected)
         }
     }
@@ -162,11 +169,8 @@ struct UploaderSpacePager: View {
     private func pageNumber(_ page: Int, isCurrent: Bool) -> some View {
         Text(verbatim: "\(page)")
             .monospacedDigit()
-            .frame(
-                minWidth: UploaderSpaceGeometry.pagerItemSize,
-                minHeight: UploaderSpaceGeometry.pagerItemSize
-            )
-            .padding(.horizontal, UploaderSpaceGeometry.pagerNumberPadding)
+            .frame(minWidth: Geometry.itemSize, minHeight: Geometry.itemSize)
+            .padding(.horizontal, Geometry.numberPadding)
             .background {
                 if isCurrent {
                     Capsule().fill(Color.accentColor.opacity(0.25))
@@ -203,7 +207,7 @@ struct UploaderSpacePager: View {
 }
 
 /// 页码条的浮动背景；macOS 26 起用玻璃。
-private struct UploaderSpacePagerBackground: ViewModifier {
+private struct PageNumberPagerBackground: ViewModifier {
     func body(content: Content) -> some View {
         if #available(macOS 26.0, *) {
             content.glassEffect(.regular, in: .capsule)

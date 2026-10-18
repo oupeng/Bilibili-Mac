@@ -1,22 +1,22 @@
-/// 页码条展开后显示的页码：首页、末页、当前页前后各 `neighborCount` 页，中间断开处用省略号。
-enum UploaderSpacePageSlot: Hashable, Sendable {
+/// 页码条展开后显示的一格：一个页码，或折起来的连续页码（显示为省略号）。
+package enum PageNumberSlot: Hashable, Sendable {
     case page(Int)
     case gap(ClosedRange<Int>)
 }
 
-/// 页码条展开时的页码排布：首页、末页、当前页前后各 `neighborCount` 页，其余折成省略号。
-enum UploaderSpacePageSlots {
+/// 页码条（`PageNumberPager`）展开时的页码排布：首页、末页、当前页前后各 `neighborCount` 页，其余折成省略号。
+package enum PageNumberSlots {
     /// 当前页两侧各显示两页：侧栏宽度下一行放得下，又能一步跳到附近的页。
     static let neighborCount = 2
 
     /// 只省略一页时直接显示那一页：省略号并不比数字更短。
-    static func slots(currentPage: Int, pageCount: Int) -> [UploaderSpacePageSlot] {
+    package static func slots(currentPage: Int, pageCount: Int) -> [PageNumberSlot] {
         guard pageCount > 0 else { return [] }
         let current = min(max(1, currentPage), pageCount)
         let lower = max(1, current - neighborCount)
         let upper = min(pageCount, current + neighborCount)
         let pages = Set(lower...upper).union([1, pageCount]).sorted()
-        var slots: [UploaderSpacePageSlot] = []
+        var slots: [PageNumberSlot] = []
         var previous: Int?
         for page in pages {
             if let previous, page - previous > 1 {

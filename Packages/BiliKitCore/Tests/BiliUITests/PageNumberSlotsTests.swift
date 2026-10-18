@@ -1,9 +1,9 @@
 import Testing
 
-@testable import BiliVideoDetailFeature
+@testable import BiliUI
 
-/// 空间页码条显示首尾、当前页邻居与折叠的间隔。
-struct UploaderSpacePageSlotsTests {
+/// 页码条显示首尾、当前页邻居与折叠的间隔。
+struct PageNumberSlotsTests {
     @Test(
         arguments: [
             // 首页、末页与当前页前后各两页；中间断开处是省略号。
@@ -16,23 +16,23 @@ struct UploaderSpacePageSlotsTests {
             // 越界的当前页夹进有效范围，页数为 0 时没有页码。
             (99, 5, [p(1), p(2), p(3), p(4), p(5)]),
             (1, 0, [])
-        ] as [(Int, Int, [UploaderSpacePageSlot])]
+        ] as [(Int, Int, [PageNumberSlot])]
     )
     func slotsShowEdgesNeighborsAndCollapsedGaps(
         currentPage: Int,
         pageCount: Int,
-        expected: [UploaderSpacePageSlot]
+        expected: [PageNumberSlot]
     ) {
         #expect(
-            UploaderSpacePageSlots.slots(currentPage: currentPage, pageCount: pageCount) == expected
+            PageNumberSlots.slots(currentPage: currentPage, pageCount: pageCount) == expected
         )
     }
 }
 
-private func p(_ page: Int) -> UploaderSpacePageSlot {
+private func p(_ page: Int) -> PageNumberSlot {
     .page(page)
 }
 
-private func gap(_ range: ClosedRange<Int>) -> UploaderSpacePageSlot {
+private func gap(_ range: ClosedRange<Int>) -> PageNumberSlot {
     .gap(range)
 }
