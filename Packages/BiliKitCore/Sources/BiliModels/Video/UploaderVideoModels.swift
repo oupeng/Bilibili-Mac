@@ -44,7 +44,8 @@ public struct UploaderVideo: Identifiable, Sendable, Equatable {
 
 /// 投稿列表的一页。
 ///
-/// 只保存服务端给出的事实，总页数与是否还有下一页由此推导，避免两处判断不一致。
+/// 只保存服务端给出的事实（页码、每页条数与总数）；总页数与是否越界由共用的翻页状态 `PageReplacementPaging` 按
+/// `PageNumbering` 推导，不在这里另算一份。
 public struct UploaderVideoPage: Sendable, Equatable {
     public let videos: [UploaderVideo]
     public let pageNumber: Int
@@ -61,14 +62,5 @@ public struct UploaderVideoPage: Sendable, Equatable {
         self.pageNumber = pageNumber
         self.pageSize = pageSize
         self.totalCount = max(0, totalCount)
-    }
-
-    /// 至少为 1；没有投稿时也有一页（空页）。
-    public var pageCount: Int {
-        PageNumbering.pageCount(totalCount: totalCount, pageSize: pageSize)
-    }
-
-    public var hasMore: Bool {
-        pageNumber < pageCount
     }
 }

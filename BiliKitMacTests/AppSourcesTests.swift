@@ -114,7 +114,10 @@ struct AppSourcesTests {
         let favorites = makeFavoriteModels()
         let sources = makeSources(favorites: favorites)
         favorites.list.synchronize()
-        await favorites.list.waitForCurrentTask()
+        await waitForObservedState {
+            if case .loaded = favorites.list.state { return true }
+            return false
+        }
         favorites.folders.selectFolder(10)
         await favorites.folders.waitForCurrentTask()
         #expect(sources[.favorites].refreshGeneration() == 1)

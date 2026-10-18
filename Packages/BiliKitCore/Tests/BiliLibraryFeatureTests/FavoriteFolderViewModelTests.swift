@@ -160,7 +160,7 @@ struct FavoriteFolderViewModelTests {
         model.reload()
         await model.waitForCurrentTask()
         try await repository.waitForFolderCalls(2)
-        await folderList.waitForCurrentTask()
+        await waitUntilSettled(folderList)
         await model.waitForCurrentTask()
 
         #expect(model.selectedFolderID == 10)
@@ -177,7 +177,7 @@ struct FavoriteFolderViewModelTests {
         await repository.setFolders(.success(Array(standardFolders.dropFirst())))
 
         folderList.reload()
-        await folderList.waitForCurrentTask()
+        await waitUntilSettled(folderList)
 
         #expect(model.selectedFolderID == 10)
         #expect(model.phase == .idle)
@@ -225,7 +225,7 @@ struct FavoriteFolderViewModelTests {
         #expect(model.selectedFolderID == nil)
         #expect(model.appliedKeyword.isEmpty)
         folderList.synchronizeAuthenticationSession()
-        await folderList.waitForCurrentTask()
+        await waitUntilSettled(folderList)
         await model.waitForCurrentTask()
 
         #expect(model.selectedFolderID == 10)
@@ -257,7 +257,7 @@ struct FavoriteFolderViewModelTests {
         )
         let model = FavoriteFolderViewModel(useCase: useCase, folderList: folderList)
         folderList.synchronize()
-        await folderList.waitForCurrentTask()
+        await waitUntilSettled(folderList)
         return (model, repository, folderList)
     }
 }

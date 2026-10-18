@@ -112,10 +112,6 @@ public final class FavoriteFolderListModel: AccountRevalidationParticipant {
         synchronize()
     }
 
-    public func waitForCurrentTask() async {
-        await loadTask.wait()
-    }
-
     /// 账户复核确认仍已登录：本列表请求的复核在本会话内自动重载一次，其余情况只按账户范围对齐。
     public func authenticationRevalidationSucceeded() {
         if revalidation.succeeded() {

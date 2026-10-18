@@ -16,7 +16,7 @@ struct FavoriteFolderListModelTests {
         let model = makeModel(repository, scope: .signedIn(accountID: 7))
 
         model.synchronize()
-        await model.waitForCurrentTask()
+        await waitUntilSettled(model)
         model.synchronize()
 
         #expect(model.state == .loaded(standardFolders))
@@ -43,7 +43,7 @@ struct FavoriteFolderListModelTests {
             accountScope: { window.scope }
         )
         model.synchronize()
-        await model.waitForCurrentTask()
+        await waitUntilSettled(model)
 
         window.scope = .signedOut
         model.synchronizeAuthenticationSession()
@@ -62,11 +62,11 @@ struct FavoriteFolderListModelTests {
             accountScope: { window.scope }
         )
         model.synchronize()
-        await model.waitForCurrentTask()
+        await waitUntilSettled(model)
 
         window.scope = .signedIn(accountID: 8)
         model.synchronize()
-        await model.waitForCurrentTask()
+        await waitUntilSettled(model)
 
         #expect(await repository.ownerIDs == [7, 8])
         #expect(model.state == .loaded(standardFolders))
@@ -80,17 +80,17 @@ struct FavoriteFolderListModelTests {
         let model = makeModel(repository, scope: .signedIn(accountID: 7))
 
         model.synchronize()
-        await model.waitForCurrentTask()
+        await waitUntilSettled(model)
         #expect(model.state == .failed(.authenticationInvalid))
         #expect(model.authenticationRevalidationGeneration == 1)
         #expect(model.isAwaitingAuthenticationRevalidation)
 
         model.authenticationRevalidationSucceeded()
-        await model.waitForCurrentTask()
+        await waitUntilSettled(model)
         #expect(model.authenticationRevalidationGeneration == 2)
 
         model.authenticationRevalidationSucceeded()
-        await model.waitForCurrentTask()
+        await waitUntilSettled(model)
 
         #expect(await repository.ownerIDs == [7, 7])
         #expect(model.state == .failed(.authenticationInvalid))
@@ -98,7 +98,7 @@ struct FavoriteFolderListModelTests {
 
         await repository.setFolders(.success(standardFolders))
         model.reload()
-        await model.waitForCurrentTask()
+        await waitUntilSettled(model)
         #expect(model.state == .loaded(standardFolders))
     }
 
@@ -107,7 +107,7 @@ struct FavoriteFolderListModelTests {
         let repository = FavoritesRepositoryStub(folders: .failure(.authenticationInvalid))
         let model = makeModel(repository, scope: .signedIn(accountID: 7))
         model.synchronize()
-        await model.waitForCurrentTask()
+        await waitUntilSettled(model)
 
         model.authenticationRevalidationFailed()
 
@@ -120,7 +120,7 @@ struct FavoriteFolderListModelTests {
         let repository = FavoritesRepositoryStub(folders: .failure(.authenticationInvalid))
         let model = makeModel(repository, scope: .signedIn(accountID: 7))
         model.synchronize()
-        await model.waitForCurrentTask()
+        await waitUntilSettled(model)
 
         model.reset()
 

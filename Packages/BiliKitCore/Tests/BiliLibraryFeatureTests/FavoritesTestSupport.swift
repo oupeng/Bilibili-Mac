@@ -1,6 +1,9 @@
 import BiliApplication
 import BiliModels
 import Foundation
+import Observation
+
+@testable import BiliLibraryFeature
 
 /// 本 target 唯一的收藏夹仓库替身：列表与夹内的页按可替换的结果返回并记录请求，可让指定页的请求挂起到测试放行。
 actor FavoritesRepositoryStub: FavoritesRepository {
@@ -107,4 +110,24 @@ func favoriteItem(
         favoritedAt: Date(timeIntervalSince1970: 1_700_000_000),
         unavailability: unavailability
     )
+}
+
+/// 等待 `@Observable` 状态满足条件：每次被追踪属性变化后才重新判断，超时由测试的 time limit 兜底。
+@MainActor
+func waitForObservedState(_ condition: @escaping @MainActor () -> Bool) async {
+    while !condition() {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            withObservationTracking {
+                _ = condition()
+            } onChange: {
+                continuation.resume()
+            }
+        }
+    }
+}
+
+/// 收藏夹列表的读取已结束（不在加载中）。
+@MainActor
+func waitUntilSettled(_ model: FavoriteFolderListModel) async {
+    await waitForObservedState { model.state != .loading }
 }
