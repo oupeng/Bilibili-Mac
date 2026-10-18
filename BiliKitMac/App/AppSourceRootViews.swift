@@ -123,7 +123,7 @@ struct WatchLaterTabRoot: View {
     let onPresentAuthentication: () -> Void
 
     var body: some View {
-        let content = WatchLaterView(
+        WatchLaterView(
             model: model,
             session: session,
             accountState: accountState,
@@ -133,26 +133,15 @@ struct WatchLaterTabRoot: View {
             toolbarControls: AnyView(WatchLaterToolbarControls(session: session))
         )
         .navigationTitle(Text(title))
-        .navigationSubtitle(subtitle)
-        if case .signedIn = accountState {
-            content
-                .searchable(
-                    text: $session.searchDraft,
-                    placement: .toolbar,
-                    prompt: Text(AppStrings.localized("搜索稍后再看", locale: locale))
-                )
-                .onSubmit(of: .search) {
-                    session.submitSearch()
-                }
-        } else {
-            content
-        }
-    }
-
-    /// 已显示内容时是当前条件下的总数，其他时候不显示。
-    private var subtitle: String {
-        guard let totalCount = model.totalCount else { return "" }
-        return AppStrings.localized("共 \(totalCount) 个", locale: locale)
+        .navigationSubtitle(LibraryToolbarText.totalCount(model.totalCount, locale: locale))
+        .modifier(
+            LibrarySearchField(
+                accountState: accountState,
+                text: $session.searchDraft,
+                prompt: AppStrings.localized("搜索稍后再看", locale: locale),
+                onSubmit: session.submitSearch
+            )
+        )
     }
 }
 
@@ -172,7 +161,7 @@ struct FavoritesTabRoot: View {
     let onPresentAuthentication: () -> Void
 
     var body: some View {
-        let content = FavoriteFolderView(
+        FavoriteFolderView(
             model: model,
             accountState: accountState,
             gridHost: gridHost,
@@ -181,20 +170,15 @@ struct FavoritesTabRoot: View {
             toolbarControls: AnyView(FavoritesToolbarControls(model: model))
         )
         .navigationTitle(navigationTitle)
-        .navigationSubtitle(subtitle)
-        if case .signedIn = accountState {
-            content
-                .searchable(
-                    text: $model.searchDraft,
-                    placement: .toolbar,
-                    prompt: Text(AppStrings.localized("搜索收藏夹", locale: locale))
-                )
-                .onSubmit(of: .search) {
-                    model.submitSearch()
-                }
-        } else {
-            content
-        }
+        .navigationSubtitle(LibraryToolbarText.totalCount(model.totalCount, locale: locale))
+        .modifier(
+            LibrarySearchField(
+                accountState: accountState,
+                text: $model.searchDraft,
+                prompt: AppStrings.localized("搜索收藏夹", locale: locale),
+                onSubmit: model.submitSearch
+            )
+        )
     }
 
     private var navigationTitle: Text {
@@ -204,11 +188,35 @@ struct FavoritesTabRoot: View {
             Text(title)
         }
     }
+}
 
-    /// 已有当前条件下的总数时显示，其他时候不显示。
-    private var subtitle: String {
-        guard let totalCount = model.totalCount else { return "" }
-        return AppStrings.localized("共 \(totalCount) 个", locale: locale)
+/// 资料库来源（稍后再看、收藏夹）工具栏尾部的紧凑搜索框：系统 `.searchable`，只在已登录时挂上；回车提交、清空恢复
+/// 全部（清空的规则在来源的模型里）。
+///
+/// 不放工具栏正中：那是搜索来源的全局搜索框，这里只过滤本来源。
+private struct LibrarySearchField: ViewModifier {
+    let accountState: AccountPresentationState
+    @Binding var text: String
+    let prompt: String
+    let onSubmit: () -> Void
+
+    func body(content: Content) -> some View {
+        if case .signedIn = accountState {
+            content
+                .searchable(text: $text, placement: .toolbar, prompt: Text(prompt))
+                .onSubmit(of: .search, onSubmit)
+        } else {
+            content
+        }
+    }
+}
+
+/// 资料库来源工具栏的共用文字。
+private enum LibraryToolbarText {
+    /// 副标题：已有当前条件下的总数时是“共 N 个”，其他时候为空、不显示。
+    static func totalCount(_ count: Int?, locale: Locale) -> String {
+        guard let count else { return "" }
+        return AppStrings.localized("共 \(count) 个", locale: locale)
     }
 }
 
