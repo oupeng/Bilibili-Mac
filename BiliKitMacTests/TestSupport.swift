@@ -179,9 +179,9 @@ struct WatchHistoryRepositoryStub: WatchHistoryRepository {
 struct WatchLaterRepositoryStub: WatchLaterRepository {
     var error: ContentApplicationError?
 
-    func watchLater(page: Int) async throws -> WatchLaterPage {
+    func watchLater(request: WatchLaterRequest) async throws -> WatchLaterPage {
         if let error { throw error }
-        return WatchLaterPage(items: [], pageNumber: page, nextPageNumber: nil)
+        return WatchLaterPage(items: [], pageNumber: request.page, nextPageNumber: nil, totalCount: 0)
     }
 }
 

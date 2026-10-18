@@ -346,7 +346,7 @@ struct AccountReadCase: Sendable, CustomTestStringConvertible {
         AccountReadCase(
             path: "/x/v2/history/toview/web",
             responses: { [try fixtureResponse("nav"), try fixtureResponse("watchlater")] },
-            call: { _ = try await $0.watchLater(page: 1) }
+            call: { _ = try await $0.watchLater(request: WatchLaterRequest()) }
         )
     ]
 

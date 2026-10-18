@@ -31,7 +31,8 @@ struct WatchLaterPayload: Decodable, Sendable {
         return WatchLaterPage(
             items: items,
             pageNumber: pageNumber,
-            nextPageNumber: hasNextPage ? pageNumber + 1 : nil
+            nextPageNumber: hasNextPage ? pageNumber + 1 : nil,
+            totalCount: count
         )
     }
 }

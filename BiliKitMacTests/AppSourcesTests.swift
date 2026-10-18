@@ -100,16 +100,57 @@ struct AppSourcesTests {
         #expect(watchLaterModel.state == .idle)
     }
 
+    /// 稍后再看的条件只在窗口内存里：关窗清理与账户变化都经描述把排序、筛选与关键词恢复默认。
+    @Test
+    func watchLaterDescriptorRestoresTheDefaultCriteria() async {
+        let watchLaterModel = WatchLaterViewModel(
+            useCase: WatchLaterUseCase(repository: WatchLaterRepositoryStub())
+        )
+        let session = WatchLaterSession(model: watchLaterModel)
+        let browseModel = BrowseViewModel(useCase: FeedUseCase(repository: EmptyFeedRepository()))
+        let sources = AppSources(
+            browseModel: browseModel,
+            watchLaterModel: watchLaterModel,
+            watchLaterSession: session,
+            historyModel: WatchHistoryViewModel(
+                useCase: WatchHistoryUseCase(repository: WatchHistoryRepositoryStub())
+            ),
+            searchSession: VideoSearchSession(browseModel: browseModel, recordHistory: { _ in }),
+            trendingSearchModel: TrendingSearchViewModel(
+                useCase: TrendingSearchUseCase(repository: EmptyTrendingSearchRepository())
+            )
+        )
+        session.searchDraft = "猫"
+        session.submitSearch()
+        await watchLaterModel.waitForCurrentTask()
+        #expect(session.narrowsResults)
+
+        sources[.watchLater].synchronizeAccountSession(
+            AccountSessionChange(generation: 1, scope: .signedOut, isCurrentRoute: true)
+        )
+        #expect(!session.narrowsResults)
+
+        session.searchDraft = "狗"
+        session.submitSearch()
+        await watchLaterModel.waitForCurrentTask()
+        sources.resetForWindowClosure()
+
+        #expect(session.appliedCriteria == WatchLaterCriteria())
+        #expect(watchLaterModel.state == .idle)
+    }
+
     /// 关窗时搜索来源清空草稿，撤回已提交的搜索。
     @Test
     func windowClosureClearsTheSearchSession() {
         let browseModel = BrowseViewModel(useCase: FeedUseCase(repository: EmptyFeedRepository()))
         let session = VideoSearchSession(browseModel: browseModel, recordHistory: { _ in })
+        let watchLaterModel = WatchLaterViewModel(
+            useCase: WatchLaterUseCase(repository: WatchLaterRepositoryStub())
+        )
         let sources = AppSources(
             browseModel: browseModel,
-            watchLaterModel: WatchLaterViewModel(
-                useCase: WatchLaterUseCase(repository: WatchLaterRepositoryStub())
-            ),
+            watchLaterModel: watchLaterModel,
+            watchLaterSession: WatchLaterSession(model: watchLaterModel),
             historyModel: WatchHistoryViewModel(
                 useCase: WatchHistoryUseCase(repository: WatchHistoryRepositoryStub())
             ),
@@ -131,11 +172,13 @@ struct AppSourcesTests {
     func accountChangeKeepsTheSearchDraft() {
         let browseModel = BrowseViewModel(useCase: FeedUseCase(repository: EmptyFeedRepository()))
         let session = VideoSearchSession(browseModel: browseModel, recordHistory: { _ in })
+        let watchLaterModel = WatchLaterViewModel(
+            useCase: WatchLaterUseCase(repository: WatchLaterRepositoryStub())
+        )
         let sources = AppSources(
             browseModel: browseModel,
-            watchLaterModel: WatchLaterViewModel(
-                useCase: WatchLaterUseCase(repository: WatchLaterRepositoryStub())
-            ),
+            watchLaterModel: watchLaterModel,
+            watchLaterSession: WatchLaterSession(model: watchLaterModel),
             historyModel: WatchHistoryViewModel(
                 useCase: WatchHistoryUseCase(repository: WatchHistoryRepositoryStub())
             ),
@@ -174,6 +217,7 @@ struct AppSourcesTests {
         return AppSources(
             browseModel: browseModel,
             watchLaterModel: watchLaterModel,
+            watchLaterSession: WatchLaterSession(model: watchLaterModel),
             historyModel: historyModel,
             searchSession: VideoSearchSession(browseModel: browseModel, recordHistory: { _ in }),
             trendingSearchModel: TrendingSearchViewModel(

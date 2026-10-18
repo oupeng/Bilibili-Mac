@@ -11,7 +11,10 @@ public enum VideoSearchOrder: String, Sendable, Hashable, CaseIterable, Identifi
     public var id: Self { self }
 }
 
-/// 搜索结果的时长筛选；rawValue 原样作为接口的 `duration` 参数，改动会改变请求含义。
+/// 视频时长的四档筛选，搜索与稍后再看共用；每档的秒数边界只在 `secondsRange`。
+///
+/// 搜索把 rawValue 原样作为接口的 `duration` 参数（1–4 正是这四档），稍后再看把 `secondsRange` 映射为
+/// `arc_min_duration`／`arc_max_duration`；改动 rawValue 或边界会改变请求含义。
 public enum VideoDurationFilter: Int, Sendable, Hashable, CaseIterable, Identifiable {
     case all = 0
     case underTenMinutes = 1
@@ -20,6 +23,17 @@ public enum VideoDurationFilter: Int, Sendable, Hashable, CaseIterable, Identifi
     case overSixtyMinutes = 4
 
     public var id: Self { self }
+
+    /// 这一档的时长下限与上限（秒）；nil 表示该侧不限，`all` 两侧都不限。
+    public var secondsRange: (minimum: Int?, maximum: Int?) {
+        switch self {
+        case .all: (nil, nil)
+        case .underTenMinutes: (nil, 600)
+        case .tenToThirtyMinutes: (600, 1_800)
+        case .thirtyToSixtyMinutes: (1_800, 3_600)
+        case .overSixtyMinutes: (3_600, nil)
+        }
+    }
 }
 
 /// 已冻结的闭区间；相对日期在进入搜索 criteria 前解析为该值，避免跨午夜改变请求含义。

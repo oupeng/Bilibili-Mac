@@ -59,7 +59,7 @@ struct AppSourceDescriptor: Identifiable {
     /// 稍后再看与观看历史复核成功后会 `loadIfNeeded`，不在本页时不能让它在后台读取账户内容。不绑定来源的参与者
     /// （视频、弹幕、评论、UP 主空间与三个来源共用的 Browse）由 `WindowComposition` 另行登记。
     let revalidationParticipant: (any AccountRevalidationParticipant)?
-    /// 取消本来源自己的请求并丢弃自己的内容（搜索的草稿与热搜、稍后再看、观看历史）。
+    /// 取消本来源自己的请求并丢弃自己的内容（搜索的草稿与热搜、稍后再看的列表与条件、观看历史）。
     ///
     /// 由 `AppSources` 调用：关窗时对所有来源，其他窗口换号时只对 `requiresAccount` 的来源。推荐、热门与搜索
     /// 共用的 Browse 工作集不属于某一个来源，不在这里，由 `AppSources.resetForWindowClosure` 整体丢弃一次。
@@ -102,6 +102,7 @@ struct AppSources {
     init(
         browseModel: BrowseViewModel,
         watchLaterModel: WatchLaterViewModel,
+        watchLaterSession: WatchLaterSession,
         historyModel: WatchHistoryViewModel,
         searchSession: VideoSearchSession,
         trendingSearchModel: TrendingSearchViewModel
@@ -168,14 +169,15 @@ struct AppSources {
                     requiresAccount: true,
                     refreshGeneration: { watchLaterModel.successfulReloadGeneration },
                     deactivate: watchLaterModel.deactivateRoute,
+                    // 账户变化与 reset 经会话：先把排序、筛选与关键词恢复默认，再交给列表。
                     synchronizeAccountSession: {
-                        watchLaterModel.synchronizeAuthenticationSession(
+                        watchLaterSession.synchronizeAuthenticationSession(
                             scope: $0.scope,
                             isCurrentRoute: $0.isCurrentRoute
                         )
                     },
                     revalidationParticipant: watchLaterModel,
-                    reset: watchLaterModel.reset
+                    reset: watchLaterSession.reset
                 )
             case .history:
                 AppSourceDescriptor(

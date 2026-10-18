@@ -20,6 +20,7 @@ struct AppShellView: View {
     let danmakuModel: DanmakuControlsViewModel
     let authenticationModel: AuthenticationViewModel
     let watchLaterModel: WatchLaterViewModel
+    let watchLaterSession: WatchLaterSession
     let historyModel: WatchHistoryViewModel
     let trendingSearchModel: TrendingSearchViewModel
     let searchSession: VideoSearchSession
@@ -339,6 +340,7 @@ struct AppShellView: View {
             WatchLaterTabRoot(
                 title: sources[.watchLater].title,
                 model: watchLaterModel,
+                session: watchLaterSession,
                 accountState: authenticationModel.accountPresentationState,
                 gridHost: gridHost(.watchLater),
                 onSelect: navigationCoordinator.openPlayback,

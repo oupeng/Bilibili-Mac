@@ -28,6 +28,8 @@ final class WindowComposition {
     let danmakuModel: DanmakuControlsViewModel
     let authenticationModel: AuthenticationViewModel
     let watchLaterModel: WatchLaterViewModel
+    /// 稍后再看的排序、筛选与关键词；关窗与账户变化时由稍后再看来源的描述恢复默认。
+    let watchLaterSession: WatchLaterSession
     let historyModel: WatchHistoryViewModel
     let trendingSearchModel: TrendingSearchViewModel
     let searchSuggestionSource: SearchSuggestionSource
@@ -106,6 +108,8 @@ final class WindowComposition {
             qrCodeProvider: adapters.authenticationQRCodeProvider
         )
         self.watchLaterModel = watchLaterModel
+        let watchLaterSession = WatchLaterSession(model: watchLaterModel)
+        self.watchLaterSession = watchLaterSession
         self.historyModel = historyModel
         self.trendingSearchModel = trendingSearchModel
         searchSuggestionSource = SearchSuggestionSource(
@@ -119,6 +123,7 @@ final class WindowComposition {
         let sources = AppSources(
             browseModel: browseModel,
             watchLaterModel: watchLaterModel,
+            watchLaterSession: watchLaterSession,
             historyModel: historyModel,
             searchSession: searchSession,
             trendingSearchModel: trendingSearchModel

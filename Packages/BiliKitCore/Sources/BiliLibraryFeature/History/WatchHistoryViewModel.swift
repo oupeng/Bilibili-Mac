@@ -13,7 +13,7 @@ extension LibraryVideoListModel where Item == WatchHistoryItem, Cursor == WatchH
     public convenience init(useCase: WatchHistoryUseCase) {
         self.init(stallPolicy: .requireManualContinue, bvid: \.bvid) { continuation in
             let page = try await useCase.load(after: continuation)
-            return VideoListPage(items: page.items, nextCursor: page.continuation)
+            return (VideoListPage(items: page.items, nextCursor: page.continuation), nil)
         }
     }
 }

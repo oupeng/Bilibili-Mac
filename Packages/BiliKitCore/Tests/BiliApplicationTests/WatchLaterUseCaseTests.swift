@@ -3,58 +3,150 @@ import BiliModels
 import Foundation
 import Testing
 
-/// 稍后再看用例不为非正页码发请求，并拒收页码与请求不符或下一页不紧接着的响应。
+/// 稍后再看用例不为非正页码或不合法的条件发请求，并拒收页码与请求不符或下一页不紧接着的响应。
 @Suite(.timeLimit(.minutes(1)))
 struct WatchLaterUseCaseTests {
     @Test
     func returnsTheRequestedPage() async throws {
-        let repository = WatchLaterRepositoryStub(
-            page: WatchLaterPage(items: [], pageNumber: 2, nextPageNumber: 3)
-        )
+        let repository = WatchLaterRepositoryStub(page: page(2, next: 3))
+        let request = WatchLaterRequest(criteria: WatchLaterCriteria(keyword: "猫"), page: 2)
 
-        let page = try await WatchLaterUseCase(repository: repository).load(page: 2)
+        let result = try await WatchLaterUseCase(repository: repository).load(request)
 
-        #expect(page.nextPageNumber == 3)
-        #expect(await repository.requestedPages == [2])
-    }
-
-    @Test(arguments: [0, -1])
-    func nonPositivePageSendsNothing(page: Int) async {
-        let repository = WatchLaterRepositoryStub(
-            page: WatchLaterPage(items: [], pageNumber: 1, nextPageNumber: nil)
-        )
-
-        await #expect(throws: ContentApplicationError.invalidRequest) {
-            try await WatchLaterUseCase(repository: repository).load(page: page)
-        }
-        #expect(await repository.requestedPages.isEmpty)
+        #expect(result.nextPageNumber == 3)
+        #expect(await repository.requests == [request])
     }
 
     @Test(arguments: [
-        WatchLaterPage(items: [], pageNumber: 3, nextPageNumber: nil),
-        WatchLaterPage(items: [], pageNumber: 2, nextPageNumber: 2),
-        WatchLaterPage(items: [], pageNumber: 2, nextPageNumber: 5)
+        WatchLaterRequest(page: 0),
+        WatchLaterRequest(page: -1),
+        WatchLaterRequest(criteria: WatchLaterCriteria(keyword: String(repeating: "长", count: 101)))
     ])
+    func invalidRequestSendsNothing(request: WatchLaterRequest) async {
+        let repository = WatchLaterRepositoryStub(page: page(1, next: nil))
+
+        await #expect(throws: ContentApplicationError.invalidRequest) {
+            try await WatchLaterUseCase(repository: repository).load(request)
+        }
+        #expect(await repository.requests.isEmpty)
+    }
+
+    @Test(arguments: [page(3, next: nil), page(2, next: 2), page(2, next: 5)])
     func misplacedPageIsAnInvalidResponse(response: WatchLaterPage) async {
         let repository = WatchLaterRepositoryStub(page: response)
 
         await #expect(throws: ContentApplicationError.invalidResponse) {
-            try await WatchLaterUseCase(repository: repository).load(page: 2)
+            try await WatchLaterUseCase(repository: repository).load(WatchLaterRequest(page: 2))
         }
     }
 }
 
-/// 本 target 唯一的稍后再看仓库替身：总是返回同一页并记录请求的页码。
+/// 加入时间按本地日历解析：今天与近一周止于现在，昨天是昨天整日，自定义含结束日当天；日界按日历时区，跨夏令时
+/// 按日历日而不是固定 24 小时计算。
+struct WatchLaterAddedTimeRangeTests {
+    @Test
+    func relativeRangesEndAtNowOrAtTodaysStart() throws {
+        let calendar = try calendar("Asia/Tokyo")
+        let now = try date(calendar, 2026, 7, 24, hour: 13)
+
+        let today = try resolve(.today, now: now, calendar: calendar)
+        let yesterday = try resolve(.yesterday, now: now, calendar: calendar)
+        let lastWeek = try resolve(.lastSevenDays, now: now, calendar: calendar)
+
+        // 东京 7/24 0 点在 UTC 仍是 7/23，必须按日历时区取日界。
+        #expect(today == range(try date(calendar, 2026, 7, 24), now))
+        #expect(yesterday == range(try date(calendar, 2026, 7, 23), try date(calendar, 2026, 7, 24)))
+        #expect(lastWeek == range(now.addingTimeInterval(-7 * 86_400), now))
+        #expect(try resolve(.all, now: now, calendar: calendar) == nil)
+    }
+
+    /// 自定义范围从开始日 0 点到结束日次日 0 点；跨夏令时开始的那一天只有 23 小时。
+    @Test
+    func customRangeIncludesTheEndDayAcrossDaylightSaving() throws {
+        let calendar = try calendar("America/New_York")
+        let start = try date(calendar, 2026, 3, 7, hour: 15)
+        let end = try date(calendar, 2026, 3, 8, hour: 9)
+
+        let resolved = try #require(try WatchLaterAddedTimeRangeResolver.resolve(
+            filter: .custom,
+            customStart: start,
+            customEnd: end,
+            now: try date(calendar, 2026, 3, 20),
+            calendar: calendar
+        ))
+
+        #expect(resolved == range(try date(calendar, 2026, 3, 7), try date(calendar, 2026, 3, 9)))
+        #expect(resolved.endTimestamp - resolved.startTimestamp == 47 * 3_600)
+    }
+
+    @Test
+    func customRangeStartingAfterItsEndFails() throws {
+        let calendar = try calendar("Asia/Shanghai")
+
+        #expect(throws: WatchLaterAddedTimeRangeError.startAfterEnd) {
+            try WatchLaterAddedTimeRangeResolver.resolve(
+                filter: .custom,
+                customStart: try date(calendar, 2026, 7, 25),
+                customEnd: try date(calendar, 2026, 7, 24),
+                now: try date(calendar, 2026, 7, 26),
+                calendar: calendar
+            )
+        }
+    }
+
+    private func resolve(
+        _ filter: WatchLaterAddedTimeFilter,
+        now: Date,
+        calendar: Calendar
+    ) throws -> WatchLaterAddedTimeRange? {
+        try WatchLaterAddedTimeRangeResolver.resolve(
+            filter: filter,
+            customStart: now,
+            customEnd: now,
+            now: now,
+            calendar: calendar
+        )
+    }
+
+    private func range(_ start: Date, _ end: Date) -> WatchLaterAddedTimeRange {
+        WatchLaterAddedTimeRange(
+            startTimestamp: Int64(start.timeIntervalSince1970),
+            endTimestamp: Int64(end.timeIntervalSince1970)
+        )
+    }
+
+    private func calendar(_ identifier: String) throws -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: identifier))
+        return calendar
+    }
+
+    private func date(
+        _ calendar: Calendar,
+        _ year: Int,
+        _ month: Int,
+        _ day: Int,
+        hour: Int = 0
+    ) throws -> Date {
+        try #require(calendar.date(from: DateComponents(year: year, month: month, day: day, hour: hour)))
+    }
+}
+
+private func page(_ number: Int, next: Int?) -> WatchLaterPage {
+    WatchLaterPage(items: [], pageNumber: number, nextPageNumber: next, totalCount: 0)
+}
+
+/// 本 target 唯一的稍后再看仓库替身：总是返回同一页并记录请求。
 private actor WatchLaterRepositoryStub: WatchLaterRepository {
     private let page: WatchLaterPage
-    private(set) var requestedPages: [Int] = []
+    private(set) var requests: [WatchLaterRequest] = []
 
     init(page: WatchLaterPage) {
         self.page = page
     }
 
-    func watchLater(page: Int) async throws -> WatchLaterPage {
-        requestedPages.append(page)
-        return self.page
+    func watchLater(request: WatchLaterRequest) async throws -> WatchLaterPage {
+        requests.append(request)
+        return page
     }
 }

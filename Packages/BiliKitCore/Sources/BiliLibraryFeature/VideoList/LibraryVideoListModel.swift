@@ -26,8 +26,10 @@ public enum LibraryVideoListState<Item: Sendable & Equatable, Cursor: Equatable 
 /// 资料库里只按账户读取的视频列表（观看历史、稍后再看）共用的 ViewModel：拥有当前登录会话的列表
 /// （`PagedVideoList`）、加载阶段、凭据复核状态与最新请求 Task。
 ///
-/// 两个来源只在分页游标、无进展页策略与读取闭包上不同，由各自的构造入口给出（`WatchHistoryViewModel`、
-/// `WatchLaterViewModel`）。去重、上限、无进展页、回环、加载更多失败与原地刷新的分页恢复都由 `PagedVideoList`
+/// 两个来源只在分页游标、第一页游标、无进展页策略与读取闭包上不同，由各自的构造入口给出（`WatchHistoryViewModel`、
+/// `WatchLaterViewModel`）。游标是完整请求时（稍后再看的条件加页码），条件变化由来源的会话经
+/// `reloadReplacingContent(from:)` 换掉第一页游标并重新加载；旧条件的迟到结果由 `LatestTask` 丢弃，旧条件的下一页
+/// 游标也与新列表的游标不等而被 `PagedVideoList` 拒收。去重、上限、无进展页、回环、加载更多失败与原地刷新的分页恢复都由 `PagedVideoList`
 /// 承担；空页跳过等来源规则在各自的 Use Case。`reset` 会清除个性化内容；普通路由停用只取消在途请求，并在分页或
 /// 刷新中断时保留已显示条目。已有条目时刷新原地进行：条目保持显示，成功后整体替换，失败时保留条目并给出
 /// `refreshError`；凭据缺失或失效则放弃条目、转入失败页并请求账户复核。
@@ -37,8 +39,9 @@ public final class LibraryVideoListModel<
     Item: Sendable & Equatable,
     Cursor: Equatable & Sendable
 >: AccountRevalidationParticipant {
-    /// 读取一页：nil 是第一页，否则是列表给出的下一页游标。失败抛出 `ContentApplicationError`，取消原样传播。
-    typealias Load = @MainActor (Cursor?) async throws -> VideoListPage<Item, Cursor>
+    /// 读取一页：传入第一页游标（来源没有时为 nil）或列表给出的下一页游标，返回这一页与来源给出的总条数（没有时
+    /// 为 nil）。失败抛出 `ContentApplicationError`，取消原样传播。
+    typealias Load = @MainActor (Cursor?) async throws -> (page: VideoListPage<Item, Cursor>, totalCount: Int?)
 
     /// `phase` 与列表的投影；`.loadingMore` 时的 continuation 就是正在请求的那一页。
     public var state: LibraryVideoListState<Item, Cursor> {
@@ -75,6 +78,9 @@ public final class LibraryVideoListModel<
     /// 复核结束（`authenticationRevalidationSucceeded`／`authenticationRevalidationFailed`）、
     /// 加载成功、离开页面或 `reset` 时清除。
     public private(set) var isAwaitingAuthenticationRevalidation = false
+    /// 最近一次成功的第一页给出的总条数（来源给出时），条件下的总数随加载成功更新；首次加载、条件变化、失败与
+    /// `reset` 时清空，只在已显示内容时有值。
+    public private(set) var totalCount: Int?
 
     /// 已有条目时的原地刷新正在进行；首次加载仍是 `.loading`。
     public var isRefreshing: Bool {
@@ -116,6 +122,9 @@ public final class LibraryVideoListModel<
     /// 只在 `phase == .loaded` 时被显示；首次加载、失败与 `reset` 时换成空列表，不留下旧账户的条目。
     private var list: PagedVideoList<Item, Cursor>
 
+    /// 首次加载与刷新请求的第一页游标；观看历史为 nil，稍后再看是当前条件的第一页，条件变化时由
+    /// `reloadReplacingContent(from:)` 替换。
+    @ObservationIgnored private var firstPageCursor: Cursor?
     @ObservationIgnored private let stallPolicy: PagedVideoList<Item, Cursor>.StallPolicy
     @ObservationIgnored private let load: Load
     @ObservationIgnored private let bvid: (Item) -> String
@@ -129,9 +138,11 @@ public final class LibraryVideoListModel<
 
     init(
         stallPolicy: PagedVideoList<Item, Cursor>.StallPolicy,
+        firstPageCursor: Cursor? = nil,
         bvid: @escaping (Item) -> String,
         load: @escaping Load
     ) {
+        self.firstPageCursor = firstPageCursor
         self.stallPolicy = stallPolicy
         self.bvid = bvid
         self.load = load
@@ -151,14 +162,17 @@ public final class LibraryVideoListModel<
             list.beginRefresh()
         } else {
             list = emptyList()
+            totalCount = nil
             phase = .loading
         }
+        let firstPageCursor = firstPageCursor
         loadTask.replace { [weak self] isCurrent in
             guard let self else { return }
             do {
-                let page = try await load(nil)
+                let result = try await load(firstPageCursor)
                 guard isCurrent() else { return }
-                list.replaceFirstPage(page, bvid: bvid)
+                list.replaceFirstPage(result.page, bvid: bvid)
+                totalCount = result.totalCount
                 phase = .loaded
                 successfulReloadGeneration &+= 1
                 isAwaitingAuthenticationRevalidation = false
@@ -192,9 +206,9 @@ public final class LibraryVideoListModel<
         loadTask.replace { [weak self] isCurrent in
             guard let self else { return }
             do {
-                let page = try await load(continuation)
+                let result = try await load(continuation)
                 guard isCurrent() else { return }
-                list.apply(page, requested: continuation, bvid: bvid)
+                list.apply(result.page, requested: continuation, bvid: bvid)
             } catch is CancellationError {
                 // 认证切换带来的取消只保留已显示条目，并要求用户显式继续。
                 guard isCurrent() else { return }
@@ -210,6 +224,20 @@ public final class LibraryVideoListModel<
                 }
             }
         }
+    }
+
+    /// 换掉第一页游标（稍后再看的条件变化）并从空列表重新加载：不原地刷新，旧条件的条目不能留在新条件下显示；
+    /// 加载成功时 `successfulReloadGeneration` 前进，App 据此把网格滚回顶部。
+    func reloadReplacingContent(from firstPageCursor: Cursor) {
+        self.firstPageCursor = firstPageCursor
+        list = emptyList()
+        phase = .idle
+        reload()
+    }
+
+    /// 只换掉第一页游标、不发请求；来源会话在 `reset` 时把条件恢复为默认后调用。
+    func replaceFirstPageCursor(_ firstPageCursor: Cursor) {
+        self.firstPageCursor = firstPageCursor
     }
 
     /// 窗口的账户范围变化（登出、换号、凭据失效后确认的新范围）时由 App 通知，只在已解析的变化时调用。
@@ -231,6 +259,7 @@ public final class LibraryVideoListModel<
     public func reset() {
         loadTask.cancel()
         list = emptyList()
+        totalCount = nil
         refreshError = nil
         isAwaitingAuthenticationRevalidation = false
         hasReloadedAfterRevalidation = false
@@ -309,6 +338,7 @@ public final class LibraryVideoListModel<
             authenticationRevalidationGeneration &+= 1
         }
         list = emptyList()
+        totalCount = nil
         phase = .failed(failure)
     }
 }

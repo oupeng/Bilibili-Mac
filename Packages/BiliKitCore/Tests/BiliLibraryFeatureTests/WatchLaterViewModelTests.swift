@@ -83,7 +83,7 @@ struct WatchLaterViewModelTests {
             model.state
                 == .loaded(
                     items: [laterItem("BV1LaterA1")],
-                    continuation: 2,
+                    continuation: WatchLaterRequest(page: 2),
                     loadMoreError: .transportFailure
                 )
         )
@@ -159,7 +159,7 @@ struct WatchLaterViewModelTests {
             model.state
                 == .loaded(
                     items: [laterItem("BV1LaterA1")],
-                    continuation: 2,
+                    continuation: WatchLaterRequest(page: 2),
                     loadMoreError: .invalidResponse
                 )
         )

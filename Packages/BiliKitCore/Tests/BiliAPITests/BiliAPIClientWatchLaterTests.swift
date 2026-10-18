@@ -6,8 +6,9 @@ import Testing
 
 @testable import BiliAPI
 
-/// 固定稍后再看契约：WBI 签名的账户读取与固定参数，丢弃没有可用 BVID 的占位行，番剧／影视、课程与失效三类
-/// 判为不可用，按总条数推出下一页，响应不属于所请求的页时整页失败。
+/// 固定稍后再看契约：WBI 签名的账户读取，默认条件与每个排序、筛选、关键词到参数的映射（未启用的筛选不传），
+/// 丢弃没有可用 BVID 的占位行，番剧／影视、课程与失效三类判为不可用，按总条数推出下一页并带回总条数，响应不属于
+/// 所请求的页时整页失败。
 struct BiliAPIClientWatchLaterTests {
     @Test
     func requestIsSignedAccountReadWithFixedParameters() async throws {
@@ -22,7 +23,7 @@ struct BiliAPIClientWatchLaterTests {
             timestampProvider: { 1_700_000_000 }
         )
 
-        _ = try await client.watchLater(page: 1)
+        _ = try await client.watchLater(request: WatchLaterRequest(page: 1))
 
         let requests = transport.businessRequests()
         #expect(requests.map(\.url.path) == ["/x/v2/history/toview/web"])
@@ -40,10 +41,97 @@ struct BiliAPIClientWatchLaterTests {
         #expect(query["asc"] == "0")
         #expect(query["web_location"] == "333.881")
         #expect(query["need_split"] == nil)
+        for name in ["add_time_start", "add_time_end", "arc_min_duration", "arc_max_duration"] {
+            #expect(query[name] == nil)
+        }
         #expect(query["wts"] == "1700000000")
         #expect(query["w_rid"]?.count == 32)
         // WBI nav 保持匿名，只有稍后再看本身经过授权器。
         #expect(await authorizer.capturedPaths() == ["/x/v2/history/toview/web"])
+    }
+
+    /// 每个条件单独映射到自己的参数；未启用的加入时间与时长两侧不传。
+    @Test(arguments: [
+        (WatchLaterCriteria(order: .oldestAdded), ["asc": "1"]),
+        (WatchLaterCriteria(progress: .unfinished), ["viewed": "2"]),
+        (WatchLaterCriteria(keyword: "  猫 咪 "), ["key": "猫 咪"]),
+        (
+            WatchLaterCriteria(
+                addedTime: WatchLaterAddedTimeRange(
+                    startTimestamp: 1_700_000_000,
+                    endTimestamp: 1_700_086_400
+                )
+            ),
+            ["add_time_start": "1700000000", "add_time_end": "1700086400"]
+        ),
+        (WatchLaterCriteria(duration: .underTenMinutes), ["arc_max_duration": "600"]),
+        (
+            WatchLaterCriteria(duration: .tenToThirtyMinutes),
+            ["arc_min_duration": "600", "arc_max_duration": "1800"]
+        ),
+        (
+            WatchLaterCriteria(duration: .thirtyToSixtyMinutes),
+            ["arc_min_duration": "1800", "arc_max_duration": "3600"]
+        ),
+        (WatchLaterCriteria(duration: .overSixtyMinutes), ["arc_min_duration": "3600"])
+    ])
+    func criteriaMapToTheirOwnParameters(
+        criteria: WatchLaterCriteria,
+        expected: [String: String]
+    ) async throws {
+        let query = try await Self.query(for: WatchLaterRequest(criteria: criteria, page: 2))
+        let defaults = [
+            "pn": "2", "ps": "20", "viewed": "0", "key": "", "asc": "0", "web_location": "333.881"
+        ]
+        let filterNames: Set = ["add_time_start", "add_time_end", "arc_min_duration", "arc_max_duration"]
+
+        for (name, value) in defaults where expected[name] == nil {
+            #expect(query[name] == value)
+        }
+        for (name, value) in expected {
+            #expect(query[name] == value)
+        }
+        for name in filterNames where expected[name] == nil {
+            #expect(query[name] == nil)
+        }
+    }
+
+    @Test
+    func combinedCriteriaSendEveryParameter() async throws {
+        let query = try await Self.query(
+            for: WatchLaterRequest(
+                criteria: WatchLaterCriteria(
+                    order: .oldestAdded,
+                    progress: .unfinished,
+                    addedTime: WatchLaterAddedTimeRange(startTimestamp: 10, endTimestamp: 20),
+                    duration: .thirtyToSixtyMinutes,
+                    keyword: "macOS"
+                )
+            )
+        )
+
+        #expect(query["asc"] == "1")
+        #expect(query["viewed"] == "2")
+        #expect(query["key"] == "macOS")
+        #expect(query["add_time_start"] == "10")
+        #expect(query["add_time_end"] == "20")
+        #expect(query["arc_min_duration"] == "1800")
+        #expect(query["arc_max_duration"] == "3600")
+    }
+
+    /// 关键词过长或加入时间倒置时不发请求。
+    @Test(arguments: [
+        WatchLaterCriteria(keyword: String(repeating: "长", count: 101)),
+        WatchLaterCriteria(addedTime: WatchLaterAddedTimeRange(startTimestamp: 20, endTimestamp: 20))
+    ])
+    func invalidCriteriaSendNothing(criteria: WatchLaterCriteria) async {
+        let transport = StubTransport(responses: [])
+        let client = BiliAPIClient(transport: transport, requestAuthorizer: StubAuthorizer())
+
+        await #expect(throws: BiliAPIError.invalidRequest) {
+            try await client.watchLater(request: WatchLaterRequest(criteria: criteria))
+        }
+        #expect(transport.capturedRequests().isEmpty)
     }
 
     @Test
@@ -57,8 +145,9 @@ struct BiliAPIClientWatchLaterTests {
             timestampProvider: { 1_700_000_000 }
         )
 
-        let page = try await client.watchLater(page: 1)
+        let page = try await client.watchLater(request: WatchLaterRequest(page: 1))
 
+        #expect(page.totalCount == 23)
         #expect(
             page.items.map(\.bvid) == [
                 "BV1LaterA1", "BV1LaterB2", "BV1LaterC3", "BV1LaterD4", "BV1LaterE5", "BV1LaterF6",
@@ -109,7 +198,7 @@ struct BiliAPIClientWatchLaterTests {
             timestampProvider: { 1_700_000_000 }
         )
 
-        let result = try await client.watchLater(page: page)
+        let result = try await client.watchLater(request: WatchLaterRequest(page: page))
 
         #expect(result.pageNumber == page)
         #expect(result.items.count == rows)
@@ -127,7 +216,7 @@ struct BiliAPIClientWatchLaterTests {
             timestampProvider: { 1_700_000_000 }
         )
 
-        let page = try await client.watchLater(page: 1)
+        let page = try await client.watchLater(request: WatchLaterRequest(page: 1))
 
         #expect(page.items.isEmpty)
         #expect(page.nextPageNumber == nil)
@@ -146,7 +235,7 @@ struct BiliAPIClientWatchLaterTests {
         )
 
         await #expect(throws: BiliAPIError.decodingFailed) {
-            try await client.watchLater(page: page)
+            try await client.watchLater(request: WatchLaterRequest(page: page))
         }
     }
 
@@ -163,7 +252,7 @@ struct BiliAPIClientWatchLaterTests {
         )
 
         await #expect(throws: BiliAPIError.decodingFailed) {
-            try await client.watchLater(page: 1)
+            try await client.watchLater(request: WatchLaterRequest(page: 1))
         }
     }
 
@@ -197,9 +286,28 @@ struct BiliAPIClientWatchLaterTests {
         let client = BiliAPIClient(transport: transport, requestAuthorizer: StubAuthorizer())
 
         await #expect(throws: BiliAPIError.invalidRequest) {
-            try await client.watchLater(page: page)
+            try await client.watchLater(request: WatchLaterRequest(page: page))
         }
         #expect(transport.capturedRequests().isEmpty)
+    }
+
+    /// 以默认 fixture 响应发出 `request`，返回业务请求的 query。
+    private static func query(for request: WatchLaterRequest) async throws -> [String: String] {
+        let transport = StubTransport(
+            responses: [jsonResponse(Self.body(count: 0, rows: 0))],
+            answersWBINavOnce: true
+        )
+        let client = BiliAPIClient(
+            transport: transport,
+            requestAuthorizer: StubAuthorizer(),
+            timestampProvider: { 1_700_000_000 }
+        )
+        _ = try await client.watchLater(request: request)
+        let url = try #require(transport.businessRequests().first?.url)
+        return Dictionary(
+            uniqueKeysWithValues: (URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems ?? []).map { ($0.name, $0.value ?? "") }
+        )
     }
 
     /// 一页 `rows` 条可播放的手写条目，总条数为 `count`。
@@ -225,7 +333,7 @@ struct BiliWatchLaterRepositoryTests {
         )
 
         await #expect(throws: ContentApplicationError.authenticationRequired) {
-            try await repository.watchLater(page: 1)
+            try await repository.watchLater(request: WatchLaterRequest(page: 1))
         }
         #expect(transport.businessRequests().isEmpty)
     }
@@ -247,7 +355,7 @@ struct BiliWatchLaterRepositoryTests {
         )
 
         await #expect(throws: expected) {
-            try await repository.watchLater(page: 1)
+            try await repository.watchLater(request: WatchLaterRequest(page: 1))
         }
     }
 
@@ -261,7 +369,7 @@ struct BiliWatchLaterRepositoryTests {
         )
 
         await #expect(throws: ContentApplicationError.authenticationUnavailable) {
-            try await repository.watchLater(page: 1)
+            try await repository.watchLater(request: WatchLaterRequest(page: 1))
         }
     }
 
@@ -275,7 +383,7 @@ struct BiliWatchLaterRepositoryTests {
         )
 
         await #expect(throws: CancellationError.self) {
-            try await repository.watchLater(page: 1)
+            try await repository.watchLater(request: WatchLaterRequest(page: 1))
         }
     }
 
@@ -292,7 +400,7 @@ struct BiliWatchLaterRepositoryTests {
         )
 
         await #expect(throws: ContentApplicationError.invalidResponse) {
-            try await repository.watchLater(page: 2)
+            try await repository.watchLater(request: WatchLaterRequest(page: 2))
         }
     }
 }

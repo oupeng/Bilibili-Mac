@@ -10,7 +10,8 @@ import SwiftUI
 /// 通知模型；播放详情只是覆盖本页面，不应误取消分页。登出清理仍由窗口级 `reset` 边界负责；凭据失效经
 /// 模型的 `authenticationRevalidationGeneration` 交给 App 统一复核。登录与账号页面由 App 注入的
 /// `onPresentAuthentication` 打开。滚动位置、回顶请求与图片管线属于 App 窗口，经
-/// `NativeVideoGridHostContext` 原样交给网格。
+/// `NativeVideoGridHostContext` 原样交给网格。已登录时工具栏 primaryAction 依次是来源给的控件（稍后再看的排序与
+/// 筛选，由 App 宿主）与刷新按钮，放在同一组里保证顺序。
 struct LibraryVideoListView<Item: Sendable & Equatable, Cursor: Equatable & Sendable>: View {
     let model: LibraryVideoListModel<Item, Cursor>
     let text: LibraryVideoListText
@@ -19,6 +20,8 @@ struct LibraryVideoListView<Item: Sendable & Equatable, Cursor: Equatable & Send
     let gridHost: NativeVideoGridHostContext
     let onSelect: (String) -> Void
     let onPresentAuthentication: () -> Void
+    /// 排在刷新按钮之前的工具栏控件；没有时为 nil。
+    var toolbarControls: AnyView? = nil
 
     var body: some View {
         AccountGateView(
@@ -41,7 +44,10 @@ struct LibraryVideoListView<Item: Sendable & Equatable, Cursor: Equatable & Send
         }
         .toolbar {
             if case .signedIn = accountState {
-                ToolbarItem(placement: .primaryAction) {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    if let toolbarControls {
+                        toolbarControls
+                    }
                     LibraryRefreshButton(model: model)
                 }
             }

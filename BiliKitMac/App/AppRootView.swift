@@ -37,6 +37,7 @@ struct AppRootView: View {
             danmakuModel: danmakuModel,
             authenticationModel: authenticationModel,
             watchLaterModel: window.watchLaterModel,
+            watchLaterSession: window.watchLaterSession,
             historyModel: historyModel,
             trendingSearchModel: window.trendingSearchModel,
             searchSession: window.searchSession,

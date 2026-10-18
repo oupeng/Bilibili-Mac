@@ -11,9 +11,9 @@ public struct BiliWatchLaterRepository: WatchLaterRepository {
         self.client = client
     }
 
-    public func watchLater(page: Int) async throws -> WatchLaterPage {
+    public func watchLater(request: WatchLaterRequest) async throws -> WatchLaterPage {
         do {
-            return try await client.watchLater(page: page)
+            return try await client.watchLater(request: request)
         } catch {
             throw BiliAPIError.contentApplicationError(for: error)
         }

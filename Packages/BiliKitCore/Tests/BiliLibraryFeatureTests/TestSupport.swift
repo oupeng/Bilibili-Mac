@@ -178,17 +178,26 @@ func laterItem(
 func laterPage(
     _ bvids: [String],
     page: Int,
-    next: Int?
+    next: Int?,
+    total: Int = 0
 ) -> Result<WatchLaterPage, any Error> {
-    .success(WatchLaterPage(items: bvids.map { laterItem($0) }, pageNumber: page, nextPageNumber: next))
+    .success(
+        WatchLaterPage(
+            items: bvids.map { laterItem($0) },
+            pageNumber: page,
+            nextPageNumber: next,
+            totalCount: total
+        )
+    )
 }
 
-/// 本 target 唯一的稍后再看仓库替身：按序返回结果并记录请求的页码，可让指定调用挂起到测试放行。
+/// 本 target 唯一的稍后再看仓库替身：按序返回结果并记录请求，可让指定调用挂起到测试放行。
 actor WatchLaterRepositoryStub: WatchLaterRepository {
     private var results: [Result<WatchLaterPage, any Error>]
     private let suspendedCalls: Set<Int>
     private var callCount = 0
-    private(set) var requestedPages: [Int] = []
+    private(set) var requests: [WatchLaterRequest] = []
+    var requestedPages: [Int] { requests.map(\.page) }
     private let callEvents = TestEventCounter()
     private var releaseWaiters: [Int: CheckedContinuation<Void, Never>] = [:]
     private var releasedCalls: Set<Int> = []
@@ -198,10 +207,10 @@ actor WatchLaterRepositoryStub: WatchLaterRepository {
         self.suspendedCalls = suspendedCalls
     }
 
-    func watchLater(page: Int) async throws -> WatchLaterPage {
+    func watchLater(request: WatchLaterRequest) async throws -> WatchLaterPage {
         callCount += 1
         let currentCall = callCount
-        requestedPages.append(page)
+        requests.append(request)
         await callEvents.signal()
         guard !results.isEmpty else { throw ContentApplicationError.invalidResponse }
         let result = results.removeFirst()

@@ -14,6 +14,14 @@ struct LibraryVideoListText {
         let actionTitle: String
     }
 
+    /// 条件筛掉了全部结果时的空态：取代来源的普通空态，并给出清除条件的动作。
+    struct FilteredEmpty {
+        let title: String
+        let description: String
+        let clearTitle: String
+        let clear: () -> Void
+    }
+
     let signInTitle: String
     let signInDescription: String
     let loading: String
@@ -26,6 +34,8 @@ struct LibraryVideoListText {
     let gridAccessibilityLabel: String
     /// 只有显式继续策略的来源给出；停止策略的来源没有显式继续入口。
     let manualContinue: ManualContinue?
+    /// 只在来源有筛选或关键词在起作用时给出（稍后再看）；为 nil 时空结果用普通空态。
+    var filteredEmpty: FilteredEmpty? = nil
 }
 
 /// 网格的输入：从列表状态取出条目与分页状态。
@@ -123,7 +133,25 @@ struct LibraryVideoListContentView<Item: Sendable & Equatable, Cursor: Equatable
         }
     }
 
+    @ViewBuilder
     private func emptyList(
+        canLoadMore: Bool,
+        loadMoreError: ContentApplicationError?
+    ) -> some View {
+        if let filteredEmpty = text.filteredEmpty, !canLoadMore, loadMoreError == nil {
+            ContentUnavailableView {
+                Label(filteredEmpty.title, systemImage: "line.3.horizontal.decrease.circle")
+            } description: {
+                Text(filteredEmpty.description)
+            } actions: {
+                Button(filteredEmpty.clearTitle, action: filteredEmpty.clear)
+            }
+        } else {
+            unfilteredEmptyList(canLoadMore: canLoadMore, loadMoreError: loadMoreError)
+        }
+    }
+
+    private func unfilteredEmptyList(
         canLoadMore: Bool,
         loadMoreError: ContentApplicationError?
     ) -> some View {
