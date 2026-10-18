@@ -36,6 +36,10 @@ struct AppSourceDescriptor: Identifiable {
     let systemImage: String
     /// 侧栏里所属的组；组内按 `AppTab` 的声明顺序排列。
     let group: AppSourceGroup
+    /// 来源在侧栏提供多行（每行一个条目）时的选中读写；只有一行的来源为 nil。
+    ///
+    /// 侧栏的选择值据此在来源本身与条目行之间映射（`AppSidebarSelection`）。
+    let itemSelection: AppSourceItemSelection?
     /// 内容只属于当前账户（只在登录后读取）。
     ///
     /// 其他窗口换号时，本窗口在自己的复核结束前就先 `reset`，不让上一账户的内容在复核期间继续显示。
@@ -120,6 +124,7 @@ struct AppSources {
                     title: "搜索",
                     systemImage: "magnifyingglass",
                     group: .browse,
+                    itemSelection: nil,
                     requiresAccount: false,
                     refreshGeneration: { browseModel.successfulRefreshGeneration(for: .search) },
                     deactivate: {},
@@ -136,6 +141,7 @@ struct AppSources {
                     title: "首页",
                     systemImage: "house",
                     group: .browse,
+                    itemSelection: nil,
                     requiresAccount: false,
                     refreshGeneration: {
                         browseModel.successfulRefreshGeneration(for: .recommendation)
@@ -152,6 +158,7 @@ struct AppSources {
                     title: "热门",
                     systemImage: "flame",
                     group: .browse,
+                    itemSelection: nil,
                     requiresAccount: false,
                     refreshGeneration: { browseModel.successfulRefreshGeneration(for: .popular) },
                     deactivate: {},
@@ -166,6 +173,7 @@ struct AppSources {
                     title: "稍后再看",
                     systemImage: "play.square.stack",
                     group: .library,
+                    itemSelection: nil,
                     requiresAccount: true,
                     refreshGeneration: { watchLaterModel.successfulReloadGeneration },
                     deactivate: watchLaterModel.deactivateRoute,
@@ -185,6 +193,7 @@ struct AppSources {
                     title: "观看历史",
                     systemImage: "clock.arrow.circlepath",
                     group: .library,
+                    itemSelection: nil,
                     requiresAccount: true,
                     refreshGeneration: { historyModel.successfulReloadGeneration },
                     deactivate: historyModel.deactivateRoute,

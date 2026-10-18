@@ -38,6 +38,24 @@ struct AppSourcesTests {
         #expect(AppSourceGroup.library.title != nil)
     }
 
+    /// 单行来源的侧栏选择值就是来源本身，选中它即切换到该来源。
+    @Test
+    func singleRowSourcesSelectThemselves() {
+        let sources = makeSources()
+        let coordinator = AppNavigationCoordinator(
+            startPlayback: { _ in },
+            stopPlayback: {},
+            uploaderSpace: makeUploaderSpace()
+        )
+
+        for tab in AppTab.allCases {
+            sources.select(.source(tab), in: coordinator)
+
+            #expect(coordinator.selectedTab == tab)
+            #expect(sources.sidebarSelection(for: tab) == .source(tab))
+        }
+    }
+
     @Test
     func historyDescriptorFollowsItsModel() async {
         let historyModel = WatchHistoryViewModel(

@@ -40,8 +40,6 @@ struct AppShellView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        @Bindable var navigationCoordinator = navigationCoordinator
-
         NavigationSplitView(columnVisibility: guardedColumnVisibility) {
             // 侧栏 = 底层（导航或播放详情）+ 可选的上下文层（UP 主空间）。两层并列叠放，
             // 各自按安全区布局；上下文层打开时底层保留状态（关闭后评论位置还在），但不可见、
@@ -54,7 +52,7 @@ struct AppShellView: View {
                     } else {
                         AppNavigationSidebar(
                             sections: sources.sections,
-                            selection: $navigationCoordinator.selectedTab,
+                            selection: sidebarSelection,
                             accountState: authenticationModel.accountPresentationState,
                             imagePipeline: imagePipeline,
                             onPresentAuthentication: {
@@ -151,6 +149,14 @@ struct AppShellView: View {
             guard previousBVID != currentBVID else { return }
             dismissCommentImagePreview(restoringFocus: false)
         }
+    }
+
+    /// 侧栏的选择值：读写都经来源描述映射，选中的条目记在来源自己的模型里，侧栏重建后照样恢复高亮。
+    private var sidebarSelection: Binding<AppSidebarSelection> {
+        Binding(
+            get: { sources.sidebarSelection(for: navigationCoordinator.selectedTab) },
+            set: { sources.select($0, in: navigationCoordinator) }
+        )
     }
 
     private var sidebarContextID: String {
