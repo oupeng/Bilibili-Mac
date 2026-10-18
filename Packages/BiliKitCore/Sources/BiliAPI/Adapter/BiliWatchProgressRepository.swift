@@ -1,5 +1,11 @@
 import BiliApplication
 
+/// `WatchProgressRepository` 的 B 站实现：转调唯一的写请求（观看进度 heartbeat）并映射为
+/// `WatchProgressError`。
+///
+/// 无状态；进程内只有一个，由 `SerializedWatchProgressRepository` 串行化，
+/// 底层是进程级观看进度写入专用的 API client（`ProcessComposition.live`）。
+/// 失败只关闭对应的报告会话、不触发账户复核，见 SECURITY-MODEL §3。
 public struct BiliWatchProgressRepository: WatchProgressRepository {
     private let client: BiliAPIClient
 

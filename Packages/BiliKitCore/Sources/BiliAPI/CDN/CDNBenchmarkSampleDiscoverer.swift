@@ -2,6 +2,8 @@ import BiliModels
 import BiliNetworking
 import Foundation
 
+/// 一个合格测速样本：最高可消费的 AVC 视频表示，以及去掉凭据与 Range 头的媒体请求头；不含 BVID
+/// 等内容 identity。
 public struct CDNBenchmarkDiscoveredSample: Sendable, Equatable {
     public let videoRepresentation: MediaRepresentation
     public let mediaHeaders: [String: String]
@@ -16,19 +18,39 @@ public struct CDNBenchmarkDiscoveredSample: Sendable, Equatable {
 }
 
 /// 只为已登录用户的显式测速发现近期低播放量公开视频；内容 identity 不越过该 adapter。
+///
+/// 进程内一个，由 `ProcessComposition` 以线路测速专用的 API client 构造，设置窗口的测速模型调用；
+/// 取消跟随调用方的 Task。actor 拥有 `seenBVIDs`：凑满目标数的一轮把样本 BVID 记下，
+/// 之后的发现跳过它们，让再次测速换一批样本；设置窗口关闭或失去测速资格时调用方经
+/// `resetSeenSamples()` 清空。
 public actor CDNBenchmarkSampleDiscoverer {
+    /// 一轮最多计入的近期投稿条数（8 个分区 × 每页 5 条）；与下面两个上限一起限定发现阶段的请求量。
     public static let maximumMetadataCount = 40
+    /// 一轮最多请求的稿件详情次数；调大更容易凑满样本但多发账户读取，
+    /// 调小会让候选不合格时更常找不到样本。
     public static let maximumDetailRequestCount = 8
+    /// 一轮最多请求的 playurl 次数；每个详情至多引出一次，实际不超过详情次数。
     public static let maximumPlaybackRequestCount = 8
+    /// 一次发现可请求的样本数；超出按 `invalidRequest` 拒绝。
     public static let supportedSampleCounts = 1...3
 
+    /// 依次查询的分区 ID；每个分区至多取一个样本，同一 UP 主不重复，
+    /// 让多个样本来自不同内容与上传者。
     private static let regionIDs = [201, 124, 228, 207, 208, 209, 229, 231]
+    /// 每个分区读取的近期投稿条数，`recentSubmissions` 只接受 1–5。
     private static let pageSize = 5
+    /// 样本条件（设置界面所说的“近期、低播放量且足够长”）：播放量 20–9999、发布 6 小时到 14 天、
+    /// 时长至少 3 分钟。
+    ///
+    /// 详情返回后再核对一次发布时间与时长；调整任一条件都改变能选中的稿件范围，
+    /// 收紧会更常找不到样本。
     private static let minimumViewCount: Int64 = 20
     private static let maximumViewCount: Int64 = 9_999
     private static let minimumAge: TimeInterval = 6 * 60 * 60
     private static let maximumAge: TimeInterval = 14 * 24 * 60 * 60
     private static let minimumDuration = 3 * 60
+    /// 视频表示的下限：清晰度 ID ≥ 64（720P）、码率 ≥ 500 kbps、短边 ≥ 720；
+    /// 低于这些的表示不参与挑选。
     private static let minimumQualityID = 64
     private static let minimumBandwidth = 500_000
     private static let minimumShortSide = 720
@@ -146,6 +168,8 @@ public actor CDNBenchmarkSampleDiscoverer {
         seenBVIDs.removeAll()
     }
 
+    /// 只影响单个候选的失败（稿件不存在、缺数据、媒体数据不合规、没有 AVC）跳过该候选；认证、
+    /// 风控与网络等其他失败终止整轮。
     private static func isCandidateLocalFailure(_ error: BiliAPIError) -> Bool {
         switch error {
         case .httpStatus(404), .apiRejected(code: -404, _), .missingData,
@@ -182,6 +206,7 @@ public actor CDNBenchmarkSampleDiscoverer {
             && (Self.minimumAge...Self.maximumAge).contains(age)
     }
 
+    /// 近期投稿的查询日期窗口：按 UTC+8 取截至前一天的 14 个自然日，与样本的发布时间条件对应。
     private func dateWindow(at date: Date) throws -> (from: String, to: String) {
         var calendar = Calendar(identifier: .gregorian)
         guard let timeZone = TimeZone(secondsFromGMT: 8 * 60 * 60) else {
@@ -228,6 +253,10 @@ public actor CDNBenchmarkSampleDiscoverer {
         }
     }
 
+    /// 样本的候选地址须同时含 Akamai 与 bilivideo 主机，测速才能在两类线路间比较。
+    ///
+    /// 这里的后缀匹配只做线路分类；候选地址在 DTO 映射时已经过 `BiliMediaCDNURLPolicy`
+    /// 来源校验（见 SECURITY-MODEL §4）。
     private func hasComparableOrigins(_ video: MediaRepresentation) -> Bool {
         let hosts = video.urlCandidates.compactMap { $0.host?.lowercased() }
         let hasAkamai = hosts.contains {

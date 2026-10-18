@@ -9,10 +9,12 @@ struct SearchSuggestionPayload: Decodable, Sendable {
     }
 }
 
+/// 联想的 `result`：单项解码失败只丢该项。
 struct SearchSuggestionResultPayload: Decodable, Sendable {
     let tag: [LossyDecodable<SearchSuggestionTagPayload>]
 }
 
+/// 联想的一项，只取纯文本 `value`。
 struct SearchSuggestionTagPayload: Decodable, Sendable {
     let value: String
 }

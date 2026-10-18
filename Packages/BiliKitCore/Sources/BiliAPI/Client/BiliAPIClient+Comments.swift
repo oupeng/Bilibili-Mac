@@ -5,8 +5,12 @@ import Foundation
 
 /// 主评论（WBI 签名）与楼中楼分页。
 extension BiliAPIClient {
+    /// 评论页正文上限，见 SECURITY-MODEL §4；超出按响应异常失败关闭。
     private static let maximumCommentPageSize = 2 * 1_024 * 1_024
 
+    /// 根评论：WBI 签名，有凭据时按账户读取，本地无凭据时匿名请求同一 endpoint。
+    ///
+    /// `offset` 是上一页服务端给出的分页游标，由 `BiliCommentRepository` 保管，首页为 nil。
     func commentRootPage(
         for subject: CommentSubjectIdentity,
         sort: CommentSort,
@@ -44,6 +48,7 @@ extension BiliAPIClient {
         return try payload.page(for: subject)
     }
 
+    /// 楼中楼：不签 WBI，授权方式与根评论相同；只接受每页 10 条。
     func commentReplyPage(
         for subject: CommentSubjectIdentity,
         rootID: CommentID,

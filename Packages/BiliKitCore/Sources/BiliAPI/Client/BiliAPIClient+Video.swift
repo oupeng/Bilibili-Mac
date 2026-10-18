@@ -14,6 +14,7 @@ extension BiliAPIClient {
             access: .accountRead(missingCredential: .useAnonymousRequest)
         )
         let detail = try payload.model()
+        // 响应必须是请求的那个稿件，错配的详情按解码失败处理，不交给调用方。
         guard detail.bvid == bvid else {
             throw BiliAPIError.decodingFailed
         }
@@ -76,12 +77,16 @@ extension BiliAPIClient {
             referer: "https://space.bilibili.com/",
             access: .accountRead(missingCredential: .useAnonymousRequest)
         )
+        // 名片必须属于请求的 UP 主，错配按解码失败处理。
         guard payload.card.mid == ownerID else {
             throw BiliAPIError.decodingFailed
         }
         return payload.card.model()
     }
 
+    /// 发出账户读取前核对构造出的地址恰好是名片 endpoint：HTTPS、固定主机、无端口与 userinfo、固定
+    /// path，query 只有 `mid` 与 `photo=false`；不符按 `invalidRequest` 不发请求（见
+    /// SECURITY-MODEL §3）。
     private static func isExactUploaderCardEndpoint(
         _ url: URL,
         ownerID: Int64

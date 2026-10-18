@@ -1,6 +1,11 @@
 import BiliModels
 import Foundation
 
+/// 字幕目录（`/x/player/wbi/v2`）的 `data`，由 `BiliAPIClient.subtitleResources` 映射为
+/// `SubtitleRemoteTrack` 列表。
+///
+/// `need_login_subtitle` 为 true 时按需要登录失败；超过 128 轨、轨道字段不合规或 ID
+/// 重复时整份目录无效，没有正文地址的轨道跳过。
 struct SubtitleCatalogPayload: Decodable, Sendable {
     let needsLogin: Bool?
     let subtitle: SubtitleCollectionPayload?
@@ -32,15 +37,19 @@ struct SubtitleCatalogPayload: Decodable, Sendable {
     }
 }
 
+/// 字幕目录的 `subtitle`：各语言轨道。
 struct SubtitleCollectionPayload: Decodable, Sendable {
     let subtitles: [SubtitleTrackPayload]
 }
 
+/// 字幕目录的一项，映射为 `SubtitleTrack` 与正文地址。
 struct SubtitleTrackPayload: Decodable, Sendable {
     let numericID: Int64?
     let stringID: String?
     let languageCode: String
     let displayName: String
+    /// 正文地址：协议相对地址补 `https:`，再经 `SubtitleURLPolicy` 复核，
+    /// 不合规时整份目录以不可信来源失败（见 SECURITY-MODEL §4）。
     let subtitleURL: String
     let aiType: Int?
     let aiStatus: Int?
@@ -115,6 +124,9 @@ struct SubtitleTrackPayload: Decodable, Sendable {
     }
 }
 
+/// 字幕正文 JSON，由 `BiliSubtitleRepository` 解码为 `SubtitleCue` 列表。
+///
+/// 超过 20000 条、文字总数超过 1000000 或开始时间倒退时整份无效。
 struct SubtitleBodyPayload: Decodable, Sendable {
     let body: [SubtitleCuePayload]
 
@@ -139,6 +151,8 @@ struct SubtitleBodyPayload: Decodable, Sendable {
     }
 }
 
+/// 字幕正文的一条：起止秒数与文字；时间非有限、起止倒置、结束超过 24 小时、文字为空或超过 4096
+/// 字时整份无效。
 struct SubtitleCuePayload: Decodable, Sendable {
     let startSeconds: Double
     let endSeconds: Double
@@ -170,6 +184,7 @@ struct SubtitleCuePayload: Decodable, Sendable {
     }
 }
 
+/// 字幕轨与其正文地址；地址只保存在 `BiliSubtitleRepository` 内，不越过 adapter。
 struct SubtitleRemoteTrack: Sendable {
     let track: SubtitleTrack
     let url: URL

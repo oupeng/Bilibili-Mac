@@ -1,10 +1,16 @@
 import BiliModels
 import Foundation
 
+/// 首页推荐（`/x/web-interface/wbi/index/top/feed/rcmd`）的 `data`，由
+/// `BiliAPIClient.recommendations` 映射为 `RecommendationPage`。
 struct RecommendationPayload: Decodable, Sendable {
     let item: [RecommendationItemPayload]
 }
 
+/// 推荐流的一项，只有普通视频映射为 `RecommendedVideo`。
+///
+/// `goto` 不是 `av`、带非空 `business_info`（广告）、BVID 不是 12 位 `BV…`，或缺标题、UP 主、统计、
+/// 时长、发布时间时丢弃该项，不让整页失败。
 struct RecommendationItemPayload: Decodable, Sendable {
     let goto: String?
     let bvid: String?
@@ -85,6 +91,7 @@ struct RecommendationItemPayload: Decodable, Sendable {
     }
 }
 
+/// 推荐理由（`rcmd_reason`），只取文字。
 struct RecommendationReasonPayload: Decodable, Sendable {
     let content: String?
 }

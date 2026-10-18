@@ -2,6 +2,11 @@ import BiliApplication
 import BiliModels
 import Foundation
 
+/// 观看历史（`/x/web-interface/history/cursor`）的 `data`，由 `BiliAPIClient.watchHistory` 映射为
+/// `WatchHistoryPage`。
+///
+/// 只按账户读取（见 SECURITY-MODEL §3）；非稿件条目跳过，同一 BVID 只保留第一次出现；
+/// 本页条数少于每页条数或没有游标时没有下一页。
 struct WatchHistoryPayload: Decodable, Sendable {
     let cursor: WatchHistoryCursorPayload?
     let list: [WatchHistoryItemPayload]
@@ -18,6 +23,10 @@ struct WatchHistoryPayload: Decodable, Sendable {
     }
 }
 
+/// 历史游标（`max`、`view_at`、`business`），与不透明的 `WatchHistoryContinuation` 互转。
+///
+/// continuation 是游标按键排序编码的 JSON 再 base64；解析与生成时都校验非负与 `business` ≤ 64
+/// 字符：调用方传回的 continuation 不合规按无效请求失败，接口给的游标不合规按解码失败。
 struct WatchHistoryCursorPayload: Codable, Sendable {
     let maximum: Int64
     let viewedAt: Int64
@@ -68,6 +77,10 @@ struct WatchHistoryCursorPayload: Codable, Sendable {
     }
 }
 
+/// 历史的一条，映射为 `WatchHistoryItem`；非稿件（`business` 不是 `archive`）返回 nil。
+///
+/// BVID 形状、标题、作者、观看时间或时长不合规时整页失败；进度为负（接口用 -1 表示已看完）
+/// 按看完处理，并截到时长以内。
 struct WatchHistoryItemPayload: Decodable, Sendable {
     let title: String
     let cover: String
@@ -128,6 +141,7 @@ struct WatchHistoryItemPayload: Decodable, Sendable {
     }
 }
 
+/// 历史条目的 `history`：BVID、业务类型与观看设备。
 struct WatchHistoryIdentityPayload: Decodable, Sendable {
     let bvid: String?
     let business: String

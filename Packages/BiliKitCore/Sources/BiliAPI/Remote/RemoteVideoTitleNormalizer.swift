@@ -2,14 +2,18 @@ import Foundation
 
 /// 把远端列表接口中的 HTML-escaped 视频标题一次性规范为语义纯文本。
 enum RemoteVideoTitleNormalizer {
+    /// 只解码 HTML 实体；列表标题与推荐理由用它。
     static func plainText(_ value: String) -> String {
         decodingHTMLEntities(in: value)
     }
 
+    /// 搜索结果标题带高亮 HTML 标签：先去掉所有标签再解码实体。
     static func searchResult(_ value: String) -> String {
         decodingHTMLEntities(in: strippingTags(from: value))
     }
 
+    /// 只认 `amp`、`apos`、`gt`、`lt`、`nbsp`、`quot` 与数字实体；
+    /// `&` 后 32 个字符内没有分号或实体不认识时原样保留，解出控制字符的数字实体也不解码。
     private static func decodingHTMLEntities(in value: String) -> String {
         guard value.contains("&") else { return value }
 
