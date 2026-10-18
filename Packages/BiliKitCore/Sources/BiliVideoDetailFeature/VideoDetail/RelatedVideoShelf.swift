@@ -54,9 +54,7 @@ public struct RelatedVideoCardPresentation: Identifiable, Equatable, Sendable {
             VideoMetadataFormatting.danmakuCountText(compactText: danmakuCountText, locale: locale)
         ]
         if let durationText {
-            components.append(
-                VideoDetailFeatureStrings.localized("时长\(durationText)", locale: locale)
-            )
+            components.append(VideoCardAccessibilityText.duration(durationText, locale: locale))
         }
         accessibilityLabel = ListFormatter.localizedString(byJoining: components)
     }

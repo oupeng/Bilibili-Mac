@@ -47,7 +47,7 @@ public struct WatchLaterCardPresentation: Sendable, Equatable {
         case (.notStarted, .some(let duration)):
             let text = VideoDurationFormatting.string(seconds: max(0, duration), locale: locale)
             coverText = text
-            spokenProgress = LibraryFeatureStrings.localized("时长 \(text)", locale: locale)
+            spokenProgress = VideoCardAccessibilityText.duration(text, locale: locale)
         case (.watched, nil), (.notStarted, nil):
             coverText = nil
             spokenProgress = nil
