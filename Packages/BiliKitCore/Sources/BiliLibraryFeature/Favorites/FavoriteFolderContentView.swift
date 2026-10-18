@@ -48,7 +48,11 @@ struct FavoriteFolderContentView: View {
                     loadingLabel: LibraryFeatureStrings.localized("正在加载收藏夹", locale: locale)
                 )
             case .failed(_, let error):
-                failure(error)
+                failures.view(
+                    error,
+                    fallbackTitle: LibraryFeatureStrings.localized("无法加载收藏夹", locale: locale),
+                    retry: { model.reload() }
+                )
             case .loaded(let page, let content) where content.items.isEmpty:
                 empty(page: page)
             case .loaded(_, let content):
@@ -148,31 +152,16 @@ struct FavoriteFolderContentView: View {
             RefreshStatusCapsule(
                 isRefreshing: model.isRefreshing,
                 refreshingLabel: LibraryFeatureStrings.localized("正在刷新收藏夹", locale: locale),
-                errorMessage: model.refreshError.map(message(for:))
+                errorMessage: model.refreshError.map(failures.message(for:))
             )
         }
     }
 
-    private func failure(_ error: ContentApplicationError) -> some View {
-        let failureText = ContentFailureText(
-            error: error,
-            fallbackTitle: LibraryFeatureStrings.localized("无法加载收藏夹", locale: locale),
-            revalidation: revalidation,
+    /// 失败文案按模型的账户复核进度区分（`LibraryContentFailure`）。
+    private var failures: LibraryContentFailure {
+        LibraryContentFailure(
+            isAwaitingRevalidation: model.isAwaitingAuthenticationRevalidation,
             locale: locale
         )
-        return ContentFailureView(
-            title: failureText.title,
-            message: failureText.message,
-            retry: error.isRetryable ? { model.reload() } : nil
-        )
-    }
-
-    private func message(for error: ContentApplicationError) -> String {
-        ContentFailureText.message(for: error, revalidation: revalidation, locale: locale)
-    }
-
-    /// 收藏夹的凭据失败总会请求账户复核：复核进行中说“正在重新确认”，结束仍失败时给静态说明。
-    private var revalidation: ContentFailureText.Revalidation {
-        model.isAwaitingAuthenticationRevalidation ? .awaiting : .finished
     }
 }

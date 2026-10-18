@@ -23,19 +23,20 @@ public final class FavoriteFolderViewModel: AccountRevalidationParticipant {
     public var orderSelection = FavoriteFolderOrder.recentlyFavorited
     /// 当前内容使用的排序。
     public private(set) var appliedOrder = FavoriteFolderOrder.recentlyFavorited
-    /// 工具栏搜索框的文字；清空（只剩空白）且已按关键词过滤时恢复全部，提交前不影响内容。
-    public var searchDraft = "" {
-        didSet {
-            guard searchDraft != oldValue,
-                SearchText.normalized(searchDraft).isEmpty,
-                !appliedKeyword.isEmpty
-            else { return }
-            appliedKeyword = ""
-            replaceContent()
+    /// 工具栏搜索框的文字；清空（只剩空白）且已按关键词过滤时恢复全部，提交前不影响内容（规则在
+    /// `LibrarySearchKeyword`，与稍后再看共用）。
+    public var searchDraft: String {
+        get { keyword.draft }
+        set {
+            if keyword.updateDraft(newValue) {
+                replaceContent()
+            }
         }
     }
     /// 当前内容使用的关键词；空串表示不按关键词过滤。
-    public private(set) var appliedKeyword = ""
+    public var appliedKeyword: String {
+        keyword.applied
+    }
     /// 每次整体替换成功（含原地刷新）递增；App 只在它前进时把这个来源的网格滚回顶部。
     public private(set) var successfulReloadGeneration: UInt64 = 0
     /// 已有内容时的原地刷新正在进行。
@@ -95,6 +96,7 @@ public final class FavoriteFolderViewModel: AccountRevalidationParticipant {
 
     let folderList: FavoriteFolderListModel
     private var paging = PageReplacementPaging<FavoriteFolderPage>()
+    private var keyword = LibrarySearchKeyword()
     private var revalidation = LibraryAccountRevalidation()
     @ObservationIgnored private let useCase: FavoritesUseCase
     /// 刷新、翻页与换条件共用的最新意图 Task；`reset` 与 `deactivateRoute` 取消。
@@ -131,9 +133,7 @@ public final class FavoriteFolderViewModel: AccountRevalidationParticipant {
             return
         }
         selectedFolderID = folderID
-        // 先清掉已应用的关键词再清空草稿：草稿的 didSet 看到关键词已空就不会再单独触发一次加载。
-        appliedKeyword = ""
-        searchDraft = ""
+        _ = keyword.clear()
         replaceContent()
     }
 
@@ -152,17 +152,13 @@ public final class FavoriteFolderViewModel: AccountRevalidationParticipant {
 
     /// 提交规范化后的草稿作为关键词；与已应用的关键词相同时不重新加载。
     public func submitSearch() {
-        let keyword = SearchText.normalized(searchDraft)
-        guard keyword != appliedKeyword else { return }
-        appliedKeyword = keyword
+        guard keyword.submit() else { return }
         replaceContent()
     }
 
     /// 无结果空态的“清除搜索”：清空关键词与草稿并重新加载，保留排序。
     public func clearSearch() {
-        guard !appliedKeyword.isEmpty else { return }
-        appliedKeyword = ""
-        searchDraft = ""
+        guard keyword.clear() else { return }
         replaceContent()
     }
 
@@ -209,8 +205,7 @@ public final class FavoriteFolderViewModel: AccountRevalidationParticipant {
         selectedFolderID = nil
         orderSelection = .recentlyFavorited
         appliedOrder = .recentlyFavorited
-        appliedKeyword = ""
-        searchDraft = ""
+        keyword = LibrarySearchKeyword()
         paging.reset()
         isRefreshing = false
         refreshError = nil
@@ -347,8 +342,7 @@ public final class FavoriteFolderViewModel: AccountRevalidationParticipant {
             selectFolder(fallback.id)
         } else {
             selectedFolderID = fallback.id
-            appliedKeyword = ""
-            searchDraft = ""
+            _ = keyword.clear()
             paging.reset()
             needsReloadOnActivation = false
         }
