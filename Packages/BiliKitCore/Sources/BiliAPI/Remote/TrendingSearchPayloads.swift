@@ -1,4 +1,5 @@
 import BiliModels
+import BiliNetworking
 import Foundation
 
 /// `/x/web-interface/search/square` 的 `data`；只读取 `trending.list`，忽略运营置顶等其他字段。

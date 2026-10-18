@@ -1,4 +1,5 @@
 import BiliModels
+import BiliNetworking
 import Foundation
 
 /// UP 主空间投稿（`/x/space/wbi/arc/search`）的 `data`，由 `BiliAPIClient` 的空间扩展映射为

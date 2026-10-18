@@ -1,5 +1,6 @@
 import BiliApplication
 import BiliModels
+import BiliNetworking
 import Foundation
 
 /// 观看历史（`/x/web-interface/history/cursor`）的 `data`，由 `BiliAPIClient.watchHistory` 映射为
