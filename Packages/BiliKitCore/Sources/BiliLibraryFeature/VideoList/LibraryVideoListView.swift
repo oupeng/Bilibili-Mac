@@ -10,8 +10,8 @@ import SwiftUI
 /// 通知模型；播放详情只是覆盖本页面，不应误取消分页。登出清理仍由窗口级 `reset` 边界负责；凭据失效经
 /// 模型的 `authenticationRevalidationGeneration` 交给 App 统一复核。登录与账号页面由 App 注入的
 /// `onPresentAuthentication` 打开。滚动位置、回顶请求与图片管线属于 App 窗口，经
-/// `NativeVideoGridHostContext` 原样交给网格。已登录时工具栏 primaryAction 依次是来源给的控件（稍后再看的排序与
-/// 筛选，由 App 宿主）与刷新按钮，放在同一组里保证顺序。
+/// `NativeVideoGridHostContext` 原样交给网格。登录门槛与工具栏（来源给的控件加刷新按钮）在共用的
+/// `LibrarySourceShell`。
 struct LibraryVideoListView<Item: Sendable & Equatable, Cursor: Equatable & Sendable>: View {
     let model: LibraryVideoListModel<Item, Cursor>
     let text: LibraryVideoListText
@@ -28,42 +28,72 @@ struct LibraryVideoListView<Item: Sendable & Equatable, Cursor: Equatable & Send
     var refresh: (() -> Void)? = nil
 
     var body: some View {
-        AccountGateView(
-            state: accountState,
+        LibrarySourceShell(
+            accountState: accountState,
             signInTitle: text.signInTitle,
             signInDescription: text.signInDescription,
-            onPresentAuthentication: onPresentAuthentication
-        ) {
-            LibraryVideoListContentView(
-                model: model,
-                text: text,
-                card: card,
-                gridHost: gridHost,
-                onSelect: onSelect
-            )
-            .task {
-                model.loadIfNeeded()
-                await model.waitForCurrentTask()
+            onPresentAuthentication: onPresentAuthentication,
+            toolbarControls: toolbarControls,
+            isBusy: { model.isBusy },
+            refresh: refresh ?? model.reload,
+            content: {
+                LibraryVideoListContentView(
+                    model: model,
+                    text: text,
+                    card: card,
+                    gridHost: gridHost,
+                    onSelect: onSelect
+                )
+                .task {
+                    model.loadIfNeeded()
+                    await model.waitForCurrentTask()
+                }
             }
-        }
+        )
+    }
+}
+
+/// 资料库来源（观看历史、稍后再看、收藏夹）共用的外壳：按账户呈现状态显示登录门槛，已登录时显示来源内容，并在工具栏
+/// primaryAction 组里依次放来源给的控件（稍后再看与收藏夹的排序等，由 App 宿主）与刷新按钮，同一组保证顺序。
+///
+/// 只负责排版；加载、刷新与内容状态归来源的模型，登录与账号页面由 App 注入的 `onPresentAuthentication` 打开。
+struct LibrarySourceShell<Content: View>: View {
+    let accountState: AccountPresentationState
+    let signInTitle: String
+    let signInDescription: String
+    let onPresentAuthentication: () -> Void
+    /// 排在刷新按钮之前的工具栏控件；没有时为 nil。
+    let toolbarControls: AnyView?
+    /// 刷新按钮是否禁用；只在刷新按钮里求值，加载状态变化时不让外壳重新求值。
+    let isBusy: () -> Bool
+    let refresh: () -> Void
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        AccountGateView(
+            state: accountState,
+            signInTitle: signInTitle,
+            signInDescription: signInDescription,
+            onPresentAuthentication: onPresentAuthentication,
+            signedInContent: content
+        )
         .toolbar {
             if case .signedIn = accountState {
                 ToolbarItemGroup(placement: .primaryAction) {
                     if let toolbarControls {
                         toolbarControls
                     }
-                    LibraryRefreshButton(model: model, refresh: refresh ?? model.reload)
+                    LibraryRefreshButton(isBusy: isBusy, refresh: refresh)
                 }
             }
         }
     }
 }
 
-/// 单独成一个 View：只有它读取 `isBusy`，加载状态变化时不让整个根视图重新求值。
-private struct LibraryRefreshButton<Item: Sendable & Equatable, Cursor: Equatable & Sendable>: View
-{
+/// 单独成一个 View：只有它读取忙碌状态，加载状态变化时不让整个根视图重新求值。
+private struct LibraryRefreshButton: View {
     @Environment(\.locale) private var locale
-    let model: LibraryVideoListModel<Item, Cursor>
+    let isBusy: () -> Bool
     let refresh: () -> Void
 
     var body: some View {
@@ -75,6 +105,6 @@ private struct LibraryRefreshButton<Item: Sendable & Equatable, Cursor: Equatabl
                 systemImage: "arrow.clockwise"
             )
         }
-        .disabled(model.isBusy)
+        .disabled(isBusy())
     }
 }

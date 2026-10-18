@@ -1,0 +1,178 @@
+import BiliApplication
+import BiliModels
+import BiliUI
+import BiliVideoCollectionUI
+import SwiftUI
+
+/// 已登录时收藏夹页面的主区：按 `FavoriteFolderViewModel` 的状态显示骨架、三种空态、失败页或原生网格，叠加刷新胶囊与
+/// 底部悬浮页码条（总页数大于 1 时，翻页加载与失败期间也保留）。
+///
+/// 不拥有请求、翻页与复核（`FavoriteFolderViewModel`）；滚动位置、回顶请求与图片管线由根视图从 App 窗口转交。按页整体
+/// 替换，网格不做近尾自动加载（`tailState` 为 `.end`），末行下方为页码条留出 `PageNumberPagerGeometry.reservedHeight`。
+/// 回顶由 App 在 `successfulReloadGeneration` 前进时发出。
+struct FavoriteFolderContentView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.locale) private var locale
+    let model: FavoriteFolderViewModel
+    let gridHost: NativeVideoGridHostContext
+    let onSelect: (String) -> Void
+
+    var body: some View {
+        ZStack {
+            content
+                .transition(.opacity)
+        }
+        .animation(
+            LoadingStateTransition.animation(reduceMotion: reduceMotion),
+            value: visualPhase
+        )
+        .overlay(alignment: .bottom) {
+            if showsPager {
+                PageNumberPager(
+                    currentPage: model.currentPage,
+                    pageCount: model.pageCount,
+                    onShowPage: model.showPage
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if model.selectedFolderID == nil {
+            noSelection
+        } else {
+            switch model.phase {
+            case .idle, .loading:
+                VideoCardGridSkeleton(
+                    loadingLabel: LibraryFeatureStrings.localized("正在加载收藏夹", locale: locale)
+                )
+            case .failed(_, let error):
+                failure(error)
+            case .loaded(let page, let content) where content.items.isEmpty:
+                empty(page: page)
+            case .loaded(_, let content):
+                grid(content.items)
+            }
+        }
+    }
+
+    private var visualPhase: LoadingVisualPhase {
+        guard model.selectedFolderID != nil else { return .empty }
+        switch model.phase {
+        case .idle, .loading:
+            return .loading
+        case .failed:
+            return .failure
+        case .loaded(_, let content):
+            return content.items.isEmpty ? .empty : .content
+        }
+    }
+
+    private var showsPager: Bool {
+        model.selectedFolderID != nil && model.pageCount > 1
+    }
+
+    /// 还没有选择（换号后等新账户的收藏夹列表）时：列表在路上就显示骨架，否则提示在侧栏选择。
+    @ViewBuilder
+    private var noSelection: some View {
+        switch model.folderList.state {
+        case .idle, .loading:
+            VideoCardGridSkeleton(
+                loadingLabel: LibraryFeatureStrings.localized("正在加载收藏夹", locale: locale)
+            )
+        case .loaded, .failed, .accountUnidentified:
+            ContentUnavailableView {
+                Label(
+                    LibraryFeatureStrings.localized("选择一个收藏夹", locale: locale),
+                    systemImage: "folder"
+                )
+            } description: {
+                Text(LibraryFeatureStrings.localized("在侧栏选择要查看的收藏夹。", locale: locale))
+            }
+        }
+    }
+
+    /// 只有一页且是第 1 页时才是整个收藏夹（或当前关键词下）没有内容；还有其他页时只是这一页没有可显示的条目。
+    @ViewBuilder
+    private func empty(page: Int) -> some View {
+        if page == 1, model.pageCount == 1 {
+            if model.narrowsResults {
+                ContentUnavailableView {
+                    Label(
+                        LibraryFeatureStrings.localized("没有符合条件的视频", locale: locale),
+                        systemImage: "line.3.horizontal.decrease.circle"
+                    )
+                } description: {
+                    Text(LibraryFeatureStrings.localized("试试换一个搜索词。", locale: locale))
+                } actions: {
+                    Button(
+                        LibraryFeatureStrings.localized("清除搜索", locale: locale),
+                        action: model.clearSearch
+                    )
+                }
+            } else {
+                ContentUnavailableView {
+                    Label(
+                        LibraryFeatureStrings.localized("这个收藏夹还没有视频", locale: locale),
+                        systemImage: "folder"
+                    )
+                } description: {
+                    Text(LibraryFeatureStrings.localized("在哔哩哔哩收藏的视频会显示在这里。", locale: locale))
+                }
+            }
+        } else {
+            ContentUnavailableView {
+                Label(
+                    LibraryFeatureStrings.localized("本页没有可显示的视频", locale: locale),
+                    systemImage: "rectangle.stack"
+                )
+            } description: {
+                Text(LibraryFeatureStrings.localized("可以用底部的页码条翻到其他页。", locale: locale))
+            }
+        }
+    }
+
+    private func grid(_ items: [FavoriteItem]) -> some View {
+        NativeVideoGridView(
+            items: items.map { FavoriteCardPresentation(item: $0, locale: locale).nativeCard },
+            accessibilityLabel: LibraryFeatureStrings.localized("收藏夹视频", locale: locale),
+            tailState: .end,
+            bottomInset: showsPager ? PageNumberPagerGeometry.reservedHeight : 0,
+            host: gridHost,
+            onNearEnd: {},
+            onSelect: onSelect
+        )
+        .ignoresSafeArea(.container, edges: .top)
+        .overlay(alignment: .top) {
+            RefreshStatusCapsule(
+                isRefreshing: model.isRefreshing,
+                refreshingLabel: LibraryFeatureStrings.localized("正在刷新收藏夹", locale: locale),
+                errorMessage: model.refreshError.map(message(for:))
+            )
+        }
+    }
+
+    private func failure(_ error: ContentApplicationError) -> some View {
+        let failureText = ContentFailureText(
+            error: error,
+            fallbackTitle: LibraryFeatureStrings.localized("无法加载收藏夹", locale: locale),
+            revalidation: revalidation,
+            locale: locale
+        )
+        return ContentFailureView(
+            title: failureText.title,
+            message: failureText.message,
+            retry: error.isRetryable ? { model.reload() } : nil
+        )
+    }
+
+    private func message(for error: ContentApplicationError) -> String {
+        ContentFailureText.message(for: error, revalidation: revalidation, locale: locale)
+    }
+
+    /// 收藏夹的凭据失败总会请求账户复核：复核进行中说“正在重新确认”，结束仍失败时给静态说明。
+    private var revalidation: ContentFailureText.Revalidation {
+        model.isAwaitingAuthenticationRevalidation ? .awaiting : .finished
+    }
+}

@@ -33,7 +33,13 @@ public enum VideoCardGridGeometry {
         return CGSize(width: cardWidth, height: VideoCardGeometry.height(forWidth: cardWidth))
     }
 
-    public static func contentHeight(for width: CGFloat, itemCount: Int) -> CGFloat {
+    /// 网格内容的总高度；`bottomInset` 是调用方在末行下方为悬浮控件（页码条）额外留出的高度，布局的 section
+    /// 底边距与这里取同一个值。
+    public static func contentHeight(
+        for width: CGFloat,
+        itemCount: Int,
+        bottomInset: CGFloat = 0
+    ) -> CGFloat {
         guard itemCount > 0 else { return 0 }
         let columns = columnCount(for: width)
         let rows = (itemCount + columns - 1) / columns
@@ -41,6 +47,7 @@ public enum VideoCardGridGeometry {
             + CGFloat(rows) * itemSize(for: width).height
             + CGFloat(rows - 1) * verticalSpacing
             + contentPadding
+            + bottomInset
     }
 }
 

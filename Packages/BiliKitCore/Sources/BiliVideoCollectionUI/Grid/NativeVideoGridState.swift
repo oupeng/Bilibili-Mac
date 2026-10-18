@@ -234,7 +234,8 @@ extension VideoCardGridGeometry {
         itemCount: Int,
         width: CGFloat,
         visibleMaximumY: CGFloat,
-        viewportHeight: CGFloat
+        viewportHeight: CGFloat,
+        bottomInset: CGFloat
     ) -> Bool {
         guard
             itemCount > 0,
@@ -243,7 +244,9 @@ extension VideoCardGridGeometry {
             viewportHeight.isFinite,
             viewportHeight > 0
         else { return false }
-        let remaining = contentHeight(for: width, itemCount: itemCount) - visibleMaximumY
+        let remaining =
+            contentHeight(for: width, itemCount: itemCount, bottomInset: bottomInset)
+            - visibleMaximumY
         return remaining < viewportHeight * nearEndViewportMultiple
     }
 }

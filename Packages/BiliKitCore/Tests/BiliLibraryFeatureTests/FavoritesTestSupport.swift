@@ -1,0 +1,110 @@
+import BiliApplication
+import BiliModels
+import Foundation
+
+/// 本 target 唯一的收藏夹仓库替身：列表与夹内的页按可替换的结果返回并记录请求，可让指定页的请求挂起到测试放行。
+actor FavoritesRepositoryStub: FavoritesRepository {
+    private(set) var ownerIDs: [Int64] = []
+    private(set) var requests: [FavoriteFolderRequest] = []
+    private var folderResult: Result<[FavoriteFolder], ContentApplicationError>
+    private var pageResult:
+        @Sendable (FavoriteFolderRequest) -> Result<FavoriteFolderPage, ContentApplicationError>
+    private var heldFolderIDs: Set<Int64>
+    private var heldWaiters: [CheckedContinuation<Void, Never>] = []
+    private let folderCalls = TestEventCounter()
+    private let pageCalls = TestEventCounter()
+
+    init(
+        folders: Result<[FavoriteFolder], ContentApplicationError> = .success(standardFolders),
+        heldFolderIDs: Set<Int64> = [],
+        page:
+            @escaping @Sendable (FavoriteFolderRequest) -> Result<
+                FavoriteFolderPage, ContentApplicationError
+            > = { .success(favoritePage($0, total: 90)) }
+    ) {
+        folderResult = folders
+        pageResult = page
+        self.heldFolderIDs = heldFolderIDs
+    }
+
+    func setFolders(_ result: Result<[FavoriteFolder], ContentApplicationError>) {
+        folderResult = result
+    }
+
+    func setPage(
+        _ result:
+            @escaping @Sendable (FavoriteFolderRequest) -> Result<
+                FavoriteFolderPage, ContentApplicationError
+            >
+    ) {
+        pageResult = result
+    }
+
+    /// 放行所有挂起的夹内请求，之后不再挂起。
+    func releaseHeldPages() {
+        heldFolderIDs = []
+        let waiters = heldWaiters
+        heldWaiters = []
+        for waiter in waiters { waiter.resume() }
+    }
+
+    func waitForFolderCalls(_ count: Int) async throws {
+        try await folderCalls.wait(until: count)
+    }
+
+    func waitForPageCalls(_ count: Int) async throws {
+        try await pageCalls.wait(until: count)
+    }
+
+    func favoriteFolders(ownerID: Int64) async throws -> [FavoriteFolder] {
+        ownerIDs.append(ownerID)
+        await folderCalls.signal()
+        return try folderResult.get()
+    }
+
+    func favoriteFolderPage(request: FavoriteFolderRequest) async throws -> FavoriteFolderPage {
+        requests.append(request)
+        await pageCalls.signal()
+        if heldFolderIDs.contains(request.folderID) {
+            await withCheckedContinuation { heldWaiters.append($0) }
+        }
+        return try pageResult(request).get()
+    }
+}
+
+/// 默认收藏夹不在第一位：回落规则按标记识别默认夹，不靠位置。
+let standardFolders = [
+    FavoriteFolder(id: 30, title: "公开收藏", mediaCount: 3, isPrivate: false, isDefault: false),
+    FavoriteFolder(id: 10, title: "默认收藏夹", mediaCount: 90, isPrivate: false, isDefault: true),
+    FavoriteFolder(id: 20, title: "私密收藏", mediaCount: 1, isPrivate: true, isDefault: false)
+]
+
+/// 按请求给出一页：每页一条，ID 写明收藏夹、排序之外的页码与关键词，便于断言内容来自哪个请求。
+func favoritePage(
+    _ request: FavoriteFolderRequest,
+    total: Int?,
+    hasMore: Bool = false
+) -> FavoriteFolderPage {
+    FavoriteFolderPage(
+        items: [favoriteItem("BV1F\(request.folderID)P\(request.page)\(request.keyword)")],
+        pageNumber: request.page,
+        pageSize: 40,
+        totalCount: total,
+        hasMore: hasMore
+    )
+}
+
+func favoriteItem(
+    _ id: String,
+    unavailability: LibraryItemUnavailability? = nil
+) -> FavoriteItem {
+    FavoriteItem(
+        id: id,
+        title: "手写收藏条目",
+        coverURL: nil,
+        owner: VideoOwner(id: 1, name: "测试作者"),
+        durationSeconds: 100,
+        favoritedAt: Date(timeIntervalSince1970: 1_700_000_000),
+        unavailability: unavailability
+    )
+}
