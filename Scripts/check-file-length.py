@@ -13,9 +13,7 @@ import swift_source
 LIMIT = 800
 GENERATED_SUFFIX = ".pb.swift"
 
-OVERSIZED = {
-    "Packages/BiliKitCore/Tests/BiliAPITests/BiliAPIClientTests.swift": 2166,
-}
+OVERSIZED = {}
 
 
 def line_counts():

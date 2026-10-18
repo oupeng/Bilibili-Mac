@@ -318,3 +318,20 @@ func available(_ comment: BiliModels.Comment) -> CommentDetails? {
     guard case .available(let details) = comment.payload else { return nil }
     return details
 }
+
+/// 按顺序交出预先准备的 transport：认证会话失效后 client 换入下一个，测试据此确认旧 transport
+/// 被 invalidate、新 transport 没有收到旧请求；取用次数超过准备的数量即为测试错误。
+final class SequentialTransportFactory: Sendable {
+    private let transports: Mutex<[any HTTPTransport]>
+
+    init(transports: [any HTTPTransport]) {
+        self.transports = Mutex(transports)
+    }
+
+    func makeTransport() -> any HTTPTransport {
+        transports.withLock { transports in
+            precondition(!transports.isEmpty)
+            return transports.removeFirst()
+        }
+    }
+}
