@@ -176,8 +176,8 @@ Sparkle 更新网络，以及任何 redirect 后的主机。不使用 `*.bilibil
   或播放器，更新失败不进入认证或播放清理链路。
 - `AppUpdater` 仅在配置完整时启动：`BiliKitUpdaterEnabled`、HTTPS `/appcast.xml`（无 query、userinfo、
   非标准端口）、32 字节 `SUPublicEDKey`、`SURequireSignedFeed`、`SUVerifyUpdateBeforeExtraction`、
-  `SUSignedFeedFailureExpirationInterval = 0`、启用 Installer XPC、禁用 Downloader XPC；另关闭
-  `SUEnableSystemProfiling`。
+  `SUSignedFeedFailureExpirationInterval = 0`、启用 Installer XPC、禁用 Downloader XPC、显式关闭
+  `SUEnableSystemProfiling`（缺失同样视为不完整）。
 - entitlement 只为 Sparkle 增加 `$(PRODUCT_BUNDLE_IDENTIFIER)-spks`／`-spki` mach lookup，不加 runtime
   exception。唯一的文件权限是 `com.apple.security.files.user-selected.read-write`，只供评论图片预览的
   「保存图片」经系统保存面板写入用户所选位置。

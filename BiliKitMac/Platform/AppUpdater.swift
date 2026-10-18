@@ -59,8 +59,9 @@ final class AppUpdater: ObservableObject {
     /// Info.plist 的更新配置是否完整且符合 SECURITY-MODEL §7。
     ///
     /// 要求显式启用、HTTPS `/appcast.xml`（无 userinfo、query、fragment，端口缺省或 443）、32 字节
-    /// EdDSA 公钥、签名 feed、解压前校验、签名失败不宽限、启用 Installer XPC、禁用 Downloader XPC；
-    /// 任一不符就不启动 Sparkle。`SUEnableSystemProfiling` 由 Info.plist 关闭，这里不检查。
+    /// EdDSA 公钥、签名 feed、解压前校验、签名失败不宽限、启用 Installer XPC、禁用 Downloader XPC、
+    /// 关闭系统信息上报（`SUEnableSystemProfiling` 必须显式为 false，缺失同样不合规）；任一不符就不启动
+    /// Sparkle。
     static func hasValidConfiguration(_ info: [String: Any]) -> Bool {
         guard info["BiliKitUpdaterEnabled"] as? Bool == true,
             let feed = info["SUFeedURL"] as? String,
@@ -77,6 +78,7 @@ final class AppUpdater: ObservableObject {
             info["SUEnableDownloaderService"] as? Bool == false,
             info["SUVerifyUpdateBeforeExtraction"] as? Bool == true,
             info["SURequireSignedFeed"] as? Bool == true,
+            info["SUEnableSystemProfiling"] as? Bool == false,
             info["SUSignedFeedFailureExpirationInterval"] as? Int == 0
         else { return false }
         return true
