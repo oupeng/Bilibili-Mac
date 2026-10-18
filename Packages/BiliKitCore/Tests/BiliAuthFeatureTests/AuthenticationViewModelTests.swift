@@ -18,7 +18,7 @@ struct AuthenticationViewModelTests {
         let model = AuthenticationViewModel(
             service: service,
             qrCodeProvider: service,
-            pollInterval: .zero
+            waitBeforePoll: immediatePollWait
         )
 
         #expect(model.accountPresentationState == .resolving)
@@ -47,7 +47,7 @@ struct AuthenticationViewModelTests {
         let model = AuthenticationViewModel(
             service: service,
             qrCodeProvider: service,
-            pollInterval: .zero
+            waitBeforePoll: immediatePollWait
         )
 
         model.startLogin()
@@ -72,7 +72,7 @@ struct AuthenticationViewModelTests {
         let model = AuthenticationViewModel(
             service: service,
             qrCodeProvider: service,
-            pollInterval: .zero
+            waitBeforePoll: immediatePollWait
         )
 
         model.restoreIfNeeded()
@@ -101,7 +101,7 @@ struct AuthenticationViewModelTests {
         let model = AuthenticationViewModel(
             service: service,
             qrCodeProvider: service,
-            pollInterval: .zero
+            waitBeforePoll: immediatePollWait
         )
 
         #expect(model.sessionState == .unresolved)
@@ -125,7 +125,7 @@ struct AuthenticationViewModelTests {
         let model = AuthenticationViewModel(
             service: service,
             qrCodeProvider: service,
-            pollInterval: .zero
+            waitBeforePoll: immediatePollWait
         )
 
         model.restoreIfNeeded()
@@ -180,7 +180,7 @@ struct AuthenticationViewModelTests {
         let model = AuthenticationViewModel(
             service: service,
             qrCodeProvider: service,
-            pollInterval: .zero
+            waitBeforePoll: immediatePollWait
         )
         let (inFlight, calls, finalState, finalSession):
             (AuthenticationState, [String], AuthenticationState, AccountSessionState) =
@@ -236,7 +236,7 @@ struct AuthenticationViewModelTests {
         let model = AuthenticationViewModel(
             service: service,
             qrCodeProvider: service,
-            pollInterval: .zero
+            waitBeforePoll: immediatePollWait
         )
 
         model.startLogin()
@@ -260,7 +260,7 @@ struct AuthenticationViewModelTests {
         let model = AuthenticationViewModel(
             service: service,
             qrCodeProvider: service,
-            pollInterval: .zero
+            waitBeforePoll: immediatePollWait
         )
 
         model.restoreIfNeeded()
@@ -286,7 +286,7 @@ struct AuthenticationViewModelTests {
         let model = AuthenticationViewModel(
             service: service,
             qrCodeProvider: service,
-            pollInterval: .zero
+            waitBeforePoll: immediatePollWait
         )
 
         model.restoreIfNeeded()
@@ -313,7 +313,7 @@ struct AuthenticationViewModelTests {
         let model = AuthenticationViewModel(
             service: service,
             qrCodeProvider: service,
-            pollInterval: .zero
+            waitBeforePoll: immediatePollWait
         )
 
         model.startLogin()
@@ -336,7 +336,7 @@ struct AuthenticationViewModelTests {
         let model = AuthenticationViewModel(
             service: service,
             qrCodeProvider: service,
-            pollInterval: .zero
+            waitBeforePoll: immediatePollWait
         )
 
         model.restoreIfNeeded()
@@ -366,7 +366,7 @@ struct AuthenticationViewModelTests {
         let model = AuthenticationViewModel(
             service: service,
             qrCodeProvider: service,
-            pollInterval: .zero
+            waitBeforePoll: immediatePollWait
         )
 
         model.restoreIfNeeded()
@@ -391,7 +391,7 @@ struct AuthenticationViewModelTests {
         let model = AuthenticationViewModel(
             service: service,
             qrCodeProvider: service,
-            pollInterval: .zero
+            waitBeforePoll: immediatePollWait
         )
 
         model.revalidateAfterExternalSessionChange()

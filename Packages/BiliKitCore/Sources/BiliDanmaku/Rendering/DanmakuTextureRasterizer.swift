@@ -94,10 +94,7 @@ enum DanmakuTextureRasterizer {
         else {
             return nil
         }
-        // 只接受 B 站的三档字号（小、标准、大），其余按标准字号处理，任意字号不会把缓存 key 打散。
-        let fontSize =
-            [18.0, 25.0, 36.0].contains(event.fontSize)
-            ? event.fontSize : 25
+        let fontSize = DanmakuEvent.normalizedFontSize(event.fontSize)
         return DanmakuTextureCacheKey(
             text: event.text,
             fontSize: fontSize,

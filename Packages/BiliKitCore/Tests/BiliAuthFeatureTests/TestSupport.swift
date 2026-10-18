@@ -1,5 +1,7 @@
 import Foundation
 
+@testable import BiliAuthFeature
+
 /// 本 target 共用的等待替身；各测试文件不再各自复制。
 
 /// 可等待的事件计数：记录端 `signal()`，等待端挂起到计数达到目标；等待所在 Task 被取消时抛出
@@ -60,3 +62,6 @@ extension Array where Element == CheckedContinuation<Void, Never> {
         }
     }
 }
+
+/// 扫码轮询的等待：不真实计时，只让出一次执行，轮询按次数推进。
+let immediatePollWait: AuthenticationViewModel.PollWait = { _ in await Task.yield() }

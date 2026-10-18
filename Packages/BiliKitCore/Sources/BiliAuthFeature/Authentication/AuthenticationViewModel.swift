@@ -103,16 +103,22 @@ public final class AuthenticationViewModel {
         return false
     }
 
+    /// 等待给定时长后返回；被取消时抛出。
+    typealias PollWait = @Sendable (Duration) async throws -> Void
+
     @ObservationIgnored private let service: any AuthenticationServicing
     @ObservationIgnored private let qrCodeProvider: any AuthenticationQRCodeProviding
     /// 本地兜底时限：远端一直没有给出终态（过期、确认或失败）时，轮询满 180 秒即本地判为过期。
     ///
     /// 调短会让用户来不及扫码确认，调长则在远端异常时多发轮询请求。
     private static let pollTimeout: Duration = .seconds(180)
-    /// 一次挑战最多发出的轮询请求数：默认 2 秒间隔下与 180 秒时限相当，两者任一先到即本地过期。
-    private static let maximumPollAttempts = 90
+    /// 扫码状态的轮询间隔；调短更快感知确认但多发请求，调长则确认后要多等一会儿才登录。
+    private static let pollInterval: Duration = .seconds(2)
+    /// 一次挑战最多发出的轮询请求数：按轮询间隔走满时限的次数，两者任一先到即本地过期。
+    private static let maximumPollAttempts = Int((pollTimeout / pollInterval).rounded(.up))
 
-    @ObservationIgnored private let pollInterval: Duration
+    /// 两次轮询之间的等待，是时钟边界；public init 按要求的时长真实等待。
+    @ObservationIgnored private let waitBeforePoll: PollWait
     @ObservationIgnored private let operationTask = LatestTask()
     /// 启动恢复只发起一次；`revalidate` 等显式复核也会置位，之后 `restoreIfNeeded` 不再重复恢复。
     @ObservationIgnored private var didStartInitialRestore = false
@@ -123,17 +129,21 @@ public final class AuthenticationViewModel {
         service: any AuthenticationServicing,
         qrCodeProvider: any AuthenticationQRCodeProviding
     ) {
-        self.init(service: service, qrCodeProvider: qrCodeProvider, pollInterval: .seconds(2))
+        self.init(
+            service: service,
+            qrCodeProvider: qrCodeProvider,
+            waitBeforePoll: { try await Task.sleep(for: $0) }
+        )
     }
 
     init(
         service: any AuthenticationServicing,
         qrCodeProvider: any AuthenticationQRCodeProviding,
-        pollInterval: Duration
+        waitBeforePoll: @escaping PollWait
     ) {
         self.service = service
         self.qrCodeProvider = qrCodeProvider
-        self.pollInterval = pollInterval
+        self.waitBeforePoll = waitBeforePoll
     }
 
     public func restoreIfNeeded() {
@@ -288,7 +298,7 @@ public final class AuthenticationViewModel {
 
             do {
                 let remaining = clock.now.duration(to: deadline)
-                try await Task.sleep(for: min(pollInterval, remaining))
+                try await waitBeforePoll(min(Self.pollInterval, remaining))
                 try Task.checkCancellation()
             } catch {
                 return

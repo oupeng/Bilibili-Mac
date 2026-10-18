@@ -39,6 +39,11 @@ struct NativeVideoCollectionItemImageTests {
             activation: { _ in }
         )
         #expect(Self.layer(showing: image, in: item.view) == nil)
+        // 取图结果要等下一轮主线程才写回；先冻结图层时间，淡入动画停在开头、不会在等待期间播完被移除，
+        // 断言不依赖淡入时长与调度快慢。
+        for root in ([item.view] + Self.descendants(of: item.view)).compactMap(\.layer) {
+            root.speed = 0
+        }
 
         let layer = try #require(await Self.waitForLayer(showing: image, in: item.view))
         let expectsFade = fadesIn && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion

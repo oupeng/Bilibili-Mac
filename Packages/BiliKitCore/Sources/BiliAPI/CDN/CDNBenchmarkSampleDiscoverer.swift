@@ -25,8 +25,8 @@ public struct CDNBenchmarkDiscoveredSample: Sendable, Equatable {
 /// 之后的发现跳过它们，让再次测速换一批样本；设置窗口关闭或失去测速资格时调用方经
 /// `resetSeenSamples()` 清空。
 public actor CDNBenchmarkSampleDiscoverer {
-    /// 一轮最多计入的近期投稿条数（8 个分区 × 每页 5 条）；与下面的详情上限一起限定发现阶段的请求量。
-    private static let maximumMetadataCount = 40
+    /// 一轮最多计入的近期投稿条数（分区数 × 每页条数）；与下面的详情上限一起限定发现阶段的请求量。
+    private static let maximumMetadataCount = regionIDs.count * pageSize
     /// 一轮最多请求的稿件详情次数；每个详情至多引出一次 playurl，playurl 次数因此也以它为上限。
     ///
     /// 调大更容易凑满样本但多发账户读取，调小会让候选不合格时更常找不到样本。
@@ -35,8 +35,8 @@ public actor CDNBenchmarkSampleDiscoverer {
     /// 依次查询的分区 ID；每个分区至多取一个样本，同一 UP 主不重复，
     /// 让多个样本来自不同内容与上传者。
     private static let regionIDs = [201, 124, 228, 207, 208, 209, 229, 231]
-    /// 每个分区读取的近期投稿条数，`recentSubmissions` 只接受 1–5。
-    private static let pageSize = 5
+    /// 每个分区读取的近期投稿条数，取近期投稿读取允许的上限。
+    private static let pageSize = BiliAPIClient.maximumRecentSubmissionPageSize
     /// 样本条件（设置界面所说的“近期、低播放量且足够长”）：播放量 20–9999、发布 6 小时到 14 天、
     /// 时长至少 3 分钟。
     ///

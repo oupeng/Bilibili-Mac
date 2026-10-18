@@ -7,20 +7,27 @@ import Foundation
 /// 只有显示区域为全屏时才采用用户选的密度，其余显示区域按普通密度（见 `updateAdmissionPolicy`）。
 /// 间距越小、层数越多，同屏弹幕越多，也越容易互相遮挡。
 struct DanmakuDensityAdmissionPolicy: Sendable, Equatable {
+    /// 普通密度：同车道前后两条滚动弹幕至少隔 64pt。
+    private static let normalGap = 64.0
+    /// 增加密度：间距减半为 32pt，仍不叠放。
+    private static let increasedGap = 32.0
+    /// 允许叠放：不留间距，没有完全空闲的车道时同一车道最多叠 3 层。
+    private static let overlappingDepth = 3
+
     let minimumHorizontalGap: Double
     let maximumOverlapDepth: Int
 
     init(_ density: DanmakuDensity) {
         switch density {
         case .normal:
-            minimumHorizontalGap = 64
+            minimumHorizontalGap = Self.normalGap
             maximumOverlapDepth = 1
         case .increased:
-            minimumHorizontalGap = 32
+            minimumHorizontalGap = Self.increasedGap
             maximumOverlapDepth = 1
         case .overlapping:
             minimumHorizontalGap = 0
-            maximumOverlapDepth = 3
+            maximumOverlapDepth = Self.overlappingDepth
         }
     }
 }

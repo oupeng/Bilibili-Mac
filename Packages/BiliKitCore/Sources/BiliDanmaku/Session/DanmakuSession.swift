@@ -13,6 +13,12 @@ import Foundation
 /// presentation sink：呈现控制器由 App 的窗口组装持有。
 @MainActor
 public final class DanmakuSession: DanmakuPresentationControlling {
+    /// 同时在途的分段请求上限。
+    ///
+    /// 调度一次最多要当前、上一（补位时）与下一分段，当前分段总排在最前，两个名额让当前分段与紧随其后的
+    /// 一个并行；调大会让这三段同时在途。
+    private static let maximumConcurrentSegmentLoads = 2
+
     private let useCase: DanmakuSegmentUseCase
     private let timeline: any PlaybackTimelineProviding
     /// 弱引用：呈现控制器由 App 的窗口组装持有，会话不延长它的生命周期。
@@ -144,7 +150,7 @@ public final class DanmakuSession: DanmakuPresentationControlling {
             !scheduler.containsSegment(index: index)
             && !failedSegmentIndices.contains(index)
             && loadTasks[index] == nil
-            && loadTasks.count < 2
+            && loadTasks.count < Self.maximumConcurrentSegmentLoads
         {
             load(index: index, identity: identity, generation: generation)
         }

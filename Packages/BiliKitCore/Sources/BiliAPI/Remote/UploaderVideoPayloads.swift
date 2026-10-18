@@ -45,7 +45,7 @@ struct UploaderVideoItemPayload: Decodable, Sendable {
     let isUnionVideo: Int?
 
     /// 投稿项的接口字段名。
-    enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey {
         case bvid, title, pic, length, play, created
         case videoReview = "video_review"
         case isUnionVideo = "is_union_video"

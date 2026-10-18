@@ -47,13 +47,18 @@ public struct CommentUseCase: Sendable {
         )
     }
 
+    /// 楼中楼一页请求的条数，楼中楼面板也按它推算总页数。
+    ///
+    /// 调大每页更长、翻页更少，响应也更大。
+    public static let replyPageSize = 10
+
     public func loadReplies(
         for subject: CommentSubjectIdentity,
         rootID: CommentID,
-        page: Int,
-        pageSize: Int = 10
+        page: Int
     ) async throws -> CommentReplyBatch {
-        guard page > 0, pageSize > 0 else {
+        let pageSize = Self.replyPageSize
+        guard page > 0 else {
             throw CommentReadError.invalidRequest
         }
         try Task.checkCancellation()

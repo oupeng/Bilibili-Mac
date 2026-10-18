@@ -147,13 +147,10 @@ struct BiliAPIClientPlayURLTests {
         #expect(playback.dashManifest != nil)
     }
 
-    /// 较早视频的请求清晰度只有 FLV 时，按 `support_formats` 里不高于请求的最高 MP4 清晰度重取一次；
-    /// 单个格式条目损坏不影响其余条目。
-    @Test(arguments: [(120, ["120", "64"]), (32, ["32", "16"])])
-    func flvOnlyQualityRetriesAtTheHighestMP4QualityNotAboveTheRequest(
-        requested: Int,
-        expectedQualities: [String]
-    ) async throws {
+    /// 较早视频的请求清晰度只有 FLV 时，按 `support_formats` 里不高于请求（120）的最高 MP4 清晰度重取
+    /// 一次，高于请求的 127 不选；单个格式条目损坏不影响其余条目。
+    @Test
+    func flvOnlyQualityRetriesAtTheHighestMP4QualityNotAboveTheRequest() async throws {
         let transport = StubTransport(
             responses: [
                 legacyDURLResponse(format: "flv480", segments: ["part-1.flv", "part-2.flv"]),
@@ -163,18 +160,14 @@ struct BiliAPIClientPlayURLTests {
         )
         let client = BiliAPIClient(transport: transport)
 
-        let playback = try await client.playback(
-            for: "BV1FixtureA1",
-            cid: 900_001,
-            quality: requested
-        )
+        let playback = try await client.playback(for: "BV1FixtureA1", cid: 900_001)
 
         guard case .progressive(let source) = playback.media else {
             Issue.record("Expected progressive media")
             return
         }
         #expect(source.primaryURL.lastPathComponent == "whole.mp4")
-        #expect(playURLQualities(transport) == expectedQualities)
+        #expect(playURLQualities(transport) == ["120", "64"])
     }
 
     /// 重取后仍是 FLV 时不再继续重试，按不支持的容器失败。
@@ -260,11 +253,7 @@ struct BiliAPIClientPlayURLTests {
             transport: StubTransport(responses: [response], answersWBINavOnce: true)
         )
 
-        let playback = try await client.playback(
-            for: "BV1FixtureA1",
-            cid: 900_001,
-            quality: 32
-        )
+        let playback = try await client.playback(for: "BV1FixtureA1", cid: 900_001)
 
         let video = try #require(playback.dashManifest?.videoRepresentations.first)
         #expect(video.id == 32)
@@ -287,11 +276,7 @@ struct BiliAPIClientPlayURLTests {
         )
 
         await #expect(throws: BiliAPIError.invalidMediaData) {
-            try await client.playback(
-                for: "BV1FixtureA1",
-                cid: 900_001,
-                quality: 32
-            )
+            try await client.playback(for: "BV1FixtureA1", cid: 900_001)
         }
     }
 
@@ -310,7 +295,7 @@ struct BiliAPIClientPlayURLTests {
                 + $0 + #""}"#
         }
         let supportFormats =
-            #"[{"quality":80,"format":"flv"},{"quality":64,"format":"hdmp4"},"#
+            #"[{"quality":127,"format":"mp4"},{"quality":80,"format":"flv"},{"quality":64,"format":"hdmp4"},"#
             + #"{"quality":32,"format":"flv480"},{"quality":"bad"},{"quality":16,"format":"mp4"}]"#
         return jsonResponse(
             #"{"code":0,"message":"OK","data":{"format":""# + format + #"","durl":["#

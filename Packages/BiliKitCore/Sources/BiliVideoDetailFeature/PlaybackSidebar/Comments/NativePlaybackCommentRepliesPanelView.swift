@@ -202,7 +202,7 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
                 let pageCount = CommentPresentationFormatting.pageCount(
                     totalCount: replyState.totalCount > 0
                         ? replyState.totalCount : details.replyCount,
-                    pageSize: 10
+                    pageSize: CommentUseCase.replyPageSize
                 )
                 pageLabel.stringValue = "\(replyState.pageNumber) / \(pageCount)"
                 pageLabel.setAccessibilityLabel(

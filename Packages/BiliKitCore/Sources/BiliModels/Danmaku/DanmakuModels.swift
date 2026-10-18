@@ -19,6 +19,16 @@ public enum DanmakuColorStyle: Sendable, Hashable {
 /// 解码时限定 ID、时间与正文长度，正文去掉首尾空白且非空；字号只保留 18、25、36，其他按 25；
 /// `weight` 为负的弹幕由调度过滤，不显示。
 public struct DanmakuEvent: Sendable, Hashable, Identifiable {
+    /// B 站的三档字号（小、标准、大）。
+    public static let supportedFontSizes: Set<Double> = [18, 25, 36]
+    /// 标准字号，也是不认识的字号的回退。
+    public static let standardFontSize = 25.0
+
+    /// 字号只保留三档，其余按标准字号；BiliAPI 解码与纹理缓存 key 都经它，任意字号不会把缓存打散。
+    public static func normalizedFontSize(_ value: Double) -> Double {
+        supportedFontSizes.contains(value) ? value : standardFontSize
+    }
+
     public let id: String
     public let timeSeconds: Double
     public let mode: DanmakuPresentationMode

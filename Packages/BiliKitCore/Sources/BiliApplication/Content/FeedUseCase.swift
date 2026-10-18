@@ -26,6 +26,9 @@ public enum FeedContent: Sendable, Equatable {
 
 /// 在进入 adapter 前验证并规范化 Feed 意图的一次性用例。
 public struct FeedUseCase: Sendable {
+    /// 热门一页最多请求的条数：本用例与 API 客户端允许的上限，两处都按它拒绝更大的页。
+    public static let maximumPopularPageSize = 50
+
     private let repository: any FeedRepository
 
     public init(repository: any FeedRepository) {
@@ -43,7 +46,7 @@ public struct FeedUseCase: Sendable {
                 try await repository.recommendations(after: continuation)
             )
         case .popular(let page, let pageSize):
-            guard page > 0, (1...50).contains(pageSize) else {
+            guard page > 0, (1...Self.maximumPopularPageSize).contains(pageSize) else {
                 throw ContentApplicationError.invalidRequest
             }
             return .popular(

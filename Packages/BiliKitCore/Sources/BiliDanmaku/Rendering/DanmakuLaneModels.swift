@@ -15,7 +15,12 @@ public struct DanmakuLaneConfiguration: Sendable, Equatable {
     /// 但合成与内存开销随之上升；调小则高峰期更早以容量不足丢弃。
     public static let hardMaximumActiveCount = 640
 
-    /// 产品默认配置：36pt 车道基元、普通密度的水平间距、不叠放、整个画面都是显示区域。
+    /// 产品的车道基元高度（point），与最大字号同为 36；更高的纹理占用连续多条车道。
+    ///
+    /// 调大同屏行数变少，调小则更多弹幕跨多条车道。
+    public static let productionLaneHeight = 36.0
+
+    /// 产品默认配置：`productionLaneHeight` 车道基元、普通密度的水平间距、不叠放、整个画面都是显示区域。
     ///
     /// 初始尺寸可以为 0，surface 布局后由呈现控制器更新；显示区域与密度由用户偏好经呈现控制器覆盖。
     public static func production(
@@ -25,7 +30,7 @@ public struct DanmakuLaneConfiguration: Sendable, Equatable {
         Self(
             surfaceWidth: surfaceWidth,
             surfaceHeight: surfaceHeight,
-            laneHeight: 36,
+            laneHeight: productionLaneHeight,
             minimumHorizontalGap: DanmakuDensityAdmissionPolicy(.default).minimumHorizontalGap,
             maximumActiveCount: hardMaximumActiveCount,
             displayAreaFraction: 1

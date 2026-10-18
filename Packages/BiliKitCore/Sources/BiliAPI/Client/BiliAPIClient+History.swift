@@ -5,11 +5,18 @@ import Foundation
 
 /// 观看历史 cursor 读取与唯一写请求（观看进度 heartbeat）。
 extension BiliAPIClient {
+    /// 历史接口一页可请求的最大条数，超出按无效请求在发请求前拒绝。
+    ///
+    /// 调大前要先确认接口仍按请求的条数返回，否则“本页条数少于每页条数即到底”的判断会提前停止翻页。
+    private static let maximumWatchHistoryPageSize = 30
+    /// heartbeat 响应只有状态 envelope，16 KiB 远超正常大小；更大的正文按异常响应失败关闭。
+    private static let maximumHeartbeatResponseSize = 16 * 1_024
+
     public func watchHistory(
         after continuation: WatchHistoryContinuation? = nil,
-        pageSize: Int = 20
+        pageSize: Int
     ) async throws -> WatchHistoryPage {
-        guard (1...30).contains(pageSize) else {
+        guard (1...Self.maximumWatchHistoryPageSize).contains(pageSize) else {
             throw BiliAPIError.invalidRequest
         }
         let cursor: WatchHistoryCursorPayload
@@ -114,8 +121,7 @@ extension BiliAPIClient {
                 body: try Self.formBody(bodyFields)
             ),
             access: .historyWrite,
-            // heartbeat 响应只有状态 envelope，16 KiB 远超正常大小；更大的正文按异常响应失败关闭。
-            maximumResponseSize: 16 * 1_024
+            maximumResponseSize: Self.maximumHeartbeatResponseSize
         )
         guard authorizedResponse.response.looksLikeJSON(allowsTopLevelArray: true) else {
             throw BiliAPIError.nonJSONResponse
