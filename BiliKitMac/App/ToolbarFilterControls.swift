@@ -181,6 +181,9 @@ struct FilterPickerRow<Option: Hashable & Identifiable>: View {
 
 /// 自定义日期范围的两个仅日期选择器；不合法时在下方显示原因（由调用方按自己的规则给出）。
 struct CustomDateRangeFields: View {
+    /// 日期选择的下界：接口的秒级时间戳不接受 1970 年之前的日期，解析时同样拒绝（`DateRangeFilterError.beforeEpoch`）。
+    private static let earliestSelectableDate = Date(timeIntervalSince1970: 0)
+
     @Environment(\.locale) private var locale
     @Binding var start: Date
     @Binding var end: Date
@@ -191,13 +194,13 @@ struct CustomDateRangeFields: View {
             DatePicker(
                 AppStrings.localized("开始日期", locale: locale),
                 selection: $start,
-                in: ...Date(),
+                in: Self.earliestSelectableDate...Date(),
                 displayedComponents: .date
             )
             DatePicker(
                 AppStrings.localized("结束日期", locale: locale),
                 selection: $end,
-                in: ...Date(),
+                in: Self.earliestSelectableDate...Date(),
                 displayedComponents: .date
             )
             if let validationMessage {

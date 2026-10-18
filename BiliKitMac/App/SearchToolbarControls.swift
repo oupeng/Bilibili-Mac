@@ -106,21 +106,27 @@ private struct SearchFilterPopover: View {
     }
 
     private var validationMessage: String? {
-        guard draft.publication == .custom else { return nil }
         do {
             _ = try draft.resolvedFilters()
             return nil
-        } catch let error as VideoPublicationRangeError {
-            switch error {
-            case .startAfterEnd:
-                return AppStrings.localized("开始日期不能晚于结束日期", locale: locale)
-            case .futureDate:
-                return AppStrings.localized("结束日期不能超过今天", locale: locale)
-            case .invalidCalendarRange:
-                return AppStrings.localized("无法使用这个日期范围", locale: locale)
-            }
         } catch {
-            return AppStrings.localized("无法使用这个日期范围", locale: locale)
+            return DateRangeFilterError.localizedMessage(for: error, locale: locale)
+        }
+    }
+}
+
+extension DateRangeFilterError {
+    /// 日期筛选无法应用的原因；搜索与稍后再看的筛选弹窗共用这一份文案。
+    static func localizedMessage(for error: any Error, locale: Locale = .current) -> String {
+        switch error as? DateRangeFilterError {
+        case .startAfterEnd:
+            AppStrings.localized("开始日期不能晚于结束日期", locale: locale)
+        case .futureDate:
+            AppStrings.localized("结束日期不能超过今天", locale: locale)
+        case .beforeEpoch:
+            AppStrings.localized("日期不能早于 1970 年", locale: locale)
+        case .emptyRange, .invalidCalendarRange, nil:
+            AppStrings.localized("无法使用这个日期范围", locale: locale)
         }
     }
 }

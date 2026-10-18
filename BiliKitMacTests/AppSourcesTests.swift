@@ -139,7 +139,8 @@ struct AppSourcesTests {
         await watchLaterModel.waitForCurrentTask()
         sources.resetForWindowClosure()
 
-        #expect(session.appliedCriteria == WatchLaterCriteria())
+        #expect(!session.narrowsResults)
+        #expect(session.appliedKeyword.isEmpty)
         #expect(watchLaterModel.state == .idle)
     }
 

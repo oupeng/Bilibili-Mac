@@ -117,7 +117,7 @@ struct WatchLaterSessionTests {
         session.filterSelection.progress = .unfinished
         session.searchDraft = "未提交"
 
-        #expect(session.appliedCriteria == WatchLaterCriteria())
+        #expect(session.firstPageRequest() == WatchLaterRequest())
         #expect(!session.narrowsResults)
         #expect(await repository.requests.count == 1)
     }
@@ -146,7 +146,7 @@ struct WatchLaterSessionTests {
         await model.waitForCurrentTask()
         session.searchDraft = " "
         await model.waitForCurrentTask()
-        #expect(session.appliedCriteria.keyword.isEmpty)
+        #expect(session.appliedKeyword.isEmpty)
 
         session.filterSelection.order = .oldestAdded
         session.selectOrder(.oldestAdded)
@@ -160,7 +160,10 @@ struct WatchLaterSessionTests {
         session.clearFilters()
         await model.waitForCurrentTask()
 
-        #expect(session.appliedCriteria == WatchLaterCriteria(order: .oldestAdded))
+        #expect(
+            session.firstPageRequest()
+                == WatchLaterRequest(criteria: WatchLaterCriteria(order: .oldestAdded))
+        )
         #expect(session.filterSelection.activeFilterCount == 0)
         #expect(session.searchDraft.isEmpty)
         #expect(!session.narrowsResults)
@@ -189,7 +192,7 @@ struct WatchLaterSessionTests {
 
         session.reset()
         #expect(model.state == .idle)
-        #expect(session.appliedCriteria == WatchLaterCriteria())
+        #expect(session.firstPageRequest() == WatchLaterRequest())
         #expect(session.searchDraft.isEmpty)
         model.loadIfNeeded()
         await model.waitForCurrentTask()
@@ -216,4 +219,90 @@ struct WatchLaterSessionTests {
             ]
         )
     }
+
+    /// 刷新时第一页请求重新求值：区间不变时原地刷新（条目保持显示），变了（如跨过午夜）就清空重载。
+    @Test
+    @MainActor
+    func refreshRevaluatesTheFirstPageAndReloadsFromScratchWhenItChanged() async {
+        let repository = WatchLaterRepositoryStub(
+            results: [
+                laterPage(["BV1Day1"], page: 1, next: nil),
+                laterPage(["BV1Day1"], page: 1, next: nil),
+                laterPage(["BV1Day2"], page: 1, next: nil)
+            ]
+        )
+        let model = WatchLaterViewModel(useCase: WatchLaterUseCase(repository: repository))
+        let day = RequestDay()
+        let request = { (day: Int64) in
+            WatchLaterRequest(
+                criteria: WatchLaterCriteria(
+                    addedTime: WatchLaterAddedTimeRange(
+                        startTimestamp: day * 86_400,
+                        endTimestamp: (day + 1) * 86_400
+                    )
+                )
+            )
+        }
+        model.firstPageCursor = { request(day.value) }
+        model.loadIfNeeded()
+        await model.waitForCurrentTask()
+
+        model.reload()
+        #expect(model.isRefreshing)
+        await model.waitForCurrentTask()
+
+        day.value = 2
+        model.reload()
+        #expect(model.state == .loading)
+        await model.waitForCurrentTask()
+
+        #expect(await repository.requests == [request(1), request(1), request(2)])
+        #expect(
+            model.state
+                == .loaded(items: [laterItem("BV1Day2")], continuation: nil, loadMoreError: nil)
+        )
+    }
+
+    /// 已应用的“今天”在每次刷新时按此刻重新解析，区间止于明天 0 点而不是解析时刻。
+    @Test
+    @MainActor
+    func refreshThroughTheSessionResolvesTheRelativeRangeAgain() async throws {
+        let repository = WatchLaterRepositoryStub(
+            results: [
+                laterPage(["BV1A"], page: 1, next: nil),
+                laterPage(["BV1A"], page: 1, next: nil),
+                laterPage(["BV1A"], page: 1, next: nil)
+            ]
+        )
+        let model = WatchLaterViewModel(useCase: WatchLaterUseCase(repository: repository))
+        let session = WatchLaterSession(model: model)
+        model.loadIfNeeded()
+        await model.waitForCurrentTask()
+        var selection = session.filterSelection
+        selection.addedTime = .today
+        session.applyFilters(selection)
+        await model.waitForCurrentTask()
+
+        session.refresh()
+        await model.waitForCurrentTask()
+
+        let requests = await repository.requests
+        #expect(requests.count == 3)
+        let range = try #require(requests[2].criteria.addedTime)
+        let tomorrow = try #require(
+            Calendar.current.date(
+                byAdding: .day,
+                value: 1,
+                to: Calendar.current.startOfDay(for: Date())
+            )
+        )
+        #expect(range.endTimestamp == Int64(tomorrow.timeIntervalSince1970))
+        #expect(range.startTimestamp < range.endTimestamp)
+    }
+}
+
+/// 测试里模拟“跨过午夜”的可变日序号；列表的第一页求值闭包在主线程读取它。
+@MainActor
+private final class RequestDay {
+    var value: Int64 = 1
 }

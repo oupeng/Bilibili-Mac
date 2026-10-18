@@ -20,7 +20,7 @@ public enum WatchLaterProgressFilter: Sendable, Hashable, CaseIterable, Identifi
     public var id: Self { self }
 }
 
-/// 稍后再看的加入时间筛选选项；由 `WatchLaterAddedTimeRangeResolver` 解析为冻结的区间后才进入 criteria。
+/// 稍后再看的加入时间筛选选项；会话保存未解析的选项，由 `WatchLaterAddedTimeRangeResolver` 解析为区间后才进入 criteria。
 public enum WatchLaterAddedTimeFilter: Sendable, Hashable, CaseIterable, Identifiable {
     case all
     case today
@@ -31,7 +31,9 @@ public enum WatchLaterAddedTimeFilter: Sendable, Hashable, CaseIterable, Identif
     public var id: Self { self }
 }
 
-/// 已冻结的加入时间区间（Unix 秒，含开始、不含结束）；相对时间在应用筛选时解析为该值，之后翻页不再变化。
+/// 已冻结的加入时间区间（Unix 秒，含开始、不含结束）。
+///
+/// 相对时间在每次开始新的分页会话（应用筛选、刷新、复核后重载）时由会话重新解析为该值，之后翻页沿用游标里的值。
 public struct WatchLaterAddedTimeRange: Sendable, Hashable {
     public let startTimestamp: Int64
     public let endTimestamp: Int64
@@ -42,17 +44,13 @@ public struct WatchLaterAddedTimeRange: Sendable, Hashable {
     }
 }
 
-/// `WatchLaterAddedTimeRangeResolver` 无法给出区间的原因：自定义的开始日晚于结束日，或日历无法推算日期。
-public enum WatchLaterAddedTimeRangeError: Error, Sendable, Equatable {
-    case startAfterEnd
-    case invalidCalendarRange
-}
-
-/// 把加入时间选项按 `now` 与 `calendar`（含时区）解析为区间。
+/// 把加入时间选项按 `now` 与 `calendar`（含时区）解析为区间（含开始、不含结束）。
 ///
-/// 今天是今天 0 点到现在；昨天是昨天 0 点到今天 0 点；近一周是现在往前 7 天到现在；自定义是开始日 0 点到结束日
-/// 次日 0 点（含结束日当天）。与搜索的发布日期（`VideoPublicationRangeResolver`，整日闭区间、结束日不得晚于今天）
-/// 语义不同，所以不共用：稍后再看网页端按“到现在”与“往前 7×24 小时”取区间。
+/// 今天是今天 0 点到明天 0 点；昨天是昨天 0 点到今天 0 点；近一周是现在往前 7 天到明天 0 点；自定义是开始日 0 点到
+/// 结束日次日 0 点（含结束日当天）。“今天”与“近一周”的结束取明天 0 点而不是此刻：午夜那一刻区间不会为空，解析之后才
+/// 加入的视频在刷新时也在区间内。与搜索的发布日期（`VideoPublicationRangeResolver`，整日闭区间、结束日不得晚于今天）
+/// 语义不同，所以不共用解析；早于 1970 年与空区间的校验共用 `DateRangeFilterValidation`。无法给出区间时抛出
+/// `DateRangeFilterError`。
 public enum WatchLaterAddedTimeRangeResolver {
     public static func resolve(
         filter: WatchLaterAddedTimeFilter,
@@ -69,32 +67,37 @@ public enum WatchLaterAddedTimeRangeResolver {
             return nil
         case .today:
             start = today
-            end = now
+            end = try day(after: today, calendar: calendar)
         case .yesterday:
             guard let yesterday = calendar.date(byAdding: .day, value: -1, to: today) else {
-                throw WatchLaterAddedTimeRangeError.invalidCalendarRange
+                throw DateRangeFilterError.invalidCalendarRange
             }
             start = yesterday
             end = today
         case .lastSevenDays:
             start = now.addingTimeInterval(-7 * 24 * 60 * 60)
-            end = now
+            end = try day(after: today, calendar: calendar)
         case .custom:
             let startDay = calendar.startOfDay(for: customStart)
             let endDay = calendar.startOfDay(for: customEnd)
             guard startDay <= endDay else {
-                throw WatchLaterAddedTimeRangeError.startAfterEnd
-            }
-            guard let endExclusive = calendar.date(byAdding: .day, value: 1, to: endDay) else {
-                throw WatchLaterAddedTimeRangeError.invalidCalendarRange
+                throw DateRangeFilterError.startAfterEnd
             }
             start = startDay
-            end = endExclusive
+            end = try day(after: endDay, calendar: calendar)
         }
+        let timestamps = try DateRangeFilterValidation.timestamps(start: start, endExclusive: end)
         return WatchLaterAddedTimeRange(
-            startTimestamp: Int64(start.timeIntervalSince1970),
-            endTimestamp: Int64(end.timeIntervalSince1970)
+            startTimestamp: timestamps.start,
+            endTimestamp: timestamps.endExclusive
         )
+    }
+
+    private static func day(after day: Date, calendar: Calendar) throws -> Date {
+        guard let next = calendar.date(byAdding: .day, value: 1, to: day) else {
+            throw DateRangeFilterError.invalidCalendarRange
+        }
+        return next
     }
 }
 

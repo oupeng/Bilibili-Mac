@@ -28,9 +28,10 @@ public enum LibraryVideoListState<Item: Sendable & Equatable, Cursor: Equatable 
 /// （`PagedVideoList`）、加载阶段、凭据复核状态与最新请求 Task。
 ///
 /// 两个来源只在分页游标、第一页游标、无进展页策略与读取闭包上不同，由各自的构造入口给出（`WatchHistoryViewModel`、
-/// `WatchLaterViewModel`）。游标是完整请求时（稍后再看的条件加页码），条件变化由来源的会话经
-/// `reloadReplacingContent(from:)` 换掉第一页游标并重新加载；旧条件的迟到结果由 `LatestTask` 丢弃，旧条件的下一页
-/// 游标也与新列表的游标不等而被 `PagedVideoList` 拒收。去重、上限、无进展页、回环、加载更多失败与原地刷新的分页恢复都由 `PagedVideoList`
+/// `WatchLaterViewModel`）。游标是完整请求时（稍后再看的条件加页码），第一页游标在每次开始新的分页会话时由
+/// `firstPageCursor` 重新求值（稍后再看的相对加入时间因此按当时的日历解析）；条件变化由来源的会话经
+/// `reloadReplacingContent()` 从空列表重新加载；旧条件的迟到结果由 `LatestTask` 丢弃，旧条件的下一页游标也与新列表
+/// 的游标不等而被 `PagedVideoList` 拒收。去重、上限、无进展页、回环、加载更多失败与原地刷新的分页恢复都由 `PagedVideoList`
 /// 承担；空页跳过等来源规则在各自的 Use Case。`reset` 会清除个性化内容；普通路由停用只取消在途请求，并在分页或
 /// 刷新中断时保留已显示条目。已有条目时刷新原地进行：条目保持显示，成功后整体替换，失败时保留条目并给出
 /// `refreshError`；凭据缺失或失效则放弃条目、转入失败页并请求账户复核。
@@ -128,9 +129,14 @@ public final class LibraryVideoListModel<
     /// 只在 `phase == .loaded` 时被显示；首次加载、失败与 `reset` 时换成空列表，不留下旧账户的条目。
     private var list: PagedVideoList<Item, Cursor>
 
-    /// 首次加载与刷新请求的第一页游标；观看历史为 nil，稍后再看是当前条件的第一页，条件变化时由
-    /// `reloadReplacingContent(from:)` 替换。
-    @ObservationIgnored private var firstPageCursor: Cursor?
+    /// 每次开始新的分页会话（首次加载、刷新、复核后重载、条件变化）时求值的第一页游标；观看历史恒为 nil，稍后再看
+    /// 由会话按当前条件与此刻解析给出。
+    ///
+    /// 由来源会话在构造后设置一次（`WatchLaterSession.init`）。返回值与当前显示内容的第一页游标不同时，刷新不原地
+    /// 进行而是清空重载：条件或解析出的区间变了，旧条目不能留在新请求下显示。
+    @ObservationIgnored var firstPageCursor: @MainActor () -> Cursor?
+    /// 当前显示内容来自哪个第一页游标；第一页加载成功时记录，`reset` 与失败时清空。
+    @ObservationIgnored private var displayedFirstPageCursor: Cursor?
     @ObservationIgnored private let stallPolicy: PagedVideoList<Item, Cursor>.StallPolicy
     @ObservationIgnored private let load: Load
     @ObservationIgnored private let bvid: (Item) -> String
@@ -144,7 +150,7 @@ public final class LibraryVideoListModel<
 
     init(
         stallPolicy: PagedVideoList<Item, Cursor>.StallPolicy,
-        firstPageCursor: Cursor? = nil,
+        firstPageCursor: @escaping @MainActor () -> Cursor? = { nil },
         bvid: @escaping (Item) -> String,
         load: @escaping Load
     ) {
@@ -161,23 +167,28 @@ public final class LibraryVideoListModel<
     }
 
     public func reload() {
-        // 已有条目（或正在加载更多）时原地刷新，与首页、热门一致：网格不卸载，成功后由刷新代次回到顶部。
-        let refreshesInPlace = phase == .loaded && (!list.items.isEmpty || list.isLoadingMore)
+        let firstPageCursor = firstPageCursor()
+        // 已有条目（或正在加载更多）且第一页游标不变时原地刷新，与首页、热门一致：网格不卸载，成功后由刷新代次回到
+        // 顶部。游标变了（稍后再看的条件或解析出的区间不同）就清空重载。
+        let refreshesInPlace =
+            phase == .loaded && (!list.items.isEmpty || list.isLoadingMore)
+            && firstPageCursor == displayedFirstPageCursor
         refreshError = nil
         if refreshesInPlace {
             list.beginRefresh()
         } else {
             list = emptyList()
             totalCount = nil
+            displayedFirstPageCursor = nil
             phase = .loading
         }
-        let firstPageCursor = firstPageCursor
         loadTask.replace { [weak self] isCurrent in
             guard let self else { return }
             do {
                 let result = try await load(firstPageCursor)
                 guard isCurrent() else { return }
                 list.replaceFirstPage(result.page, bvid: bvid)
+                displayedFirstPageCursor = firstPageCursor
                 totalCount = result.totalCount
                 phase = .loaded
                 successfulReloadGeneration &+= 1
@@ -242,18 +253,15 @@ public final class LibraryVideoListModel<
         }
     }
 
-    /// 换掉第一页游标（稍后再看的条件变化）并从空列表重新加载：不原地刷新，旧条件的条目不能留在新条件下显示；
-    /// 加载成功时 `successfulReloadGeneration` 前进，App 据此把网格滚回顶部。
-    func reloadReplacingContent(from firstPageCursor: Cursor) {
-        self.firstPageCursor = firstPageCursor
+    /// 条件变化（稍后再看的排序、筛选或关键词）后从空列表重新加载。
+    ///
+    /// 不原地刷新：旧条件的条目不能留在新条件下显示。加载成功时 `successfulReloadGeneration` 前进，App 据此把网格
+    /// 滚回顶部。由来源会话在改完条件后调用。
+    func reloadReplacingContent() {
         list = emptyList()
+        displayedFirstPageCursor = nil
         phase = .idle
         reload()
-    }
-
-    /// 只换掉第一页游标、不发请求；来源会话在 `reset` 时把条件恢复为默认后调用。
-    func replaceFirstPageCursor(_ firstPageCursor: Cursor) {
-        self.firstPageCursor = firstPageCursor
     }
 
     /// 窗口的账户范围变化（登出、换号、凭据失效后确认的新范围）时由 App 通知，只在已解析的变化时调用。
@@ -276,6 +284,7 @@ public final class LibraryVideoListModel<
         loadTask.cancel()
         list = emptyList()
         totalCount = nil
+        displayedFirstPageCursor = nil
         refreshError = nil
         isAwaitingAuthenticationRevalidation = false
         hasReloadedAfterRevalidation = false
@@ -355,6 +364,7 @@ public final class LibraryVideoListModel<
         }
         list = emptyList()
         totalCount = nil
+        displayedFirstPageCursor = nil
         phase = .failed(failure)
     }
 }

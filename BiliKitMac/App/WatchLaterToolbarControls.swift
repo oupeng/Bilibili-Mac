@@ -55,7 +55,7 @@ struct WatchLaterToolbarControls: View {
 
 /// 稍后再看的筛选弹窗：观看进度、加入时间（自定义时两个仅日期的选择器）与时长三组，只编辑父视图交来的草稿。
 ///
-/// 自定义的开始日晚于结束日（`WatchLaterFilterSelection.resolvedAddedTime()` 抛错）时显示原因并禁用“应用”。
+/// 自定义的开始日晚于结束日（`WatchLaterFilterSelection.resolvedAddedTime()` 抛出 `DateRangeFilterError`）时显示原因并禁用“应用”。
 private struct WatchLaterFilterPopover: View {
     @Environment(\.locale) private var locale
     @Binding var draft: WatchLaterFilterSelection
@@ -107,14 +107,11 @@ private struct WatchLaterFilterPopover: View {
     }
 
     private var validationMessage: String? {
-        guard draft.addedTime == .custom else { return nil }
         do {
             _ = try draft.resolvedAddedTime()
             return nil
-        } catch WatchLaterAddedTimeRangeError.startAfterEnd {
-            return AppStrings.localized("开始日期不能晚于结束日期", locale: locale)
         } catch {
-            return AppStrings.localized("无法使用这个日期范围", locale: locale)
+            return DateRangeFilterError.localizedMessage(for: error, locale: locale)
         }
     }
 }

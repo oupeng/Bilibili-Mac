@@ -41,11 +41,11 @@ struct WatchLaterUseCaseTests {
     }
 }
 
-/// 加入时间按本地日历解析：今天与近一周止于现在，昨天是昨天整日，自定义含结束日当天；日界按日历时区，跨夏令时
-/// 按日历日而不是固定 24 小时计算。
+/// 加入时间按本地日历解析：今天与近一周止于明天 0 点（午夜也不为空，之后加入的也在区间内），昨天是昨天整日，
+/// 自定义含结束日当天；日界按日历时区，跨夏令时按日历日计算；早于 1970 年的区间被拒绝。
 struct WatchLaterAddedTimeRangeTests {
     @Test
-    func relativeRangesEndAtNowOrAtTodaysStart() throws {
+    func relativeRangesEndAtTomorrowOrAtTodaysStart() throws {
         let calendar = try calendar("Asia/Tokyo")
         let now = try date(calendar, 2026, 7, 24, hour: 13)
 
@@ -54,11 +54,15 @@ struct WatchLaterAddedTimeRangeTests {
         let lastWeek = try resolve(.lastSevenDays, now: now, calendar: calendar)
 
         // 东京 7/24 0 点在 UTC 仍是 7/23，必须按日历时区取日界。
-        #expect(today == range(try date(calendar, 2026, 7, 24), now))
+        let tomorrow = try date(calendar, 2026, 7, 25)
+        #expect(today == range(try date(calendar, 2026, 7, 24), tomorrow))
         #expect(
             yesterday == range(try date(calendar, 2026, 7, 23), try date(calendar, 2026, 7, 24))
         )
-        #expect(lastWeek == range(now.addingTimeInterval(-7 * 86_400), now))
+        #expect(lastWeek == range(now.addingTimeInterval(-7 * 86_400), tomorrow))
+        // 区间结束不是解析时刻：解析之后才加入的视频，刷新时也落在区间内。
+        let laterToday = now.addingTimeInterval(3_600)
+        #expect(today.map { Int64(laterToday.timeIntervalSince1970) < $0.endTimestamp } == true)
         #expect(try resolve(.all, now: now, calendar: calendar) == nil)
     }
 
@@ -83,11 +87,49 @@ struct WatchLaterAddedTimeRangeTests {
         #expect(resolved.endTimestamp - resolved.startTimestamp == 47 * 3_600)
     }
 
+    /// 午夜整点解析“今天”也不是空区间。
+    @Test
+    func todayIsNotEmptyAtMidnight() throws {
+        let calendar = try calendar("Asia/Shanghai")
+        let midnight = try date(calendar, 2026, 7, 24)
+
+        let today = try #require(try resolve(.today, now: midnight, calendar: calendar))
+
+        #expect(today.startTimestamp < today.endTimestamp)
+        #expect(today.endTimestamp - today.startTimestamp == 86_400)
+    }
+
+    /// 早于 1970 年的自定义区间与搜索的发布日期一样被拒绝（同一校验规则）。
+    @Test
+    func rangeBeforeTheEpochFails() throws {
+        let calendar = try calendar("UTC")
+        let early = try date(calendar, 1969, 12, 30)
+
+        #expect(throws: DateRangeFilterError.beforeEpoch) {
+            try WatchLaterAddedTimeRangeResolver.resolve(
+                filter: .custom,
+                customStart: early,
+                customEnd: early,
+                now: try date(calendar, 2026, 7, 24),
+                calendar: calendar
+            )
+        }
+        #expect(throws: DateRangeFilterError.beforeEpoch) {
+            try VideoPublicationRangeResolver.resolve(
+                filter: .custom,
+                customStart: early,
+                customEnd: early,
+                now: try date(calendar, 2026, 7, 24),
+                calendar: calendar
+            )
+        }
+    }
+
     @Test
     func customRangeStartingAfterItsEndFails() throws {
         let calendar = try calendar("Asia/Shanghai")
 
-        #expect(throws: WatchLaterAddedTimeRangeError.startAfterEnd) {
+        #expect(throws: DateRangeFilterError.startAfterEnd) {
             try WatchLaterAddedTimeRangeResolver.resolve(
                 filter: .custom,
                 customStart: try date(calendar, 2026, 7, 25),

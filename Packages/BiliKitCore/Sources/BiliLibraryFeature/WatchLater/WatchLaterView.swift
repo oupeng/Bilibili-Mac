@@ -45,7 +45,8 @@ public struct WatchLaterView: View {
             gridHost: gridHost,
             onSelect: onSelect,
             onPresentAuthentication: onPresentAuthentication,
-            toolbarControls: toolbarControls
+            toolbarControls: toolbarControls,
+            refresh: session.refresh
         )
     }
 

@@ -22,6 +22,10 @@ struct LibraryVideoListView<Item: Sendable & Equatable, Cursor: Equatable & Send
     let onPresentAuthentication: () -> Void
     /// 排在刷新按钮之前的工具栏控件；没有时为 nil。
     var toolbarControls: AnyView? = nil
+    /// 刷新按钮的动作；没有时直接 `model.reload()`。
+    ///
+    /// 稍后再看经会话刷新，由会话决定条件。
+    var refresh: (() -> Void)? = nil
 
     var body: some View {
         AccountGateView(
@@ -48,7 +52,7 @@ struct LibraryVideoListView<Item: Sendable & Equatable, Cursor: Equatable & Send
                     if let toolbarControls {
                         toolbarControls
                     }
-                    LibraryRefreshButton(model: model)
+                    LibraryRefreshButton(model: model, refresh: refresh ?? model.reload)
                 }
             }
         }
@@ -60,10 +64,11 @@ private struct LibraryRefreshButton<Item: Sendable & Equatable, Cursor: Equatabl
 {
     @Environment(\.locale) private var locale
     let model: LibraryVideoListModel<Item, Cursor>
+    let refresh: () -> Void
 
     var body: some View {
         Button {
-            model.reload()
+            refresh()
         } label: {
             Label(
                 LibraryFeatureStrings.localized("刷新", locale: locale),

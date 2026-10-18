@@ -59,15 +59,9 @@ public enum VideoPublicationFilter: Sendable, Hashable, CaseIterable, Identifiab
     public var id: Self { self }
 }
 
-/// `VideoPublicationRangeResolver` 无法给出区间的原因：起始晚于结束、结束晚于今天，
-/// 或日历无法推算日期。
-public enum VideoPublicationRangeError: Error, Sendable, Equatable {
-    case startAfterEnd
-    case futureDate
-    case invalidCalendarRange
-}
-
 /// 将日期选择集中转换为 API 使用的整日 Unix 秒闭区间。
+///
+/// 无法给出区间时抛出 `DateRangeFilterError`；早于 1970 年与空区间的规则与稍后再看共用 `DateRangeFilterValidation`。
 public enum VideoPublicationRangeResolver {
     public static func resolve(
         filter: VideoPublicationFilter,
@@ -81,7 +75,7 @@ public enum VideoPublicationRangeResolver {
         let today = calendar.startOfDay(for: now)
         let endDay = filter == .custom ? calendar.startOfDay(for: customEnd) : today
         guard endDay <= today else {
-            throw VideoPublicationRangeError.futureDate
+            throw DateRangeFilterError.futureDate
         }
 
         let beginDay: Date
@@ -92,12 +86,12 @@ public enum VideoPublicationRangeResolver {
             beginDay = today
         case .lastSevenDays:
             guard let value = calendar.date(byAdding: .day, value: -6, to: today) else {
-                throw VideoPublicationRangeError.invalidCalendarRange
+                throw DateRangeFilterError.invalidCalendarRange
             }
             beginDay = value
         case .last180Days:
             guard let value = calendar.date(byAdding: .day, value: -179, to: today) else {
-                throw VideoPublicationRangeError.invalidCalendarRange
+                throw DateRangeFilterError.invalidCalendarRange
             }
             beginDay = value
         case .custom:
@@ -105,14 +99,18 @@ public enum VideoPublicationRangeResolver {
         }
 
         guard beginDay <= endDay else {
-            throw VideoPublicationRangeError.startAfterEnd
+            throw DateRangeFilterError.startAfterEnd
         }
         guard let endExclusive = calendar.date(byAdding: .day, value: 1, to: endDay) else {
-            throw VideoPublicationRangeError.invalidCalendarRange
+            throw DateRangeFilterError.invalidCalendarRange
         }
+        let timestamps = try DateRangeFilterValidation.timestamps(
+            start: beginDay,
+            endExclusive: endExclusive
+        )
         return VideoPublicationTimeRange(
-            beginTimestamp: Int64(beginDay.timeIntervalSince1970),
-            endTimestamp: Int64(endExclusive.timeIntervalSince1970) - 1
+            beginTimestamp: timestamps.start,
+            endTimestamp: timestamps.endExclusive - 1
         )
     }
 }

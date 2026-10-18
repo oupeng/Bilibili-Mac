@@ -41,8 +41,8 @@ public struct SearchFilterSelection: Hashable, Sendable {
         duration = .all
     }
 
-    /// 按此刻与当前日历解析；自定义日期不合法（开始晚于结束、晚于今天、日历换算失败）时抛出
-    /// `VideoPublicationRangeError`。
+    /// 按此刻与当前日历解析；自定义日期不合法（开始晚于结束、晚于今天、早于 1970 年、日历换算失败）时抛出
+    /// `DateRangeFilterError`。
     public func resolvedFilters() throws -> AppliedVideoSearchFilters {
         AppliedVideoSearchFilters(
             order: order,

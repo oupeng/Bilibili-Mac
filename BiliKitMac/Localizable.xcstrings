@@ -1,6 +1,34 @@
 {
   "sourceLanguage" : "zh-Hans",
   "strings" : {
+    "日期不能早于 1970 年" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dates can’t be earlier than 1970"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1970年より前の日付は指定できません"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日期不能早于 1970 年"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日期不能早於 1970 年"
+          }
+        }
+      }
+    },
     "搜索稍后再看" : {
       "localizations" : {
         "en" : {
