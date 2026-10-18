@@ -9,9 +9,24 @@ enum NativeVideoShelfGeometry {
 
     static var stride: CGFloat { Shelf.cardWidth + Shelf.spacing }
 
+    /// 一次翻页跨过的卡片数。
+    ///
+    /// 两侧内容边距之间能完整放下的卡片（向下取整），至少 1 张。只算完整卡片，翻页后上一页最后露出的
+    /// 半张成为新一页的首张；与 `placeholderCount` 语义不同。
     static func pageCapacity(viewportWidth: CGFloat) -> Int {
         let availableWidth = max(Shelf.cardWidth, viewportWidth - Shelf.contentInset * 2)
         return max(1, Int(floor((availableWidth + Shelf.spacing) / stride)))
+    }
+
+    /// 加载骨架铺满可见宽度所需的占位卡片数。
+    ///
+    /// 首卡起点在前缘内容边距处，按“到右缘为止排得下几张”向上取整，被右缘截断的半张也画，至少 1 张。
+    /// 与 `pageCapacity` 不同，它不扣尾部边距、也不只算完整卡片；右缘只露出卡片间距时多画的一张在视野外，
+    /// 由骨架裁掉。宽度不是有限值时按 1 张处理，下一次布局拿到真实宽度后再铺满。
+    static func placeholderCount(viewportWidth: CGFloat) -> Int {
+        guard viewportWidth.isFinite else { return 1 }
+        let visibleWidth = viewportWidth - Shelf.contentInset + Shelf.spacing
+        return max(1, Int(ceil(visibleWidth / stride)))
     }
 
     static func documentWidth(itemCount: Int) -> CGFloat {
