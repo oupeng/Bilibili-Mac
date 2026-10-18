@@ -77,7 +77,8 @@ struct FavoriteFolderContentView: View {
         model.selectedFolderID != nil && model.pageCount > 1
     }
 
-    /// 还没有选择（换号后等新账户的收藏夹列表）时：列表在路上就显示骨架，否则提示在侧栏选择。
+    /// 还没有选择（换号后等新账户的收藏夹列表）时按列表状态说明：列表在路上显示骨架；列表失败给失败页，重试重读列表
+    /// （凭据失败的说明按列表自己的复核进度）；账户 mid 未知只说明、不给重试；其余提示在侧栏选择。
     @ViewBuilder
     private var noSelection: some View {
         switch model.folderList.state {
@@ -85,7 +86,31 @@ struct FavoriteFolderContentView: View {
             VideoCardGridSkeleton(
                 loadingLabel: LibraryFeatureStrings.localized("正在加载收藏夹", locale: locale)
             )
-        case .loaded, .failed, .accountUnidentified:
+        case .failed(let error):
+            LibraryContentFailure(
+                isAwaitingRevalidation: model.folderList.isAwaitingAuthenticationRevalidation,
+                locale: locale
+            )
+            .view(
+                error,
+                fallbackTitle: LibraryFeatureStrings.localized("无法加载收藏夹", locale: locale),
+                retry: { model.folderList.reload() }
+            )
+        case .accountUnidentified:
+            ContentUnavailableView {
+                Label(
+                    LibraryFeatureStrings.localized("无法确认当前账户", locale: locale),
+                    systemImage: "person.crop.circle.badge.questionmark"
+                )
+            } description: {
+                Text(
+                    LibraryFeatureStrings.localized(
+                        "重新确认登录状态或重新登录后可查看收藏夹。",
+                        locale: locale
+                    )
+                )
+            }
+        case .loaded:
             ContentUnavailableView {
                 Label(
                     LibraryFeatureStrings.localized("选择一个收藏夹", locale: locale),

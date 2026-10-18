@@ -29,6 +29,10 @@ public enum FavoriteFolderListState: Sendable, Equatable {
 @Observable
 public final class FavoriteFolderListModel: AccountRevalidationParticipant {
     public private(set) var state: FavoriteFolderListState = .idle
+    /// 已有列表时的后台重读正在进行：侧栏照常显示原有的行，直到新列表到达。
+    ///
+    /// 重读成功整体替换；凭据失败放弃旧列表（与资料库其他来源一致），其余失败保留旧列表。
+    public private(set) var isRefreshing = false
 
     /// 读取发现凭据缺失、失效或可疑（自己视角下没有默认收藏夹）时递增；规则在共用的 `LibraryAccountRevalidation`。
     public var authenticationRevalidationGeneration: Int {
@@ -101,6 +105,7 @@ public final class FavoriteFolderListModel: AccountRevalidationParticipant {
     /// 取消请求并从内存删除列表，供登出、换号与关窗调用；复核代次保留。
     public func reset() {
         loadTask.cancel()
+        isRefreshing = false
         stateAccountID = nil
         revalidation.reset()
         state = .idle
@@ -135,25 +140,39 @@ public final class FavoriteFolderListModel: AccountRevalidationParticipant {
         }
     }
 
+    /// 读取这个账户的列表：同一账户已有列表时在后台重读、保留原有的行，否则转为加载中。
     private func load(accountID: Int64) {
         let useCase = useCase
+        let refreshesInPlace: Bool
+        if case .loaded = state, stateAccountID == accountID {
+            refreshesInPlace = true
+        } else {
+            refreshesInPlace = false
+            state = .loading
+        }
         stateAccountID = accountID
-        state = .loading
+        isRefreshing = refreshesInPlace
         loadTask.replace { [weak self] isCurrent in
             do {
                 let folders = try await useCase.folders(ownerID: accountID)
                 guard let self, isCurrent() else { return }
+                isRefreshing = false
                 revalidation.loadSucceeded()
                 state = .loaded(folders)
                 onFoldersLoaded?(folders)
             } catch is CancellationError {
-                // 本任务未被取消却收到取消：认证会话在请求途中切换。回到空闲，由账户范围变化或复核结果重新对齐。
+                // 本任务未被取消却收到取消：认证会话在请求途中切换。后台重读保留原有的行，其余回到空闲，由账户范围变化
+                // 或复核结果重新对齐。
                 guard let self, isCurrent() else { return }
-                state = .idle
+                isRefreshing = false
+                if !refreshesInPlace { state = .idle }
             } catch {
                 guard let self, isCurrent() else { return }
+                isRefreshing = false
                 let failure = error as? ContentApplicationError ?? .unavailable
-                if LibraryAccountRevalidation.isCredentialFailure(failure) {
+                let isCredentialFailure = LibraryAccountRevalidation.isCredentialFailure(failure)
+                if refreshesInPlace, !isCredentialFailure { return }
+                if isCredentialFailure {
                     revalidation.request()
                 }
                 state = .failed(failure)

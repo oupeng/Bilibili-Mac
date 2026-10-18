@@ -7,7 +7,8 @@ import Testing
 
 /// 收藏夹页面：选夹、换夹、换排序、提交或清空关键词与翻页都从请求的页整体替换并丢弃旧在途结果，换夹清空关键词、
 /// 保留排序；每次替换成功刷新代次前进；刷新原地重读当前页、失败保留内容；收藏夹不存在时重读列表并回落到默认收藏夹；
-/// 不在本页时只改选择不读取；凭据失败请求复核，离开再回来重新读取；账户变化丢弃选择，仍在本页时选新账户的默认收藏夹。
+/// 不在本页时只改选择、取消在途请求、不读取；本页没有条目时刷新完整重读，没有选择时刷新重读列表；凭据失败请求复核，离开
+/// 再回来重新读取；账户变化丢弃选择，仍在本页时选新账户的默认收藏夹。
 @Suite(.timeLimit(.minutes(1)))
 @MainActor
 struct FavoriteFolderViewModelTests {
@@ -145,6 +146,56 @@ struct FavoriteFolderViewModelTests {
         #expect(await repository.requests.map(\.page) == [1, 2, 2, 2])
     }
 
+    /// 本页没有条目（三种空态）时刷新不原地进行，而是完整重读：显示骨架，失败时给失败页。
+    @Test
+    func refreshingAnEmptyPageReloadsInFull() async {
+        let (model, repository, _) = await makeModels()
+        await repository.setPage { request in
+            .success(
+                FavoriteFolderPage(
+                    items: [],
+                    pageNumber: request.page,
+                    pageSize: 40,
+                    totalCount: 0,
+                    hasMore: false
+                )
+            )
+        }
+        model.selectFolder(10)
+        await model.waitForCurrentTask()
+
+        await repository.setPage { _ in .failure(.transportFailure) }
+        model.reload()
+        #expect(model.phase == .loading(page: 1))
+        #expect(!model.isRefreshing)
+        await model.waitForCurrentTask()
+
+        #expect(model.phase == .failed(page: 1, error: .transportFailure))
+        #expect(model.refreshError == nil)
+    }
+
+    /// 没有选中收藏夹时，刷新重读收藏夹列表；列表读不了（账户 mid 未知）时刷新禁用。
+    @Test
+    func refreshWithoutASelectionReloadsTheFolderList() async throws {
+        let (model, repository, folderList) = await makeModels()
+
+        #expect(!model.isBusy)
+        model.reload()
+        await waitUntilSettled(folderList)
+        #expect(await repository.ownerIDs == [7, 7])
+
+        let unidentified = FavoriteFolderListModel(
+            useCase: FavoritesUseCase(repository: repository),
+            accountScope: { .signedIn(accountID: nil) }
+        )
+        let unidentifiedModel = FavoriteFolderViewModel(
+            useCase: FavoritesUseCase(repository: repository),
+            folderList: unidentified
+        )
+        unidentified.synchronize()
+        #expect(unidentifiedModel.isBusy)
+    }
+
     @Test
     func missingFolderReloadsTheListAndFallsBackToTheDefaultFolder() async throws {
         let (model, repository, folderList) = await makeModels()
@@ -186,6 +237,23 @@ struct FavoriteFolderViewModelTests {
         model.activate()
         await model.waitForCurrentTask()
         #expect(await repository.requests.map(\.folderID) == [30, 10])
+    }
+
+    /// 不在本页时回落：旧收藏夹的在途请求被取消，迟到结果不会显示。
+    @Test
+    func fallbackOffThePageCancelsTheInFlightRequest() async throws {
+        let (model, repository, folderList) = await makeModels(heldFolderIDs: [30])
+        model.selectFolder(30)
+        try await repository.waitForPageCalls(1)
+        await repository.setFolders(.success(Array(standardFolders.dropFirst())))
+
+        folderList.reload()
+        await waitUntilSettled(folderList)
+        try await repository.waitForHeldCancellations(1)
+
+        #expect(model.selectedFolderID == 10)
+        #expect(model.phase == .idle)
+        await repository.releaseHeldPages()
     }
 
     @Test

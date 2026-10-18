@@ -16,6 +16,7 @@ actor FavoritesRepositoryStub: FavoritesRepository {
     private var heldWaiters: [CheckedContinuation<Void, Never>] = []
     private let folderCalls = TestEventCounter()
     private let pageCalls = TestEventCounter()
+    private let heldCancellations = TestEventCounter()
 
     init(
         folders: Result<[FavoriteFolder], ContentApplicationError> = .success(standardFolders),
@@ -59,6 +60,11 @@ actor FavoritesRepositoryStub: FavoritesRepository {
         try await pageCalls.wait(until: count)
     }
 
+    /// 等到挂起中的夹内请求被取消 `count` 次（挂起期间忽略取消以模拟迟到结果，只记录取消事件）。
+    func waitForHeldCancellations(_ count: Int) async throws {
+        try await heldCancellations.wait(until: count)
+    }
+
     func favoriteFolders(ownerID: Int64) async throws -> [FavoriteFolder] {
         ownerIDs.append(ownerID)
         await folderCalls.signal()
@@ -69,7 +75,11 @@ actor FavoritesRepositoryStub: FavoritesRepository {
         requests.append(request)
         await pageCalls.signal()
         if heldFolderIDs.contains(request.folderID) {
-            await withCheckedContinuation { heldWaiters.append($0) }
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { heldWaiters.append($0) }
+            } onCancel: {
+                Task { await self.heldCancellations.signal() }
+            }
         }
         return try pageResult(request).get()
     }
@@ -126,8 +136,8 @@ func waitForObservedState(_ condition: @escaping @MainActor () -> Bool) async {
     }
 }
 
-/// 收藏夹列表的读取已结束（不在加载中）。
+/// 收藏夹列表的读取已结束（不在加载中，也不在后台重读）。
 @MainActor
 func waitUntilSettled(_ model: FavoriteFolderListModel) async {
-    await waitForObservedState { model.state != .loading }
+    await waitForObservedState { model.state != .loading && !model.isRefreshing }
 }

@@ -88,7 +88,16 @@ public final class FavoriteFolderViewModel: AccountRevalidationParticipant {
         paging.pageCount
     }
 
+    /// 工具栏刷新按钮是否禁用：正在读取；没有选中收藏夹时刷新重读收藏夹列表，列表正在读或账户 mid 未知（读不了）时禁用。
     public var isBusy: Bool {
+        guard selectedFolderID != nil else {
+            switch folderList.state {
+            case .loading, .accountUnidentified:
+                return true
+            case .idle, .loaded, .failed:
+                return folderList.isRefreshing
+            }
+        }
         if isRefreshing { return true }
         if case .loading = paging.phase { return true }
         return false
@@ -162,10 +171,14 @@ public final class FavoriteFolderViewModel: AccountRevalidationParticipant {
         replaceContent()
     }
 
-    /// 工具栏刷新与失败重试：已显示内容时原地重读当前页，否则重新读取当前页。
+    /// 工具栏刷新与失败重试：已显示条目时原地重读当前页，否则重新读取当前页；没有选中收藏夹时重读收藏夹列表。
     public func reload() {
-        guard selectedFolderID != nil else { return }
-        guard case .loaded = paging.phase else {
+        guard selectedFolderID != nil else {
+            folderList.reload()
+            return
+        }
+        // 本页没有条目时三种空态都不显示网格与刷新胶囊：完整重读（骨架或失败页），否则刷新既看不到进度、失败也被吞掉。
+        guard case .loaded(_, let content) = paging.phase, !content.items.isEmpty else {
             load(page: paging.currentPage)
             return
         }
@@ -201,15 +214,11 @@ public final class FavoriteFolderViewModel: AccountRevalidationParticipant {
 
     /// 取消请求并从内存删除选择、条件与内容，供登出、换号与关窗调用；复核代次保留。
     public func reset() {
-        loadTask.cancel()
+        discardContent()
         selectedFolderID = nil
         orderSelection = .recentlyFavorited
         appliedOrder = .recentlyFavorited
         keyword = LibrarySearchKeyword()
-        paging.reset()
-        isRefreshing = false
-        refreshError = nil
-        needsReloadOnActivation = false
         revalidation.reset()
     }
 
@@ -341,10 +350,19 @@ public final class FavoriteFolderViewModel: AccountRevalidationParticipant {
         if isRouteActive {
             selectFolder(fallback.id)
         } else {
+            // 不在本页：取消旧收藏夹的在途请求、丢弃它的内容，只改选择，回来时再加载。
+            discardContent()
             selectedFolderID = fallback.id
             _ = keyword.clear()
-            paging.reset()
-            needsReloadOnActivation = false
         }
+    }
+
+    /// 取消在途请求并丢弃当前内容与刷新状态（`reset` 与不在本页时的回落共用）；选择与条件由调用方处理。
+    private func discardContent() {
+        loadTask.cancel()
+        paging.reset()
+        isRefreshing = false
+        refreshError = nil
+        needsReloadOnActivation = false
     }
 }
