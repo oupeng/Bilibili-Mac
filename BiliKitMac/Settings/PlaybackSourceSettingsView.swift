@@ -100,7 +100,7 @@ struct PlaybackSourceSettingsView: View {
             }
 
             Text(
-                "测速需要登录，Cookie 仅用于 api.bilibili.com 的 playurl 请求，不会发给媒体线路。结果仅存在于当前设置窗口，不会保存、推荐线路或更改手动选择。"
+                "测速需要登录，Cookie 仅用于 api.bilibili.com 的测速样本详情与 playurl 请求，不会发给媒体线路。结果仅存在于当前设置窗口，不会保存、推荐线路或更改手动选择。"
             )
             .font(.footnote)
             .foregroundStyle(.secondary)

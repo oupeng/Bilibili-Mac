@@ -2493,30 +2493,30 @@
         }
       }
     },
-    "测速需要登录，Cookie 仅用于 api.bilibili.com 的 playurl 请求，不会发给媒体线路。结果仅存在于当前设置窗口，不会保存、推荐线路或更改手动选择。" : {
+    "测速需要登录，Cookie 仅用于 api.bilibili.com 的测速样本详情与 playurl 请求，不会发给媒体线路。结果仅存在于当前设置窗口，不会保存、推荐线路或更改手动选择。" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Speed testing requires sign-in. Cookies are used only for the playurl request to api.bilibili.com and are never sent to media routes. Results exist only in the current Settings window and are not saved, used to recommend a route, or applied to your manual selection."
+            "value" : "Speed testing requires sign-in. Cookies are used only for the route-test sample's video details and playurl requests to api.bilibili.com and are never sent to media routes. Results exist only in the current Settings window and are not saved, used to recommend a route, or applied to your manual selection."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "速度テストにはログインが必要です。Cookieはapi.bilibili.comへのplayurlリクエストにのみ使用され、メディアルートには送信されません。結果は現在の設定ウインドウにのみ保持され、保存、ルートの推奨、手動選択の変更は行いません。"
+            "value" : "速度テストにはログインが必要です。Cookieはapi.bilibili.comへの、速度テスト用サンプル動画の詳細取得とplayurlリクエストにのみ使用され、メディアルートには送信されません。結果は現在の設定ウインドウにのみ保持され、保存、ルートの推奨、手動選択の変更は行いません。"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "测速需要登录，Cookie 仅用于 api.bilibili.com 的 playurl 请求，不会发给媒体线路。结果仅存在于当前设置窗口，不会保存、推荐线路或更改手动选择。"
+            "value" : "测速需要登录，Cookie 仅用于 api.bilibili.com 的测速样本详情与 playurl 请求，不会发给媒体线路。结果仅存在于当前设置窗口，不会保存、推荐线路或更改手动选择。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "測速需要登入。Cookie 只會用於 api.bilibili.com 的 playurl 要求，不會傳送至媒體線路。結果只存在於目前的設定視窗，不會儲存、推薦線路或變更手動選擇。"
+            "value" : "測速需要登入。Cookie 只會用於 api.bilibili.com 的測速樣本詳細資料與 playurl 要求，不會傳送至媒體線路。結果只存在於目前的設定視窗，不會儲存、推薦線路或變更手動選擇。"
           }
         }
       }
