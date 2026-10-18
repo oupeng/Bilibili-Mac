@@ -25,7 +25,7 @@ struct WatchLaterCardFormattingTests {
     }
 
     @Test
-    func footerShowsTheUploaderAndTheAddedTime() {
+    func footerShowsTheUploaderAndTheAddedTime() throws {
         let locale = Locale(identifier: "zh-Hans")
         let item = item(progress: .notStarted)
         let presentation = WatchLaterCardPresentation(item: item, locale: locale)
@@ -33,9 +33,38 @@ struct WatchLaterCardFormattingTests {
         #expect(presentation.footerLeadingText == "稍后作者")
         #expect(
             presentation.footerTrailingText
-                == LibraryCardFormatting.timestamp(item.addedAt, locale: locale)
+                == LibraryCardFormatting.timestamp(try #require(item.addedAt), locale: locale)
         )
-        #expect(presentation.nativeCard.isActivatable)
+        #expect(presentation.nativeCard.availability == .available)
+    }
+
+    /// 字段不全的不可用条目：占位标题，不显示作者、头像、时长与加入时间，读屏只读标题与原因。
+    @Test
+    func unavailableItemWithMissingFieldsOmitsThem() {
+        let locale = Locale(identifier: "zh-Hans")
+        let presentation = WatchLaterCardPresentation(
+            item: WatchLaterItem(
+                bvid: "BV1LaterGone",
+                title: nil,
+                coverURL: nil,
+                owner: nil,
+                durationSeconds: nil,
+                progress: .notStarted,
+                addedAt: nil,
+                unavailability: .invalid
+            ),
+            locale: locale
+        )
+
+        #expect(presentation.title == localized("已失效视频"))
+        #expect(presentation.footerLeadingText.isEmpty)
+        #expect(!presentation.showsAvatar)
+        #expect(presentation.coverTrailingText == nil)
+        #expect(presentation.footerTrailingText == nil)
+        #expect(
+            presentation.accessibilityLabel
+                == ListFormatter.localizedString(byJoining: [localized("已失效视频"), localized("已失效")])
+        )
     }
 
     @Test(arguments: [
@@ -52,7 +81,6 @@ struct WatchLaterCardFormattingTests {
 
         #expect(presentation.unavailableReason == reason)
         #expect(presentation.nativeCard.availability == .unavailable(badge: reason))
-        #expect(!presentation.nativeCard.isActivatable)
         #expect(presentation.accessibilityLabel.contains(reason))
     }
 

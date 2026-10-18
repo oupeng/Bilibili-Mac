@@ -155,7 +155,7 @@ struct BiliAPIClientWatchLaterTests {
         #expect(
             page.items.map(\.bvid) == [
                 "BV1LaterA1", "BV1LaterB2", "BV1LaterC3", "BV1LaterD4", "BV1LaterE5", "BV1LaterF6",
-                "BV1LaterG7"
+                "BV1LaterH8", "BV1LaterI9", "BV1LaterG7"
             ]
         )
         let first = page.items[0]
@@ -174,21 +174,39 @@ struct BiliAPIClientWatchLaterTests {
         #expect(first.addedAt == Date(timeIntervalSince1970: 1_700_000_000))
         #expect(first.unavailability == nil)
         #expect(page.items[1].progress == .finished)
-        #expect(page.items[1].owner.avatarURL == nil)
+        #expect(page.items[1].owner?.avatarURL == nil)
         #expect(page.items[2].progress == .notStarted)
         #expect(
             page.items.map(\.unavailability) == [
-                nil, nil, .pgc(label: "番剧"), .pgc(label: "电影"), .course, .invalid, nil
+                nil, nil, .pgc(label: "番剧"), .pgc(label: "电影"), .course, .invalid, .invalid,
+                .course, nil
             ]
         )
+        // 不可用行字段不全时留空，不让整页失败：标题为空、owner 为 null、add_at 为 0 的失效行，作者名为空、
+        // 缺时长与加入时间的课程行。
+        let invalid = page.items[6]
+        #expect(invalid.title == nil)
+        #expect(invalid.owner == nil)
+        #expect(invalid.addedAt == nil)
+        #expect(invalid.durationSeconds == nil)
+        let course = page.items[7]
+        #expect(course.title == "缺作者的课程")
+        #expect(course.owner == nil)
+        #expect(course.addedAt == nil)
+        #expect(course.durationSeconds == nil)
     }
 
     /// 有下一页的条件是本页有条目且已请求的条数少于总条数；`list` 为 null 时是空页。
+    ///
+    /// 本页有条目而总条数不多于
+    /// 前面各页时按最后一页接受，不判失败。
     @Test(arguments: [
         (1, 23, 3, Int?.some(2)),
         (2, 23, 3, nil),
         (1, 20, 20, nil),
-        (1, 0, 0, nil)
+        (1, 0, 0, nil),
+        (2, 20, 3, nil),
+        (3, 5, 2, nil)
     ])
     func nextPageFollowsTheTotalCount(
         page: Int,
@@ -229,8 +247,8 @@ struct BiliAPIClientWatchLaterTests {
         #expect(page.nextPageNumber == nil)
     }
 
-    /// 有条目却落在总条数之外、条数超过每页条数，或总条数为负，都说明响应不属于所请求的页。
-    @Test(arguments: [(2, 20, 3), (1, 30, 21), (1, -1, 0)])
+    /// 条数超过每页条数或总条数为负，说明响应不属于所请求的页。
+    @Test(arguments: [(1, 30, 21), (1, -1, 0), (2, -1, 3)])
     func responseOutsideTheRequestedPageFails(page: Int, count: Int, rows: Int) async throws {
         let client = BiliAPIClient(
             transport: StubTransport(
@@ -246,7 +264,7 @@ struct BiliAPIClientWatchLaterTests {
         }
     }
 
-    /// 不是占位行的条目缺标题、作者或加入时间时整页失败，不悄悄显示残缺卡片。
+    /// 可播放的条目缺标题、作者或加入时间时整页失败，不悄悄显示残缺卡片（不可用条目放宽，见上）。
     @Test
     func malformedVideoRowFailsThePage() async throws {
         let body = #"""
@@ -395,9 +413,9 @@ struct BiliWatchLaterRepositoryTests {
     }
 
     @Test
-    func pageOutsideTheCountIsAnInvalidResponse() async {
+    func negativeCountIsAnInvalidResponse() async {
         let body = #"""
-            {"code":0,"data":{"count":1,"list":[{"aid":1,"bvid":"BV1LaterA1","title":"标题","pic":"","duration":10,"owner":{"mid":1,"name":"作者"},"progress":0,"add_at":1700000000,"state":0}]}}
+            {"code":0,"data":{"count":-1,"list":[{"aid":1,"bvid":"BV1LaterA1","title":"标题","pic":"","duration":10,"owner":{"mid":1,"name":"作者"},"progress":0,"add_at":1700000000,"state":0}]}}
             """#
         let repository = BiliWatchLaterRepository(
             client: BiliAPIClient(

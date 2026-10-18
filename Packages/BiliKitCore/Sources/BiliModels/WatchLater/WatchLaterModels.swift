@@ -24,29 +24,30 @@ public enum WatchLaterProgress: Sendable, Equatable {
 
 /// 稍后再看（`/x/v2/history/toview/web`）里的一条视频，由 BiliAPI 的 `WatchLaterItemPayload` 映射产生。
 ///
-/// 没有可用 BVID 的分组占位行在映射时丢弃，不会成为条目。
+/// 没有可用 BVID 的分组占位行在映射时丢弃，不会成为条目。可以播放的条目标题、作者、时长与加入时间都齐全；
+/// 只有不可用条目（`unavailability` 非 nil）可能缺这些字段，缺失时为 nil，由界面省略或给占位。
 public struct WatchLaterItem: Identifiable, Sendable, Equatable {
     public var id: String { bvid }
 
     public let bvid: String
-    public let title: String
+    public let title: String?
     public let coverURL: URL?
-    public let owner: VideoOwner
-    public let durationSeconds: Int
+    public let owner: VideoOwner?
+    public let durationSeconds: Int?
     public let progress: WatchLaterProgress
     /// 加入稍后再看的时间。
-    public let addedAt: Date
+    public let addedAt: Date?
     /// nil 表示可以进入播放。
     public let unavailability: WatchLaterUnavailability?
 
     public init(
         bvid: String,
-        title: String,
+        title: String?,
         coverURL: URL?,
-        owner: VideoOwner,
-        durationSeconds: Int,
+        owner: VideoOwner?,
+        durationSeconds: Int?,
         progress: WatchLaterProgress,
-        addedAt: Date,
+        addedAt: Date?,
         unavailability: WatchLaterUnavailability? = nil
     ) {
         self.bvid = bvid

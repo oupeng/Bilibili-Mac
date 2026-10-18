@@ -6,5 +6,7 @@
   {"aid":10004,"bvid":"BV1LaterD4","cid":900004,"title":"影视正片","pic":"https://images.example.invalid/d.jpg","duration":5400,"owner":{"mid":20004,"name":"影视出品","face":""},"progress":0,"add_at":1700000400,"state":0,"is_pgc":false,"pgc_label":"电影","is_pugv":false},
   {"aid":10005,"bvid":"BV1LaterE5","cid":900005,"title":"课程一节","pic":"https://images.example.invalid/e.jpg","duration":900,"owner":{"mid":20005,"name":"讲师","face":""},"progress":0,"add_at":1700000500,"state":0,"is_pgc":false,"pgc_label":"","is_pugv":1},
   {"aid":10006,"bvid":"BV1LaterF6","cid":900006,"title":"已失效视频","pic":"","duration":0,"owner":{"mid":20006,"name":"原作者","face":""},"progress":0,"add_at":1700000600,"state":-2,"is_pgc":false,"pgc_label":"","is_pugv":false},
+  {"aid":10008,"bvid":"BV1LaterH8","cid":0,"title":"","pic":"","duration":0,"owner":null,"progress":0,"add_at":0,"state":-6},
+  {"aid":10009,"bvid":"BV1LaterI9","title":"缺作者的课程","pic":"","owner":{"mid":0,"name":"","face":""},"progress":0,"state":0,"is_pugv":true},
   {"aid":10007,"bvid":"BV1LaterG7","cid":900007,"title":"带跳转地址的普通视频","pic":"https://images.example.invalid/g.jpg","duration":45,"owner":{"mid":20007,"name":"作者丙","face":""},"progress":0,"add_at":1700000700,"state":0,"is_pgc":false,"pgc_label":"","is_pugv":false,"redirect_url":"https://www.example.invalid/video/BV1LaterG7"}
 ]}}

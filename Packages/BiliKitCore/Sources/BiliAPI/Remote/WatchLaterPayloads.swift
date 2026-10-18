@@ -6,25 +6,20 @@ import Foundation
 /// 稍后再看（`/x/v2/history/toview/web`）的 `data`，由 `BiliAPIClient.watchLater` 映射为 `WatchLaterPage`。
 ///
 /// 只按账户读取（见 SECURITY-MODEL §3）。按 BVID 去重交给分页列表 `PagedVideoList`；本页有条目且已请求的条数
-/// 少于总条数 `count` 时才有下一页。
+/// 少于总条数 `count` 时才有下一页。`count` 的口径（有筛选时是否为筛选后的条数）未经证实，只用它推出下一页与
+/// 显示总数，不用它否定本页内容。
 struct WatchLaterPayload: Decodable, Sendable {
     let count: Int
     /// 列表为空时接口可能给 null。
     let list: [WatchLaterItemPayload]?
 
-    /// 响应必须属于所请求的页，否则整页按解码失败：条数不超过每页条数，本页有条目时总条数必须多于前面各页的
-    /// 条数。
+    /// 总条数为负或本页条数超过每页条数时整页按解码失败：这样的响应不可能属于所请求的页。
     ///
-    /// 总条数为负同样失败。
+    /// 本页有条目而总条数不多于前面各页的条数时，按最后一页接受（没有下一页），不判失败：`count` 不精确时不能让
+    /// 稳定的“无效响应”挡住真实内容。
     func model(pageNumber: Int, pageSize: Int) throws -> WatchLaterPage {
         let rows = list ?? []
-        let (precedingCount, precedingOverflow) = (pageNumber - 1)
-            .multipliedReportingOverflow(by: pageSize)
-        guard count >= 0,
-            rows.count <= pageSize,
-            !precedingOverflow,
-            rows.isEmpty || precedingCount < count
-        else {
+        guard count >= 0, rows.count <= pageSize else {
             throw BiliAPIError.decodingFailed
         }
         let items = try rows.compactMap { try $0.model() }
@@ -44,8 +39,9 @@ struct WatchLaterPayload: Decodable, Sendable {
 /// 稍后再看的一行，映射为 `WatchLaterItem`。
 ///
 /// 字段在解码时都按可缺省处理：`aid <= 0` 或 BVID 不合规的行是没有可用 BVID 的分组占位行，映射时丢弃（返回
-/// nil），不让整页失败。其余行的标题、作者、加入时间或时长不合规时整页失败。不可用的判定与先后见 `unavailability`；
-/// 只带 `redirect_url` 而不属于这三类的条目按普通视频处理。
+/// nil），不让整页失败。可播放的行标题、作者、加入时间或时长不合规时整页失败；不可用的行（判定与先后见
+/// `unavailability`）本来就打不开，接口常给不全，缺标题、作者、加入时间或时长时留空由卡片省略，不让整页失败。只带
+/// `redirect_url` 而不属于这三类的条目按普通视频处理。
 struct WatchLaterItemPayload: Decodable, Sendable {
     let aid: Int64?
     let bvid: String?
@@ -87,6 +83,9 @@ struct WatchLaterItemPayload: Decodable, Sendable {
 
     func model() throws -> WatchLaterItem? {
         guard let aid, aid > 0, let bvid, BiliAPIClient.isValidBVID(bvid) else { return nil }
+        if let unavailability {
+            return unavailableModel(bvid: bvid, unavailability: unavailability)
+        }
         guard let title, !title.isEmpty,
             let owner, let ownerName = owner.name, !ownerName.isEmpty,
             let ownerID = owner.mid, ownerID >= 0,
@@ -107,6 +106,33 @@ struct WatchLaterItemPayload: Decodable, Sendable {
             durationSeconds: duration,
             progress: Self.progress(progress, durationSeconds: duration),
             addedAt: Date(timeIntervalSince1970: TimeInterval(addedAt)),
+            unavailability: nil
+        )
+    }
+
+    /// 不可用行的宽松映射：缺失或不合规的标题、作者、加入时间与时长都留空。
+    private func unavailableModel(
+        bvid: String,
+        unavailability: WatchLaterUnavailability
+    ) -> WatchLaterItem {
+        let owner: VideoOwner? =
+            if let owner, let name = owner.name, !name.isEmpty, let mid = owner.mid, mid >= 0 {
+                VideoOwner(id: mid, name: name, avatarURL: owner.face.flatMap(WebImageURL.parse))
+            } else {
+                nil
+            }
+        // 不可用行的时长常为 0 或缺失，都按未知处理、不显示。
+        let duration = duration.flatMap { $0 > 0 ? $0 : nil }
+        return WatchLaterItem(
+            bvid: bvid,
+            title: title.flatMap { $0.isEmpty ? nil : RemoteVideoTitleNormalizer.plainText($0) },
+            coverURL: cover.flatMap(WebImageURL.parse),
+            owner: owner,
+            durationSeconds: duration,
+            progress: Self.progress(progress, durationSeconds: duration ?? 0),
+            addedAt: addedAt.flatMap {
+                $0 > 0 ? Date(timeIntervalSince1970: TimeInterval($0)) : nil
+            },
             unavailability: unavailability
         )
     }
