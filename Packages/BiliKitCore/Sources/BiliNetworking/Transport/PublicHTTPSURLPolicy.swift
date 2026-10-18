@@ -1,10 +1,11 @@
 import Darwin
 import Foundation
 
-/// 拒绝已知本地域名后缀、userinfo、非标准端口与 IP literal 的 URL 形状基线。
+/// 远端 URL 的形状基线：HTTPS、无 userinfo 与 fragment、端口缺省或 443，拒绝 IP literal 与
+/// 本地域名后缀。
 ///
-/// 它不解析 DNS，因而不能证明公共域名不会指向私网；具体媒体或字幕调用方仍需叠加
-/// 用途专属主机规则。
+/// 它不解析 DNS，因而不能证明公共域名不会指向私网；媒体、字幕、图片等调用方仍需叠加用途专属
+/// 主机规则（见 SECURITY-MODEL §4）。
 public struct PublicHTTPSURLPolicy: Sendable {
     public init() {}
 

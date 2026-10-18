@@ -1,11 +1,15 @@
 import Foundation
 
+/// 传输层允许的 HTTP 方法。
+///
+/// `POST` 只用于观看进度 heartbeat，`HEAD` 只用于 b23.tv 短链解析（见 SECURITY-MODEL §3、§4）。
 public enum HTTPMethod: String, Sendable {
     case get = "GET"
     case head = "HEAD"
     case post = "POST"
 }
 
+/// 与业务无关的不可变请求值；header 只含调用方显式写入的内容，凭据由授权器另行生成新请求附加。
 public struct HTTPRequest: Sendable, Equatable {
     public let url: URL
     public let method: HTTPMethod
@@ -41,6 +45,7 @@ extension HTTPResponse {
     }
 }
 
+/// 传输层返回的状态码、header 与完整正文；状态、来源与大小的判定交给 `HTTPClient` 与各调用方。
 public struct HTTPResponse: Sendable, Equatable {
     public let statusCode: Int
     public let headers: [String: String]
@@ -62,10 +67,15 @@ public protocol HTTPTransport: Sendable {
     func send(_ request: HTTPRequest) async throws -> HTTPResponse
 }
 
+/// 可以立即取消在途请求并作废 session 的 transport。
+///
+/// 持有 transport 的一方（API client、授权器、QR 会话、短链解析）在会话失效、登出或关窗时调用；
+/// 失效后的 session 不能再发请求，API client 随即换入新 transport。
 public protocol HTTPTransportInvalidating: Sendable {
     func invalidateAndCancel()
 }
 
+/// 传输层的通用失败：响应不是 HTTP，或状态码不在调用方接受的范围内。
 public enum HTTPClientError: Error, Sendable, Equatable {
     case nonHTTPResponse
     case unacceptableStatusCode(Int)

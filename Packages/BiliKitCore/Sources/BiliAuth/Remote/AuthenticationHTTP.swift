@@ -5,12 +5,14 @@ import Foundation
 ///
 /// 传输错误如何映射留给各调用方（QR 登录与 Keychain 恢复的失败语义不同）。
 enum AuthenticationHTTP {
+    /// nav 校验响应不可用的原因；调用方各自映射（QR 登录报无效响应，恢复路径报校验不可用）。
     enum NavigationValidationFailure: Error {
         case responseTooLarge
         case nonJSONResponse
         case invalidResponse
     }
 
+    /// QR 与 nav 响应正文的上限；正常 JSON 远小于此值，超出按异常响应失败关闭。
     static let maximumResponseSize = 256 * 1_024
     /// Cookie 已在服务端失效（被踢下线、改密）时 nav 的业务码，`data.isLogin` 同时为 false。
     static let notLoggedInCode = -101
@@ -42,6 +44,8 @@ enum AuthenticationHTTP {
         return HTTPRequest(url: navigationValidationURL, headers: headers)
     }
 
+    /// 把 nav 响应解释为登录态：`code` 0 按 `data.isLogin`，-101 且 `isLogin` 为 false
+    /// 为明确未登录，其他一律抛错；不读取或回显服务端 message（见 SECURITY-MODEL §2）。
     static func navigationResult(
         from response: HTTPResponse
     ) throws(NavigationValidationFailure) -> NavigationAuthenticationResult {

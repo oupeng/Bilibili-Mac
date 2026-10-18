@@ -2,11 +2,16 @@ import BiliModels
 import BiliNetworking
 import Foundation
 
+/// `/x/web-interface/nav` 响应外层，由 `AuthenticationHTTP.navigationResult` 解释。
 struct NavigationAuthenticationEnvelope: Decodable, Sendable {
     let code: Int
     let data: NavigationAuthenticationPayload?
 }
 
+/// nav 的 `data`：只解码 `isLogin` 与显示用的 MID、昵称、头像。
+///
+/// 身份字段缺失或不合法时仍算已登录，只是没有身份投影；头像地址升级为 HTTPS 并须通过公共 HTTPS
+/// 基线。
 struct NavigationAuthenticationPayload: Decodable, Sendable {
     let isLogin: Bool
     private let mid: Int64?
@@ -63,11 +68,14 @@ struct NavigationAuthenticationPayload: Decodable, Sendable {
     }
 }
 
+/// 一次 nav 校验的结论；已登录时身份投影可能缺失。
 enum NavigationAuthenticationResult: Sendable, Equatable {
     case signedOut
     case signedIn(AccountIdentity?)
 }
 
+/// 恢复已存凭据的结论；`hadCredential` 区分“本来就没有凭据”与“凭据已失效并被清除”，
+/// 后者需要传播会话失效。
 enum StoredAccountSessionRestoreResult: Sendable, Equatable {
     case signedOut(hadCredential: Bool)
     case signedIn(AccountIdentity?)

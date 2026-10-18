@@ -24,6 +24,7 @@ protocol URLSessionRangeOperation: AnyObject, Sendable {
 /// 拒绝重定向；session 在首次请求时才于锁内创建，`invalidate` 后取消在途 operation 且不再创建新 task。
 /// 可变状态只经 `Mutex` 访问；operation 的 `cancel()` 与 session 失效都在锁外执行。
 final class URLSessionRangeTransport: NSObject, URLSessionDataDelegate, Sendable {
+    /// operation 登记表、懒创建的 session 与失效标记；只在 `state` 锁内读写。
     private struct State {
         var operations: [Int: any URLSessionRangeOperation] = [:]
         var session: URLSession?
