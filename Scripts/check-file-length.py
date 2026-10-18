@@ -13,13 +13,7 @@ import swift_source
 LIMIT = 800
 GENERATED_SUFFIX = ".pb.swift"
 
-OVERSIZED = {
-    "Packages/BiliKitCore/Tests/BiliAPITests/BiliAPIClientTests.swift": 2166,
-    "Packages/BiliKitCore/Tests/BiliAPITests/CommentAPIClientTests.swift": 946,
-    "Packages/BiliKitCore/Tests/BiliDanmakuTests/DanmakuPresentationControllerTests.swift": 1023,
-    "Packages/BiliKitCore/Tests/BiliDanmakuTests/DanmakuSessionTests.swift": 802,
-    "Packages/BiliKitCore/Tests/BiliPlaybackTests/AVPlayerEngineLifecycleTests.swift": 835,
-}
+OVERSIZED = {}
 
 
 def line_counts():
