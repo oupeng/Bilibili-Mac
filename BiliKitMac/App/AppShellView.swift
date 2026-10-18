@@ -13,16 +13,17 @@ import SwiftUI
 struct AppShellView: View {
     @Environment(\.openURL) private var openURL
     let navigationCoordinator: AppNavigationCoordinator
+    let sources: AppSources
     let browseModel: BrowseViewModel
     let videoModel: VideoViewModel
-    let commentsModel: PlaybackCommentsViewModel?
+    let commentsModel: PlaybackCommentsViewModel
     let danmakuModel: DanmakuControlsViewModel
     let authenticationModel: AuthenticationViewModel
     let historyModel: WatchHistoryViewModel
-    let uploaderSpaceModel: UploaderSpaceViewModel?
-    let trendingSearchModel: TrendingSearchViewModel?
-    let searchHistory: SearchHistoryStore?
-    let searchSuggestionSource: SearchSuggestionSource?
+    let trendingSearchModel: TrendingSearchViewModel
+    let searchSession: VideoSearchSession
+    let searchHistory: SearchHistoryStore
+    let searchSuggestionSource: SearchSuggestionSource
     let playerContent: AnyView
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentLinkRouter: CommentLinkRouter
@@ -31,13 +32,6 @@ struct AppShellView: View {
     let seekPlayback: @MainActor (_ bvid: String, _ seconds: Int) -> Void
     let imagePipeline: NativeVideoImagePipeline
     @Binding var isAuthenticationPresented: Bool
-    @Binding var searchFilterSelection: SearchFilterSelection
-    let submittedSearchCriteria: VideoSearchCriteria?
-    let onSubmitSearch: () -> Void
-    let onSearchKeyword: (String) -> Void
-    let onSelectSearchOrder: (VideoSearchOrder) -> Void
-    let onApplySearchFilters: (SearchFilterSelection) -> Void
-    let onClearSearchFilters: () -> Void
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var gridScroll = SourceGridScrollStates()
     @State private var commentImagePreview: NativeCommentImagePreviewRequest?
@@ -55,6 +49,7 @@ struct AppShellView: View {
                         playbackSidebar
                     } else {
                         AppNavigationSidebar(
+                            sources: sources.ordered,
                             selection: $navigationCoordinator.selectedTab,
                             accountState: authenticationModel.accountPresentationState,
                             onPresentAuthentication: {
@@ -126,7 +121,7 @@ struct AppShellView: View {
         .sheet(isPresented: $isAuthenticationPresented) {
             AuthenticationView(model: authenticationModel)
         }
-        .onChange(of: submittedSearchCriteria) { previousCriteria, criteria in
+        .onChange(of: searchSession.submittedCriteria) { previousCriteria, criteria in
             guard previousCriteria != criteria else { return }
             scrollToTop(.search)
         }
@@ -189,14 +184,12 @@ struct AppShellView: View {
         authenticationModel.sessionScope
     }
 
-    /// 各来源最近一次刷新成功的代次；某来源前进时只把它自己的网格滚回顶部。
+    /// 各来源内容整体替换的代次（语义见 `AppSourceDescriptor.refreshGeneration`）；某来源前进时只把它自己的网格
+    /// 滚回顶部。
     private var successfulRefreshGenerations: [AppTab: UInt64] {
-        [
-            .home: browseModel.successfulRefreshGeneration(for: .recommendation),
-            .popular: browseModel.successfulRefreshGeneration(for: .popular),
-            .search: browseModel.successfulRefreshGeneration(for: .search),
-            .history: historyModel.successfulReloadGeneration
-        ]
+        Dictionary(
+            uniqueKeysWithValues: sources.ordered.map { ($0.id, $0.refreshGeneration()) }
+        )
     }
 
     /// 某个来源网格的窗口级依赖：本视图持有的滚动位置与回顶请求，加上窗口图片管线。
@@ -232,25 +225,23 @@ struct AppShellView: View {
                     )
                 )
             },
-            onOpenCommentLink: { openCommentLink(commentLinkRouter($0)) },
+            onOpenCommentLink: { commentLinkOpener.open(commentLinkRouter($0)) },
             onOpenCommentPictures: openCommentPictures,
-            onOpenUploaderSpace: uploaderSpaceModel.map { model in
-                { owner in model.open(owner: owner) }
-            },
+            onOpenUploaderSpace: { navigationCoordinator.openUploaderSpace(owner: $0) },
             isObscured: isSidebarContextOpen
         )
         .ignoresSafeArea(.container, edges: .top)
     }
 
     private var isSidebarContextOpen: Bool {
-        uploaderSpaceModel?.owner != nil
+        navigationCoordinator.isSidebarContextOpen
     }
 
     @ViewBuilder
     private var sidebarContextLayer: some View {
-        if let uploaderSpaceModel, uploaderSpaceModel.owner != nil {
+        if isSidebarContextOpen {
             UploaderSpaceSidebarView(
-                model: uploaderSpaceModel,
+                model: navigationCoordinator.uploaderSpace,
                 currentBVID: navigationCoordinator.currentPlaybackBVID,
                 imagePipeline: imagePipeline,
                 onSelect: navigationCoordinator.openPlaybackFromSidebarContext,
@@ -276,46 +267,20 @@ struct AppShellView: View {
         navigationCoordinator.currentPlaybackBVID == nil ? 320 : 720
     }
 
-    /// 评论正文链接：视频（含分 P）在应用内播放，空间链接在侧栏空间层打开，其余交给系统浏览器。
-    ///
-    /// @ 提及在侧栏内已进入空间，到这里只剩没有空间功能时的网页回退。短链先由窗口级 owner 解析，
-    /// 解析出的路由再走这里一次，解析不出时打开原短链。时间戳与指向正在播放分 P 的 `t=` 直接跳转，
-    /// 不经过导航去重，同一个时间点可以反复点。
-    private func openCommentLink(_ route: CommentLinkRoute?) {
-        switch route {
-        case .playback(let intent):
-            if let seconds = AppWindowOwner.inPlaceStartSeconds(
-                for: intent,
-                currentPlaybackBVID: navigationCoordinator.currentPlaybackBVID,
-                videoModel: videoModel
-            ) {
-                seekPlayback(intent.bvid, seconds)
-            } else {
-                navigationCoordinator.openPlayback(intent)
-            }
-        case .seek(let seconds):
-            if let bvid = navigationCoordinator.currentPlaybackBVID {
-                seekPlayback(bvid, seconds)
-            }
-        case .space(let memberID, let webFallback):
-            if let uploaderSpaceModel {
-                uploaderSpaceModel.open(ownerID: memberID)
-            } else if let webFallback {
-                openURL(webFallback)
-            }
-        case .web(let url):
-            openURL(url)
-        case .shortLink(let resolve, let webFallback):
-            commentShortLinks.start(resolve) { resolved in
-                openCommentLink(resolved ?? webFallback.map(CommentLinkRoute.web))
-            }
-        case nil:
-            break
-        }
+    private var commentLinkOpener: CommentLinkOpener {
+        CommentLinkOpener(
+            navigationCoordinator: navigationCoordinator,
+            videoModel: videoModel,
+            shortLinks: commentShortLinks,
+            seekPlayback: seekPlayback,
+            openURL: { openURL($0) }
+        )
     }
 
+    /// 播放失败后的重试交给视频模型；不在失败状态（例如已被重置）时重新发出当前导航意图。
     private func retryPlayback() {
-        AppWindowOwner.retryPlayback(coordinator: navigationCoordinator, videoModel: videoModel)
+        guard !videoModel.retryIfFailed() else { return }
+        navigationCoordinator.retryPlayback()
     }
 
     private func openCommentPictures(
@@ -342,39 +307,33 @@ struct AppShellView: View {
         switch navigationCoordinator.selectedTab {
         case .home:
             RecommendedTabRoot(
+                title: sources[.home].title,
                 model: browseModel,
                 gridHost: gridHost(.home),
                 onSelect: navigationCoordinator.openPlayback
             )
         case .search:
             SearchTabRoot(
-                filterSelection: $searchFilterSelection,
+                title: sources[.search].title,
+                session: searchSession,
                 model: browseModel,
-                searchDraft: Binding(
-                    get: { navigationCoordinator.searchDraft },
-                    set: { navigationCoordinator.searchDraft = $0 }
-                ),
-                submittedSearchCriteria: submittedSearchCriteria,
                 gridHost: gridHost(.search),
                 imagePipeline: imagePipeline,
                 trendingSearchModel: trendingSearchModel,
                 searchHistory: searchHistory,
                 searchSuggestionSource: searchSuggestionSource,
-                onSelect: navigationCoordinator.openPlayback,
-                onSubmit: onSubmitSearch,
-                onSearchKeyword: onSearchKeyword,
-                onSelectOrder: onSelectSearchOrder,
-                onApplyFilters: onApplySearchFilters,
-                onClearFilters: onClearSearchFilters
+                onSelect: navigationCoordinator.openPlayback
             )
         case .popular:
             PopularTabRoot(
+                title: sources[.popular].title,
                 model: browseModel,
                 gridHost: gridHost(.popular),
                 onSelect: navigationCoordinator.openPlayback
             )
         case .history:
             HistoryTabRoot(
+                title: sources[.history].title,
                 model: historyModel,
                 accountState: authenticationModel.accountPresentationState,
                 gridHost: gridHost(.history),

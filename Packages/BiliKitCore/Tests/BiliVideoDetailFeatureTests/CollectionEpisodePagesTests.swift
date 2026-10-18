@@ -13,7 +13,7 @@ struct CollectionEpisodePagesTests {
     func crossBVIDExplicitCIDLoadsOnlyTheAtomicTarget() async {
         let fixtures = CollectionFixtures()
         let repository = VideoRepositoryStub(collection: fixtures)
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: PlayerStub()
         )
@@ -41,7 +41,7 @@ struct CollectionEpisodePagesTests {
             collection: fixtures,
             failsFirstEpisodeDetail: true
         )
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: PlayerStub()
         )
@@ -68,7 +68,7 @@ struct CollectionEpisodePagesTests {
         let fixtures = CollectionFixtures()
         let gate = TestGate()
         let repository = VideoRepositoryStub(collection: fixtures, gate: gate)
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: PlayerStub()
         )
@@ -101,7 +101,7 @@ struct CollectionEpisodePagesTests {
     func explicitDuplicateBVIDOccurrenceSurvivesContextReconciliation() async {
         let fixtures = CollectionFixtures()
         let repository = VideoRepositoryStub(collection: fixtures)
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: PlayerStub()
         )
@@ -126,7 +126,7 @@ struct CollectionEpisodePagesTests {
         let fixtures = CollectionFixtures()
         let gate = TestGate()
         let repository = VideoRepositoryStub(collection: fixtures, gate: gate)
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: PlayerStub()
         )
@@ -164,7 +164,7 @@ struct CollectionEpisodePagesTests {
             passedGate: passedGate,
             episodeFailureAfterGate: .authenticationInvalid
         )
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: PlayerStub()
         )
@@ -191,7 +191,7 @@ struct CollectionEpisodePagesTests {
             collection: fixtures,
             failsFirstEpisodeDetail: true
         )
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: PlayerStub()
         )
@@ -219,7 +219,7 @@ struct CollectionEpisodePagesTests {
         let fixtures = CollectionFixtures()
         let gate = TestGate()
         let repository = VideoRepositoryStub(collection: fixtures, gate: gate)
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: PlayerStub()
         )
@@ -243,7 +243,7 @@ struct CollectionEpisodePagesTests {
         let fixtures = CollectionFixtures()
         let gate = TestGate()
         let repository = VideoRepositoryStub(collection: fixtures, gate: gate)
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: PlayerStub()
         )
@@ -276,7 +276,7 @@ struct CollectionEpisodePagesTests {
     func knownEpisodePagesResolveSelectionsWithoutRemoteDetail() async {
         let fixtures = CollectionFixtures()
         let repository = VideoRepositoryStub(collection: fixtures)
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: PlayerStub()
         )
@@ -307,7 +307,7 @@ struct CollectionEpisodePagesTests {
     @MainActor
     func episodePageCacheEvictsAndReleasesTheThirteenthBVID() async {
         let fixtures = BoundedCollectionCacheFixtures()
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(
                 repository: VideoRepositoryStub(
                     detail: { _, _ in fixtures.detail },

@@ -23,7 +23,7 @@ extension BiliAPIClient {
             throw BiliAPIError.authorizationRequired
         }
         let payload: SubtitleCatalogPayload = try await signedRequest(
-            path: "/x/player/wbi/v2",
+            path: BiliAccountReadPath.subtitleCatalog,
             parameters: {
                 [
                     "bvid": identity.bvid,
@@ -53,7 +53,7 @@ extension BiliAPIClient {
             throw BiliAPIError.invalidRequest
         }
         return try await signedRequest(
-            path: "/x/v2/dm/wbi/web/seg.so",
+            path: BiliAccountReadPath.danmakuSegment,
             intermittentRestrictionRetryDelay: Self.danmakuRestrictedRetryDelay,
             parameters: {
                 [

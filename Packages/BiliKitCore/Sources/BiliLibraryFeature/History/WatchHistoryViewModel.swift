@@ -26,7 +26,7 @@ public enum WatchHistoryState: Sendable, Equatable {
 /// 承担；空页跳过属于 `WatchHistoryUseCase`。`reset` 会清除个性化内容；普通路由停用只取消在途请求，并在
 /// 分页或刷新中断时保留已显示条目。已有条目时刷新原地进行：条目保持显示，成功后整体替换，失败时保留条目并
 /// 给出 `refreshError`；凭据缺失或失效则放弃条目、转入失败页并请求账户复核。
-public final class WatchHistoryViewModel {
+public final class WatchHistoryViewModel: AccountRevalidationParticipant {
     /// `phase` 与列表的投影；`.loadingMore` 时的 continuation 就是正在请求的那一页。
     public var state: WatchHistoryState {
         switch phase {
@@ -53,13 +53,13 @@ public final class WatchHistoryViewModel {
     public private(set) var successfulReloadGeneration: UInt64 = 0
     /// 最近一次原地刷新失败的原因，条目仍是刷新前的内容；下一次刷新开始时清除。
     public private(set) var refreshError: ContentApplicationError?
-    /// 历史读取发现凭据失效时递增，由 App 层汇总后复核账户（与其他内容页同一契约）。
+    /// 历史读取发现凭据失效时递增，由窗口汇总后复核账户（`AccountRevalidationParticipant`，与其他内容页同一契约）。
     ///
     /// 历史页只在已登录时渲染，所以读取时本地没有凭据也说明窗口的登录状态已过期，同样递增。
     public private(set) var authenticationRevalidationGeneration = 0
     /// 本页因凭据缺失或失效请求了账户复核、复核尚未结束；失败页据此显示“正在重新确认”。
     ///
-    /// 复核结束（`resumeAfterAuthenticationRevalidation`／`reportAuthenticationRevalidationFailure`）、
+    /// 复核结束（`authenticationRevalidationSucceeded`／`authenticationRevalidationFailed`）、
     /// 加载成功、离开页面或 `reset` 时清除。
     public private(set) var isAwaitingAuthenticationRevalidation = false
 
@@ -141,7 +141,7 @@ public final class WatchHistoryViewModel {
                 hasReloadedAfterRevalidation = false
             } catch is CancellationError {
                 // 本任务未被取消却收到取消：认证会话在请求途中切换。不是网络失败；已有条目原样保留，
-                // 否则回到 idle，由会话切换后的复核与 `resumeAfterAuthenticationRevalidation` 重新加载。
+                // 否则回到 idle，由会话切换后的复核与 `authenticationRevalidationSucceeded` 重新加载。
                 guard isCurrent() else { return }
                 if refreshesInPlace {
                     list.restoreAfterFailedRefresh()
@@ -188,6 +188,21 @@ public final class WatchHistoryViewModel {
         }
     }
 
+    /// 窗口的账户范围变化（登出、换号、凭据失效后确认的新范围）时由 App 通知，只在已解析的变化时调用。
+    ///
+    /// 丢弃上一账户的历史；新范围已登录且历史是当前来源时立即重新加载，其他来源回来时由页面的
+    /// `loadIfNeeded` 加载。不像 Browse 那样按账户会话代次去重：本方法只由本窗口账户范围的变化驱动，每次
+    /// 变化调用一次；其他窗口换号时本窗口在复核前另行 `reset`，复核得出新范围后才走到这里，那时进程代次可能
+    /// 已经不变，按代次去重会吞掉这次加载。
+    public func synchronizeAuthenticationSession(
+        scope: AccountSessionScope,
+        isCurrentRoute: Bool
+    ) {
+        reset()
+        guard case .signedIn = scope, isCurrentRoute else { return }
+        loadIfNeeded()
+    }
+
     /// 取消请求并从内存删除全部个性化历史，供登出与窗口关闭调用。
     public func reset() {
         loadTask.cancel()
@@ -222,11 +237,11 @@ public final class WatchHistoryViewModel {
         await loadTask.wait()
     }
 
-    /// 账户复核确认仍已登录（或会话切换后重新确认）时调用。
+    /// 账户复核确认仍已登录（或会话切换后重新确认）；窗口只在历史是当前来源时调用。
     ///
     /// 本页因凭据失效请求的复核，确认后自动重载一次；同一会话内只做一次，之后再失效只显示失败、
     /// 由用户重试。其余情况只在 idle 时加载。
-    public func resumeAfterAuthenticationRevalidation() {
+    public func authenticationRevalidationSucceeded() {
         let requestedRevalidation = isAwaitingAuthenticationRevalidation
         isAwaitingAuthenticationRevalidation = false
         guard requestedRevalidation, !hasReloadedAfterRevalidation else {
@@ -237,11 +252,11 @@ public final class WatchHistoryViewModel {
         reload()
     }
 
-    /// 账户复核没能确认登录状态（网络或 Keychain 不可用）。
+    /// 账户复核没能确认登录状态（网络或 Keychain 不可用）；窗口只在历史是当前来源时调用。
     ///
     /// 给出可重试的“无法读取登录状态”，不是网络失败。凭据失败时条目已清空；隐私清理仍由账户范围
     /// 变化负责。
-    public func reportAuthenticationRevalidationFailure() {
+    public func authenticationRevalidationFailed() {
         let requestedRevalidation = isAwaitingAuthenticationRevalidation
         isAwaitingAuthenticationRevalidation = false
         switch phase {

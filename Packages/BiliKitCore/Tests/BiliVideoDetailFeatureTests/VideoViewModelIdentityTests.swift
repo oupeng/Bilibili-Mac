@@ -19,7 +19,7 @@ struct VideoViewModelIdentityTests {
         error: ContentApplicationError
     ) async {
         let fixture = ContentFixtures()
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(
                 repository: VideoRepositoryStub(
                     fixture,
@@ -57,7 +57,7 @@ struct VideoViewModelIdentityTests {
         let player = PlayerStub(
             failingBVID: replacement.bvid
         )
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: player
         )
@@ -88,7 +88,7 @@ struct VideoViewModelIdentityTests {
             fixtures: [first, cancelled],
             cancelledBVID: cancelled.bvid
         )
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: PlayerStub()
         )
@@ -127,7 +127,7 @@ struct VideoViewModelIdentityTests {
                 identity.bvid == slow.bvid ? slow.playback : fast.playback
             }
         )
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(
                 repository: repository
             ),
@@ -165,7 +165,7 @@ struct VideoViewModelIdentityTests {
         let fixture = ContentFixtures()
         let repository = VideoRepositoryStub(fixture, pages: fixture.twoPages)
         let player = PlayerStub()
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: player
         )
@@ -218,7 +218,7 @@ struct VideoViewModelIdentityTests {
             }
         )
         let player = PlayerStub()
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: player
         )
@@ -255,7 +255,7 @@ struct VideoViewModelIdentityTests {
         let fixture = ContentFixtures()
         let repository = VideoRepositoryStub(fixture, pages: fixture.twoPages)
         let player = PlayerStub()
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: player
         )
@@ -288,7 +288,7 @@ struct VideoViewModelIdentityTests {
         let fixture = ContentFixtures()
         let repository = VideoRepositoryStub(fixture, pages: fixture.twoPages)
         let player = PlayerStub(failsFirstLoadUntilStopped: true)
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: player
         )
@@ -323,7 +323,7 @@ struct VideoViewModelIdentityTests {
         let fixture = ContentFixtures()
         let repository = VideoRepositoryStub(fixture, pages: fixture.twoPages)
         let player = PlayerStub(heldLoad: 3)
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: player
         )
@@ -377,7 +377,7 @@ struct VideoViewModelIdentityTests {
                 throw ContentApplicationError.authenticationInvalid
             }
         )
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: PlayerStub()
         )
@@ -414,7 +414,7 @@ struct VideoViewModelIdentityTests {
             }
         )
         let player = PlayerStub()
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: repository),
             playback: player
         )
@@ -442,7 +442,7 @@ struct VideoViewModelIdentityTests {
     @MainActor
     func playbackAuthenticationInvalidationRequestsRevalidation() async {
         let (invalidations, continuation) = AsyncStream<Void>.makeStream()
-        let model = VideoViewModel(
+        let model = makeVideoViewModel(
             useCase: VideoUseCase(repository: VideoRepositoryStub(ContentFixtures())),
             playback: PlayerStub(),
             playbackAuthenticationInvalidations: invalidations

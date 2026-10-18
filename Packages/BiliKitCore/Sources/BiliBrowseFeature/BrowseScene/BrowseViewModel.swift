@@ -57,7 +57,7 @@ struct FeedPaginationPresentation: Sendable, Equatable {
 /// 工作集是唯一的状态来源，路由级的 `state` 等只是当前路由工作集的投影。`LatestTask` 与
 /// `activeRequestIdentity` 共同阻止已取消或已切路由的结果写回；进入播放页时普通 deactivate 会保留三份
 /// 工作集，`reset` 则清空它们；不同请求会替换对应工作集。分页规则由各工作集的 `FeedListing` 承担。
-public final class BrowseViewModel {
+public final class BrowseViewModel: AccountRevalidationParticipant {
     public private(set) var authenticationRevalidationGeneration = 0
     private var successfulRefreshGenerations: [FeedSource: UInt64] = [:]
     private(set) var activeRequestIdentity: FeedRequest?
@@ -84,18 +84,18 @@ public final class BrowseViewModel {
         activeWorkset?.refreshError
     }
 
-    public func activateRecommendation() {
+    func activateRecommendation() {
         activateWorkset(.recommendation(continuation: nil))
     }
 
-    /// App 热门 Tab 使用的分页大小；`PopularFeedView` 按同一请求匹配 presentation。
+    /// 热门来源的分页大小；激活（`activate(_:)`）与 `PopularFeedView` 按同一请求匹配 presentation。
     public static let popularPageSize = 50
 
-    public func activatePopular(page: Int = 1, pageSize: Int = 20) {
+    func activatePopular(page: Int = 1, pageSize: Int = 20) {
         activateWorkset(.popular(page: page, pageSize: pageSize))
     }
 
-    public func activateSearch(_ criteria: VideoSearchCriteria) {
+    func activateSearch(_ criteria: VideoSearchCriteria) {
         let request = FeedRequest.search(
             VideoSearchRequest(criteria: criteria, page: 1)
         )
@@ -142,7 +142,7 @@ public final class BrowseViewModel {
         }
     }
 
-    public func search(_ criteria: VideoSearchCriteria) {
+    func search(_ criteria: VideoSearchCriteria) {
         let request = FeedRequest.search(
             VideoSearchRequest(criteria: criteria, page: 1)
         )
@@ -186,7 +186,7 @@ public final class BrowseViewModel {
     }
 
     /// 停止当前路由工作，把工作集规范化（结束刷新与加载更多）后保留，供返回时恢复。
-    public func deactivateRoute() {
+    func deactivateRoute() {
         loadTask.cancel()
         normalizeInterruptedLoad()
         activeRequestIdentity = nil

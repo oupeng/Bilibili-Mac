@@ -3,54 +3,8 @@ import BiliBrowseFeature
 import Foundation
 import SwiftUI
 
-struct AppliedVideoSearchFilters: Hashable {
-    var order: VideoSearchOrder = .relevance
-    var duration: VideoDurationFilter = .all
-    var publicationRange: VideoPublicationTimeRange?
-
-    func criteria(query: String) -> VideoSearchCriteria {
-        VideoSearchCriteria(
-            query: query,
-            order: order,
-            duration: duration,
-            publicationRange: publicationRange
-        )
-    }
-}
-
-struct SearchFilterSelection: Hashable {
-    var order: VideoSearchOrder = .relevance
-    var publication = VideoPublicationFilter.all
-    var duration = VideoDurationFilter.all
-    var customStart = Calendar.current.date(byAdding: .month, value: -1, to: Date()) ?? Date()
-    var customEnd = Date()
-
-    var activeFilterCount: Int {
-        (publication == .all ? 0 : 1) + (duration == .all ? 0 : 1)
-    }
-
-    mutating func resetFilters() {
-        publication = .all
-        duration = .all
-    }
-
-    func resolvedFilters(
-        now: Date = Date(),
-        calendar: Calendar = .current
-    ) throws -> AppliedVideoSearchFilters {
-        AppliedVideoSearchFilters(
-            order: order,
-            duration: duration,
-            publicationRange: try VideoPublicationRangeResolver.resolve(
-                filter: publication,
-                customStart: customStart,
-                customEnd: customEnd,
-                now: now,
-                calendar: calendar
-            )
-        )
-    }
-
+extension SearchFilterSelection {
+    /// 工具栏筛选按钮的说明：启用中的筛选按本地化标题列出。
     func summary(locale: Locale) -> String {
         ListFormatter.localizedString(
             byJoining: [
@@ -61,6 +15,8 @@ struct SearchFilterSelection: Hashable {
     }
 }
 
+/// 搜索页工具栏的排序菜单与筛选按钮（弹窗）：只编辑 `VideoSearchSession` 的筛选选择，并在排序变化或弹窗“应用”时
+/// 通知会话；弹窗里的草稿在“应用”前不影响选择。
 struct SearchToolbarControls: View {
     @Environment(\.locale) private var locale
     @Binding var selection: SearchFilterSelection

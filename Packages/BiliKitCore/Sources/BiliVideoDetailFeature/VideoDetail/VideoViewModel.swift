@@ -56,9 +56,9 @@ public struct PlaybackResumeNotice: Sendable, Equatable {
 /// 新视频、重试或 reset 都使旧任务失效；旧任务即使忽略取消，也不能覆盖当前状态。
 @MainActor
 @Observable
-public final class VideoViewModel {
+public final class VideoViewModel: AccountRevalidationParticipant {
     public private(set) var state: VideoLoadState = .idle
-    public var failedPageCID: Int64? {
+    var failedPageCID: Int64? {
         guard case .failedPage(_, let targetPage, _) = state else { return nil }
         return targetPage.cid
     }
@@ -81,8 +81,8 @@ public final class VideoViewModel {
     }
     /// 用户最新请求的媒体身份；在 playurl 或播放器准备失败时仍保留给 retry。
     public private(set) var requestedPlaybackIdentity: PlaybackItemIdentity?
-    /// App 层最新选择意图的 BVID；与已成功安装的媒体身份分离。
-    public private(set) var requestedSelectionBVID: String?
+    /// 最新选择意图的 BVID；与已成功安装的媒体身份分离。
+    private(set) var requestedSelectionBVID: String?
     /// 显式用户 CID；未知 pages 时可以先存在，绝不据此伪造已呈现媒体。
     public private(set) var requestedPreferredCID: Int64?
     /// 外部链接给出的分 P 序号；详情到达前只用于重试，到达后换算为 `requestedPreferredCID`。
@@ -108,8 +108,8 @@ public final class VideoViewModel {
 
     @ObservationIgnored private let useCase: VideoUseCase
     @ObservationIgnored private let playback: any PlaybackControlling
-    @ObservationIgnored private let relatedVideoUseCase: RelatedVideoUseCase?
-    @ObservationIgnored private let uploaderProfileUseCase: UploaderProfileUseCase?
+    @ObservationIgnored private let relatedVideoUseCase: RelatedVideoUseCase
+    @ObservationIgnored private let uploaderProfileUseCase: UploaderProfileUseCase
     @ObservationIgnored private let loadTask = LatestTask()
     @ObservationIgnored private let relatedVideoTask = LatestTask()
     @ObservationIgnored private let uploaderProfileTask = LatestTask()
@@ -124,9 +124,9 @@ public final class VideoViewModel {
     public init(
         useCase: VideoUseCase,
         playback: any PlaybackControlling,
-        relatedVideoUseCase: RelatedVideoUseCase? = nil,
-        uploaderProfileUseCase: UploaderProfileUseCase? = nil,
-        playbackAuthenticationInvalidations: AsyncStream<Void>? = nil
+        relatedVideoUseCase: RelatedVideoUseCase,
+        uploaderProfileUseCase: UploaderProfileUseCase,
+        playbackAuthenticationInvalidations: AsyncStream<Void>
     ) {
         self.useCase = useCase
         self.playback = playback
@@ -145,12 +145,10 @@ public final class VideoViewModel {
             }
         }
         // 播放附带的账户读取（字幕目录）发现凭据失效：不影响播放，只请求窗口复核。
-        if let playbackAuthenticationInvalidations {
-            playbackAuthenticationTask = Task { [weak self] in
-                for await _ in playbackAuthenticationInvalidations {
-                    guard !Task.isCancelled else { return }
-                    self?.recordAuthenticationInvalidationIfNeeded(.authenticationInvalid)
-                }
+        playbackAuthenticationTask = Task { [weak self] in
+            for await _ in playbackAuthenticationInvalidations {
+                guard !Task.isCancelled else { return }
+                self?.recordAuthenticationInvalidationIfNeeded(.authenticationInvalid)
             }
         }
     }
@@ -222,7 +220,7 @@ public final class VideoViewModel {
     ///
     /// `pageNumber` 为 nil 视为当前分 P，否则须与它相同；秒数按可跳转时长判断。还在加载、失败或没有
     /// 视频时为 false。
-    public func canSeekPresentedPage(number pageNumber: Int?, toSeconds seconds: Int) -> Bool {
+    func canSeekPresentedPage(number pageNumber: Int?, toSeconds seconds: Int) -> Bool {
         guard let context = presentedContext,
             presentedPlaybackIdentity?.cid == context.selectedPage.cid,
             pageNumber.map({ $0 == context.selectedPage.index }) ?? true
@@ -231,7 +229,7 @@ public final class VideoViewModel {
     }
 
     /// 当前视频里分 P 序号（从 1 开始）对应的 CID；没有当前视频或序号超出范围时为 nil。
-    public func presentedPageCID(forNumber number: Int) -> Int64? {
+    func presentedPageCID(forNumber number: Int) -> Int64? {
         presentedContext?.pages.first(where: { $0.index == number })?.cid
     }
 
@@ -343,11 +341,7 @@ public final class VideoViewModel {
     }
 
     private func loadRelatedVideos(for bvid: String) {
-        guard let relatedVideoUseCase else {
-            relatedVideoTask.cancel()
-            relatedVideoState = .empty(bvid: bvid)
-            return
-        }
+        let relatedVideoUseCase = relatedVideoUseCase
         relatedVideoState = .loading(bvid: bvid)
         relatedVideoTask.replace { [weak self] isCurrent in
             let nextState: RelatedVideoState
@@ -561,7 +555,7 @@ public final class VideoViewModel {
         _ error: ContentApplicationError
     ) {
         guard error.requiresAccountRevalidation else { return }
-        authenticationRevalidationGeneration += 1
+        authenticationRevalidationGeneration &+= 1
     }
 
     private func applyResumeNotice(from outcome: PlaybackStartOutcome) {
@@ -582,10 +576,7 @@ public final class VideoViewModel {
     }
 
     private func loadUploaderProfile(for ownerID: Int64) {
-        guard let uploaderProfileUseCase else {
-            cancelUploaderProfile()
-            return
-        }
+        let uploaderProfileUseCase = uploaderProfileUseCase
         // 连续看同一 UP 主（合集、空间投稿）时沿用上一次名片，不再经过加载中，名字也不会重新变色。
         if let lastUploaderProfile, lastUploaderProfile.ownerID == ownerID {
             uploaderProfileTask.cancel()

@@ -8,14 +8,13 @@ enum NativePlaybackCommentAuthorSpace {
         author.id.memberID != nil
     }
 
-    /// 正文链接的去向：@ 提及在应用内打开空间（未登录时空间层显示登录提示）；没有空间入口时与
-    /// 其他链接一样交给原有处理。
+    /// 正文链接的去向：@ 提及在应用内打开空间（未登录时空间层显示登录提示），其他链接交给原有处理。
     static func openLink(
         _ target: CommentLinkTarget,
-        openSpace: ((CommentAuthor) -> Void)?,
+        openSpace: (CommentAuthor) -> Void,
         otherwise: (CommentLinkTarget) -> Void
     ) {
-        if case .member(let user) = target, let openSpace {
+        if case .member(let user) = target {
             openSpace(user)
             return
         }

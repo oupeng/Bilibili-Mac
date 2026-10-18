@@ -24,6 +24,31 @@ struct PlaybackPreferencesControllerTests {
         #expect(player.volume == 0)
     }
 
+    /// 关窗后（invalidate）播放器的音量、静音与倍速变化不再写进存储。
+    @Test
+    @MainActor
+    func invalidatedControllerStopsPersisting() {
+        withIsolatedDefaults { defaults in
+            let player = AVPlayer()
+            let controller = PlaybackPreferencesController(
+                player: player,
+                store: UserDefaultsPlaybackPreferencesStore(defaults: defaults)
+            )
+            player.volume = 0.4
+
+            controller.invalidate()
+            player.volume = 0.8
+            player.isMuted = true
+            player.defaultRate = 2
+
+            let stored = UserDefaultsPlaybackPreferencesStore(defaults: defaults).load()
+            #expect(abs(stored.volume - 0.4) < 0.001)
+            #expect(!stored.isMuted)
+            #expect(abs(stored.preferredRate - 1) < 0.001)
+            withExtendedLifetime(controller) {}
+        }
+    }
+
     @Test
     @MainActor
     func nativePlayerPreferencesPersistSynchronouslyAndRestore() {

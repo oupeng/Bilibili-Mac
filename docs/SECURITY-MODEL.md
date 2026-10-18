@@ -56,12 +56,14 @@
 **账户读取**（`BiliCredentialRequestAuthorizer`）
 
 - 只允许 `https://api.bilibili.com`、端口缺省或 443、GET、无 userinfo／fragment、路径编码规范，
-  且 path 在 `AppEnvironment` 声明的 allowlist 内（主客户端、测速客户端、会话校验各一组）。
+  且 path 在 `LiveAPIClients`（Composition）声明的 allowlist 内（主客户端、测速客户端、会话校验各一组）。allowlist 只引用
+  endpoint 导出的 path 常量：BiliAPI 的 `BiliAccountReadPath`（endpoint 扩展构造请求用的同一个常量），会话校验为
+  BiliAuth 的 `BiliAuthenticationService.sessionValidationPath`；WBI nav 与它同 path 但永远匿名，在 BiliAPI 另有一份。
 - 调用方已带 `Cookie`、`Authorization` 或 `X-CSRF-Token` 时拒绝；每次授权生成新请求，不缓存 header。
 - 授权器拒绝（`denied`：path 不在 allowlist、形状不合规）是客户端编程错误，`BiliAPIClient` 映射为
   `invalidRequest` 失败关闭：界面显示“无法加载内容／当前无法完成这次请求。”且不给重试，不是 Keychain
   类提示，也不触发复核；新增账户读取
-  endpoint 必须同时加入对应 allowlist，漏配就表现为该功能稳定失败。
+  endpoint 先在 `BiliAccountReadPath` 声明 path，再加入对应 allowlist，漏配就表现为该功能稳定失败。
 - `BiliAPIClient` 的 endpoint 扩展逐请求决定匿名或账户读取，并独占 path/query schema；请求 builder
   只在 `BiliAPI` 内部可见，adapter 不构造 `RequestAccess`；授权器不复制业务规则。
 - 账户读取响应的业务码 -101 只在请求实际带凭据发出时映射为凭据失效（`authenticationInvalid`），由
@@ -115,7 +117,7 @@ Sparkle 更新网络，以及任何 redirect 后的主机。不使用 `*.bilibil
 | 字幕正文 | `SubtitleURLPolicy`：`https://aisubtitle.hdslb.com/bfs/...` | 正文 ≤ 2 MiB；新主机先失败关闭 |
 | 评论头像、表情、正文图片、链接前置图标，热搜图标 | `BiliBFSImageURLPolicy`：`i0`／`i1`／`i2.hdslb.com` 与相册域名 `album.biliimg.com`（较早的评论图片）的 `/bfs/` 路径（热搜图标的 `http:` 与协议相对地址先升级为 HTTPS） | 拒绝 query、fragment、点段、编码分隔符；评论列表图片与头像的缩略参数写在 path 上（`@{宽}w_{高}h.webp`），加参数后的地址再过一次同一规则；热搜图标不合规时只丢图标、保留文字 |
 | 视频封面 | 接口返回的 HTTPS URL（`http:`、协议相对地址升级为 HTTPS），映射时与图片管线请求前各过一次 `PublicHTTPSURLPolicy` | 由图片管线限制 |
-| 评论与简介外链 | 视频链接只回送合法 BVID（av 号在本地换算，不发请求），分 P 序号与起播秒数 `t` 只取正整数，`t` 超出可跳转时长（充电试看取试看时长）时忽略；正文时间戳只在当前视频的播放器里跳转；@ 成员与空间链接只允许正整数 MID，在应用内打开空间，仅空间不可用时才回退到 `space.bilibili.com`；搜索词链接不生成；正文纯文字里识别出的网址只认 `https`（`http` 仅在指向站内目标时升级），外链须先通过公开 HTTPS 复核才显示为链接；其他目标经公开 HTTPS 形状复核 | 仅用户点击后交给系统 `OpenURLAction`；不预取、不解析 DNS、不附加凭据 |
+| 评论与简介外链 | 视频链接只回送合法 BVID（av 号在本地换算，不发请求），分 P 序号与起播秒数 `t` 只取正整数，`t` 超出可跳转时长（充电试看取试看时长）时忽略；正文时间戳只在当前视频的播放器里跳转；@ 成员与空间链接只允许正整数 MID，在应用内打开空间；搜索词链接不生成；正文纯文字里识别出的网址只认 `https`（`http` 仅在指向站内目标时升级），外链须先通过公开 HTTPS 复核才显示为链接；其他目标经公开 HTTPS 形状复核 | 仅用户点击后交给系统 `OpenURLAction`；不预取、不解析 DNS、不附加凭据 |
 | 评论与简介短链 | 只认 `https://b23.tv/{1–16 位 ASCII 字母数字}`，请求时去掉 query 与 fragment；其他短链域名按评论外链处理 | 仅用户点击后发一次无凭据 `HEAD`（拒绝 redirect、5 秒超时、不读正文），只读一次 3xx 的绝对或协议相对 `Location`，目标按评论外链同一规则分类；目标仍在 b23.tv（不论形状）、不是跳转或失败时，把原短链交给系统浏览器；同一窗口同时只解析一个，新点击、换视频或关窗取消，关窗时释放 session；不记录短码与目标地址 |
 
 - 弹幕分段与评论页须通过状态、Content-Type 与 2 MiB 上限，再交给解码器；JSON、protobuf、HTML 错误页和

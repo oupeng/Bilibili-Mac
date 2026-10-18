@@ -18,7 +18,7 @@ public enum UploaderSpaceState: Sendable, Equatable {
 /// 不把上一个身份的状态带给下一个身份。
 @MainActor
 @Observable
-public final class UploaderSpaceViewModel {
+public final class UploaderSpaceViewModel: AccountRevalidationParticipant {
     public private(set) var owner: VideoOwner?
     public private(set) var order: UploaderVideoOrder = .newest
     public private(set) var state: UploaderSpaceState = .closed
@@ -110,7 +110,7 @@ public final class UploaderSpaceViewModel {
             guard let self, isCurrent() else { return }
             // 名片只是增强，失败时名字保持为空；凭据失效仍要复核。
             if let failure, failure.requiresAccountRevalidation {
-                authenticationRevalidationGeneration += 1
+                authenticationRevalidationGeneration &+= 1
             }
             guard let profile, let owner = self.owner, owner.id == ownerID else { return }
             self.owner = VideoOwner(
@@ -190,7 +190,7 @@ public final class UploaderSpaceViewModel {
             state = .loaded(loaded)
         case .failure(let error):
             if error.requiresAccountRevalidation {
-                authenticationRevalidationGeneration += 1
+                authenticationRevalidationGeneration &+= 1
             }
             state = .failed(page: page, error: error)
         }

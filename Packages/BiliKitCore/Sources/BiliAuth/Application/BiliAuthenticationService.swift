@@ -7,6 +7,13 @@ import Foundation
 /// `generation` 隔离旧操作；`requiresLogout` 阻止凭据状态不确定时伪装成安全 signed-out。
 /// 新 QR 登录须校验并持久化成功才发布 `.signedIn`；恢复路径会重新验证既存凭据。
 public actor BiliAuthenticationService: AuthenticationServicing {
+    /// 会话校验（nav）的 path：恢复与换号复核唯一按账户读取的请求，App Composition 用它声明本服务授权器的
+    /// allowlist。
+    ///
+    /// BiliAPI 取 WBI key 也读同一 path，但那是永不带凭据的匿名请求；BiliAuth 不能依赖 BiliAPI、两边也没有
+    /// 共同的更低层能放 endpoint 知识，所以各留一份（另一份在 `BiliAPIClient.wbiKey`）。见 SECURITY-MODEL §3。
+    public static let sessionValidationPath = "/x/web-interface/nav"
+
     private var loginSession: WebQRLoginSession
     private var authorizer: BiliCredentialRequestAuthorizer
     private let loginSessionFactory: @Sendable () -> WebQRLoginSession

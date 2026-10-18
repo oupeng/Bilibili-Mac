@@ -6,7 +6,7 @@ import Observation
 /// 它不拥有 protobuf、分段缓存、时间线或 renderer；`reset` 必须停止整条会话而非只隐藏画面。
 @MainActor
 @Observable
-public final class DanmakuControlsViewModel {
+public final class DanmakuControlsViewModel: AccountRevalidationParticipant {
     public private(set) var isEnabled = true
     public private(set) var showsScrolling = true
     public private(set) var showsTop = true

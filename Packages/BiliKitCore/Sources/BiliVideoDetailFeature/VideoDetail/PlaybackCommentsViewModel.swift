@@ -29,7 +29,7 @@ public struct PlaybackCommentReplyState: Sendable, Equatable {
 /// 独立拥有当前视频评论的 root 与楼中楼状态，不拥有或控制播放器。
 @MainActor
 @Observable
-public final class PlaybackCommentsViewModel {
+public final class PlaybackCommentsViewModel: AccountRevalidationParticipant {
     private struct PendingReplyRequest {
         let rootID: CommentID
         let page: Int
@@ -410,7 +410,7 @@ public final class PlaybackCommentsViewModel {
         _ error: CommentReadError
     ) {
         guard error.requiresAccountRevalidation else { return }
-        authenticationRevalidationGeneration += 1
+        authenticationRevalidationGeneration &+= 1
     }
 
     private func cancelAllReplyTasks() {

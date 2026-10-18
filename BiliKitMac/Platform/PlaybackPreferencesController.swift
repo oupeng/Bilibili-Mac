@@ -245,6 +245,16 @@ final class PlaybackPreferencesController {
         }
     }
 
+    /// 停止观察，之后播放器的音量、静音与倍速变化不再写入存储；由窗口 adapter 在关窗时调用，可重复调用。
+    func invalidate() {
+        volumeObservation?.invalidate()
+        mutedObservation?.invalidate()
+        defaultRateObservation?.invalidate()
+        volumeObservation = nil
+        mutedObservation = nil
+        defaultRateObservation = nil
+    }
+
     @discardableResult
     func adjustVolume(by offset: Float) -> Float {
         guard offset.isFinite else { return player.volume }

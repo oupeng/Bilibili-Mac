@@ -396,12 +396,18 @@ actor ProfileRepositoryStub: UploaderProfileRepository {
 /// RelatedVideoRepository 的唯一替身：按序消费 `responses`，用尽后挂起到测试按序号放行。
 actor RelatedRepositoryStub: RelatedVideoRepository {
     private var responses: [Result<[RelatedVideo], ContentApplicationError>]
+    private let whenExhausted: [RelatedVideo]?
     private var held: [Int: CheckedContinuation<[RelatedVideo], Never>] = [:]
     private var requestWaiters = CountWaiters()
     private(set) var callCount = 0
 
-    init(responses: [Result<[RelatedVideo], ContentApplicationError>] = []) {
+    /// `whenExhausted` 不为 nil 时，`responses` 用尽后立即返回它而不挂起。
+    init(
+        responses: [Result<[RelatedVideo], ContentApplicationError>] = [],
+        whenExhausted: [RelatedVideo]? = nil
+    ) {
         self.responses = responses
+        self.whenExhausted = whenExhausted
     }
 
     func relatedVideos(to bvid: String) async throws -> [RelatedVideo] {
@@ -409,6 +415,7 @@ actor RelatedRepositoryStub: RelatedVideoRepository {
         let index = callCount - 1
         requestWaiters.resume(reaching: callCount)
         if !responses.isEmpty { return try responses.removeFirst().get() }
+        if let whenExhausted { return whenExhausted }
         return await withCheckedContinuation { held[index] = $0 }
     }
 
@@ -439,7 +446,7 @@ extension RelatedVideo {
 
 /// 唯一的 PlaybackControlling 替身，记录 load、开播、重播与停止。
 ///
-/// 可让指定 BVID 的 load 失败、让第 `heldLoad` 次 load 挂起到测试放行，
+/// 可让指定 BVID 的 load 失败、让第 `failingLoads` 次 load 失败（从 1 开始）、让第 `heldLoad` 次 load 挂起到测试放行，
 /// 或让首个 load 先发布失败再等到 stop 才返回。失败事件与生产 engine 一样经 `AsyncBroadcast`
 /// 发布：不回放、每个订阅独立，所以 ViewModel 必须在发起 load 前订阅；测试可等 ViewModel
 /// 回来请求下一个事件。
@@ -449,6 +456,7 @@ final class PlayerStub: PlaybackControlling {
     private let restartSucceeds: Bool
     private let holdsRestarts: Bool
     private let failingBVID: String?
+    private let failingLoads: Set<Int>
     private let heldLoad: Int?
     private let failsFirstLoadUntilStopped: Bool
     private let failures = AsyncBroadcast<PlaybackFailureEvent>()
@@ -473,6 +481,7 @@ final class PlayerStub: PlaybackControlling {
         restartSucceeds: Bool = false,
         holdsRestarts: Bool = false,
         failingBVID: String? = nil,
+        failingLoads: Set<Int> = [],
         heldLoad: Int? = nil,
         failsFirstLoadUntilStopped: Bool = false
     ) {
@@ -480,6 +489,7 @@ final class PlayerStub: PlaybackControlling {
         self.restartSucceeds = restartSucceeds
         self.holdsRestarts = holdsRestarts
         self.failingBVID = failingBVID
+        self.failingLoads = failingLoads
         self.heldLoad = heldLoad
         self.failsFirstLoadUntilStopped = failsFirstLoadUntilStopped
     }
@@ -509,7 +519,7 @@ final class PlayerStub: PlaybackControlling {
         loadedIdentities.append(identity)
         loadedIntents.append(intent)
         loadWaiters.resume(reaching: loadedIdentities.count)
-        if identity.bvid == failingBVID {
+        if identity.bvid == failingBVID || failingLoads.contains(loadedIdentities.count) {
             throw PlayerStubFailure()
         }
         if failsFirstLoadUntilStopped, loadedIdentities.count == 1 {
@@ -663,4 +673,27 @@ func waitUntil(
         await Task.yield()
     }
     return true
+}
+
+/// 本 target 构造 `VideoViewModel` 的唯一入口：相关推荐默认立即为空、UP 主名片默认立即为空名片、播放附带的凭据
+/// 失效流默认立即结束，测试只传自己关心的依赖。
+@MainActor
+func makeVideoViewModel(
+    useCase: VideoUseCase,
+    playback: any PlaybackControlling,
+    relatedVideoUseCase: RelatedVideoUseCase = RelatedVideoUseCase(
+        repository: RelatedRepositoryStub(whenExhausted: [])
+    ),
+    uploaderProfileUseCase: UploaderProfileUseCase = UploaderProfileUseCase(
+        repository: ProfileRepositoryStub(immediate: .success(UploaderProfile()))
+    ),
+    playbackAuthenticationInvalidations: AsyncStream<Void> = AsyncStream { $0.finish() }
+) -> VideoViewModel {
+    VideoViewModel(
+        useCase: useCase,
+        playback: playback,
+        relatedVideoUseCase: relatedVideoUseCase,
+        uploaderProfileUseCase: uploaderProfileUseCase,
+        playbackAuthenticationInvalidations: playbackAuthenticationInvalidations
+    )
 }

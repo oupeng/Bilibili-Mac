@@ -420,6 +420,8 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
 
         // 会话失效会清掉缓存的 key；nav 返回前会话已失效时不把迟到的 key 写回去。
         let sessionEpoch = authenticatedSessionEpoch
+        // 与 BiliAuth 的会话校验同一 path（`BiliAuthenticationService.sessionValidationPath`），但这里永远匿名、
+        // 不在任何 allowlist；BiliAuth 不能依赖 BiliAPI，所以两边各留一份。见 SECURITY-MODEL §3。
         let url = try endpoint(path: "/x/web-interface/nav", queryItems: [])
         let response = try await response(
             url: url,
