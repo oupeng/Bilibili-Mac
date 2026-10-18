@@ -74,15 +74,18 @@ public final class LibraryVideoListModel<
     public private(set) var successfulReloadGeneration: UInt64 = 0
     /// 最近一次原地刷新失败的原因，条目仍是刷新前的内容；下一次刷新开始时清除。
     public private(set) var refreshError: ContentApplicationError?
-    /// 读取发现凭据失效时递增，由窗口汇总后复核账户（`AccountRevalidationParticipant`，与其他内容页同一契约）。
-    ///
-    /// 资料库列表只在已登录时渲染，所以读取时本地没有凭据也说明窗口的登录状态已过期，同样递增。
-    public private(set) var authenticationRevalidationGeneration = 0
+    /// 读取发现凭据缺失或失效时递增，由窗口汇总后复核账户（`AccountRevalidationParticipant`，与其他内容页同一契约）；
+    /// 规则在共用的 `LibraryAccountRevalidation`。
+    public var authenticationRevalidationGeneration: Int {
+        revalidation.generation
+    }
     /// 本页因凭据缺失或失效请求了账户复核、复核尚未结束；失败页据此显示“正在重新确认”。
     ///
     /// 复核结束（`authenticationRevalidationSucceeded`／`authenticationRevalidationFailed`）、
     /// 加载成功、离开页面或 `reset` 时清除。
-    public private(set) var isAwaitingAuthenticationRevalidation = false
+    public var isAwaitingAuthenticationRevalidation: Bool {
+        revalidation.isAwaiting
+    }
     /// 来源给出的当前条件下的总条数：第一页与加载更多成功时都按响应更新；首次加载、条件变化、失败与 `reset` 时
     /// 清空，只在已显示内容时有值。
     public private(set) var totalCount: Int?
@@ -143,10 +146,8 @@ public final class LibraryVideoListModel<
     /// 刷新与加载更多共用的最新意图 Task：新请求替换旧请求，迟到结果经 `isCurrent` 丢弃；`reset` 与
     /// `deactivateRoute` 取消。
     @ObservationIgnored private let loadTask = LatestTask()
-    /// 复核后已自动重载过一次，加载成功或 `reset` 时清除。
-    ///
-    /// 复核确认仍登录而重载又得到凭据失效时不再自动重载，挡住连续的“复核 → 重载 → 失效 → 复核”。
-    @ObservationIgnored private var hasReloadedAfterRevalidation = false
+    /// 复核代次、是否在等复核与复核后是否已自动重载过。
+    private var revalidation = LibraryAccountRevalidation()
 
     init(
         stallPolicy: PagedVideoList<Item, Cursor>.StallPolicy,
@@ -192,8 +193,7 @@ public final class LibraryVideoListModel<
                 totalCount = result.totalCount
                 phase = .loaded
                 successfulReloadGeneration &+= 1
-                isAwaitingAuthenticationRevalidation = false
-                hasReloadedAfterRevalidation = false
+                revalidation.loadSucceeded()
             } catch is CancellationError {
                 // 本任务未被取消却收到取消：认证会话在请求途中切换。不是网络失败；已有条目原样保留，
                 // 否则回到 idle，由会话切换后的复核与 `authenticationRevalidationSucceeded` 重新加载。
@@ -207,7 +207,7 @@ public final class LibraryVideoListModel<
                 guard isCurrent() else { return }
                 let failure = error as? ContentApplicationError ?? .unavailable
                 // 原地刷新失败保留已显示条目；凭据缺失或失效进入终态，条目不再显示。
-                if refreshesInPlace, !Self.isCredentialFailure(failure) {
+                if refreshesInPlace, !LibraryAccountRevalidation.isCredentialFailure(failure) {
                     refreshError = failure
                     list.restoreAfterFailedRefresh()
                 } else {
@@ -244,7 +244,7 @@ public final class LibraryVideoListModel<
                 guard isCurrent() else { return }
                 let failure = error as? ContentApplicationError ?? .unavailable
                 // 与刷新一致：凭据缺失或失效时不再显示该账户的条目，转入失败页并请求复核。
-                if Self.isCredentialFailure(failure) {
+                if LibraryAccountRevalidation.isCredentialFailure(failure) {
                     fail(failure)
                 } else {
                     list.failLoadMore(failure)
@@ -286,8 +286,7 @@ public final class LibraryVideoListModel<
         totalCount = nil
         displayedFirstPageCursor = nil
         refreshError = nil
-        isAwaitingAuthenticationRevalidation = false
-        hasReloadedAfterRevalidation = false
+        revalidation.reset()
         phase = .idle
     }
 
@@ -298,13 +297,13 @@ public final class LibraryVideoListModel<
     public func deactivateRoute() {
         loadTask.cancel()
         refreshError = nil
-        isAwaitingAuthenticationRevalidation = false
+        revalidation.stopAwaiting()
         list.restoreAfterFailedRefresh()
         list.cancelLoadMore(requiringManualContinue: false)
         switch phase {
         case .loading:
             phase = .idle
-        case .failed(let failure) where Self.isCredentialFailure(failure):
+        case .failed(let failure) where LibraryAccountRevalidation.isCredentialFailure(failure):
             phase = .idle
         case .idle, .loaded, .failed:
             break
@@ -320,14 +319,11 @@ public final class LibraryVideoListModel<
     /// 本页因凭据失效请求的复核，确认后自动重载一次；同一会话内只做一次，之后再失效只显示失败、
     /// 由用户重试。其余情况只在 idle 时加载。
     public func authenticationRevalidationSucceeded() {
-        let requestedRevalidation = isAwaitingAuthenticationRevalidation
-        isAwaitingAuthenticationRevalidation = false
-        guard requestedRevalidation, !hasReloadedAfterRevalidation else {
+        if revalidation.succeeded() {
+            reload()
+        } else {
             loadIfNeeded()
-            return
         }
-        hasReloadedAfterRevalidation = true
-        reload()
     }
 
     /// 账户复核没能确认登录状态（网络或 Keychain 不可用）；窗口只在本来源是当前来源时调用。
@@ -335,8 +331,7 @@ public final class LibraryVideoListModel<
     /// 给出可重试的“无法读取登录状态”，不是网络失败。凭据失败时条目已清空；隐私清理仍由账户范围
     /// 变化负责。
     public func authenticationRevalidationFailed() {
-        let requestedRevalidation = isAwaitingAuthenticationRevalidation
-        isAwaitingAuthenticationRevalidation = false
+        let requestedRevalidation = revalidation.failed()
         switch phase {
         case .idle:
             phase = .failed(.authenticationUnavailable)
@@ -351,16 +346,10 @@ public final class LibraryVideoListModel<
         PagedVideoList(stallPolicy: stallPolicy)
     }
 
-    /// 凭据缺失或失效：原地刷新不保留条目，并请求窗口复核账户。
-    private static func isCredentialFailure(_ error: ContentApplicationError) -> Bool {
-        error == .authenticationRequired || error.requiresAccountRevalidation
-    }
-
     /// 进入失败页并放弃已显示条目；凭据失败时请求账户复核。
     private func fail(_ failure: ContentApplicationError) {
-        if Self.isCredentialFailure(failure) {
-            isAwaitingAuthenticationRevalidation = true
-            authenticationRevalidationGeneration &+= 1
+        if LibraryAccountRevalidation.isCredentialFailure(failure) {
+            revalidation.request()
         }
         list = emptyList()
         totalCount = nil
