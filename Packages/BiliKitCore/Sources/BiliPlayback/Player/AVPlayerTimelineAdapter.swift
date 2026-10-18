@@ -1,174 +1,7 @@
 @preconcurrency import AVFoundation
 import BiliApplication
 import Foundation
-import Synchronization
 import os
-
-enum MomentaryRateRestorationAction: Equatable {
-    case none
-    case setCurrentRate
-    case resumeAtDefaultRate
-}
-
-enum MomentaryRateRestorationPolicy {
-    static func action(
-        timeControlStatus: AVPlayer.TimeControlStatus,
-        currentRate: Float,
-        momentaryRate: Float
-    ) -> MomentaryRateRestorationAction {
-        let stillUsesMomentaryRate =
-            abs(currentRate - momentaryRate) < 0.01
-        switch timeControlStatus {
-        case .paused:
-            return .none
-        case .playing:
-            return stillUsesMomentaryRate ? .setCurrentRate : .none
-        case .waitingToPlayAtSpecifiedRate:
-            return currentRate == 0 || stillUsesMomentaryRate
-                ? .resumeAtDefaultRate : .none
-        @unknown default:
-            return .none
-        }
-    }
-}
-
-final class PlaybackInteractionTracker: Sendable {
-    /// playlist `EXT-X-START` 给出的起播位置；就绪附近落在这里的系统跳变不是用户操作。
-    private let startPositionSeconds: Double
-
-    private struct State {
-        var revision: UInt64 = 0
-        var internalSeekTarget: Double?
-        var internalSeekInFlight = false
-        var internalPlayStartInFlight = false
-        var hasPlaybackStarted = false
-        var observedNonPausedDuringInternalSeek = false
-    }
-
-    private let state = Mutex(State())
-
-    init(startPositionSeconds: Double = 0) {
-        self.startPositionSeconds = startPositionSeconds
-    }
-
-    var hasObservedInteraction: Bool {
-        revision > 0
-    }
-
-    var revision: UInt64 {
-        state.withLock { $0.revision }
-    }
-
-    func markObserved() {
-        state.withLock {
-            $0.revision &+= 1
-            $0.internalSeekTarget = nil
-            $0.internalSeekInFlight = false
-            $0.internalPlayStartInFlight = false
-            $0.observedNonPausedDuringInternalSeek = false
-        }
-    }
-
-    func markObservedAllowingInternalSeek(to positionSeconds: Double) {
-        state.withLock {
-            $0.revision &+= 1
-            $0.internalSeekTarget = positionSeconds
-            $0.internalSeekInFlight = true
-            $0.observedNonPausedDuringInternalSeek = false
-        }
-    }
-
-    /// 新 item 的系统初始 paused 不算用户操作；会话已有交互后，paused 必须使在途提交失效。
-    func observeTimeControlStatus(
-        isPaused: Bool,
-        isPlaying: Bool,
-        playbackRate: Float
-    ) {
-        state.withLock {
-            if $0.internalPlayStartInFlight {
-                if isPaused {
-                    $0.revision &+= 1
-                    $0.internalPlayStartInFlight = false
-                } else if isPlaying {
-                    $0.hasPlaybackStarted = true
-                    $0.internalPlayStartInFlight = false
-                }
-                return
-            }
-            if $0.internalSeekInFlight, !isPaused {
-                if isPlaying || playbackRate > 0 {
-                    $0.observedNonPausedDuringInternalSeek = true
-                }
-                return
-            }
-            if $0.internalSeekInFlight,
-                isPaused,
-                $0.observedNonPausedDuringInternalSeek
-            {
-                $0.revision &+= 1
-                $0.internalSeekTarget = nil
-                $0.internalSeekInFlight = false
-                $0.observedNonPausedDuringInternalSeek = false
-                return
-            }
-            guard
-                !isPaused || $0.revision > 0 || $0.hasPlaybackStarted
-            else { return }
-            $0.revision &+= 1
-            if isPlaying {
-                $0.hasPlaybackStarted = true
-            }
-            $0.internalSeekTarget = nil
-            $0.internalSeekInFlight = false
-            $0.observedNonPausedDuringInternalSeek = false
-        }
-    }
-
-    func allowInternalPlayStart() {
-        state.withLock { $0.internalPlayStartInFlight = true }
-    }
-
-    func completeInternalSeek(at positionSeconds: Double) {
-        state.withLock {
-            $0.internalSeekTarget = positionSeconds
-            $0.internalSeekInFlight = false
-            $0.observedNonPausedDuringInternalSeek = false
-        }
-    }
-
-    func cancelInternalSeek() {
-        state.withLock {
-            $0.internalSeekTarget = nil
-            $0.internalSeekInFlight = false
-            $0.observedNonPausedDuringInternalSeek = false
-        }
-    }
-
-    /// 内部 seek 允许同一目标产生一个或多个系统 time-jump；item 起播时落在起播位置的系统跳变
-    /// 同样放行；其他跳变立即记为用户意图。
-    func observeTimeJump(at positionSeconds: Double) {
-        state.withLock {
-            if $0.internalSeekInFlight {
-                // 受控 seek 会在命令入口先推进 revision，因此这里不能按 HLS 实际落点与目标的距离
-                // 猜测来源。
-                return
-            }
-            if $0.revision == 0,
-                $0.internalSeekTarget == nil,
-                abs(positionSeconds - startPositionSeconds) <= 0.25
-            {
-                return
-            }
-            if let target = $0.internalSeekTarget,
-                abs(target - positionSeconds) <= 0.5
-            {
-                return
-            }
-            $0.revision &+= 1
-            $0.internalSeekTarget = nil
-        }
-    }
-}
 
 /// 把 AVPlayer/KVO/notification 事件投影为平台无关、identity-safe 的播放时间线。
 ///
@@ -176,17 +9,23 @@ final class PlaybackInteractionTracker: Sendable {
 /// clear 时统一释放，避免旧 item 继续推进弹幕、观看进度等时间线消费方。
 @MainActor
 final class AVPlayerTimelineAdapter {
+    /// 已发出、尚未收尾的 seek：目标位置，以及是否已观察到落在目标附近的系统 time-jump。
+    ///
+    /// 已观察到时，收尾不再登记落点；未观察到就被新 seek 取代时，目标转入过期落点，
+    /// 迟到的跳变据此被吞掉。
     private struct PendingSeek {
         let operationID: UUID
         let targetSeconds: Double
         var observedLanding = false
     }
 
+    /// 一次 seek 的落点，用来辨认迟到的系统 time-jump。
     private struct SeekLanding {
         let operationID: UUID
         let positionSeconds: Double
     }
 
+    /// 按住期间的临时倍速；只有同一 ID、同一 item 时 `endMomentaryRate` 才恢复速率。
     private struct MomentaryRateSession {
         let id: UUID
         let item: AVPlayerItem
@@ -214,10 +53,15 @@ final class AVPlayerTimelineAdapter {
     private let player: AVPlayer
     private let store = PlaybackTimelineStore()
     private let observers = PlayerTimelineObserverBag()
+    /// 当前 item 的时间线 token，由 `begin` 向 store 领取，`clear` 时置 nil。
+    ///
+    /// 每个 observer 捕获安装时的 token，store 丢弃与当前不符的写入，旧 item 的回调不会推进时间线。
     private var token: PlaybackTimelineItemToken?
+    /// 已报告失败的 token：status 与 failedToPlayToEnd 两路失败对同一 item 只报告一次。
     private var failedToken: PlaybackTimelineItemToken?
     private var momentaryRateSession: MomentaryRateSession?
     private var pendingSeek: PendingSeek?
+    /// 已收尾、但尚未观察到对应系统跳变的落点；之后落在附近的跳变按这次 seek 的迟到跳变吞掉。
     private var completedSeekLanding: SeekLanding?
     private var staleSeekLandings: [SeekLanding] = []
     private var interactionTracker = PlaybackInteractionTracker()
@@ -733,7 +577,15 @@ final class AVPlayerTimelineAdapter {
     }
 }
 
+/// 当前 item 的 AVPlayer 观察集合（periodic observer、KVO 与通知 observer）：替换或清空时在锁内整体
+/// 换出，在锁外注销换出的旧集合；deinit 兜底注销。
+///
+/// 用 `OSAllocatedUnfairLock(uncheckedState:)` 而不用 `Mutex`：`replace` 要把调用方传入的 observer
+/// （`Any`、`NSObjectProtocol` 等非 Sendable 值）存进锁内状态，`Mutex` 的 `inout sending` 闭包参数
+/// 不允许并入这类外部值。
 private final class PlayerTimelineObserverBag: Sendable {
+    /// 当前观察集合；`player` 用于注销 periodic observer，其余各项各自 invalidate 或从
+    /// NotificationCenter 移除。
     private struct Storage {
         var player: AVPlayer? = nil
         var periodicTimeObserver: Any? = nil

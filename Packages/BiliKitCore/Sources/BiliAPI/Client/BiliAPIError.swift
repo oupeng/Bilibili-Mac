@@ -1,9 +1,18 @@
 import BiliNetworking
 
+/// `BiliAPI` 的远端与请求失败；adapter 只经 `failure` 分类后映射为各域 Application 错误。
+///
+/// 分类规则见下方 `Failure` 与 docs/ARCHITECTURE.md「模块与依赖方向」的补充规则。`description`
+/// 只含阶段与分类，不含 URL、正文或服务端 message（见 SECURITY-MODEL §8）。
 public enum BiliAPIError: Error, Sendable, Equatable, CustomStringConvertible {
+    /// 参数或请求形状不合规，或授权器拒绝（path 不在 allowlist）：客户端编程错误，不发出该请求。
     case invalidRequest
+    /// 需要登录：例如只按账户读取的请求遇到本地明确无凭据（含未注入授权器），或匿名请求收到 -101。
     case authorizationRequired
+    /// 凭据失效：带凭据发出的请求收到 -101，或授权器判定本地凭据损坏、过期；
+    /// 内容等域据此触发账户复核。
     case authenticationInvalid
+    /// 本地凭据读不到（Keychain 不可用）或授权器抛出未分类错误；不触发复核。
     case authorizationUnavailable
     case transportFailure
     case httpStatus(Int)
@@ -78,6 +87,8 @@ public enum BiliAPIError: Error, Sendable, Equatable, CustomStringConvertible {
     }
 }
 
+/// progressive（durl）播放地址不可用的原因，随 `unsupportedProgressiveMedia` 抛出；`rawValue` 只进
+/// `description`。
 public enum ProgressiveMediaFailure: String, Sendable, Equatable {
     case empty
     case multipleSegments

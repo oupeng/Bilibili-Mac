@@ -1,6 +1,8 @@
 import BiliModels
 import Foundation
 
+/// 字幕菜单的一项：轨道 ID 与归一化后的用户可见标签；由 `SubtitleDisplayPolicy.options` 生成，
+/// BiliPlayback 的 `NativeSubtitleSource` 据此生成字幕 rendition 的名称。
 public struct SubtitleDisplayOption: Sendable, Equatable, Identifiable {
     public let trackID: String
     public let label: String

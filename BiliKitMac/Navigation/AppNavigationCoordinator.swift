@@ -1,0 +1,162 @@
+import BiliModels
+import BiliVideoDetailFeature
+import Foundation
+import Observation
+
+/// 侧栏的平级来源，也是来源描述（`AppSourceDescriptor`）的 id；case 的声明顺序就是侧栏顺序。
+enum AppTab: Hashable, CaseIterable {
+    case search
+    case home
+    case popular
+    case history
+}
+
+/// 播放层在 `NavigationStack` 路径里的唯一元素，只标识播放 surface，不携带视频。
+///
+/// 右侧栈深最多 1（见 docs/ARCHITECTURE.md「动线与侧栏上下文层」）：首次打开播放时生成
+/// `surfaceID`，之后换视频只替换 `ActivePlayback.intent`，surface 不变，导航路径不因换视频而变化。
+struct PlaybackDestination: Hashable {
+    let surfaceID: UUID
+}
+
+/// 当前播放层：建立后不变的 surface 与可替换的选择意图；为 nil 表示不在播放层。
+private struct ActivePlayback: Equatable {
+    let destination: PlaybackDestination
+    var intent: PlaybackSelectionIntent
+}
+
+/// 协调窗口内的顶层 Tab、原生导航路径、播放生命周期副作用与侧栏上下文层。
+///
+/// Coordinator 不拥有播放器：开始与停止播放经 `WindowComposition` 注入的闭包交给视频与弹幕模型。
+/// typed path 只表达是否位于播放层级，当前 BVID 则表达该层级内的媒体 identity。系统返回、切换来源、
+/// 登出与关窗都经 `closePlayback()` 这一条播放副作用边界收口。侧栏上下文层（UP 主空间）
+/// 的打开与关闭入口都在这里，是否打开从空间模型的 `owner` 派生；
+/// 空间模型自己在返回按钮或账户会话切换时关闭，同样反映到 `isSidebarContextOpen`。
+@MainActor
+@Observable
+final class AppNavigationCoordinator {
+    var selectedTab: AppTab = .home {
+        didSet {
+            guard selectedTab != oldValue else { return }
+            closePlayback()
+        }
+    }
+    var playbackPath: [PlaybackDestination] {
+        get {
+            activePlayback.map { [$0.destination] } ?? []
+        }
+        set {
+            // 只有 openPlayback 可以建立播放 surface；系统 path 写回只负责 pop。
+            guard newValue.isEmpty else { return }
+            closePlayback()
+        }
+    }
+    var currentPlaybackBVID: String? {
+        activePlayback?.intent.bvid
+    }
+    var currentPlaybackIntent: PlaybackSelectionIntent? {
+        activePlayback?.intent
+    }
+    /// 侧栏上下文层的内容模型；每个窗口都有，空间入口与空间链接都在这里打开。
+    @ObservationIgnored let uploaderSpace: UploaderSpaceViewModel
+    /// 上下文层是否打开：底层要隐藏、侧栏要叠上空间列表。
+    var isSidebarContextOpen: Bool {
+        uploaderSpace.owner != nil
+    }
+
+    private var activePlayback: ActivePlayback?
+    @ObservationIgnored private let startPlayback: (PlaybackSelectionIntent) -> Void
+    @ObservationIgnored private let stopPlayback: () -> Void
+
+    /// - Parameters:
+    ///   - startPlayback: 开始或替换当前视频。
+    ///   - stopPlayback: 关闭播放后停止播放器与弹幕。
+    ///   - uploaderSpace: 侧栏上下文层（UP 主空间）的模型。上下文层只在播放时存在，关闭播放、或从
+    ///     上下文层以外的入口换视频时关闭它。
+    init(
+        startPlayback: @escaping (PlaybackSelectionIntent) -> Void,
+        stopPlayback: @escaping () -> Void,
+        uploaderSpace: UploaderSpaceViewModel
+    ) {
+        self.startPlayback = startPlayback
+        self.stopPlayback = stopPlayback
+        self.uploaderSpace = uploaderSpace
+    }
+
+    /// 在侧栏上下文层打开某位 UP 主的空间（播放侧栏的 UP 主行、评论作者与 @ 提及）。
+    func openUploaderSpace(owner: VideoOwner) {
+        uploaderSpace.open(owner: owner)
+    }
+
+    /// 只有 MID 的入口（评论正文里的空间链接）：先以 UID 作头部打开，名片到达后补上名字与头像。
+    func openUploaderSpace(ownerID: Int64) {
+        uploaderSpace.open(ownerID: ownerID)
+    }
+
+    /// 首次打开建立播放 surface；连续打开其他视频只替换媒体 identity。
+    func openPlayback(_ bvid: String) {
+        openPlayback(PlaybackSelectionIntent(bvid: bvid))
+    }
+
+    /// 从侧栏上下文层（UP 主空间）里选择视频：用户仍在逛这个空间，上下文层保留。
+    func openPlaybackFromSidebarContext(_ bvid: String) {
+        openPlayback(PlaybackSelectionIntent(bvid: bvid), preservesSidebarContext: true)
+    }
+
+    /// 来源页、相关推荐、选集、评论链接等入口换视频：用户已离开上下文层，关闭它退回详情。
+    ///
+    /// 按“从哪里打开”判断，不比较新视频的 UP 主：联合投稿的 UP 主字段可能是另一位。
+    /// 重新点击正在播放的视频同样算离开上下文层。
+    func openPlayback(_ intent: PlaybackSelectionIntent) {
+        openPlayback(intent, preservesSidebarContext: false)
+    }
+
+    private func openPlayback(
+        _ intent: PlaybackSelectionIntent,
+        preservesSidebarContext: Bool
+    ) {
+        guard !intent.bvid.isEmpty else { return }
+        if !preservesSidebarContext {
+            closeSidebarContext()
+        }
+        guard currentPlaybackIntent != intent else { return }
+
+        if var activePlayback {
+            activePlayback.intent = intent
+            self.activePlayback = activePlayback
+        } else {
+            activePlayback = ActivePlayback(
+                destination: PlaybackDestination(surfaceID: UUID()),
+                intent: intent
+            )
+        }
+        startPlayback(intent)
+    }
+
+    func retryPlayback() {
+        guard let intent = currentPlaybackIntent else { return }
+        startPlayback(intent)
+    }
+
+    /// 登出只关闭当前播放，不改变来源 Tab。
+    func closePlaybackForAuthenticationChange() {
+        closePlayback()
+    }
+
+    /// 关闭当前播放，并恢复一个新窗口应有的来源。
+    func resetForWindowClosure() {
+        closePlayback()
+        selectedTab = .home
+    }
+
+    private func closePlayback() {
+        guard activePlayback != nil else { return }
+        activePlayback = nil
+        closeSidebarContext()
+        stopPlayback()
+    }
+
+    private func closeSidebarContext() {
+        uploaderSpace.close()
+    }
+}

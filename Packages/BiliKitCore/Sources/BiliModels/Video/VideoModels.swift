@@ -1,21 +1,23 @@
 import Foundation
 
+/// 视频的 UP 主：MID、昵称，以及可选的头像。
+///
+/// 由热门、推荐、详情、搜索与历史的映射产生，也由空间与评论作者入口按 MID 构造；来自接口的
+/// `avatarURL` 已经 `WebImageURL` 升级为 HTTPS 并过公开 HTTPS 基线（见 SECURITY-MODEL §4）。签名只来自
+/// 名片（`UploaderProfile`）。
 public struct VideoOwner: Sendable, Equatable {
     public let id: Int64
     public let name: String
     public let avatarURL: URL?
-    public let signature: String?
 
     public init(
         id: Int64,
         name: String,
-        avatarURL: URL? = nil,
-        signature: String? = nil
+        avatarURL: URL? = nil
     ) {
         self.id = id
         self.name = name
         self.avatarURL = avatarURL
-        self.signature = signature
     }
 }
 
@@ -41,6 +43,7 @@ public struct UploaderProfile: Sendable, Equatable {
     }
 }
 
+/// 视频的播放、弹幕与点赞计数；搜索结果没有点赞数时为 0。
 public struct VideoStatistics: Sendable, Equatable {
     public let viewCount: Int64
     public let danmakuCount: Int64
@@ -53,6 +56,10 @@ public struct VideoStatistics: Sendable, Equatable {
     }
 }
 
+/// 热门列表（`/x/web-interface/popular`）里的一条视频，由 BiliAPI 的 `PopularVideoPayload`
+/// 映射产生。
+///
+/// 映射时要求 `BV` 开头的 BVID、非空标题与非负时长；标题已解码 HTML 实体，封面已过公开 HTTPS 基线。
 public struct PopularVideo: Identifiable, Sendable, Equatable {
     public var id: String { bvid }
 
@@ -83,6 +90,8 @@ public struct PopularVideo: Identifiable, Sendable, Equatable {
     }
 }
 
+/// 热门列表的一页；`pageNumber` 与 `pageSize` 回填请求值，供浏览页确认响应属于当前请求，`hasMore`
+/// 来自 `no_more`。
 public struct PopularPage: Sendable, Equatable {
     public let videos: [PopularVideo]
     public let pageNumber: Int
@@ -102,6 +111,7 @@ public struct PopularPage: Sendable, Equatable {
     }
 }
 
+/// 首页推荐的批次游标，对应接口 `fresh_idx`，从 1 开始逐批加 1。
 public struct RecommendationContinuation: Sendable, Equatable {
     public let freshIndex: Int
 
@@ -110,6 +120,11 @@ public struct RecommendationContinuation: Sendable, Equatable {
     }
 }
 
+/// 首页推荐（`/x/web-interface/wbi/index/top/feed/rcmd`）里的一条视频，由 BiliAPI 的
+/// `RecommendationItemPayload` 映射产生。
+///
+/// 只保留普通视频（`goto` 为 av）且不带商业推广；`recommendationReason` 去掉首尾空白后为空时
+/// 是 nil。
 public struct RecommendedVideo: Identifiable, Sendable, Equatable {
     public var id: String { bvid }
 
@@ -143,6 +158,7 @@ public struct RecommendedVideo: Identifiable, Sendable, Equatable {
     }
 }
 
+/// 首页推荐的一批：本批游标回填请求值，本批没有视频时 `nextContinuation` 为 nil，不再加载更多。
 public struct RecommendationPage: Sendable, Equatable {
     public let videos: [RecommendedVideo]
     public let continuation: RecommendationContinuation
@@ -159,6 +175,10 @@ public struct RecommendationPage: Sendable, Equatable {
     }
 }
 
+/// 播放页相关推荐（`/x/web-interface/archive/related`）里的一条视频，由 BiliAPI 的
+/// `RelatedVideoPayload` 映射产生。
+///
+/// 映射时要求 12 位 `BV` 开头的 BVID、非空标题与 UP 主名、非负计数；时长缺失时为 nil。
 public struct RelatedVideo: Identifiable, Sendable, Equatable {
     public var id: String { bvid }
 
@@ -189,6 +209,11 @@ public struct RelatedVideo: Identifiable, Sendable, Equatable {
     }
 }
 
+/// 视频详情（`/x/web-interface/wbi/view`），由 BiliAPI 的 `VideoDetailPayload` 映射产生，
+/// 播放页消费。
+///
+/// 映射时拒绝非正 `aid`、非 `BV` 开头的 BVID、空标题与负时长；分 P 的 CID 与序号必须各自唯一，
+/// 并按序号排序。
 public struct VideoDetail: Identifiable, Sendable, Equatable {
     public var id: String { bvid }
 
@@ -259,6 +284,7 @@ public struct VideoAccess: Sendable, Equatable {
     }
 }
 
+/// 视频的原始宽高与旋转（接口 `dimension.rotate`），来自详情与分 P。
 public struct VideoDimension: Sendable, Equatable {
     public let width: Int
     public let height: Int
@@ -271,6 +297,9 @@ public struct VideoDimension: Sendable, Equatable {
     }
 }
 
+/// 当前 BVID 的一个分 P：`cid` 是它的身份，`index` 是从 1 开始的分 P 序号。
+///
+/// 映射时拒绝非正 CID 与序号、负时长。
 public struct VideoPage: Identifiable, Sendable, Equatable {
     public var id: Int64 { cid }
 
@@ -326,6 +355,7 @@ public struct VideoCollection: Identifiable, Sendable, Equatable {
     }
 }
 
+/// 合集 section 的身份：合集 ID 与 section ID，远端 section ID 重复时再加出现序号。
 public struct VideoCollectionSectionIdentity: Sendable, Hashable {
     public let seasonID: Int64
     public let sectionID: Int64
@@ -343,6 +373,10 @@ public struct VideoCollectionSectionIdentity: Sendable, Hashable {
     }
 }
 
+/// 合集里的一个 section 及其 episode，`ordinal` 是它在响应里的位置。
+///
+/// `isIdentityConsistent` 在 section ID 缺失或非正、两个 ID 字段冲突或所属合集不符时为 false，其下
+/// episode 一并视为不一致。
 public struct VideoCollectionSection: Identifiable, Sendable, Equatable {
     public let id: VideoCollectionSectionIdentity
     public let ordinal: Int
@@ -365,6 +399,7 @@ public struct VideoCollectionSection: Identifiable, Sendable, Equatable {
     }
 }
 
+/// 合集 episode 的身份：合集、section（含其出现序号）与 episode ID，ID 缺失或重复时再加出现序号。
 public struct VideoCollectionEpisodeIdentity: Sendable, Hashable {
     public let seasonID: Int64
     public let sectionID: Int64
@@ -389,6 +424,8 @@ public struct VideoCollectionEpisodeIdentity: Sendable, Hashable {
     }
 }
 
+/// 合集里的一集，由 BiliAPI 的 `UGCSeasonEpisodePayload` 映射产生；身份不一致的 episode 也保留，
+/// 只标记出来。
 public struct VideoCollectionEpisode: Identifiable, Sendable, Equatable {
     public let id: VideoCollectionEpisodeIdentity
     public let ordinal: Int
@@ -397,10 +434,12 @@ public struct VideoCollectionEpisode: Identifiable, Sendable, Equatable {
     public let title: String
     public let coverURL: URL?
     public let durationSeconds: Int?
+    /// 默认播放的 CID；与分 P 数据冲突时为 nil。
     public let defaultCID: Int64?
     /// `nil` 表示详情摘要没有给出分 P；空数组表示远端明确给出空列表。
     public let knownPages: [VideoPage]?
-    /// 重复身份字段冲突或缺少标题时为 false；仍保留 occurrence 供 UI 解释不可用状态。
+    /// 所属 section 不一致、身份字段互相冲突或越界、分 P 数据不合法或缺少标题时为 false；仍保留
+    /// occurrence 供 UI 解释不可用状态。
     public let isIdentityConsistent: Bool
 
     public init(
@@ -428,16 +467,15 @@ public struct VideoCollectionEpisode: Identifiable, Sendable, Equatable {
     }
 }
 
+/// 一次 playurl 的结果：DASH 或单文件媒体、请求媒体时附带的 header 与可选的账户断点。
+///
+/// 由 `BiliAPIClient` 映射产生，播放引擎消费；`mediaHeaders` 只有 Referer 与 User-Agent，不含凭据，
+/// Range 请求构造时还会去掉 `Cookie`／`Authorization`（见 SECURITY-MODEL §4）。
 public struct VideoPlayback: Sendable, Equatable {
     public let media: PlaybackMedia
     public let mediaHeaders: [String: String]
     /// 已认证 playurl 返回的账户级断点；匿名响应与异常字段保持为 nil。
     public let resumeMetadata: PlaybackResumeMetadata?
-
-    public var dashManifest: PlaybackManifest? {
-        guard case .dash(let manifest) = media else { return nil }
-        return manifest
-    }
 
     public init(
         media: PlaybackMedia,
@@ -448,21 +486,11 @@ public struct VideoPlayback: Sendable, Equatable {
         self.mediaHeaders = mediaHeaders
         self.resumeMetadata = resumeMetadata
     }
-
-    public init(
-        manifest: PlaybackManifest,
-        mediaHeaders: [String: String],
-        resumeMetadata: PlaybackResumeMetadata? = nil
-    ) {
-        self.init(
-            media: .dash(manifest),
-            mediaHeaders: mediaHeaders,
-            resumeMetadata: resumeMetadata
-        )
-    }
 }
 
 /// 账户对同一 BVID 最近播放分 P 的服务器记录；位置单位固定为毫秒。
+///
+/// 构造时拒绝非正 CID 与负位置；BiliAPI 只在已认证的 playurl 响应里给出它。
 public struct PlaybackResumeMetadata: Sendable, Equatable {
     public let lastPlayedCID: Int64
     public let positionMilliseconds: Int64
@@ -477,6 +505,11 @@ public struct PlaybackResumeMetadata: Sendable, Equatable {
     }
 }
 
+/// 视频搜索（`/x/web-interface/wbi/search/type`）里的一条结果，由 BiliAPI 的 `SearchVideoPayload`
+/// 映射产生。
+///
+/// 只保留 `BV` 开头、其余只含 ASCII 字母数字的 BVID；标题去掉高亮标签并解码 HTML 实体，
+/// 时长文本无法解析时为 nil。
 public struct SearchVideo: Identifiable, Sendable, Equatable {
     public var id: String { bvid }
 
@@ -507,6 +540,7 @@ public struct SearchVideo: Identifiable, Sendable, Equatable {
     }
 }
 
+/// 视频搜索的一页；页码、页大小与总数都来自接口，映射时拒绝非正页码与页大小、负总数。
 public struct SearchPage: Sendable, Equatable {
     public let videos: [SearchVideo]
     public let pageNumber: Int

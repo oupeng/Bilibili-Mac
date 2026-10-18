@@ -33,7 +33,9 @@ struct AVPlayerEngineFailureEventTests {
                 media: .dash(
                     PlaybackManifest(
                         videoRepresentations: [fixture.video],
-                        originalAudioRepresentations: [fixture.audio]
+                        audioTracks: [
+                            .original(representations: [fixture.audio], loudnessMetadata: nil)
+                        ]
                     )
                 )
             ),

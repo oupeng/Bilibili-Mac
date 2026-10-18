@@ -167,8 +167,11 @@ def verify_app(app, state, notarized=True):
     require((info['CFBundleIdentifier'], info['CFBundleShortVersionString'], int(info['CFBundleVersion']), info['LSMinimumSystemVersion']) ==
             (BUNDLE, state['version'], state['build'], '15.0'), 'App 版本/身份/最低系统错误')
     require(info.get('SUPublicEDKey') == CONFIG['publicEDKey'] and info.get('SUFeedURL') == FEED, '更新公钥或 URL 错误')
-    require(all(info.get(k) is True for k in ('BiliKitUpdaterEnabled', 'SURequireSignedFeed', 'SUVerifyUpdateBeforeExtraction'))
-            and info.get('SUSignedFeedFailureExpirationInterval') == 0, '更新强制验签配置错误')
+    # 与 AppUpdater.hasValidConfiguration 核对同一组 Sparkle 键（SECURITY-MODEL §7），缺键或放宽的发布件不放行。
+    require(all(info.get(k) is True for k in ('BiliKitUpdaterEnabled', 'SURequireSignedFeed', 'SUVerifyUpdateBeforeExtraction',
+                                               'SUEnableInstallerLauncherService'))
+            and all(info.get(k) is False for k in ('SUEnableDownloaderService', 'SUEnableSystemProfiling'))
+            and info.get('SUSignedFeedFailureExpirationInterval') == 0, '更新验签或 Sparkle 安全配置错误')
     run('codesign', '--verify', '--deep', '--strict', app)
     binaries = []
     for path in sorted(app.rglob('*')):

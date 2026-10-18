@@ -2,12 +2,14 @@ import BiliModels
 import BiliNetworking
 import Foundation
 
+/// 从音频 init 读出的 HLS `CHANNELS`、`BIT-DEPTH`、`SAMPLE-RATE` 属性值。
 struct AudioFormatMetadata: Sendable, Equatable {
     let channelCount: Int
     let bitDepth: Int
     let sampleRate: Int
 }
 
+/// 音频 init 无法解析或取值不合理；调用方不输出相应属性，播放照常。
 enum AudioFormatMetadataParserError: Error, Sendable, Equatable {
     case initializationTooLarge
     case malformedBoxStructure
@@ -18,6 +20,7 @@ enum AudioFormatMetadataParserError: Error, Sendable, Equatable {
 
 /// 从有界 fMP4 initialization 的 `mp4a` sample entry 读取 HLS 音频格式属性。
 struct AudioFormatMetadataParser: Sendable {
+    /// 音频 init 区间上限，超出时不发请求，见 SECURITY-MODEL §4。
     static let maximumInitializationByteCount = 2 * 1_024 * 1_024
 
     func parse(_ data: Data) throws -> AudioFormatMetadata {
@@ -266,6 +269,7 @@ struct AudioFormatMetadataLoader: Sendable {
             throw AudioFormatMetadataParserError.initializationTooLarge
         }
         let response = try await rangeClient.fetch(
+            // 只向 SIDX 成功的那个来源读 init，不跨来源拼字节。
             from: [sourceURL],
             range: range,
             headers: headers,

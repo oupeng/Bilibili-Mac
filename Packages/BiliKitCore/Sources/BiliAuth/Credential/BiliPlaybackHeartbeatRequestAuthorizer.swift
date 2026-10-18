@@ -1,11 +1,16 @@
 import BiliNetworking
 import Foundation
 
-/// 只授权 V1 唯一账户写能力，并在 `BiliAuth` 内注入最小 Cookie 与 CSRF。
+/// 只授权唯一的账户写能力（观看进度 heartbeat），并在 `BiliAuth` 内注入最小 Cookie 与 CSRF。
+///
+/// 请求的 method、host、path、header 集合、query 与表单字段按固定 schema 逐项校验并交叉核对，
+/// 只附加 `SESSDATA`，`bili_jct` 作为表单 `csrf` 注入；不得泛化给其他写请求
+/// （见 SECURITY-MODEL §3）。
 public struct BiliPlaybackHeartbeatRequestAuthorizer: HTTPRequestAuthorizing,
     Sendable
 {
     private static let allowedPath = "/x/click-interface/web/heartbeat"
+    /// 表单正文上限：固定 schema 的字段远小于 2 KiB，超出说明请求构造有误，直接拒绝。
     private static let maximumBodySize = 2 * 1_024
     private static let userAgent = HTTPUserAgent.browserCompatible
     private static let requiredQueryNames: Set<String> = [
@@ -28,11 +33,13 @@ public struct BiliPlaybackHeartbeatRequestAuthorizer: HTTPRequestAuthorizing,
         store = KeychainWebCredentialStore()
     }
 
+    /// Keychain 边界；`init()` 由此接入 Keychain store。
     init(store: any WebCredentialStoring) {
         self.store = store
     }
 
     public func authorize(_ request: HTTPRequest) async throws -> HTTPRequest {
+        // 任一校验不通过都按 `requestNotAllowed` 拒绝，不尝试修正请求，见 SECURITY-MODEL §3。
         guard Self.isAllowedRequest(request),
             let body = request.body,
             body.count <= Self.maximumBodySize,
@@ -192,6 +199,8 @@ public struct BiliPlaybackHeartbeatRequestAuthorizer: HTTPRequestAuthorizing,
         return fields
     }
 
+    /// query 里经 WBI 签名的 `w_*` 字段必须与表单对应字段逐一相等（含可选的视频时长），
+    /// 签名与实际上报的事实不能不一致。
     private static func matchesSignedFacts(
         body: [String: String],
         query: [String: String]
@@ -209,6 +218,8 @@ public struct BiliPlaybackHeartbeatRequestAuthorizer: HTTPRequestAuthorizing,
             && body["video_duration"] == query["w_video_duration"]
     }
 
+    /// Referer 必须与表单 `refer_url` 相同，且是不带 query 的
+    /// `https://www.bilibili.com/video/BV…/`。
     private static func hasMatchingReferer(
         _ headers: [String: String],
         body: [String: String]

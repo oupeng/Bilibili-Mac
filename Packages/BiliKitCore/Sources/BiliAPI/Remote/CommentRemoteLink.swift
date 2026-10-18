@@ -1,4 +1,5 @@
 import BiliModels
+import BiliNetworking
 import Foundation
 
 /// 评论 `jump_url` 的一项：键是正文里被替换的文字，值给出去向。
@@ -73,9 +74,11 @@ struct CommentJumpURLPayload: Decodable, Sendable {
     }
 }
 
-/// 把评论链接地址分成站内视频、UP 主空间与其他 HTTPS 外链。
+/// 把评论与简介里的链接地址分成站内视频、UP 主空间、b23.tv 短链与其他 HTTPS 外链。
 ///
-/// 站内目标按未解码的 host 与 path 精确匹配，不带端口；形状不符时不猜测，按外链处理。
+/// 只接受 HTTPS 且不带 userinfo 的地址（协议相对地址补 `https:`）。站内目标按未解码的 host 与 path
+/// 精确匹配，不带端口；BVID 原样校验或由 av 号本地换算，空间只认正整数 MID；形状不符时不猜测，
+/// 按外链处理（见 SECURITY-MODEL §4）。
 enum CommentRemoteLink {
     /// 视频页所在的主机：桌面版、手机版与不带 `www` 的裸域。
     private static let videoHosts: Set<String> = [
@@ -87,7 +90,8 @@ enum CommentRemoteLink {
 
     /// 短链主机；`bili2233.cn` 等其他短链域名不认，按外链处理。
     private static let shortLinkHost = "b23.tv"
-    /// 短码只允许 ASCII 字母与数字，长度有上限。
+    /// 短码只允许 ASCII 字母与数字，长度 1–16；调大会让更长的路径也被当作短链发出 `HEAD`，
+    /// 形状不符的按外链处理。
     private static let maximumShortLinkCodeLength = 16
 
     static func target(_ value: String?) -> CommentLinkTarget? {
@@ -103,6 +107,8 @@ enum CommentRemoteLink {
     }
 
     /// 合规短链的请求地址：只保留 `https://b23.tv/{短码}`，去掉 query 与 fragment；形状不符时为 nil。
+    ///
+    /// 由 `BiliShortLinkResolver` 在发出无凭据 `HEAD` 前调用（见 SECURITY-MODEL §4）。
     static func shortLinkRequestURL(_ url: URL) -> URL? {
         URLComponents(url: url, resolvingAgainstBaseURL: false).flatMap(shortLinkURL)
     }

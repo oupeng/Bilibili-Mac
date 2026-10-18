@@ -1,7 +1,10 @@
 import BiliApplication
 import BiliModels
+import BiliNetworking
 import Foundation
 
+/// 热门（`/x/web-interface/popular`）的 `data`，由 `BiliAPIClient.popular` 映射为 `PopularPage`；
+/// `no_more` 决定是否还有下一页。
 struct PopularPayload: Decodable, Sendable {
     let list: [PopularVideoPayload]
     let noMore: Bool
@@ -12,6 +15,8 @@ struct PopularPayload: Decodable, Sendable {
     }
 }
 
+/// 热门列表的一项，映射为 `PopularVideo`；BVID 不以 `BV` 开头、标题为空或时长、
+/// 发布时间为负时整页失败。
 struct PopularVideoPayload: Decodable, Sendable {
     let bvid: String
     let title: String
@@ -37,6 +42,10 @@ struct PopularVideoPayload: Decodable, Sendable {
     }
 }
 
+/// 相关推荐（`/x/web-interface/archive/related`，`data` 直接是数组）的一项，由
+/// `BiliAPIClient.relatedVideos` 映射为 `RelatedVideo`。
+///
+/// 任一项缺字段、BVID 不是 12 位 `BV…`、UP 主昵称为空或计数为负时整个列表失败。
 struct RelatedVideoPayload: Decodable, Sendable {
     let bvid: String?
     let title: String?
@@ -72,15 +81,19 @@ struct RelatedVideoPayload: Decodable, Sendable {
     }
 }
 
+/// 相关推荐里的 UP 主，只取昵称。
 struct RelatedVideoOwnerPayload: Decodable, Sendable {
     let name: String
 }
 
+/// 相关推荐里的播放数与弹幕数。
 struct RelatedVideoStatisticsPayload: Decodable, Sendable {
     let view: Int64
     let danmaku: Int64
 }
 
+/// 热门、推荐与视频详情共用的 UP 主：MID、昵称与头像，映射为 `VideoOwner`；头像地址经
+/// `WebImageURL` 规范，不合规时视为没有头像。
 struct OwnerPayload: Decodable, Sendable {
     let mid: Int64
     let name: String
@@ -95,10 +108,15 @@ struct OwnerPayload: Decodable, Sendable {
     }
 }
 
+/// UP 主名片（`/x/web-interface/card`）的 `data`，由 `BiliAPIClient.uploaderProfile` 映射为
+/// `UploaderProfile`。
 struct UploaderCardDataPayload: Decodable, Sendable {
     let card: UploaderCardPayload
 }
 
+/// 名片的 `card`：MID、昵称、头像、签名与大会员状态。
+///
+/// `mid` 可能是数字或数字字符串；调用方要求它与请求的 MID 相等，否则按解码失败处理。
 struct UploaderCardPayload: Decodable, Sendable {
     let mid: Int64
     let name: String?
@@ -147,6 +165,7 @@ struct UploaderCardPayload: Decodable, Sendable {
     }
 }
 
+/// 热门、推荐与视频详情共用的播放、弹幕与点赞数，映射为 `VideoStatistics`。
 struct StatisticsPayload: Decodable, Sendable {
     let view: Int64
     let danmaku: Int64
@@ -157,6 +176,11 @@ struct StatisticsPayload: Decodable, Sendable {
     }
 }
 
+/// 视频详情（`/x/web-interface/wbi/view`）的 `data`，由 `BiliAPIClient.videoDetail` 映射为
+/// `VideoDetail`。
+///
+/// `aid` 非正、BVID 不以 `BV` 开头、标题为空、时长或发布时间为负、分 P 无效或
+/// cid／序号重复时整体失败；调用方另要求返回的 BVID 与请求一致。
 struct VideoDetailPayload: Decodable, Sendable {
     let aid: Int64?
     let bvid: String
@@ -222,6 +246,7 @@ struct VideoDetailPayload: Decodable, Sendable {
     }
 }
 
+/// 分 P：cid、序号、标题、时长与画面尺寸，映射为 `VideoPage`。
 struct PagePayload: Decodable, Sendable {
     let cid: Int64
     let page: Int
@@ -244,6 +269,11 @@ struct PagePayload: Decodable, Sendable {
     }
 }
 
+/// 视频所属合集（`ugc_season`），映射为 `VideoCollection`。
+///
+/// 各字段单独容错解码；合集 ID 或标题无效时没有合集。小节与条目的身份字段互相冲突时不丢弃，
+/// 而是标为身份不一致（`isIdentityConsistent` 为 false）供界面说明不可用；同一 ID
+/// 重复出现时用出现序号区分。
 struct UGCSeasonPayload: Decodable, Sendable {
     let id: Int64?
     let title: String?
@@ -290,6 +320,8 @@ struct UGCSeasonPayload: Decodable, Sendable {
     }
 }
 
+/// 合集的一个小节；`id` 与 `section_id` 是同一身份的两种写法，两者不一致、身份不为正或 `season_id`
+/// 与所属合集不符时标为身份不一致。
 struct UGCSeasonSectionPayload: Decodable, Sendable {
     let id: Int64?
     let sectionIDAlias: Int64?
@@ -362,6 +394,8 @@ struct UGCSeasonSectionPayload: Decodable, Sendable {
     }
 }
 
+/// 合集小节里的一集；顶层字段与 `arc`、`page`、`pages` 里重复的身份字段互相核对，
+/// 冲突时不采用冲突值并标为身份不一致。
 struct UGCSeasonEpisodePayload: Decodable, Sendable {
     let id: Int64?
     let seasonID: Int64?
@@ -466,6 +500,7 @@ struct UGCSeasonEpisodePayload: Decodable, Sendable {
     }
 }
 
+/// 合集条目的 `arc`：稿件 aid、BVID、标题、封面与时长，用于补齐或核对顶层字段。
 struct UGCSeasonEpisodeArcPayload: Decodable, Sendable {
     let aid: Int64?
     let bvid: String?
@@ -474,6 +509,7 @@ struct UGCSeasonEpisodeArcPayload: Decodable, Sendable {
     let duration: Int?
 }
 
+/// 映射分 P 列表：任一分 P 无效或 cid、序号重复时失败，结果按序号排序。
 func validatedPageModels(_ payloads: [PagePayload]) throws -> [VideoPage] {
     let pages = try payloads.map { try $0.model() }
     guard Set(pages.map(\.cid)).count == pages.count,
@@ -484,6 +520,7 @@ func validatedPageModels(_ payloads: [PagePayload]) throws -> [VideoPage] {
     return pages.sorted(by: { $0.index < $1.index })
 }
 
+/// 画面宽高与旋转标记，映射为 `VideoDimension`。
 struct DimensionPayload: Decodable, Sendable {
     let width: Int
     let height: Int

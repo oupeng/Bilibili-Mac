@@ -5,7 +5,9 @@ import Foundation
 
 /// 字幕目录与弹幕 protobuf 分段；字幕正文由 `BiliSubtitleRepository` 另行读取。
 extension BiliAPIClient {
+    /// 字幕目录只含轨道元数据与正文地址；超出按响应异常失败关闭。
     private static let maximumSubtitleCatalogSize = 1 * 1_024 * 1_024
+    /// 弹幕分段正文上限，与评论页相同，见 SECURITY-MODEL §4；超出不交给 protobuf 解码。
     private static let maximumDanmakuSegmentSize = 2 * 1_024 * 1_024
     /// 被 HTTP 412 拒绝的弹幕分段再请求一次之前的等待时长。
     ///
@@ -13,6 +15,8 @@ extension BiliAPIClient {
     /// `signedRequest` 的一次重试，不叠加。
     static let danmakuRestrictedRetryDelay: Duration = .seconds(2)
 
+    /// 字幕目录只按账户读取：未注入授权器或本地无凭据时失败为“需要登录”，不匿名降级（见
+    /// SECURITY-MODEL §3）。
     func subtitleResources(
         for identity: PlaybackItemIdentity
     ) async throws -> [SubtitleRemoteTrack] {
@@ -23,7 +27,7 @@ extension BiliAPIClient {
             throw BiliAPIError.authorizationRequired
         }
         let payload: SubtitleCatalogPayload = try await signedRequest(
-            path: "/x/player/wbi/v2",
+            path: BiliAccountReadPath.subtitleCatalog,
             parameters: {
                 [
                     "bvid": identity.bvid,
@@ -42,6 +46,10 @@ extension BiliAPIClient {
         return try payload.resources()
     }
 
+    /// 弹幕分段：有授权器时按账户读取、本地无凭据时匿名请求同一 endpoint。
+    ///
+    /// 被 HTTP 412 拒绝时等 `danmakuRestrictedRetryDelay` 后以同一授权方式再请求一次，
+    /// 不降级为匿名；弹幕会话不再叠加重试（见 SECURITY-MODEL §3）。
     func danmakuSegmentData(
         index: Int,
         for identity: PlaybackItemIdentity
@@ -53,7 +61,7 @@ extension BiliAPIClient {
             throw BiliAPIError.invalidRequest
         }
         return try await signedRequest(
-            path: "/x/v2/dm/wbi/web/seg.so",
+            path: BiliAccountReadPath.danmakuSegment,
             intermittentRestrictionRetryDelay: Self.danmakuRestrictedRetryDelay,
             parameters: {
                 [
@@ -69,6 +77,10 @@ extension BiliAPIClient {
     }
 
     /// 一次签好的分段请求：protobuf 正文不走 JSON envelope 管线，JSON／HTML 错误体在这里识别。
+    ///
+    /// 正文须非空、`Content-Type` 为 octet-stream 且不像 JSON 或 HTML，才原样交给 protobuf 解码；
+    /// JSON 错误体只读状态码（-101 与 JSON 管线同一判定），其余一律 `nonProtobufResponse`，
+    /// 不互相降级解析。见 SECURITY-MODEL §4。
     private func signedDanmakuSegment(url: URL, referer: String) async throws -> Data {
         let access: RequestAccess =
             hasAccountAuthorizer

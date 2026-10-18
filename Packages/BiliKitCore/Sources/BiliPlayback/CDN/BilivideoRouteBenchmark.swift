@@ -1,7 +1,9 @@
+import BiliApplication
 import BiliModels
 import BiliNetworking
 import Foundation
 
+/// 测速目标：服务端原始的 Akamai 地址，或把服务端 bilivideo 地址的 host 换成某个固定镜像。
 public enum PlaybackRouteTarget: Sendable, Equatable, Hashable, CaseIterable {
     case serverAkamai
     case bilivideo(BilivideoRoute)
@@ -18,13 +20,15 @@ public enum PlaybackRouteTarget: Sendable, Equatable, Hashable, CaseIterable {
     }
 }
 
+/// 一个目标在本轮测速的汇总结果；只交给当前 Settings 窗口显示，不持久化（见
+/// docs/ARCHITECTURE.md「播放线路偏好与测速」）。
 public struct PlaybackRouteMeasurement: Sendable, Equatable {
     public let target: PlaybackRouteTarget
-    /// Harmonic mean of successful per-sample conservative throughputs.
+    /// 各次成功样本的保守吞吐（该样本各探测区间中的最小值）的调和平均。
     public let effectiveBitsPerSecond: Double?
     public let minimumBitsPerSecond: Double?
     public let medianBitsPerSecond: Double?
-    /// Anonymous per-sample values, sorted from slowest to fastest.
+    /// 各次成功样本的吞吐，不带样本身份，从慢到快排序。
     public let sampleBitsPerSecond: [Double]
     public let successfulRuns: Int
     public let totalRuns: Int
@@ -50,6 +54,8 @@ public struct PlaybackRouteMeasurement: Sendable, Equatable {
     public var succeeded: Bool { effectiveBitsPerSecond != nil }
 }
 
+/// 一个测速样本：作为模板的视频 representation（含服务端给的 Akamai 与 bilivideo 地址）及其请求
+/// header。
 public struct PlaybackRouteBenchmarkSample: Sendable, Equatable {
     public let template: MediaRepresentation
     public let headers: [String: String]
@@ -60,12 +66,15 @@ public struct PlaybackRouteBenchmarkSample: Sendable, Equatable {
     }
 }
 
+/// 测速无法进行：样本缺少 Akamai 或 bilivideo 地址、权威探测区间不合规，或样本数不在支持范围内。
 public enum BilivideoRouteBenchmarkError: Error, Sendable, Equatable {
     case incompleteCandidatePool
     case invalidProbeRange
     case invalidRepetitionCount(Int)
 }
 
+/// 服务端原始 bilivideo 地址读出的权威 SIDX、完整长度与本样本要测的分段区间；
+/// 候选必须与之一致才计入。
 private struct CanonicalProbe: Sendable {
     let index: SegmentIndex
     let completeLength: Int64
@@ -82,14 +91,25 @@ private struct RouteProbeResult<Target: Hashable & Sendable>: Sendable {
     let totalRuns: Int
 }
 
+/// 线路测速：对每个样本先取权威 SIDX，再串行测量全部 `PlaybackRouteTarget` 的吞吐，
+/// 按成功率与吞吐排序。
+///
+/// 由进程级组装持有，只在已登录用户显式点击后运行，结果从不自动改选（见
+/// docs/ARCHITECTURE.md「播放线路偏好与测速」）。不保存跨调用的状态：每次测速新建无凭据 session，
+/// 结束时 invalidate；取消原样传播。候选测量的失败只记为该候选在这个样本上失败；
+/// 权威 SIDX 读取失败或探测区间不合规则让整次测速失败。
 public actor BilivideoRouteBenchmark {
+    /// 每个样本、每个候选的媒体流量上限（init 加探测分段）。
+    ///
+    /// 调大测得更稳，但整轮流量随目标数与样本数成倍增加；调小可能凑不够两个分段，
+    /// 整次测速以 `invalidProbeRange` 失败。
     public static let maximumMediaProbeBytes: UInt64 = 10 * 1_024 * 1_024
+    /// SIDX 区间上限：超出时不发请求，整次测速以 `invalidProbeRange` 失败。
     public static let maximumIndexBytes: UInt64 = 256 * 1_024
     /// 测速样本最多 `maximumMediaProbeBytes`：10 秒无数据即判该候选失败（卡顿这么久的线路不适合播放），
     /// 30 秒总时限防止单个样本拖住整轮测速；调大让坏候选拖慢测速，调小会把慢但可用的线路误判失败。
     public static let requestTimeout: TimeInterval = 10
     public static let resourceTimeout: TimeInterval = 30
-    public static let supportedRepetitions = 1...3
 
     private let makeRangeFetcher: @Sendable () -> any HTTPBoundedRangeFetching
 
@@ -102,19 +122,21 @@ public actor BilivideoRouteBenchmark {
         }
     }
 
+    /// CDN Range 网络边界；`init()` 每轮新建有界 Range client。
     init(rangeFetcher: any HTTPBoundedRangeFetching) {
         makeRangeFetcher = { rangeFetcher }
     }
 
-    /// Measures distinct anonymous samples once each.
+    /// 每个样本测一次，样本之间与样本内的各目标都串行测量。
     ///
-    /// The original bilivideo URL establishes
-    /// canonical SIDX truth; the 19 measured targets then share one credential-free session.
+    /// 先用服务端原始 bilivideo 地址经单独的 session 读出权威 SIDX 与完整长度，再让全部目标共用
+    /// 一个无凭据 session 依次测量；SIDX 或完整长度与权威不一致的候选记为失败。每个样本把目标顺序
+    /// 轮转一段，各目标不总在同一位置被测。
     public func benchmarkUnifiedPool(
         samples: [PlaybackRouteBenchmarkSample],
-        progress: @escaping @Sendable (Int, Int) async -> Void = { _, _ in }
+        progress: @escaping @Sendable (Int, Int) async -> Void
     ) async throws -> [PlaybackRouteMeasurement] {
-        guard Self.supportedRepetitions.contains(samples.count) else {
+        guard PlaybackRouteBenchmarkPolicy.supportedSampleCounts.contains(samples.count) else {
             throw BilivideoRouteBenchmarkError.invalidRepetitionCount(samples.count)
         }
         let targets = PlaybackRouteTarget.allCases
@@ -159,21 +181,6 @@ public actor BilivideoRouteBenchmark {
                 totalRuns: $0.totalRuns
             )
         }
-    }
-
-    public func benchmarkUnifiedPool(
-        template: MediaRepresentation,
-        headers: [String: String],
-        repetitions: Int = 1,
-        progress: @escaping @Sendable (Int, Int) async -> Void = { _, _ in }
-    ) async throws -> [PlaybackRouteMeasurement] {
-        try await benchmarkUnifiedPool(
-            samples: Array(
-                repeating: PlaybackRouteBenchmarkSample(template: template, headers: headers),
-                count: repetitions
-            ),
-            progress: progress
-        )
     }
 
     private func probeSample<Target: Hashable & Sendable>(
@@ -307,6 +314,8 @@ public actor BilivideoRouteBenchmark {
         )
     }
 
+    /// 先取首、尾、中间与四分位处的分段，再按顺序补足，总量不超过 `maximumBytes`；
+    /// 不足两个分段时整次测速以 `invalidProbeRange` 失败。
     private func spreadProbeRanges(
         _ references: [SegmentReference],
         completeLength: Int64,
@@ -377,6 +386,7 @@ public actor BilivideoRouteBenchmark {
         return url
     }
 
+    /// 汇总各目标的样本并排序：成功比例高的在前，其次比调和平均吞吐、最小吞吐，最后保持目标原顺序。
     private func aggregate<Target: Hashable & Sendable>(
         _ values: [Target: [Double]],
         totalRuns: Int,

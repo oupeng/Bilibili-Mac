@@ -2,118 +2,79 @@ import BiliApplication
 import BiliAuthFeature
 import BiliBrowseFeature
 import BiliLibraryFeature
+import BiliVideoCollectionUI
 import SwiftUI
 
+/// 首页推荐来源的 App 接线：呈现与原生网格在 Browse 的 `RecommendedFeedView`，这里只转交窗口级网格依赖
+/// （`AppShellView` 构造的 `NativeVideoGridHostContext`）和标题。
 struct RecommendedTabRoot: View {
+    let title: LocalizedStringResource
     let model: BrowseViewModel
-    @Binding var scrollOffsetY: CGFloat
-    @Binding var scrollReset: NativeVideoGridScrollResetState
-    let imagePipeline: NativeVideoImagePipeline
+    let gridHost: NativeVideoGridHostContext
     let onSelect: (String) -> Void
 
     var body: some View {
         RecommendedFeedView(
             model: model,
-            makeLoadedContent: { content in
-                RecommendedNativeGridView(
-                    content: content,
-                    scrollOffsetY: $scrollOffsetY,
-                    scrollReset: $scrollReset,
-                    imagePipeline: imagePipeline
-                )
-                .ignoresSafeArea(.container, edges: .top)
-            },
+            gridHost: gridHost,
             onSelect: onSelect
         )
-        .navigationTitle("首页")
+        .navigationTitle(Text(title))
     }
 }
 
+/// 热门来源的 App 接线：呈现与原生网格在 Browse 的 `PopularFeedView`，这里只转交窗口级网格依赖和标题。
 struct PopularTabRoot: View {
+    let title: LocalizedStringResource
     let model: BrowseViewModel
-    @Binding var scrollOffsetY: CGFloat
-    @Binding var scrollReset: NativeVideoGridScrollResetState
-    let imagePipeline: NativeVideoImagePipeline
+    let gridHost: NativeVideoGridHostContext
     let onSelect: (String) -> Void
 
     var body: some View {
         PopularFeedView(
             model: model,
-            makeLoadedContent: { content in
-                PopularNativeGridView(
-                    content: content,
-                    scrollOffsetY: $scrollOffsetY,
-                    scrollReset: $scrollReset,
-                    imagePipeline: imagePipeline
-                )
-                .ignoresSafeArea(.container, edges: .top)
-            },
+            gridHost: gridHost,
             onSelect: onSelect
         )
-        .navigationTitle("热门")
+        .navigationTitle(Text(title))
     }
 }
 
+/// 搜索来源的 App 接线：起始页、结果呈现与原生网格在 Browse 的 `VideoSearchView`，草稿、筛选与提交在 Browse 的
+/// `VideoSearchSession`；这里转交窗口级网格依赖，用热搜模型、窗口图片管线（实现热搜图标 port）与进程级搜索历史
+/// 构造起始页输入，并宿主绑定会话的工具栏搜索框（AppKit）与排序、筛选控件。
 struct SearchTabRoot: View {
-    @Binding var filterSelection: SearchFilterSelection
+    let title: LocalizedStringResource
+    @Bindable var session: VideoSearchSession
     let model: BrowseViewModel
-    @Binding var searchDraft: String
-    let submittedSearchCriteria: VideoSearchCriteria?
-    @Binding var scrollOffsetY: CGFloat
-    @Binding var scrollReset: NativeVideoGridScrollResetState
+    let gridHost: NativeVideoGridHostContext
     let imagePipeline: NativeVideoImagePipeline
-    let trendingSearchModel: TrendingSearchViewModel?
-    let searchHistory: SearchHistoryStore?
-    let searchSuggestionSource: SearchSuggestionSource?
+    let trendingSearchModel: TrendingSearchViewModel
+    let searchHistory: SearchHistoryStore
+    let searchSuggestionSource: SearchSuggestionSource
     let onSelect: (String) -> Void
-    let onSubmit: () -> Void
-    let onSearchKeyword: (String) -> Void
-    let onSelectOrder: (VideoSearchOrder) -> Void
-    let onApplyFilters: (SearchFilterSelection) -> Void
-    let onClearFilters: () -> Void
 
     var body: some View {
         VideoSearchView(
             model: model,
-            submittedSearchCriteria: submittedSearchCriteria,
-            hasActiveFilters: filterSelection.activeFilterCount > 0,
-            makeLoadedContent: { content in
-                SearchNativeGridView(
-                    content: content,
-                    scrollOffsetY: $scrollOffsetY,
-                    scrollReset: $scrollReset,
-                    imagePipeline: imagePipeline
-                )
-                .ignoresSafeArea(.container, edges: .top)
-            },
+            submittedSearchCriteria: session.submittedCriteria,
+            hasActiveFilters: session.filterSelection.activeFilterCount > 0,
+            gridHost: gridHost,
+            startPageContext: startPageContext,
             onSelect: onSelect,
-            onClearFilters: onClearFilters,
-            startContent: {
-                if let trendingSearchModel {
-                    SearchStartView(
-                        history: searchHistory?.entries ?? [],
-                        trendingModel: trendingSearchModel,
-                        onSearch: onSearchKeyword,
-                        onRemoveHistory: { searchHistory?.remove($0) },
-                        onClearHistory: { searchHistory?.clear() },
-                        makeTrendingIcon: { url in
-                            TrendingSearchIconView(url: url, imagePipeline: imagePipeline)
-                        }
-                    )
-                }
-            }
+            onClearFilters: session.clearFilters
         )
-        .navigationTitle("搜索")
+        .navigationTitle(Text(title))
         .toolbar(removing: .title)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 ToolbarSearchField(
-                    text: $searchDraft,
+                    text: $session.draft,
                     prompt: AppStrings.localized("搜索 B 站视频"),
-                    history: { searchHistory?.entries ?? [] },
+                    history: { searchHistory.entries },
                     suggestionSource: searchSuggestionSource,
-                    onSubmit: onSubmit,
-                    onSelectSuggestion: onSearchKeyword
+                    onSubmit: session.submit,
+                    onSelectSuggestion: session.search(keyword:)
                 )
                 .frame(
                     minWidth: ToolbarSearchFieldLayout.minimumWidth,
@@ -123,91 +84,45 @@ struct SearchTabRoot: View {
             }
             ToolbarItemGroup(placement: .primaryAction) {
                 SearchToolbarControls(
-                    selection: $filterSelection,
-                    onSelectOrder: onSelectOrder,
-                    onApplyFilters: onApplyFilters
+                    selection: $session.filterSelection,
+                    onSelectOrder: session.selectOrder,
+                    onApplyFilters: session.applyFilters
                 )
             }
         }
     }
+
+    /// 历史以读取闭包交出，只在起始页里求值，这里不读 `entries`。
+    private var startPageContext: SearchStartPageContext {
+        SearchStartPageContext(
+            trendingModel: trendingSearchModel,
+            iconLoader: imagePipeline,
+            history: { searchHistory.entries },
+            onSearch: session.search(keyword:),
+            onRemoveHistory: { searchHistory.remove($0) },
+            onClearHistory: { searchHistory.clear() }
+        )
+    }
 }
 
+/// 观看历史来源的 App 接线：登录门槛、刷新、加载语义与原生网格在 Library 的 `WatchHistoryView`，这里只转交
+/// 账户呈现状态、窗口级网格依赖、标题与打开登录页的动作。
 struct HistoryTabRoot: View {
+    let title: LocalizedStringResource
     let model: WatchHistoryViewModel
     let accountState: AccountPresentationState
-    @Binding var scrollOffsetY: CGFloat
-    @Binding var scrollReset: NativeVideoGridScrollResetState
-    let imagePipeline: NativeVideoImagePipeline
+    let gridHost: NativeVideoGridHostContext
     let onSelect: (String) -> Void
     let onPresentAuthentication: () -> Void
 
     var body: some View {
-        content
-            .navigationTitle("观看历史")
-            .toolbar {
-                if case .signedIn = accountState {
-                    ToolbarItem(placement: .primaryAction) {
-                        HistoryRefreshButton(model: model)
-                    }
-                }
-            }
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        switch accountState {
-        case .signedIn:
-            WatchHistoryView(
-                model: model,
-                makeLoadedContent: { content in
-                    HistoryNativeGridView(
-                        content: content,
-                        scrollOffsetY: $scrollOffsetY,
-                        scrollReset: $scrollReset,
-                        imagePipeline: imagePipeline
-                    )
-                    .ignoresSafeArea(.container, edges: .top)
-                },
-                onSelect: onSelect
-            )
-        case .signedOut:
-            ContentUnavailableView {
-                Label("登录后查看观看历史", systemImage: "person.crop.circle")
-            } description: {
-                Text("观看历史只在登录期间加载，不会保存到本机。")
-            } actions: {
-                Button("登录", action: onPresentAuthentication)
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityHint("打开扫码登录")
-            }
-        case .resolving:
-            ProgressView("正在检查登录状态…")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case .unavailable:
-            ContentUnavailableView {
-                Label(
-                    "暂时无法确认登录状态",
-                    systemImage: "person.crop.circle.badge.exclamationmark"
-                )
-            } description: {
-                Text("本机登录状态没有被自动清除，请在账号页面重试。")
-            } actions: {
-                Button("查看账号状态", action: onPresentAuthentication)
-                    .buttonStyle(.borderedProminent)
-            }
-        }
-    }
-}
-
-struct HistoryRefreshButton: View {
-    let model: WatchHistoryViewModel
-
-    var body: some View {
-        Button {
-            model.reload()
-        } label: {
-            Label("刷新", systemImage: "arrow.clockwise")
-        }
-        .disabled(model.isBusy)
+        WatchHistoryView(
+            model: model,
+            accountState: accountState,
+            gridHost: gridHost,
+            onSelect: onSelect,
+            onPresentAuthentication: onPresentAuthentication
+        )
+        .navigationTitle(Text(title))
     }
 }

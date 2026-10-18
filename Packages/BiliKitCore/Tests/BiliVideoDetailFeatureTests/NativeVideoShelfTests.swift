@@ -1,0 +1,200 @@
+import AppKit
+import BiliVideoCollectionUI
+import Foundation
+import Testing
+
+@testable import BiliVideoDetailFeature
+
+/// 相关推荐横排按页滚动并露出下一张，视口通知推迟到布局之后；拆除时清掉横排里的第一响应者，键盘激活按稳定 ID
+/// 找卡片、不依赖可见项实例；换视频时整体替换并作废旧的封面请求。
+struct NativeVideoShelfTests {
+    @Test
+    @MainActor
+    func pagingGeometryPreservesPeekAndNarrowWindowCapacity() {
+        #expect(NativeVideoShelfGeometry.pageCapacity(viewportWidth: 784) == 3)
+        #expect(NativeVideoShelfGeometry.pageCapacity(viewportWidth: 260) == 1)
+        #expect(NativeVideoShelfGeometry.offset(for: 3) == 720)
+        #expect(NativeVideoShelfGeometry.nearestIndex(offset: 370, itemCount: 8) == 2)
+        #expect(NativeVideoShelfGeometry.documentWidth(itemCount: 0) == 0)
+        #expect(NativeVideoShelfGeometry.documentWidth(itemCount: 3) == 784)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func viewportAndInsetNotificationsAreDeferredBeyondTheCurrentLayoutPass() async {
+        let scrollView = NativeVideoShelfScrollView(
+            frame: NSRect(x: 0, y: 0, width: 900, height: 232)
+        )
+        scrollView.install(collectionView: NSCollectionView())
+        let (notifications, continuation) = AsyncStream<Void>.makeStream()
+        var notificationCount = 0
+        scrollView.onViewportLayout = {
+            notificationCount += 1
+            continuation.yield()
+        }
+        var iterator = notifications.makeAsyncIterator()
+
+        scrollView.layoutSubtreeIfNeeded()
+
+        #expect(notificationCount == 0)
+        _ = await iterator.next()
+        #expect(notificationCount == 1)
+
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentInsets = NSEdgeInsets(
+            top: 0,
+            left: 120,
+            bottom: 0,
+            right: 0
+        )
+        scrollView.layout()
+
+        #expect(notificationCount == 1)
+        _ = await iterator.next()
+        continuation.finish()
+        #expect(notificationCount == 2)
+        scrollView.reset()
+    }
+
+    @Test
+    @MainActor
+    func teardownClearsAnyFirstResponderInsideTheShelf() {
+        let scrollView = NativeVideoShelfScrollView()
+        let focusView = NativeVideoShelfFocusViewForTesting()
+        scrollView.addSubview(focusView)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 300),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = scrollView
+
+        #expect(window.makeFirstResponder(focusView))
+        #expect(window.firstResponder === focusView)
+
+        scrollView.clearFirstResponderIfNeeded()
+
+        #expect(window.firstResponder !== focusView)
+        window.contentView = NSView()
+    }
+
+    @Test
+    @MainActor
+    func keyboardActivationResolvesStableIDWithoutVisibleItemInstance() {
+        let selected = NativeVideoShelfCollectionView.selectedItemID(
+            selectionIndexPaths: [IndexPath(item: 7, section: 0)],
+            itemIDAtIndex: { index in index == 7 ? "BV-stable" : nil }
+        )
+
+        #expect(selected == "BV-stable")
+    }
+
+    /// 父视频变了即使 ID 序列相同也整体替换：旧卡片的在途封面请求被取消，横排回到起点后重新配置可见卡片。
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func parentVideoChangeReplacesContentEvenWithTheSameIDs() async {
+        let loader = NativeVideoShelfPendingImageLoader()
+        var events = loader.events.makeAsyncIterator()
+        let items = (0..<12).map { index in
+            NativeVideoCardPresentation(
+                id: "BV-\(index)",
+                title: "相关推荐 \(index)",
+                coverURL: URL(string: "https://i0.hdslb.com/bfs/archive/\(index).jpg"),
+                avatarURL: nil,
+                showsAvatar: false,
+                footerLeadingText: "作者",
+                accessibilityLabel: "相关推荐 \(index)"
+            )
+        }
+        let coordinator = NativeVideoShelfView.Coordinator(
+            contentIdentity: "BV-parent-a",
+            items: items,
+            imagePipeline: loader,
+            reduceMotion: true,
+            isInteractionEnabled: true,
+            onSelect: { _ in }
+        )
+        let scrollView = coordinator.makeScrollView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 300),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = scrollView
+        defer {
+            coordinator.reset()
+            window.contentView = NSView()
+        }
+        scrollView.layoutSubtreeIfNeeded()
+
+        // 首张开始加载的封面属于视野内的卡片；只滚动半张卡片的距离，它仍在视野内。
+        guard case .started(let visibleCoverURL)? = await events.next() else {
+            Issue.record("横排没有为可见卡片发起封面请求")
+            return
+        }
+        scrollView.scrollHorizontally(to: NativeVideoShelfGeometry.stride / 2, animated: false)
+        #expect(Self.logicalOffset(of: scrollView) > 0)
+
+        coordinator.update(
+            contentIdentity: "BV-parent-b",
+            items: items,
+            reduceMotion: true,
+            isInteractionEnabled: true,
+            onSelect: { _ in }
+        )
+
+        // 快照完成后重配可见卡片会为同一张封面重新发起请求；先要看到旧请求被取消。
+        var cancelledVisibleCover = false
+        while let event = await events.next() {
+            if event == .cancelled(visibleCoverURL) { cancelledVisibleCover = true }
+            if cancelledVisibleCover, event == .started(visibleCoverURL) { break }
+        }
+        #expect(cancelledVisibleCover)
+        #expect(Self.logicalOffset(of: scrollView) == 0)
+    }
+
+    @MainActor
+    private static func logicalOffset(of scrollView: NSScrollView) -> CGFloat {
+        NativeVideoScrollCoordinateSpace.logicalOffset(
+            physicalOffset: scrollView.contentView.bounds.origin.x,
+            leadingInset: scrollView.contentInsets.left
+        )
+    }
+}
+
+/// 永不完成的取图替身：每次加载记一条“开始”，被取消时记一条“取消”，用来观察卡片的在途请求。
+private final class NativeVideoShelfPendingImageLoader: NativeVideoImageLoading {
+    enum Event: Equatable {
+        case started(URL)
+        case cancelled(URL)
+    }
+
+    let events: AsyncStream<Event>
+    private let continuation: AsyncStream<Event>.Continuation
+
+    init() {
+        (events, continuation) = AsyncStream.makeStream()
+    }
+
+    func cachedImage(for url: URL, kind: NativeVideoCardImageKind) -> CGImage? {
+        nil
+    }
+
+    func image(for url: URL, kind: NativeVideoCardImageKind) async -> NativeVideoCardImage? {
+        continuation.yield(.started(url))
+        await withTaskCancellationHandler {
+            // 只为挂起到被取消，时长不参与判断。
+            try? await Task.sleep(for: .seconds(3_600))
+        } onCancel: {
+            continuation.yield(.cancelled(url))
+        }
+        return nil
+    }
+}
+
+@MainActor
+private final class NativeVideoShelfFocusViewForTesting: NSView {
+    override var acceptsFirstResponder: Bool { true }
+}

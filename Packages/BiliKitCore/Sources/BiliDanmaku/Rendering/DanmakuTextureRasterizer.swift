@@ -4,6 +4,7 @@ import BiliModels
 import CoreText
 import Foundation
 
+/// 决定纹理像素的全部输入，也是纹理缓存的 key；由 `DanmakuTextureRasterizer.key` 归一化后生成。
 struct DanmakuTextureCacheKey: Hashable, Sendable {
     let text: String
     let fontSize: Double
@@ -12,6 +13,10 @@ struct DanmakuTextureCacheKey: Hashable, Sendable {
     let backingScale: Double
 }
 
+/// 栅格化好的不可变像素：sRGB、预乘 alpha、按字节 RGBA 排列，由 renderer 在 MainActor 上包成
+/// `CGImage`。
+///
+/// `byteCost` 计入缓存与已上屏纹理的字节上限；`metrics` 是含留白的 point 尺寸。
 struct DanmakuTexturePayload: Sendable, Equatable {
     let pixels: Data
     let widthPixels: Int
@@ -29,19 +34,41 @@ struct DanmakuTexturePayload: Sendable, Equatable {
     }
 }
 
+/// 把一条弹幕栅格化为带描边与阴影的纹理：Core Text 排版，vImage 生成描边与阴影，最后按预乘 alpha
+/// 合成。
+///
+/// 在纹理准备 owner 的后台队列调用，不读写共享状态。彩色字形（emoji）保留 Core Text 填充的 RGBA；
+/// 描边与阴影的深浅只按弹幕声明的颜色、对整行字形的并集 mask 决定一次，不逐字形自适应，所以 emoji
+/// 与文字混排时不会被压成同一种填充色。
 enum DanmakuTextureRasterizer {
-    // Core Text keeps color-glyph RGBA in the fill. Outline/shadow polarity is intentionally
-    // selected once from the event's declared RGB for the complete union mask; per-glyph adaptive
-    // decoration is not attempted, so mixed emoji/text never gets flattened to one fill color.
+    /// 文本长度上限（UTF-16 单元）；更长的弹幕按 `invalidInput` 拒绝，不截断。
     static let maximumTextUTF16Length = 512
+    /// 纹理像素宽度上限；超出的弹幕按 `oversized` 拒绝，不缩小显示。
     static let maximumWidthPixels = 8_192
+    /// 纹理像素高度上限；超出时同样按 `oversized` 拒绝。
     static let maximumHeightPixels = 512
+    /// 单个纹理的字节上限，也是纹理缓存的单项上限；宽度接近像素上限的长文本主要受它约束。
     static let maximumTextureByteCost = 8 * 1_024 * 1_024
+    /// 支持的最大 backing scale；renderer 与呈现控制器把更大的值夹到这里。
     static let maximumBackingScale = 4.0
+    /// 宿主还没报告窗口 backing scale 时的初值，也是非有限值的回退：Retina 屏是 2。
+    static let defaultBackingScale = 2.0
+
+    /// renderer 与呈现控制器共用的 backing scale 归一。
+    ///
+    /// 夹到 1...`maximumBackingScale`，非有限值回退到 `defaultBackingScale`。两边必须一致，否则
+    /// 控制器认为 scale 没变而 renderer 已经换了栅格倍率，或反过来多取消一轮准备。
+    static func normalizedBackingScale(_ scale: Double) -> Double {
+        scale.isFinite ? min(max(scale, 1), maximumBackingScale) : defaultBackingScale
+    }
+    /// 描边宽度（point），由字形 alpha 向外膨胀得到。
     static let outlineWidthPoints = 0.5
     /// 字重与阴影是产品固定视觉，不随设置变化；阴影是预烘焙 tent convolution 的 point 半径。
     static let fontWeight = NSFont.Weight.semibold
     static let shadowRadiusPoints = 1.0
+    /// 描边与阴影取浅色的判定阈值：文字颜色的相对亮度低于它时用浅色，否则用深色。
+    ///
+    /// 0.179 是与黑色、白色对比度相等的亮度分界（WCAG 相对亮度与对比度公式）。
     static let lightInkRelativeLuminanceThreshold = 0.179
     /// 大会员彩色弹幕的填充色；描边是 `vipGradientStops`。
     static let vipGradientFillRGB: UInt32 = 0xFF_FFFF
@@ -67,9 +94,7 @@ enum DanmakuTextureRasterizer {
         else {
             return nil
         }
-        let fontSize =
-            [18.0, 25.0, 36.0].contains(event.fontSize)
-            ? event.fontSize : 25
+        let fontSize = DanmakuEvent.normalizedFontSize(event.fontSize)
         return DanmakuTextureCacheKey(
             text: event.text,
             fontSize: fontSize,
@@ -125,6 +150,7 @@ enum DanmakuTextureRasterizer {
                 1,
                 Int((shadowRadiusPoints * key.backingScale).rounded())
             ) : 0
+        // 四周留白要容纳描边与阴影的扩散，至少 4 像素。
         let paddingPixels = max(
             4,
             Int(ceil(outlineRadiusPixels)) + shadowRadiusPixels + 2
@@ -215,6 +241,8 @@ enum DanmakuTextureRasterizer {
         )
     }
 
+    /// 字形 alpha 向外膨胀 `radiusPixels` 后减去原 alpha，得到只在字形外侧的描边环；
+    /// 半径不足整像素时按比例减弱。
     static func outerRing(
         alpha: [UInt8],
         width: Int,
@@ -270,6 +298,7 @@ enum DanmakuTextureRasterizer {
         }
     }
 
+    /// 阴影用的 tent 模糊；vImage 失败时原样返回。
     static func tentBlur(
         alpha: [UInt8],
         width: Int,
@@ -315,6 +344,7 @@ enum DanmakuTextureRasterizer {
         stride(from: 3, to: pixels.count, by: 4).map { pixels[$0] }
     }
 
+    /// 用单一灰阶（浅为白、深为黑）和给定 alpha 生成预乘 RGBA。
     static func monochromePixels(
         alpha: [UInt8],
         isLight: Bool
@@ -373,6 +403,7 @@ enum DanmakuTextureRasterizer {
         return (mix(from.red, to.red), mix(from.green, to.green), mix(from.blue, to.blue))
     }
 
+    /// 预乘 alpha 的 source-over 合成：`foreground` 叠在 `background` 之上。
     static func sourceOver(
         foreground: [UInt8],
         background: [UInt8]

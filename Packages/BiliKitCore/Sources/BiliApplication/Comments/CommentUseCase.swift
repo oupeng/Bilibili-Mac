@@ -1,5 +1,10 @@
 import BiliModels
 
+/// 评论读取的一次性用例：主评论按已显示的 ID 去重并判定分页终止，楼中楼校验页码与页大小，
+/// 并校验响应与请求衔接。
+///
+/// 不拥有 Task、分页状态与并发上限（`PlaybackCommentsViewModel`）；adapter 调用前后都检查取消，
+/// 被取消的请求抛出 `CancellationError` 而不返回结果。
 public struct CommentUseCase: Sendable {
     private let repository: any CommentRepository
 
@@ -42,13 +47,18 @@ public struct CommentUseCase: Sendable {
         )
     }
 
+    /// 楼中楼一页请求的条数，楼中楼面板也按它推算总页数。
+    ///
+    /// 调大每页更长、翻页更少，响应也更大。
+    public static let replyPageSize = 10
+
     public func loadReplies(
         for subject: CommentSubjectIdentity,
         rootID: CommentID,
-        page: Int,
-        pageSize: Int = 10
+        page: Int
     ) async throws -> CommentReplyBatch {
-        guard page > 0, pageSize > 0 else {
+        let pageSize = Self.replyPageSize
+        guard page > 0 else {
             throw CommentReadError.invalidRequest
         }
         try Task.checkCancellation()

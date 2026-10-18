@@ -6,41 +6,43 @@ import Foundation
 /// generation 隔离新旧二维码，poll ID 隔离同一二维码的并发轮询；取消或未知协议状态会
 /// 失败关闭并清除临时秘密。成功响应仍须登录态验证后才能写入 Keychain。
 public actor WebQRLoginSession {
-    public static let productionBaseURL: URL = {
+    /// QR 生成与轮询唯一连接的来源，见 SECURITY-MODEL §2。
+    private static let baseURL: URL = {
         guard let url = URL(string: "https://passport.bilibili.com") else {
             preconditionFailure("Static Web QR base URL must be valid")
         }
         return url
     }()
+    /// 待显示二维码 URL 唯一允许的主机，见 SECURITY-MODEL §2。
     private static let qrCodeHost = "account.bilibili.com"
 
     public private(set) var state: WebQRLoginState = .signedOut
 
     private let httpClient: HTTPClient
-    private let baseURL: URL
     private let credentialStore: any WebCredentialStoring
     private let transportInvalidator: (@Sendable () -> Void)?
     private let decoder = JSONDecoder()
+    /// 每次请求二维码与取消时递增；challenge 与候选凭据记录发起时的值，响应返回后不等即丢弃结果。
     private var generation: UInt64 = 0
     private var activeChallenge: ActiveChallenge?
     private var pendingCredential: PendingCredential?
+    /// 每次轮询与取消时递增，请求新二维码时归零；轮询响应返回时不是最新一次就丢弃，
+    /// 旧轮询不能覆盖状态。
     private var latestPollID: UInt64 = 0
 
     public init() {
         let transport = AuthenticationHTTP.makeProductionTransport()
         httpClient = HTTPClient(transport: transport)
-        baseURL = Self.productionBaseURL
         credentialStore = KeychainWebCredentialStore()
         transportInvalidator = { transport.invalidateAndCancel() }
     }
 
+    /// 网络与 Keychain 两个系统边界；`init()` 由此接入认证专用 session 与 Keychain store。
     init(
         transport: any HTTPTransport,
-        baseURL: URL = WebQRLoginSession.productionBaseURL,
-        credentialStore: any WebCredentialStoring = KeychainWebCredentialStore()
+        credentialStore: any WebCredentialStoring
     ) {
         httpClient = HTTPClient(transport: transport)
-        self.baseURL = baseURL
         self.credentialStore = credentialStore
         if let invalidating = transport as? any HTTPTransportInvalidating {
             transportInvalidator = { invalidating.invalidateAndCancel() }
@@ -289,7 +291,7 @@ public actor WebQRLoginSession {
     ) throws -> URL {
         guard
             var components = URLComponents(
-                url: baseURL,
+                url: Self.baseURL,
                 resolvingAgainstBaseURL: false
             )
         else {
@@ -338,17 +340,21 @@ public actor WebQRLoginSession {
         state = .signedOut
     }
 
+    /// `qrcode_key` 只接受 32 个可见 ASCII 字符；其他形状按无效响应失败关闭，见 SECURITY-MODEL §2。
     private static func isValidQRCodeKey(_ key: String) -> Bool {
         key.utf8.count == 32 && !key.utf8.contains(where: { $0 < 0x21 || $0 > 0x7E })
     }
 
-    /// 精确 `https://account.bilibili.com`：公开 HTTPS 基线（无 userinfo／fragment、端口缺省或 443）加固定主机。
+    /// 精确 `https://account.bilibili.com`：公开 HTTPS 基线（无 userinfo／fragment、端口缺省或
+    /// 443）加固定主机，见 SECURITY-MODEL §2。
     private static func isValidQRCodeURL(_ value: String) -> Bool {
         guard let url = URL(string: value) else { return false }
         return PublicHTTPSURLPolicy().allows(url)
             && url.host?.lowercased() == qrCodeHost
     }
 
+    /// 只从成功响应的 `Set-Cookie` 取白名单 Cookie，缺任何一个或校验失败都不产生候选凭据，
+    /// 见 SECURITY-MODEL §1。
     private static func pendingCredential(
         from response: HTTPResponse,
         generation: UInt64
@@ -356,7 +362,7 @@ public actor WebQRLoginSession {
         let allowedNames = Set(WebCredentialCookieName.allCases.map(\.rawValue))
         let cookies = HTTPCookie.cookies(
             withResponseHeaderFields: response.headers,
-            for: productionBaseURL
+            for: baseURL
         ).filter { allowedNames.contains($0.name) }
         guard cookies.count == allowedNames.count,
             Set(cookies.map(\.name)) == allowedNames

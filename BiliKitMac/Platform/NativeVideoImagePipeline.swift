@@ -1,10 +1,13 @@
 import AppKit
 import BiliNetworking
+import BiliUI
+import BiliVideoDetailFeature
 import CoreGraphics
 import Foundation
 import ImageIO
 import Synchronization
 
+/// 图片结果的来源：内存缓存或网络，决定是否淡入。
 enum NativeVideoImageLoadOrigin: Equatable {
     case memoryCache
     case network
@@ -13,17 +16,7 @@ enum NativeVideoImageLoadOrigin: Equatable {
     var shouldFadeIn: Bool { self == .network }
 }
 
-/// 动图的原始编码数据，由 `NativeAnimatedImagePlayback` 边解码边播放；不预先解出所有帧。
-///
-/// 用引用类型：缓存命中返回同一个实例，播放端按身份判断是不是同一张动图，不比较数据字节。
-final class NativeAnimatedImage: Sendable {
-    let data: Data
-
-    init(data: Data) {
-        self.data = data
-    }
-}
-
+/// 管线交给各取图 port 的统一结果：第一帧、来源与可选的动图数据。
 struct NativeVideoImageLoadResult: Sendable {
     /// 第一帧（静态图就是整张图），按用途限制解码尺寸。
     let image: CGImage
@@ -54,6 +47,7 @@ enum NativeAnimatedImagePolicy {
     }
 }
 
+/// 管线的图片用途：决定解码尺寸上限、响应大小上限与是否保留动图；各 Feature 的取图用途都映射到这里。
 enum NativeVideoImageVariant: Hashable, Sendable {
     case cover
     case avatar
@@ -72,12 +66,16 @@ enum NativeVideoImageVariant: Hashable, Sendable {
         }
     }
 
+    /// 解码后最长边的像素上限（`kCGImageSourceThumbnailMaxPixelSize`），头像与 BiliUI
+    /// `BiliAvatarImageSize` 同源。
+    ///
+    /// 调大增加解码内存与缓存成本，调小会在较大的显示尺寸或高分屏上发虚。
     var maximumDecodedPixelSize: Int {
         switch self {
         case .cover:
             640
         case .avatar:
-            96
+            BiliAvatarImageSize.pixelSide
         case .commentEmote:
             128
         case .commentPicture:
@@ -91,8 +89,9 @@ enum NativeVideoImageVariant: Hashable, Sendable {
 
     /// 单次响应允许的最大字节数。
     ///
-    /// 只有评论图片预览请求原图，按 B 站评论图片 20 MB 的上传上限放宽；其余用途请求的是缩小图或
-    /// 小图，保持较低上限。
+    /// 只有评论图片预览请求原图，按 B 站评论图片 20 MB 的上传上限放宽；
+    /// 其余用途请求的是缩小图或小图，保持较低上限。调大放宽单次下载的内存与流量上限，
+    /// 调小会让较大的图片加载失败；见 SECURITY-MODEL §4。
     var maximumResponseBytes: Int {
         switch self {
         case .commentPicturePreview:
@@ -103,74 +102,10 @@ enum NativeVideoImageVariant: Hashable, Sendable {
     }
 }
 
+/// 缓存与在途请求合并的键：同一 URL 在不同用途下分别解码与缓存。
 struct NativeVideoImageKey: Hashable, Sendable {
     let url: URL
     let variant: NativeVideoImageVariant
-}
-
-struct NativeVideoImageResponseAccumulator {
-    private(set) var data = Data()
-    let maximumBytes: Int
-
-    mutating func append(_ chunk: Data) -> Bool {
-        guard chunk.count <= maximumBytes - data.count else { return false }
-        data.append(chunk)
-        return true
-    }
-}
-
-private struct NativeVideoImageResponse: Sendable {
-    let data: Data
-}
-
-private enum NativeVideoImageTransferError: Error {
-    case invalidResponse
-    case responseTooLarge
-}
-
-private final class NativeVideoImageTaskBox: Sendable {
-    private struct State {
-        var task: URLSessionTask?
-        var isCancelled = false
-    }
-
-    private let state = Mutex(State())
-
-    func store(_ task: URLSessionTask) {
-        let isCancelled = state.withLock { state in
-            if !state.isCancelled { state.task = task }
-            return state.isCancelled
-        }
-        if isCancelled { task.cancel() }
-    }
-
-    func cancel() {
-        let task = state.withLock { state in
-            state.isCancelled = true
-            return state.task
-        }
-        task?.cancel()
-    }
-}
-
-final class NativeVideoImageSessionGate: Sendable {
-    private let isInvalidated = Mutex(false)
-
-    func register(_ operation: () -> Void) -> Bool {
-        isInvalidated.withLock { isInvalidated in
-            guard !isInvalidated else { return false }
-            operation()
-            return true
-        }
-    }
-
-    func invalidate(_ session: URLSession) {
-        isInvalidated.withLock { isInvalidated in
-            guard !isInvalidated else { return }
-            isInvalidated = true
-            session.invalidateAndCancel()
-        }
-    }
 }
 
 /// 一个等待者只 resume 一次：先完成则缓存结果，先挂起则由 `finish` 恢复；两边都在锁外 resume。
@@ -218,149 +153,30 @@ final class NativeVideoImageWaiter: Sendable {
     }
 }
 
-private final class NativeVideoImageSessionDelegate: NSObject, URLSessionDataDelegate, Sendable {
-    private struct Pending {
-        let expectedHost: String
-        let continuation: CheckedContinuation<NativeVideoImageResponse, Error>
-        var isAccepted = false
-        var accumulator: NativeVideoImageResponseAccumulator
-    }
-
-    private let pending = Mutex<[Int: Pending]>([:])
-
-    func response(
-        for request: URLRequest,
-        maximumBytes: Int,
-        using session: URLSession,
-        gate: NativeVideoImageSessionGate
-    ) async throws -> NativeVideoImageResponse {
-        guard let expectedHost = request.url?.host?.lowercased() else {
-            throw NativeVideoImageTransferError.invalidResponse
-        }
-        let taskBox = NativeVideoImageTaskBox()
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                var task: URLSessionDataTask?
-                let registered = gate.register {
-                    let dataTask = session.dataTask(with: request)
-                    pending.withLock {
-                        $0[dataTask.taskIdentifier] = Pending(
-                            expectedHost: expectedHost,
-                            continuation: continuation,
-                            accumulator: NativeVideoImageResponseAccumulator(
-                                maximumBytes: maximumBytes
-                            )
-                        )
-                    }
-                    taskBox.store(dataTask)
-                    task = dataTask
-                }
-                guard registered, let task else {
-                    continuation.resume(throwing: CancellationError())
-                    return
-                }
-                task.resume()
-            }
-        } onCancel: {
-            taskBox.cancel()
-        }
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        task: URLSessionTask,
-        willPerformHTTPRedirection response: HTTPURLResponse,
-        newRequest request: URLRequest,
-        completionHandler: @escaping (URLRequest?) -> Void
-    ) {
-        completionHandler(nil)
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        dataTask: URLSessionDataTask,
-        didReceive response: URLResponse,
-        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
-    ) {
-        let http = response as? HTTPURLResponse
-        let isAccepted = pending.withLock { pending in
-            guard let http, var transfer = pending[dataTask.taskIdentifier] else {
-                return false
-            }
-            transfer.isAccepted =
-                (200..<300).contains(http.statusCode)
-                && http.url?.scheme?.lowercased() == "https"
-                && http.url?.host?.lowercased() == transfer.expectedHost
-                && http.mimeType?.lowercased().hasPrefix("image/") == true
-                && NativeVideoImagePipeline.acceptsExpectedLength(
-                    http.expectedContentLength,
-                    maximumBytes: transfer.accumulator.maximumBytes
-                )
-            pending[dataTask.taskIdentifier] = transfer
-            return transfer.isAccepted
-        }
-        if isAccepted {
-            completionHandler(.allow)
-        } else {
-            fail(dataTask, with: .invalidResponse)
-            completionHandler(.cancel)
-        }
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        dataTask: URLSessionDataTask,
-        didReceive data: Data
-    ) {
-        let accepted = pending.withLock { pending in
-            guard var transfer = pending[dataTask.taskIdentifier] else { return true }
-            guard transfer.accumulator.append(data) else { return false }
-            pending[dataTask.taskIdentifier] = transfer
-            return true
-        }
-        guard !accepted else { return }
-        fail(dataTask, with: .responseTooLarge)
-        dataTask.cancel()
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        task: URLSessionTask,
-        didCompleteWithError error: Error?
-    ) {
-        guard let transfer = pending.withLock({ $0.removeValue(forKey: task.taskIdentifier) })
-        else { return }
-        if let error {
-            transfer.continuation.resume(throwing: error)
-        } else if transfer.isAccepted {
-            transfer.continuation.resume(
-                returning: NativeVideoImageResponse(data: transfer.accumulator.data)
-            )
-        } else {
-            transfer.continuation.resume(
-                throwing: NativeVideoImageTransferError.invalidResponse
-            )
-        }
-    }
-
-    private func fail(_ task: URLSessionTask, with error: NativeVideoImageTransferError) {
-        pending.withLock { $0.removeValue(forKey: task.taskIdentifier) }?
-            .continuation.resume(throwing: error)
-    }
-}
-
 /// 原生界面远端图片的加载与解码缓存：同一 URL 与 variant 的并发请求合并为一次下载。
 ///
 /// 拥有无 Cookie 的 ephemeral session、做响应校验与大小上限的 session delegate、内存缓存与在途下载
 /// Task；不拥有显示与动图播放（交给视图层）。`shutdown()` 先取消在途 Task 并唤醒等待者，再经
 /// `sessionGate` 失效 session；deinit 兜底失效。可变状态由 `Mutex` 隔离。
+///
+/// 由 `NativeVideoImagePipelineOwner` 持有：每个窗口一个，Now Playing 封面一个。请求来源、
+/// 响应校验与缓存规则见 SECURITY-MODEL §4。
 final class NativeVideoImagePipeline: Sendable {
+    /// 同一个键的一次在途下载：请求序号 `id`、网络 Task 与等待者表。
+    ///
+    /// Task 在锁外创建后才挂上，因此可能暂时为 nil；最后一个等待者取消时移除本项并取消 Task。
     private struct InFlight {
         let id: UInt64
         var task: Task<Void, Never>?
         var waiters: [UInt64: NativeVideoImageWaiter]
     }
 
+    /// 管线在 `Mutex` 内的全部可变状态：缓存、在途请求、请求与等待者序号、是否已关闭。
+    ///
+    /// `nextRequestID` 在为某个键新建在途请求时递增，挂接 Task、取消等待者与完成请求都比对这个 id；
+    /// 不符说明该键的请求已结束或已被新请求取代，此时挂接方立即取消刚创建的 Task，
+    /// 完成方不再唤醒任何等待者，取消方什么也不做。`isShutdown` 置位后不再查缓存、不再新建请求，
+    /// 迟到的结果也不写回缓存。
     private struct State {
         var cache: NativeVideoImageCache
         var inFlight: [NativeVideoImageKey: InFlight] = [:]
@@ -464,12 +280,14 @@ final class NativeVideoImagePipeline: Sendable {
         return data
     }
 
-    /// 只请求过公开 HTTPS 基线的地址（拒绝 IP、本机与内网域名、非 443 端口）；图片加载与保存原图共用。
+    /// 只请求过公开 HTTPS 基线的地址（拒绝 IP、本机与内网域名、非 443 端口）；
+    /// 图片加载与保存原图共用，见 SECURITY-MODEL §4。
     nonisolated static func acceptsRequestURL(_ url: URL) -> Bool {
         PublicHTTPSURLPolicy().allows(url)
     }
 
-    /// 数据能被 ImageIO 识别为位图（JPEG、PNG、GIF、WebP 等）；SVG、HTML 等不算，保存时拒绝。
+    /// 数据能被 ImageIO 识别为位图（JPEG、PNG、GIF、WebP 等）；SVG、HTML 等不算，保存时拒绝，见
+    /// SECURITY-MODEL §4。
     nonisolated static func isBitmapImage(_ data: Data) -> Bool {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
             CGImageSourceGetType(source) != nil
@@ -512,10 +330,18 @@ final class NativeVideoImagePipeline: Sendable {
         sessionGate.invalidate(session)
     }
 
+    /// 响应头声明的长度是否可接受：未声明（-1）时放行，由正文累积上限兜底；
+    /// 已声明超过上限时直接拒绝。
     nonisolated static func acceptsExpectedLength(_ length: Int64, maximumBytes: Int) -> Bool {
         length < 0 || length <= maximumBytes
     }
 
+    /// 按用途的最长边上限缩略第一帧，并按 EXIF 方向转正；ImageIO 识别不了或文件头不完整时为 nil，
+    /// 调用方此时不写缓存。
+    ///
+    /// 服务端正常结束响应但内容被截断的 JPEG／PNG（无论是否声明长度）会被 ImageIO 容错解码（缺失部分留空）
+    /// 并照常显示、缓存；连接中断由 URLSession 报错，在 session delegate 里就失败，不会走到这里。见
+    /// SECURITY-MODEL §9。
     nonisolated static func decodeImage(
         _ data: Data,
         variant: NativeVideoImageVariant
@@ -669,35 +495,5 @@ final class NativeVideoImagePipeline: Sendable {
             state.cache.insert(image, animation: animation, for: key)
             return true
         }
-    }
-}
-
-/// 管线的生命周期 owner：持有系统内存压力监听，shutdown 时先取消监听再关闭管线。
-final class NativeVideoImagePipelineOwner {
-    let pipeline: NativeVideoImagePipeline
-    private let memoryPressureSource: any DispatchSourceMemoryPressure
-
-    init(cacheLimits: NativeVideoImageCacheLimits) {
-        let pipeline = NativeVideoImagePipeline(cacheLimits: cacheLimits)
-        self.pipeline = pipeline
-        let source = DispatchSource.makeMemoryPressureSource(
-            eventMask: [.warning, .critical],
-            queue: .global(qos: .utility)
-        )
-        source.setEventHandler { [weak pipeline] in
-            pipeline?.discardCachedImages()
-        }
-        source.resume()
-        memoryPressureSource = source
-    }
-
-    func shutdown() {
-        memoryPressureSource.setEventHandler {}
-        memoryPressureSource.cancel()
-        pipeline.shutdown()
-    }
-
-    deinit {
-        shutdown()
     }
 }

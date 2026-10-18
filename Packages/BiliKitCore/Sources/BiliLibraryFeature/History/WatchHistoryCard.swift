@@ -2,7 +2,9 @@ import BiliModels
 import BiliUI
 import Foundation
 
-/// History 拥有格式化和真实 AX 文案；平台 renderer 只消费这些已格式化 slot。
+/// 观看历史卡片的已格式化文字、缩略图地址与读屏标签，由 `HistoryNativeGridView` 映射为原生卡片。
+///
+/// 进度、观看时间与设备文案在这里格式化，渲染侧只消费这些文字；作者没有头像地址时不显示头像位。
 public struct WatchHistoryCardPresentation: Sendable, Equatable {
     public let bvid: String
     public let title: String
@@ -25,16 +27,8 @@ public struct WatchHistoryCardPresentation: Sendable, Equatable {
         let viewedAt = WatchHistoryCardFormatting.viewedAt(item.viewedAt, locale: locale)
         bvid = item.bvid
         title = item.title
-        coverURL = optimizedHistoryImageURL(
-            item.coverURL,
-            width: 640,
-            height: 360
-        )
-        avatarURL = optimizedHistoryImageURL(
-            item.owner.avatarURL,
-            width: 96,
-            height: 96
-        )
+        coverURL = BiliImageThumbnail.url(item.coverURL, size: .videoCover)
+        avatarURL = BiliImageThumbnail.url(item.owner.avatarURL, size: .avatar)
         showsAvatar = item.owner.avatarURL != nil
         progressText = progress
         footerLeadingText = item.owner.name
@@ -53,28 +47,8 @@ public struct WatchHistoryCardPresentation: Sendable, Equatable {
     }
 }
 
-private func optimizedHistoryImageURL(
-    _ url: URL?,
-    width: Int,
-    height: Int
-) -> URL? {
-    guard let url,
-        let host = url.host?.lowercased(),
-        host == "hdslb.com" || host.hasSuffix(".hdslb.com"),
-        url.query == nil,
-        url.fragment == nil,
-        !url.path.contains("@")
-    else {
-        return url
-    }
-    var components = URLComponents(
-        url: url,
-        resolvingAgainstBaseURL: false
-    )
-    components?.path += "@\(width)w_\(height)h_1c.webp"
-    return components?.url ?? url
-}
-
+/// 观看历史卡片的文字规则：观看设备的图标与读屏说明、观看进度（看完显示“已看完”）与观看时间（今天、
+/// 昨天或月日，加时刻）。
 enum WatchHistoryCardFormatting {
     static func symbolName(_ device: WatchHistoryDevice) -> String {
         switch device {
@@ -114,42 +88,25 @@ enum WatchHistoryCardFormatting {
         calendar: Calendar = .current,
         locale: Locale = .current
     ) -> String {
-        let time = formatted(
+        let time = DateDisplayFormatting.formatted(
             date,
             date: .omitted,
             time: .shortened,
             calendar: calendar,
             locale: locale
         )
-        if calendar.isDate(date, inSameDayAs: now) {
+        switch DateDisplayFormatting.dayRelation(of: date, relativeTo: now, calendar: calendar) {
+        case .today:
             return LibraryFeatureStrings.localized("今天 \(time)", locale: locale)
-        }
-        if let yesterday = calendar.date(
-            byAdding: .day,
-            value: -1,
-            to: now
-        ), calendar.isDate(date, inSameDayAs: yesterday) {
+        case .yesterday:
             return LibraryFeatureStrings.localized("昨天 \(time)", locale: locale)
+        case .earlier:
+            let month = calendar.component(.month, from: date)
+            let day = calendar.component(.day, from: date)
+            return LibraryFeatureStrings.localized(
+                "\(month)月\(day)日 \(time)",
+                locale: locale
+            )
         }
-
-        let month = calendar.component(.month, from: date)
-        let day = calendar.component(.day, from: date)
-        return LibraryFeatureStrings.localized(
-            "\(month)月\(day)日 \(time)",
-            locale: locale
-        )
-    }
-
-    private static func formatted(
-        _ dateValue: Date,
-        date dateStyle: Date.FormatStyle.DateStyle,
-        time timeStyle: Date.FormatStyle.TimeStyle,
-        calendar: Calendar,
-        locale: Locale
-    ) -> String {
-        var style = Date.FormatStyle(date: dateStyle, time: timeStyle)
-            .locale(locale)
-        style.timeZone = calendar.timeZone
-        return dateValue.formatted(style)
     }
 }

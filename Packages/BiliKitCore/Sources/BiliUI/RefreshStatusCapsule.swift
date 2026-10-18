@@ -4,6 +4,8 @@ import SwiftUI
 ///
 /// 首页推荐、热门、搜索与观看历史共用，出现与消失按 `LoadingStateTransition` 淡入淡出。
 package struct RefreshStatusCapsule: View {
+    private typealias Geometry = StatusCapsuleGeometry
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let isRefreshing: Bool
     private let refreshingLabel: String
@@ -20,18 +22,19 @@ package struct RefreshStatusCapsule: View {
             if isRefreshing {
                 ProgressView()
                     .controlSize(.small)
-                    .padding(8)
+                    .padding(Geometry.contentPadding)
                     .background(.regularMaterial, in: Capsule())
                     .accessibilityLabel(refreshingLabel)
                     .transition(.opacity)
             } else if let errorMessage {
                 Text(errorMessage)
                     .font(.caption)
-                    .padding(8)
+                    .padding(Geometry.contentPadding)
                     .background(.regularMaterial, in: Capsule())
                     .transition(.opacity)
             }
         }
+        .padding(.horizontal, Geometry.horizontalInset)
         .animation(LoadingStateTransition.animation(reduceMotion: reduceMotion), value: phase)
     }
 

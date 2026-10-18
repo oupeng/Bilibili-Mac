@@ -48,6 +48,7 @@ public struct WebQRCode: Sendable, Equatable, CustomStringConvertible,
     }
 }
 
+/// 二维码渲染失败：倍率不在 1...32，或 Core Image 未能生成图像。
 public enum WebQRCodeRenderingError: Error, Sendable, Equatable {
     case invalidScale
     case generationFailed

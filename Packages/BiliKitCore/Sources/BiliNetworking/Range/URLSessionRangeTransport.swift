@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// 单个 Range data task 的正文消费方；由 `URLSessionRangeTransport` 按 task 分发 delegate 事件。
 protocol URLSessionRangeOperation: AnyObject, Sendable {
@@ -21,12 +22,36 @@ protocol URLSessionRangeOperation: AnyObject, Sendable {
 /// Range client 共用的 URLSession delegate 与 task 生命周期。
 ///
 /// 拒绝重定向；session 在首次请求时才于锁内创建，`invalidate` 后取消在途 operation 且不再创建新 task。
-final class URLSessionRangeTransport: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+/// 可变状态只经 `Mutex` 访问；operation 的 `cancel()` 与 session 失效都在锁外执行。
+final class URLSessionRangeTransport: NSObject, URLSessionDataDelegate, Sendable {
+    /// operation 登记表、懒创建的 session 与失效标记；只在 `state` 锁内读写。
+    private struct State {
+        var operations: [Int: any URLSessionRangeOperation] = [:]
+        var session: URLSession?
+        var isInvalidated = false
+
+        /// 首次请求时创建 session，之后复用；在 `withLock` 闭包里对锁内状态调用，与登记 operation、
+        /// 检查失效处于同一临界区。
+        mutating func activeSession(
+            configuration: URLSessionConfiguration,
+            delegate: URLSessionRangeTransport
+        ) -> URLSession {
+            if let session { return session }
+            let queue = OperationQueue()
+            queue.maxConcurrentOperationCount = 1
+            queue.qualityOfService = .userInitiated
+            let session = URLSession(
+                configuration: configuration,
+                delegate: delegate,
+                delegateQueue: queue
+            )
+            self.session = session
+            return session
+        }
+    }
+
     private let configuration: URLSessionConfiguration
-    private let lock = NSLock()
-    private var operations: [Int: any URLSessionRangeOperation] = [:]
-    private var session: URLSession?
-    private var isInvalidated = false
+    private let state = Mutex(State())
 
     init(configuration: URLSessionConfiguration) {
         self.configuration = configuration
@@ -37,16 +62,17 @@ final class URLSessionRangeTransport: NSObject, URLSessionDataDelegate, @uncheck
         _ request: URLRequest,
         operation: Operation
     ) async throws -> Operation.Output {
-        let task = try lock.withLock {
-            guard !isInvalidated else { throw CancellationError() }
-            let task = activeSession().dataTask(with: request)
-            operations[task.taskIdentifier] = operation
+        let task = try state.withLock { state in
+            guard !state.isInvalidated else { throw CancellationError() }
+            let task = state.activeSession(configuration: configuration, delegate: self)
+                .dataTask(with: request)
+            state.operations[task.taskIdentifier] = operation
             return task
         }
         let taskIdentifier = task.taskIdentifier
         return try await withTaskCancellationHandler {
             try await operation.start(task) { [weak self] in
-                self?.lock.withLock { self?.operations[taskIdentifier] = nil }
+                self?.state.withLock { $0.operations[taskIdentifier] = nil }
             }
         } onCancel: {
             operation.cancel()
@@ -54,29 +80,14 @@ final class URLSessionRangeTransport: NSObject, URLSessionDataDelegate, @uncheck
     }
 
     func invalidate() {
-        let (pending, session) = lock.withLock {
-            isInvalidated = true
-            let pending = Array(operations.values)
-            operations.removeAll()
-            return (pending, session)
+        let (pending, session) = state.withLock { state in
+            state.isInvalidated = true
+            let pending = Array(state.operations.values)
+            state.operations.removeAll()
+            return (pending, state.session)
         }
         for operation in pending { operation.cancel() }
         session?.invalidateAndCancel()
-    }
-
-    /// 调用方必须持有 `lock`。
-    private func activeSession() -> URLSession {
-        if let session { return session }
-        let queue = OperationQueue()
-        queue.maxConcurrentOperationCount = 1
-        queue.qualityOfService = .userInitiated
-        let session = URLSession(
-            configuration: configuration,
-            delegate: self,
-            delegateQueue: queue
-        )
-        self.session = session
-        return session
     }
 
     func urlSession(
@@ -119,6 +130,6 @@ final class URLSessionRangeTransport: NSObject, URLSessionDataDelegate, @uncheck
     }
 
     private func operation(for taskIdentifier: Int) -> (any URLSessionRangeOperation)? {
-        lock.withLock { operations[taskIdentifier] }
+        state.withLock { $0.operations[taskIdentifier] }
     }
 }

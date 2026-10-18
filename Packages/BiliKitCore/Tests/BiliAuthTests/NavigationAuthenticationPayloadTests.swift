@@ -26,21 +26,10 @@ struct NavigationAuthenticationPayloadTests {
             // 可选身份字段缺失或类型异常时不否定登录态。
             (#"{"isLogin":true}"#, .signedIn(nil)),
             (#"{"isLogin":true,"mid":"unexpected","uname":42,"face":false}"#, .signedIn(nil)),
-            // 头像越过公开图片边界时只丢头像，保留其余身份。
-            (
-                #"{"isLogin":true,"mid":42,"uname":"Fixture Account","face":"javascript:fixture"}"#,
-                .signedIn(fixtureIdentityWithoutAvatar)
-            ),
+            // 头像越过公开图片边界时只丢头像，保留其余身份；地址规则本身由 BiliNetworking 的
+            // WebImageURLTests 覆盖。
             (
                 #"{"isLogin":true,"mid":42,"uname":"Fixture Account","face":"https://localhost/avatar.png"}"#,
-                .signedIn(fixtureIdentityWithoutAvatar)
-            ),
-            (
-                #"{"isLogin":true,"mid":42,"uname":"Fixture Account","face":"https://127.0.0.1/avatar.png"}"#,
-                .signedIn(fixtureIdentityWithoutAvatar)
-            ),
-            (
-                #"{"isLogin":true,"mid":42,"uname":"Fixture Account","face":"https://[::1]/avatar.png"}"#,
                 .signedIn(fixtureIdentityWithoutAvatar)
             ),
             (#"{"isLogin":false,"mid":42,"uname":"Fixture Account"}"#, .signedOut)

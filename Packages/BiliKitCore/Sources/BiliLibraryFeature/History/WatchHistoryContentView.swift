@@ -1,8 +1,12 @@
 import BiliApplication
 import BiliModels
 import BiliUI
+import BiliVideoCollectionUI
 import SwiftUI
 
+/// 网格的输入：从 `WatchHistoryState` 取出条目与分页状态。
+///
+/// 没有条目的 `loaded`、加载中与失败时构造失败，由空页、骨架或失败页接手；加载更多期间总能构造。
 struct WatchHistoryLoadedSurface: Equatable {
     let items: [WatchHistoryItem]
     let canLoadMore: Bool
@@ -31,11 +35,16 @@ struct WatchHistoryLoadedSurface: Equatable {
     }
 }
 
-struct WatchHistoryContentView<LoadedContent: View>: View {
+/// 已登录时的观看历史主区：按 `WatchHistoryViewModel` 的状态显示骨架、空页、失败页或原生网格，叠加刷新与
+/// 分页状态胶囊；凭据失败的说明按模型的账户复核进度区分。
+///
+/// 不拥有请求、分页与复核（`WatchHistoryViewModel`），滚动位置、回顶请求与图片管线由 `WatchHistoryView`
+/// 从 App 窗口转交。
+struct WatchHistoryContentView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.locale) private var locale
     let model: WatchHistoryViewModel
-    let makeLoadedContent: (LoadedHistoryContent) -> LoadedContent
+    let gridHost: NativeVideoGridHostContext
     let onSelect: (String) -> Void
 
     var body: some View {
@@ -51,35 +60,35 @@ struct WatchHistoryContentView<LoadedContent: View>: View {
 
     @ViewBuilder
     private var content: some View {
-        if let surface = WatchHistoryLoadedSurface(
-            state: model.state,
-            requiresManualLoadMore: model.requiresManualLoadMore
-        ) {
-            historyList(
-                items: surface.items,
-                canLoadMore: surface.canLoadMore,
-                isLoadingMore: surface.isLoadingMore,
-                requiresManualLoadMore: surface.requiresManualLoadMore,
-                loadMoreError: surface.loadMoreError
+        switch model.state {
+        case .idle, .loading:
+            VideoCardGridSkeleton(
+                loadingLabel: LibraryFeatureStrings.localized(
+                    "正在加载观看历史",
+                    locale: locale
+                )
             )
-        } else {
-            switch model.state {
-            case .idle, .loading:
-                VideoCardGridSkeleton(
-                    loadingLabel: LibraryFeatureStrings.localized(
-                        "正在加载观看历史",
-                        locale: locale
-                    )
+        case .loaded(let items, let continuation, let loadMoreError) where items.isEmpty:
+            emptyHistory(
+                canLoadMore: continuation != nil,
+                loadMoreError: loadMoreError
+            )
+        case .failed(let error):
+            failure(error)
+        case .loaded, .loadingMore:
+            // 有条目的 loaded 与加载更多共用这一支，网格在加载更多前后保持同一视图身份；
+            // 这两种状态下 surface 总能构造。
+            if let surface = WatchHistoryLoadedSurface(
+                state: model.state,
+                requiresManualLoadMore: model.requiresManualLoadMore
+            ) {
+                historyList(
+                    items: surface.items,
+                    canLoadMore: surface.canLoadMore,
+                    isLoadingMore: surface.isLoadingMore,
+                    requiresManualLoadMore: surface.requiresManualLoadMore,
+                    loadMoreError: surface.loadMoreError
                 )
-            case .loaded(_, let continuation, let loadMoreError):
-                emptyHistory(
-                    canLoadMore: continuation != nil,
-                    loadMoreError: loadMoreError
-                )
-            case .failed(let error):
-                failure(error)
-            case .loadingMore:
-                EmptyView()
             }
         }
     }
@@ -131,118 +140,87 @@ struct WatchHistoryContentView<LoadedContent: View>: View {
         requiresManualLoadMore: Bool,
         loadMoreError: ContentApplicationError?
     ) -> some View {
-        ZStack(alignment: .bottom) {
-            makeLoadedContent(
-                LoadedHistoryContent(
-                    items: items.map { WatchHistoryCardPresentation(item: $0, locale: locale) },
-                    canLoadMore: canLoadMore && !requiresManualLoadMore,
+        HistoryNativeGridView(
+            content: LoadedHistoryContent(
+                items: items.map { WatchHistoryCardPresentation(item: $0, locale: locale) },
+                // 尾标只在可自动加载时存在：显式继续门、加载更多失败与原地刷新都暂停近尾触发。
+                tailState: NativeVideoGridTailState(
+                    canLoadMore: model.paginationTailIdentity != nil,
                     tailIdentity: model.paginationTailIdentity,
+                    isLoading: isLoadingMore
+                ),
+                loadMore: model.loadMore,
+                select: onSelect
+            ),
+            host: gridHost
+        )
+        .ignoresSafeArea(.container, edges: .top)
+        .overlay(alignment: .top) {
+            RefreshStatusCapsule(
+                isRefreshing: model.isRefreshing,
+                refreshingLabel: LibraryFeatureStrings.localized("正在刷新观看历史", locale: locale),
+                errorMessage: model.refreshError.map(message(for:))
+            )
+        }
+        .overlay(alignment: .bottom) {
+            PaginationStatusOverlay(
+                paginationStatus(
+                    canLoadMore: canLoadMore,
                     isLoadingMore: isLoadingMore,
-                    loadMore: model.loadMore,
-                    select: onSelect
+                    requiresManualLoadMore: requiresManualLoadMore,
+                    loadMoreError: loadMoreError
                 )
             )
-            .overlay(alignment: .top) {
-                RefreshStatusCapsule(
-                    isRefreshing: model.isRefreshing,
-                    refreshingLabel: LibraryFeatureStrings.localized("正在刷新观看历史", locale: locale),
-                    errorMessage: model.refreshError.map(message(for:))
-                )
-            }
-
-            if isLoadingMore {
-                ProgressView(LibraryFeatureStrings.localized("正在加载更早的记录…", locale: locale))
-                    .controlSize(.small)
-                    .padding(8)
-                    .background(.regularMaterial, in: Capsule())
-                    .padding(.bottom, 8)
-                    .transition(.opacity)
-            } else if let loadMoreError {
-                HStack(spacing: 12) {
-                    Text(message(for: loadMoreError))
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                    if canLoadMore, loadMoreError.isRetryable {
-                        Button(
-                            LibraryFeatureStrings.localized("重试", locale: locale),
-                            action: model.loadMore
-                        )
-                        .buttonStyle(.borderedProminent)
-                    }
-                }
-                .padding(10)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-                .padding(.horizontal, 24)
-                .padding(.bottom, 8)
-                .transition(.opacity)
-            } else if requiresManualLoadMore {
-                Button(
-                    LibraryFeatureStrings.localized("加载更早的记录", locale: locale),
-                    action: model.loadMore
-                )
-                .buttonStyle(.borderedProminent)
-                .padding(10)
-                .background(.regularMaterial, in: Capsule())
-                .padding(.bottom, 8)
-            }
         }
+    }
+
+    private func paginationStatus(
+        canLoadMore: Bool,
+        isLoadingMore: Bool,
+        requiresManualLoadMore: Bool,
+        loadMoreError: ContentApplicationError?
+    ) -> PaginationStatusOverlay.Status {
+        if isLoadingMore {
+            return .loadingMore(
+                label: LibraryFeatureStrings.localized("正在加载更早的记录…", locale: locale)
+            )
+        }
+        if let loadMoreError {
+            let canRetry = canLoadMore && loadMoreError.isRetryable
+            return .failed(
+                message: message(for: loadMoreError),
+                retry: canRetry ? { model.loadMore() } : nil
+            )
+        }
+        if requiresManualLoadMore {
+            return .manualLoadMore(
+                title: LibraryFeatureStrings.localized("加载更早的记录", locale: locale),
+                action: { model.loadMore() }
+            )
+        }
+        return .idle
     }
 
     private func failure(_ error: ContentApplicationError) -> some View {
-        ContentUnavailableView {
-            Label(title(for: error), systemImage: "exclamationmark.triangle")
-        } description: {
-            Text(message(for: error))
-        } actions: {
-            if error.isRetryable {
-                Button(LibraryFeatureStrings.localized("重试", locale: locale)) {
-                    model.reload()
-                }
-                .buttonStyle(.borderedProminent)
-            }
-        }
+        let text = ContentFailureText(
+            error: error,
+            fallbackTitle: LibraryFeatureStrings.localized("无法加载观看历史", locale: locale),
+            revalidation: revalidation,
+            locale: locale
+        )
+        return ContentFailureView(
+            title: text.title,
+            message: text.message,
+            retry: error.isRetryable ? { model.reload() } : nil
+        )
     }
 
-    private func title(for error: ContentApplicationError) -> String {
-        switch error {
-        case .authenticationRequired, .authenticationInvalid:
-            LibraryFeatureStrings.localized("登录状态已失效", locale: locale)
-        case .authenticationUnavailable:
-            LibraryFeatureStrings.localized("无法读取登录状态", locale: locale)
-        case .requestRestricted:
-            LibraryFeatureStrings.localized("请求受到限制", locale: locale)
-        default:
-            LibraryFeatureStrings.localized("无法加载观看历史", locale: locale)
-        }
-    }
-
-    /// 历史只会遇到认证四态、风控、业务拒绝、网络与响应异常；其余内容错误归入通用说明。
-    ///
-    /// 凭据失败只在复核进行中说“正在重新确认”；复核结束仍失败时给静态说明。不可重试的错误不提“重试”。
     private func message(for error: ContentApplicationError) -> String {
-        switch error {
-        case .authenticationRequired where model.isAwaitingAuthenticationRevalidation,
-            .authenticationInvalid where model.isAwaitingAuthenticationRevalidation:
-            LibraryFeatureStrings.localized("正在重新确认账户会话。", locale: locale)
-        case .authenticationInvalid:
-            LibraryFeatureStrings.localized("账户会话仍未恢复，请稍后重试或重新扫码登录。", locale: locale)
-        case .authenticationRequired:
-            LibraryFeatureStrings.localized("本机没有可用的登录凭据，请重新扫码登录。", locale: locale)
-        case .authenticationUnavailable:
-            LibraryFeatureStrings.localized("无法安全读取或确认本地登录状态，请稍后重试。", locale: locale)
-        case .requestRestricted:
-            LibraryFeatureStrings.localized("服务暂时拒绝了请求，请降低频率后重试。", locale: locale)
-        case .serviceRejected(let code):
-            LibraryFeatureStrings.localized("服务暂时无法完成请求（代码 \(code)）。", locale: locale)
-        case .transportFailure:
-            LibraryFeatureStrings.localized("请检查网络连接后重试。", locale: locale)
-        case .invalidResponse:
-            LibraryFeatureStrings.localized("接口数据与当前客户端预期不一致。", locale: locale)
-        case .playbackUnavailable, .unavailable:
-            LibraryFeatureStrings.localized("暂时无法完成请求，请稍后重试。", locale: locale)
-        case .invalidRequest, .contentUnavailable, .unsupportedMedia,
-            .fullViewingEntitlementRequired:
-            LibraryFeatureStrings.localized("当前无法完成这次请求。", locale: locale)
-        }
+        ContentFailureText.message(for: error, revalidation: revalidation, locale: locale)
+    }
+
+    /// 历史页的凭据失败总会请求账户复核：复核进行中说“正在重新确认”，结束仍失败时给静态说明。
+    private var revalidation: ContentFailureText.Revalidation {
+        model.isAwaitingAuthenticationRevalidation ? .awaiting : .finished
     }
 }

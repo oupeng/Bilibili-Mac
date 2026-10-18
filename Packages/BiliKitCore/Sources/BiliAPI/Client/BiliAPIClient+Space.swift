@@ -3,6 +3,7 @@ import Foundation
 
 /// UP 主空间读取。游客请求会被间歇风控，所以只按账户读取，本地无凭据时直接失败。
 extension BiliAPIClient {
+    /// 空间投稿每页条数；请求的 `ps` 与分页模型共用这个值。
     static let uploaderVideoPageSize = 30
     /// 页码上限：远超任何 UP 主的实际投稿页数，用来拒绝异常输入。
     static let uploaderVideoMaximumPage = 10_000
@@ -22,7 +23,7 @@ extension BiliAPIClient {
             "order": order.apiValue
         ]
         let payload: UploaderVideoSearchPayload = try await signedRequest(
-            path: "/x/space/wbi/arc/search",
+            path: BiliAccountReadPath.uploaderVideos,
             parameters: { parameters },
             send: { url in
                 try await get(

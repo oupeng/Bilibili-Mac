@@ -28,6 +28,8 @@ public enum WebQRLoginState: Sendable, Equatable, CustomStringConvertible {
     }
 }
 
+/// QR 登录各阶段的失败分类；只含状态码与业务码，不含服务端正文，由认证服务映射为
+/// `AuthenticationFailure`。
 public enum WebQRLoginFailure: Error, Sendable, Equatable, CustomStringConvertible {
     case noActiveChallenge
     case network

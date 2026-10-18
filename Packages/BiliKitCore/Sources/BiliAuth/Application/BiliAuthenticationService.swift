@@ -7,6 +7,13 @@ import Foundation
 /// `generation` 隔离旧操作；`requiresLogout` 阻止凭据状态不确定时伪装成安全 signed-out。
 /// 新 QR 登录须校验并持久化成功才发布 `.signedIn`；恢复路径会重新验证既存凭据。
 public actor BiliAuthenticationService: AuthenticationServicing {
+    /// 会话校验（nav）的 path：恢复与换号复核唯一按账户读取的请求，App Composition 用它声明本服务授权器的
+    /// allowlist。
+    ///
+    /// BiliAPI 取 WBI key 也读同一 path，但那是永不带凭据的匿名请求；BiliAuth 不能依赖 BiliAPI、两边也没有
+    /// 共同的更低层能放 endpoint 知识，所以各留一份（另一份在 `BiliAPIClient.wbiKey`）。见 SECURITY-MODEL §3。
+    public static let sessionValidationPath = "/x/web-interface/nav"
+
     private var loginSession: WebQRLoginSession
     private var authorizer: BiliCredentialRequestAuthorizer
     private let loginSessionFactory: @Sendable () -> WebQRLoginSession
@@ -15,7 +22,12 @@ public actor BiliAuthenticationService: AuthenticationServicing {
 
     private var state: AuthenticationState = .signedOut
     private var qrCode: WebQRCode?
+    /// 每次恢复、请求二维码、取消登录与登出时递增，轮询与提交凭据只读取不递增。
+    ///
+    /// 各操作 await 之后比对，不等就不再写 `state`，直接返回新操作已发布的状态。
     private var generation: UInt64 = 0
+    /// 凭据可能仍在 Keychain（已登录、复核中或复核失败）时为 true：期间拒绝新的 QR 登录与取消登录，
+    /// 只在登出成功、复核确认未登录，或扫码登录的远端校验判定未登录时清除。
     private var requiresLogout = false
 
     public init(
@@ -97,8 +109,8 @@ public actor BiliAuthenticationService: AuthenticationServicing {
             state = .failed(.network)
         } catch let error as BiliRequestAuthorizationError {
             guard generation == operationGeneration else { return state }
-            // restoreAccountSession only throws after credential access or validation
-            // becomes unavailable. Keep logout as the sole signed-out transition.
+            // 这里只会是凭据存储或远端校验不可用：凭据是否仍有效未知，保持需先登出，
+            // 不在此转为未登录。
             requiresLogout = true
             state = .failed(Self.map(error))
         } catch {

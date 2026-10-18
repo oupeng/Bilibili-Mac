@@ -1,5 +1,7 @@
 import Foundation
+import Synchronization
 
+/// 通过验证的 Range 响应头：`Content-Range`、正文长度（等于请求区间长度）与上游 `Content-Type`。
 public struct HTTPRangeStreamResponse: Sendable, Equatable {
     public let contentRange: HTTPContentRange
     public let contentLength: UInt64
@@ -16,6 +18,7 @@ public struct HTTPRangeStreamResponse: Sendable, Equatable {
     }
 }
 
+/// 一次流式读取完成时实际交给下游的字节数，等于请求区间长度。
 public struct HTTPRangeStreamResult: Sendable, Equatable {
     public let byteCount: UInt64
 
@@ -24,6 +27,11 @@ public struct HTTPRangeStreamResult: Sendable, Equatable {
     }
 }
 
+/// 单来源 Range 流读取的 port；生产实现是 `HTTPRangeStreamingClient`。
+///
+/// bridge 的 SIDX、init 读取（经 `HTTPRangeClient`）与 loopback 媒体转发共用它。`onResponse`
+/// 在响应头通过验证、正文放行之前调用，`onChunk` 返回前不交付下一个 chunk；
+/// 任一回调抛错即取消上游请求（见 SECURITY-MODEL §4、§5）。
 public protocol HTTPRangeStreaming: Sendable {
     /// `expectedCompleteLength` 为 nil 时不核对 `Content-Range` 的完整长度；`allowedContentTypes`
     /// 为 nil 时不限制上游 `Content-Type`；`requiresContentLength` 为 false 时允许上游省略
@@ -46,7 +54,7 @@ public protocol HTTPRangeStreaming: Sendable {
 /// 响应头在正文放行前完成验证，正文按 URLSession
 /// chunk 交给下游；下游完成一个 chunk 后才恢复上游 task，避免把完整媒体积压在内存。
 /// 同一实例的请求共用一个 URLSession 与其 CDN 连接；实例释放时取消在途请求并失效 session。
-public final class HTTPRangeStreamingClient: HTTPRangeStreaming, @unchecked Sendable {
+public final class HTTPRangeStreamingClient: HTTPRangeStreaming, Sendable {
     /// 两次收到数据之间的空闲上限：比基线的交互式 15 秒宽，取 URLSession 原生的 60 秒，
     /// CDN 首字节慢或下游暂停读取时不把仍在进行的媒体流判为失败。
     static let idleTimeout: TimeInterval = 60
@@ -109,27 +117,39 @@ public final class HTTPRangeStreamingClient: HTTPRangeStreaming, @unchecked Send
     }
 }
 
-private final class RangeStreamingOperation: URLSessionRangeOperation, @unchecked Sendable {
+/// 一次流式 Range 请求：验证响应头后逐 chunk 交给下游，下游处理期间挂起上游 task 形成背压。
+///
+/// 拥有 data task 与结束回调，直到 `finish` 把它们取出：取消 task、解除 transport 登记，再交付唯一
+/// 结果。可变状态只经 `Mutex` 访问；挂起上游与登记回调在同一临界区，task 的恢复、取消与回调在锁外。
+private final class RangeStreamingOperation: URLSessionRangeOperation, Sendable {
     /// 下游回调进行中时暂存的上游字节上限。
     ///
     /// `suspend()` 不保证立即停止已排队的 `didReceive data`，挂起后仍可能到达多个 chunk；
     /// 超过上限才判定失败，避免无界积压。
     private static let maximumPendingBytes = 4 * 1_024 * 1_024
 
-    private let lock = NSLock()
+    /// 一次请求的 task、结束回调、计数、回调进行中标记与暂存 chunk；只在 `state` 锁内读写。
+    private struct State {
+        var task: URLSessionDataTask?
+        var onFinish: (@Sendable () -> Void)?
+        var received: UInt64 = 0
+        var responseAccepted = false
+        var callbackInFlight = false
+        var pendingChunk: Data?
+        var upstreamCompleted = false
+        var finished = false
+
+        var completionResult: HTTPRangeStreamResult {
+            HTTPRangeStreamResult(byteCount: received)
+        }
+    }
+
+    private let state = Mutex(State())
     private let validator: HTTPRangeResponseValidator
     private let expectedRange: HTTPByteRange
     private let onResponse: @Sendable (HTTPRangeStreamResponse) async throws -> Void
     private let onChunk: @Sendable (Data) async throws -> Void
     private let outcome = OneShotResult<HTTPRangeStreamResult>()
-    private var task: URLSessionDataTask?
-    private var onFinish: (@Sendable () -> Void)?
-    private var received: UInt64 = 0
-    private var responseAccepted = false
-    private var callbackInFlight = false
-    private var pendingChunk: Data?
-    private var upstreamCompleted = false
-    private var finished = false
 
     init(
         validator: HTTPRangeResponseValidator,
@@ -146,10 +166,10 @@ private final class RangeStreamingOperation: URLSessionRangeOperation, @unchecke
         _ task: URLSessionDataTask,
         onFinish: @escaping @Sendable () -> Void
     ) async throws -> HTTPRangeStreamResult {
-        let shouldStart = lock.withLock {
-            guard !finished else { return false }
-            self.task = task
-            self.onFinish = onFinish
+        let shouldStart = state.withLock { state in
+            guard !state.finished else { return false }
+            state.task = task
+            state.onFinish = onFinish
             return true
         }
         if shouldStart {
@@ -179,10 +199,10 @@ private final class RangeStreamingOperation: URLSessionRangeOperation, @unchecke
             Task {
                 do {
                     try await onResponse(validated)
-                    let shouldAllow = lock.withLock {
-                        callbackInFlight = false
-                        responseAccepted = !finished
-                        return !finished
+                    let shouldAllow = state.withLock { state in
+                        state.callbackInFlight = false
+                        state.responseAccepted = !state.finished
+                        return !state.finished
                     }
                     disposition.call(shouldAllow ? .allow : .cancel)
                 } catch {
@@ -204,9 +224,9 @@ private final class RangeStreamingOperation: URLSessionRangeOperation, @unchecke
             case fail(HTTPRangeResponseError)
             case ignore
         }
-        let action = lock.withLock { () -> Action in
-            guard !finished, responseAccepted else { return .ignore }
-            let next = received + UInt64(data.count)
+        let action = state.withLock { state -> Action in
+            guard !state.finished, state.responseAccepted else { return .ignore }
+            let next = state.received + UInt64(data.count)
             guard next <= expectedRange.length else {
                 return .fail(
                     .bodyLengthMismatch(
@@ -215,19 +235,20 @@ private final class RangeStreamingOperation: URLSessionRangeOperation, @unchecke
                     )
                 )
             }
-            received = next
-            if callbackInFlight {
-                let pending = (pendingChunk ?? Data()) + data
+            state.received = next
+            if state.callbackInFlight {
+                let pending = (state.pendingChunk ?? Data()) + data
                 guard pending.count <= Self.maximumPendingBytes else {
                     return .fail(
                         .transport(errorType: "BufferedRangeChunkOverflow")
                     )
                 }
-                pendingChunk = pending
+                state.pendingChunk = pending
                 return .queued
             }
-            guard let task else { return .ignore }
-            callbackInFlight = true
+            guard let task = state.task else { return .ignore }
+            state.callbackInFlight = true
+            // 与登记回调在同一临界区挂起：其他 chunk 看到 callbackInFlight 时上游一定已挂起。
             task.suspend()
             return .process(task)
         }
@@ -246,26 +267,26 @@ private final class RangeStreamingOperation: URLSessionRangeOperation, @unchecke
         do {
             while true {
                 try await onChunk(chunk)
-                let state = lock.withLock {
-                    () -> (next: Data?, completion: HTTPRangeStreamResult?, resume: Bool) in
-                    guard !finished else { return (nil, nil, false) }
-                    if let pendingChunk {
-                        self.pendingChunk = nil
+                let step = state.withLock {
+                    state -> (next: Data?, completion: HTTPRangeStreamResult?, resume: Bool) in
+                    guard !state.finished else { return (nil, nil, false) }
+                    if let pendingChunk = state.pendingChunk {
+                        state.pendingChunk = nil
                         return (pendingChunk, nil, false)
                     }
-                    callbackInFlight = false
-                    if upstreamCompleted {
-                        return (nil, makeCompletionResult(), false)
+                    state.callbackInFlight = false
+                    if state.upstreamCompleted {
+                        return (nil, state.completionResult, false)
                     }
                     return (nil, nil, true)
                 }
-                if let next = state.next {
+                if let next = step.next {
                     chunk = next
                     continue
                 }
-                if let completion = state.completion {
+                if let completion = step.completion {
                     finish(.success(completion))
-                } else if state.resume {
+                } else if step.resume {
                     task.resume()
                 }
                 return
@@ -286,11 +307,11 @@ private final class RangeStreamingOperation: URLSessionRangeOperation, @unchecke
             )
             return
         }
-        let completion = lock.withLock { () -> HTTPRangeStreamResult? in
-            guard !finished else { return nil }
-            upstreamCompleted = true
-            guard !callbackInFlight else { return nil }
-            return makeCompletionResult()
+        let completion = state.withLock { state -> HTTPRangeStreamResult? in
+            guard !state.finished else { return nil }
+            state.upstreamCompleted = true
+            guard !state.callbackInFlight else { return nil }
+            return state.completionResult
         }
         if let completion {
             finish(.success(completion))
@@ -298,20 +319,16 @@ private final class RangeStreamingOperation: URLSessionRangeOperation, @unchecke
     }
 
     private func beginCallback() -> Bool {
-        lock.withLock {
-            guard !finished, !callbackInFlight else { return false }
-            callbackInFlight = true
+        state.withLock { state in
+            guard !state.finished, !state.callbackInFlight else { return false }
+            state.callbackInFlight = true
             return true
         }
     }
 
-    private func makeCompletionResult() -> HTTPRangeStreamResult {
-        HTTPRangeStreamResult(byteCount: received)
-    }
-
     private func finish(_ result: Result<HTTPRangeStreamResult, any Error>) {
-        let resources = lock.withLock {
-            guard !finished else {
+        let resources = state.withLock { state in
+            guard !state.finished else {
                 return (
                     nil as Result<HTTPRangeStreamResult, any Error>?,
                     nil as URLSessionDataTask?,
@@ -320,21 +337,21 @@ private final class RangeStreamingOperation: URLSessionRangeOperation, @unchecke
             }
             let finalResult: Result<HTTPRangeStreamResult, any Error>
             switch result {
-            case .success where received != expectedRange.length:
+            case .success where state.received != expectedRange.length:
                 finalResult = .failure(
                     HTTPRangeResponseError.bodyLengthMismatch(
                         expected: expectedRange.length,
-                        actual: received
+                        actual: state.received
                     )
                 )
             default:
                 finalResult = result
             }
-            finished = true
-            let task = self.task
-            self.task = nil
-            let onFinish = self.onFinish
-            self.onFinish = nil
+            state.finished = true
+            let task = state.task
+            state.task = nil
+            let onFinish = state.onFinish
+            state.onFinish = nil
             return (finalResult, task, onFinish)
         }
         guard let finalResult = resources.0 else { return }
@@ -344,6 +361,11 @@ private final class RangeStreamingOperation: URLSessionRangeOperation, @unchecke
     }
 }
 
+/// URLSession 的响应处置回调只调用一次：先到的放行或取消生效，之后的调用忽略。
+///
+/// `@unchecked Sendable` 由 `lock` 保证：回调在锁内取出、锁外调用。不用 `Mutex`：回调是 URLSession
+/// delegate 传进来的非 Sendable 闭包，把外部传入的非 Sendable 值存进 `Mutex`（初始化的 `sending`
+/// 参数）会被 region 检查拒绝。
 private final class ResponseDispositionHandler: @unchecked Sendable {
     private let lock = NSLock()
     private var handler: ((URLSession.ResponseDisposition) -> Void)?

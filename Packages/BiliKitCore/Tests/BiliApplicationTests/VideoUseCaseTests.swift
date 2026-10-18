@@ -15,7 +15,11 @@ struct VideoUseCaseTests {
         #expect(context.detail.bvid == "BV1FixtureA1")
         #expect(context.pages.map(\.index) == [1, 2])
         #expect(context.selectedPage.index == 1)
-        #expect(context.playback.dashManifest?.videoRepresentations.first?.id == 32)
+        if case .dash(let manifest) = context.playback.media {
+            #expect(manifest.videoRepresentations.first?.id == 32)
+        } else {
+            Issue.record("应得到 DASH 播放清单")
+        }
         #expect(await repository.playbackCIDs() == [900_001])
     }
 
@@ -480,27 +484,34 @@ private func makeFixturePlayback(
     let videoURL = try #require(URL(string: "https://media.example.invalid/video.m4s"))
     let audioURL = try #require(URL(string: "https://media.example.invalid/audio.m4s"))
     return VideoPlayback(
-        manifest: PlaybackManifest(
-            videoRepresentations: [
-                MediaRepresentation(
-                    id: 32,
-                    kind: .video,
-                    codecs: "avc1.64001f",
-                    mimeType: "video/mp4",
-                    primaryURL: videoURL,
-                    segmentBase: segmentBase
-                )
-            ],
-            originalAudioRepresentations: [
-                MediaRepresentation(
-                    id: 30216,
-                    kind: .audio,
-                    codecs: "mp4a.40.2",
-                    mimeType: "audio/mp4",
-                    primaryURL: audioURL,
-                    segmentBase: segmentBase
-                )
-            ]
+        media: .dash(
+            PlaybackManifest(
+                videoRepresentations: [
+                    MediaRepresentation(
+                        id: 32,
+                        kind: .video,
+                        codecs: "avc1.64001f",
+                        mimeType: "video/mp4",
+                        primaryURL: videoURL,
+                        segmentBase: segmentBase
+                    )
+                ],
+                audioTracks: [
+                    .original(
+                        representations: [
+                            MediaRepresentation(
+                                id: 30216,
+                                kind: .audio,
+                                codecs: "mp4a.40.2",
+                                mimeType: "audio/mp4",
+                                primaryURL: audioURL,
+                                segmentBase: segmentBase
+                            )
+                        ],
+                        loudnessMetadata: nil
+                    )
+                ]
+            )
         ),
         mediaHeaders: [:],
         resumeMetadata: resumeMetadata

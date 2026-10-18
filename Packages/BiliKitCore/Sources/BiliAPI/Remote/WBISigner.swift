@@ -1,6 +1,10 @@
 import CryptoKit
 import Foundation
 
+/// 从 nav 的两张图片地址取出的 WBI key：各取文件名去掉扩展名，必须都是 32 个字符，否则抛
+/// `invalidWBIKey`。
+///
+/// 只由 `BiliAPIClient.wbiKey` 构造，由客户端按 UTC 自然日缓存；会话失效时清掉缓存。
 struct WBIKeyMaterial: Sendable, Equatable {
     let imageKey: String
     let subKey: String
@@ -25,6 +29,13 @@ struct WBIKeyMaterial: Sendable, Equatable {
     }
 }
 
+/// WBI 签名：按混排表从两段 key 取 32 位 mixin key，参数加 `wts` 后按键排序、去掉 `!'()*`、按
+/// unreserved 规则编码，拼上 mixin key 求 MD5 作为 `w_rid`。
+///
+/// 由 `BiliAPIClient.signedRequest` 与观看进度 heartbeat 调用；返回已编码的完整 query，
+/// 调用方必须原样作为 percent-encoded query 使用，不得再经 `URLComponents.queryItems` 重新编码。
+/// 混排表与过滤字符是 B 站 Web 端的签名规则，改动会让签名请求被拒；MD5 只是协议规定的摘要，
+/// 不承担安全性。
 struct WBISigner: Sendable {
     private static let mixinTable = [
         46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35,

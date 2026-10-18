@@ -1,6 +1,7 @@
 import BiliModels
 import Foundation
 
+/// playlist 生成失败：输入缺失或不一致、码率无法计算，或要嵌入 playlist 的文本与 URI 不安全。
 public enum HLSPlaylistBuilderError: Error, Sendable, Equatable {
     case noMediaSegments
     case noVideoVariants
@@ -77,6 +78,7 @@ public struct HLSMediaPlaylistBuilder: Sendable {
     }
 }
 
+/// master playlist 的一个视频档：representation、它的 SIDX 与本机 media playlist URI。
 public struct HLSVideoVariant: Sendable, Equatable {
     public let representation: MediaRepresentation
     public let index: SegmentIndex
@@ -176,6 +178,7 @@ public struct HLSIFramePlaylistBuilder: Sendable {
     }
 }
 
+/// master playlist 的一条字幕 rendition：显示名、语言、HLS 特征、选择属性与本机 playlist URI。
 public struct HLSSubtitleRendition: Sendable, Equatable {
     public let name: String
     public let languageTag: String
@@ -427,6 +430,8 @@ public struct HLSMasterPlaylistBuilder: Sendable {
             }
 
             let videoBitRates = try bitRates(for: variant.index)
+            // 带宽取视频加 AUDIO group 内最高的音频码率，CODECS 也列出全部音频 codec：
+            // 组内任一音轨都可能被选中。
             let bandwidth = try adding(
                 videoBitRates.peak,
                 audioPeakBitRate
@@ -586,6 +591,8 @@ public struct HLSMasterPlaylistBuilder: Sendable {
         return sum
     }
 
+    /// 写进引号属性的文本（显示名、codecs、语言等，部分来自远端）必须通过 `isPlaylistSafeText`
+    /// 且不超过 128 字节，不能注入新属性或新行。
     private func safeAttribute(_ value: String) throws -> String {
         guard isPlaylistSafeText(value), value.utf8.count <= 128 else {
             throw HLSPlaylistBuilderError.unsafeAttributeValue

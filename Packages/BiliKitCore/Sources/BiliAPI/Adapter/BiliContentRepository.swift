@@ -1,6 +1,12 @@
 import BiliApplication
 import BiliModels
 
+/// 内容类 port（推荐、热门、搜索、视频详情与播放地址、相关推荐、热搜、搜索联想、UP 主名片与投稿）
+/// 的 B 站实现。
+///
+/// 只转调 `BiliAPIClient` 的 endpoint 方法，授权方式由 endpoint 决定；错误统一经
+/// `BiliAPIError.contentApplicationError(for:)` 映射。无状态，每个窗口一个，同一实例服务上述全部
+/// port。
 public struct BiliContentRepository: FeedRepository, VideoRepository,
     RelatedVideoRepository, TrendingSearchRepository, SearchSuggestionRepository,
     UploaderProfileRepository, UploaderVideoRepository
@@ -77,20 +83,6 @@ public struct BiliContentRepository: FeedRepository, VideoRepository,
     ) async throws -> VideoPlayback {
         try await mapError {
             try await client.playback(for: bvid, cid: cid)
-        }
-    }
-
-    public func playback(
-        for bvid: String,
-        cid: Int64,
-        quality: Int
-    ) async throws -> VideoPlayback {
-        try await mapError {
-            try await client.playback(
-                for: bvid,
-                cid: cid,
-                quality: quality
-            )
         }
     }
 

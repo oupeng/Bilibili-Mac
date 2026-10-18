@@ -4,21 +4,12 @@ import CoreGraphics
 import Foundation
 import Observation
 
+/// App composition 可观察的已确认会话阶段（未解析、已登出、已登录），不携带账户身份；由
+/// `sessionState` 投影。
 public enum AccountSessionPhase: Sendable, Equatable {
     case unresolved
     case signedOut
     case signedIn
-}
-
-/// 窗口 owner 可用于隔离个性化内存的最小非秘密会话 identity。
-public enum AccountSessionScope: Sendable, Equatable {
-    case unresolved
-    case signedOut
-    case signedIn(accountID: Int64?)
-
-    public static func isResolvedChange(from previous: Self, to current: Self) -> Bool {
-        previous != .unresolved && current != .unresolved && previous != current
-    }
 }
 
 /// App composition 可观察的认证恢复阶段；不向 App shell 暴露 Application 层状态或失败细节。
@@ -29,30 +20,15 @@ public enum AuthenticationResolutionPhase: Sendable, Equatable {
     case failed
 }
 
-/// 供产品界面使用的诚实账户呈现状态；不可用与确定登出保持区分。
-public enum AccountPresentationState: Sendable, Equatable {
-    case resolving
-    case unavailable
-    case signedOut
-    case signedIn(AccountIdentity?)
-
-    public var displayName: String? {
-        guard case .signedIn(let identity) = self else { return nil }
-        return identity?.displayName
-    }
-
-    public var avatarURL: URL? {
-        guard case .signedIn(let identity) = self else { return nil }
-        return identity?.avatarURL
-    }
-}
-
-@MainActor
-@Observable
 /// 拥有恢复、登录、轮询与登出的单一 UI Task，并仅发布非秘密认证状态和二维码图像。
 ///
-/// `LatestTask` 拒绝旧操作写回；轮询同时受总时限与次数上限约束。Cookie、QR key 与完整 URL
-/// 始终留在 `BiliAuth` adapter，失败重试也保持原操作类型，避免把登出失败误当成登录失败。
+/// `operationTask`（`LatestTask`）只保留最新操作：新操作开始即取消旧 Task，旧结果经 `isCurrent`
+/// 丢弃、不写回状态；取消登录本身也是一次替换。`AuthenticationView` 消失时调用
+/// `cancelPresentedLoginWork`，窗口关闭时 App 调用 `cancelTransientWork`（连同启动恢复）。
+/// 轮询同时受总时限与次数上限约束。Cookie、QR key 与完整 URL 始终留在 `BiliAuth` adapter（见
+/// SECURITY-MODEL §1），失败重试也保持原操作类型，避免把登出失败误当成登录失败。
+@MainActor
+@Observable
 public final class AuthenticationViewModel {
     public private(set) var state: AuthenticationState = .signedOut
     public private(set) var sessionState: AccountSessionState = .unresolved
@@ -127,31 +103,47 @@ public final class AuthenticationViewModel {
         return false
     }
 
+    /// 等待给定时长后返回；被取消时抛出。
+    typealias PollWait = @Sendable (Duration) async throws -> Void
+
     @ObservationIgnored private let service: any AuthenticationServicing
     @ObservationIgnored private let qrCodeProvider: any AuthenticationQRCodeProviding
+    /// 本地兜底时限：远端一直没有给出终态（过期、确认或失败）时，轮询满 180 秒即本地判为过期。
+    ///
+    /// 调短会让用户来不及扫码确认，调长则在远端异常时多发轮询请求。
     private static let pollTimeout: Duration = .seconds(180)
-    private static let maximumPollAttempts = 90
+    /// 扫码状态的轮询间隔；调短更快感知确认但多发请求，调长则确认后要多等一会儿才登录。
+    private static let pollInterval: Duration = .seconds(2)
+    /// 一次挑战最多发出的轮询请求数：按轮询间隔走满时限的次数，两者任一先到即本地过期。
+    private static let maximumPollAttempts = Int((pollTimeout / pollInterval).rounded(.up))
 
-    @ObservationIgnored private let pollInterval: Duration
+    /// 两次轮询之间的等待，是时钟边界；public init 按要求的时长真实等待。
+    @ObservationIgnored private let waitBeforePoll: PollWait
     @ObservationIgnored private let operationTask = LatestTask()
+    /// 启动恢复只发起一次；`revalidate` 等显式复核也会置位，之后 `restoreIfNeeded` 不再重复恢复。
     @ObservationIgnored private var didStartInitialRestore = false
+    /// 最近一次操作的类型：决定重试走恢复、登录还是登出，以及失败页是否提供取消与清除本机登录状态。
     @ObservationIgnored private var retryAction: RetryAction = .login
 
     public convenience init(
         service: any AuthenticationServicing,
         qrCodeProvider: any AuthenticationQRCodeProviding
     ) {
-        self.init(service: service, qrCodeProvider: qrCodeProvider, pollInterval: .seconds(2))
+        self.init(
+            service: service,
+            qrCodeProvider: qrCodeProvider,
+            waitBeforePoll: { try await Task.sleep(for: $0) }
+        )
     }
 
     init(
         service: any AuthenticationServicing,
         qrCodeProvider: any AuthenticationQRCodeProviding,
-        pollInterval: Duration
+        waitBeforePoll: @escaping PollWait
     ) {
         self.service = service
         self.qrCodeProvider = qrCodeProvider
-        self.pollInterval = pollInterval
+        self.waitBeforePoll = waitBeforePoll
     }
 
     public func restoreIfNeeded() {
@@ -306,7 +298,7 @@ public final class AuthenticationViewModel {
 
             do {
                 let remaining = clock.now.duration(to: deadline)
-                try await Task.sleep(for: min(pollInterval, remaining))
+                try await waitBeforePoll(min(Self.pollInterval, remaining))
                 try Task.checkCancellation()
             } catch {
                 return

@@ -5,11 +5,18 @@ import Foundation
 
 /// 观看历史 cursor 读取与唯一写请求（观看进度 heartbeat）。
 extension BiliAPIClient {
+    /// 历史接口一页可请求的最大条数，超出按无效请求在发请求前拒绝。
+    ///
+    /// 调大前要先确认接口仍按请求的条数返回，否则“本页条数少于每页条数即到底”的判断会提前停止翻页。
+    private static let maximumWatchHistoryPageSize = 30
+    /// heartbeat 响应只有状态 envelope，16 KiB 远超正常大小；更大的正文按异常响应失败关闭。
+    private static let maximumHeartbeatResponseSize = 16 * 1_024
+
     public func watchHistory(
         after continuation: WatchHistoryContinuation? = nil,
-        pageSize: Int = 20
+        pageSize: Int
     ) async throws -> WatchHistoryPage {
-        guard (1...30).contains(pageSize) else {
+        guard (1...Self.maximumWatchHistoryPageSize).contains(pageSize) else {
             throw BiliAPIError.invalidRequest
         }
         let cursor: WatchHistoryCursorPayload
@@ -20,7 +27,7 @@ extension BiliAPIClient {
         }
         let payload: WatchHistoryPayload = try await get(
             url: try endpoint(
-                path: "/x/web-interface/history/cursor",
+                path: BiliAccountReadPath.watchHistory,
                 queryItems: [
                     URLQueryItem(name: "max", value: String(cursor.maximum)),
                     URLQueryItem(name: "view_at", value: String(cursor.viewedAt)),
@@ -34,7 +41,10 @@ extension BiliAPIClient {
         return try payload.model(pageSize: pageSize)
     }
 
-    /// V1 唯一认证写请求；endpoint、WBI、form 与响应在 API adapter 内收口。
+    /// 唯一的认证写请求（观看进度 heartbeat）；endpoint、WBI、表单与响应判定都在 API adapter
+    /// 内收口。
+    ///
+    /// 不经 `signedRequest`，不做换 key 重试；-101 与 -111 一律视为凭据失效，见 SECURITY-MODEL §3。
     public func reportWatchProgress(_ report: WatchProgressReport) async throws {
         guard hasHistoryWriteAuthorizer else {
             throw BiliAPIError.authorizationRequired
@@ -111,7 +121,7 @@ extension BiliAPIClient {
                 body: try Self.formBody(bodyFields)
             ),
             access: .historyWrite,
-            maximumResponseSize: 16 * 1_024
+            maximumResponseSize: Self.maximumHeartbeatResponseSize
         )
         guard authorizedResponse.response.looksLikeJSON(allowsTopLevelArray: true) else {
             throw BiliAPIError.nonJSONResponse
@@ -125,6 +135,8 @@ extension BiliAPIClient {
         } catch {
             throw BiliAPIError.decodingFailed
         }
+        // 写请求总是带凭据发出：-101（未登录）与 -111（csrf 校验失败）都说明凭据失效，见
+        // SECURITY-MODEL §3。
         if status.code == -101 || status.code == -111 {
             throw BiliAPIError.authenticationInvalid
         }

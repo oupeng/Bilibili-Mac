@@ -2,6 +2,10 @@ import BiliModels
 import BiliUI
 import Foundation
 
+/// 热门卡片的已格式化文字、缩略图地址与读屏标签，由 `PopularNativeGridView` 映射为原生卡片。
+///
+/// 计数、时长与日期的格式取自 BiliUI，图片地址经 `BiliImageThumbnail` 改写为缩略地址；
+/// 渲染侧不再格式化。
 public struct PopularVideoCardPresentation: Sendable, Equatable {
     public let bvid: String
     public let title: String
@@ -17,16 +21,8 @@ public struct PopularVideoCardPresentation: Sendable, Equatable {
     public init(video: PopularVideo, locale: Locale = .current) {
         bvid = video.bvid
         title = video.title
-        coverURL = optimizedBiliImageURL(
-            video.coverURL,
-            width: 640,
-            height: 360
-        )
-        avatarURL = optimizedBiliImageURL(
-            video.owner.avatarURL,
-            width: 96,
-            height: 96
-        )
+        coverURL = BiliImageThumbnail.url(video.coverURL, size: .videoCover)
+        avatarURL = BiliImageThumbnail.url(video.owner.avatarURL, size: .avatar)
         ownerName = video.owner.name
         viewCountText = VideoMetadataFormatting.compactCount(
             video.statistics.viewCount,
@@ -56,6 +52,8 @@ public struct PopularVideoCardPresentation: Sendable, Equatable {
     }
 }
 
+/// 首页推荐卡片的已格式化文字、缩略图地址与读屏标签；另带推荐理由，由 `RecommendedNativeGridView`
+/// 显示为页脚胶囊。
 public struct RecommendedVideoCardPresentation: Sendable, Equatable {
     public let bvid: String
     public let title: String
@@ -72,16 +70,8 @@ public struct RecommendedVideoCardPresentation: Sendable, Equatable {
     public init(video: RecommendedVideo, locale: Locale = .current) {
         bvid = video.bvid
         title = video.title
-        coverURL = optimizedBiliImageURL(
-            video.coverURL,
-            width: 640,
-            height: 360
-        )
-        avatarURL = optimizedBiliImageURL(
-            video.owner.avatarURL,
-            width: 96,
-            height: 96
-        )
+        coverURL = BiliImageThumbnail.url(video.coverURL, size: .videoCover)
+        avatarURL = BiliImageThumbnail.url(video.owner.avatarURL, size: .avatar)
         ownerName = video.owner.name
         viewCountText = VideoMetadataFormatting.compactCount(
             video.statistics.viewCount,
@@ -113,6 +103,8 @@ public struct RecommendedVideoCardPresentation: Sendable, Equatable {
     }
 }
 
+/// 搜索结果卡片的已格式化文字、缩略图地址与读屏标签；搜索结果可能没有时长，
+/// 此时 `durationText` 为 nil，封面不显示时长。
 public struct SearchVideoCardPresentation: Sendable, Equatable {
     public let bvid: String
     public let title: String
@@ -128,16 +120,8 @@ public struct SearchVideoCardPresentation: Sendable, Equatable {
     public init(video: SearchVideo, locale: Locale = .current) {
         bvid = video.bvid
         title = video.title
-        coverURL = optimizedBiliImageURL(
-            video.coverURL,
-            width: 640,
-            height: 360
-        )
-        avatarURL = optimizedBiliImageURL(
-            video.owner.avatarURL,
-            width: 96,
-            height: 96
-        )
+        coverURL = BiliImageThumbnail.url(video.coverURL, size: .videoCover)
+        avatarURL = BiliImageThumbnail.url(video.owner.avatarURL, size: .avatar)
         ownerName = video.owner.name
         viewCountText = VideoMetadataFormatting.compactCount(
             video.statistics.viewCount,
@@ -193,26 +177,4 @@ private func videoCardAccessibilityLabel(
             }
         ].compactMap { $0 }
     )
-}
-
-private func optimizedBiliImageURL(
-    _ url: URL?,
-    width: Int,
-    height: Int
-) -> URL? {
-    guard let url,
-        let host = url.host?.lowercased(),
-        host == "hdslb.com" || host.hasSuffix(".hdslb.com"),
-        url.query == nil,
-        url.fragment == nil,
-        !url.path.contains("@")
-    else {
-        return url
-    }
-    var components = URLComponents(
-        url: url,
-        resolvingAgainstBaseURL: false
-    )
-    components?.path += "@\(width)w_\(height)h_1c.webp"
-    return components?.url ?? url
 }

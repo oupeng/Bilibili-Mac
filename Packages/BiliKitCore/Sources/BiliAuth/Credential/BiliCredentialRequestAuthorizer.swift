@@ -1,6 +1,11 @@
 import BiliNetworking
 import Foundation
 
+/// 两个授权器共用的失败；经 `authorizationFailureKind` 归入 BiliNetworking 的稳定分类。
+///
+/// 请求不在 allowlist 或调用方自带凭据 header 属于 `denied`（客户端编程错误）；
+/// 本地无凭据才是 `missingCredential`；凭据损坏或过期在清除后归为 `invalidCredential`；
+/// Keychain 不可用与校验不可用都是 `unavailable`（见 SECURITY-MODEL §3）。
 public enum BiliRequestAuthorizationError:
     HTTPRequestAuthorizationFailure, Sendable, Equatable
 {
@@ -29,7 +34,8 @@ public enum BiliRequestAuthorizationError:
 /// 从 Keychain 按需读取 Cookie，并只授权 Bilibili API 的只读账户请求。
 ///
 /// 调用方声明账户读取能力后，scheme、host、port、method、exact path、userinfo、fragment 与
-/// 现有凭据 header 仍会再次验证。损坏或过期凭据会清除，媒体/CDN/loopback 请求无法通过此边界。
+/// 现有凭据 header 仍会再次验证。损坏或过期凭据会清除，媒体/CDN/loopback 请求无法通过此边界
+/// （见 SECURITY-MODEL §3）。不缓存 header：每次授权都重新读取 Keychain 并生成新请求。
 public struct BiliCredentialRequestAuthorizer: HTTPRequestAuthorizing, Sendable {
     private let store: any WebCredentialStoring
     private let httpClient: HTTPClient
@@ -51,10 +57,11 @@ public struct BiliCredentialRequestAuthorizer: HTTPRequestAuthorizing, Sendable 
         self.isConfirmedSignedOut = isConfirmedSignedOut
     }
 
+    /// Keychain 与会话校验网络两个系统边界；public init 由此接入 Keychain store 与认证专用 session。
     init(
         store: any WebCredentialStoring,
         allowedPaths: Set<String>,
-        transport: any HTTPTransport = AuthenticationHTTP.makeProductionTransport(),
+        transport: any HTTPTransport,
         isConfirmedSignedOut: @escaping @Sendable () -> Bool = { false }
     ) {
         self.store = store
@@ -166,6 +173,8 @@ public struct BiliCredentialRequestAuthorizer: HTTPRequestAuthorizing, Sendable 
         else {
             return false
         }
+        // 精确 host、端口与 GET，path 必须在 allowlist 里且编码规范；不用后缀匹配，见
+        // SECURITY-MODEL §3。
         return components.scheme?.lowercased() == "https"
             && components.host?.lowercased() == "api.bilibili.com"
             && (components.port == nil || components.port == 443)

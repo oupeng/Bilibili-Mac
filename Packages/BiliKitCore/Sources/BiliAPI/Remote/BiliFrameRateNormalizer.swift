@@ -1,10 +1,21 @@
 import Foundation
 
+/// 把 playurl DASH 视频的 `frame_rate` 文本规范为标准帧率，供 loopback HLS 清单的 `FRAME-RATE`
+/// 使用。
+///
+/// B 站常给出按 16 kHz 时基量化后的帧时长（如 `16000/672`，或换算成小数的 `30.303`）：
+/// 先按时基分桶归回 24／25／30／50／60／120，再认 NTSC 分数帧率与相对误差 0.5% 以内的名义帧率，
+/// 最后只接受 1–120 的整数；都不符时为 nil，清单不写帧率。
 enum BiliFrameRateNormalizer {
+    /// B 站帧时长使用的时基（Hz）。
     private static let timescale = 16_000.0
+    /// 帧时长按 16 个时基单位量化，名义帧时长向下与向上取整的两个桶都认。
     private static let durationQuantum = 16.0
+    /// 与桶边界的允许误差（时基单位），只为吸收三位小数文本反算时长的舍入误差，远小于量化步长 16。
     private static let durationTolerance = 0.1
+    /// 与 NTSC 分数帧率的允许绝对误差（帧/秒）。
     private static let fractionalTolerance = 0.01
+    /// 与名义帧率的相对误差上限；放宽会把更多非标准帧率也归为名义帧率。
     private static let nominalDriftRatio = 0.005
 
     private static let fractionalRates = [

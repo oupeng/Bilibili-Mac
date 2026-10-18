@@ -2,64 +2,45 @@ import BiliApplication
 import BiliModels
 import Foundation
 
+/// 弹幕密度到车道准入参数的映射：同车道滚动弹幕的最小水平间距（point）与可叠放层数。
+///
+/// 只有显示区域为全屏时才采用用户选的密度，其余显示区域按普通密度（见 `updateAdmissionPolicy`）。
+/// 间距越小、层数越多，同屏弹幕越多，也越容易互相遮挡。
 struct DanmakuDensityAdmissionPolicy: Sendable, Equatable {
+    /// 普通密度：同车道前后两条滚动弹幕至少隔 64pt。
+    private static let normalGap = 64.0
+    /// 增加密度：间距减半为 32pt，仍不叠放。
+    private static let increasedGap = 32.0
+    /// 允许叠放：不留间距，没有完全空闲的车道时同一车道最多叠 3 层。
+    private static let overlappingDepth = 3
+
     let minimumHorizontalGap: Double
     let maximumOverlapDepth: Int
 
     init(_ density: DanmakuDensity) {
         switch density {
         case .normal:
-            minimumHorizontalGap = 64
+            minimumHorizontalGap = Self.normalGap
             maximumOverlapDepth = 1
         case .increased:
-            minimumHorizontalGap = 32
+            minimumHorizontalGap = Self.increasedGap
             maximumOverlapDepth = 1
         case .overlapping:
             minimumHorizontalGap = 0
-            maximumOverlapDepth = 3
+            maximumOverlapDepth = Self.overlappingDepth
         }
     }
 }
 
-public struct DanmakuRendererStatistics: Sendable, Equatable {
-    public private(set) var droppedNoLane = 0
-    public private(set) var droppedCapacity = 0
-    public private(set) var active = 0
-
-    public init() {}
-
-    mutating func record(_ admission: DanmakuLaneAdmission) {
-        droppedNoLane += admission.dropCounts.noLane
-        droppedCapacity += admission.dropCounts.capacity
-    }
-
-    mutating func recordCapacityDrops(_ count: Int) {
-        droppedCapacity += max(count, 0)
-    }
-
-    mutating func recordPreparationDrop(
-        _ reason: DanmakuPreparationRejectionReason
-    ) {
-        switch reason {
-        case .capacity:
-            droppedCapacity += 1
-        case .invalidInput, .oversized:
-            droppedNoLane += 1
-        case .cancelled:
-            break
-        }
-    }
-
-    mutating func updateActive(_ count: Int) {
-        active = count
-    }
-}
-
-@MainActor
 /// 在调度 batch 与具体 renderer 之间执行 identity/generation 检查、lane 分配与容量治理。
 ///
-/// surface owner ID 防止旧 `AVPlayerView` 的迟到 resize/detach 操作清空新宿主；换 identity、
-/// seek generation 或显式清屏都会同步清空 allocator 与 backend。
+/// surface owner ID 防止旧 `AVPlayerView` 的迟到 resize/detach 操作清空新宿主；换 surface owner、
+/// 换 identity、discontinuity generation 变化或显式清屏都会同步清空 allocator 与 backend。
+///
+/// 拥有 lane allocator、待准备队列与补位批次；不拥有纹理与 layer（交给 backend），
+/// 也不拥有时间线与分段（交给 `DanmakuSession`）。准备结果按入队顺序处理，先完成的等前面的完成，
+/// 准入时间因此不倒退。
+@MainActor
 public final class DanmakuPresentationController:
     DanmakuPresentationSink,
     DanmakuRenderingBackendDelegate
@@ -84,25 +65,35 @@ public final class DanmakuPresentationController:
     /// 再多只会准备出马上被丢弃的纹理。
     static let catchUpCandidatesPerLane = 4
 
-    public private(set) var statistics = DanmakuRendererStatistics()
-
     private let backend: any DanmakuRenderingBackend
     private var allocator: DanmakuLaneAllocator
     private var configuration: DanmakuLaneConfiguration
     private var speedLevel = DanmakuSpeedLevel.default
     private var displayArea = DanmakuDisplayArea.default
     private var density = DanmakuDensity.default
+    /// 当前呈现的播放 identity 与 discontinuity generation；任一变化先清屏，
+    /// 准备完成时与发起时不一致的结果被丢弃。
     private var identity: PlaybackItemIdentity?
     private var discontinuityGeneration: UInt64?
+    /// 当前持有 surface 的 overlay；只有它的尺寸更新与 detach 生效。
     private var surfaceOwnerID: UUID?
-    private var backingScale = 2.0
+    /// 当前 surface 的 backing scale；变化时取消在途准备，因为纹理按 scale 栅格化。
+    private var backingScale = DanmakuTextureRasterizer.defaultBackingScale
+    /// `cancelPendingPreparations` 时递增；准备请求带上入队时的值，完成回调、处理与上屏（backend
+    /// 的 `consume`）时比对，不等就丢弃这次准备。
     private var preparationGeneration: UInt64 = 0
+    /// 每个准备请求递增分配的 ID，在 backend 内标识这次准备。
     private var nextPreparationID: UInt64 = 0
     private var pendingPreparations: [UInt64: PendingPreparation] = [:]
+    /// 准备请求的入队顺序；完成结果按此顺序处理。
     private var pendingOrder: [UInt64] = []
+    /// 已完成、但前面还有未完成请求而暂存的结果。
     private var completedPreparations: [UInt64: DanmakuPreparationResult] = [:]
+    /// 最近一次快照；准入与补位上屏用它的位置作为当前时刻。
     private var latestSnapshot: PlaybackTimelineSnapshot?
+    /// 每个补位批次递增分配的编号。
     private var nextCatchUpGroup: UInt64 = 0
+    /// 按补位批次暂存已准入、等同批其余准备完成后一起上屏的弹幕；它们已占用车道。
     private var deferredCatchUps: [UInt64: [DeferredCatchUp]] = [:]
 
     public init(
@@ -186,9 +177,6 @@ public final class DanmakuPresentationController:
             candidates = batch.events
             attemptedEvents = candidates.prefix(availablePreparationSlots)
         }
-        statistics.recordCapacityDrops(
-            candidates.count - attemptedEvents.count
-        )
         var catchUpGroup: UInt64?
         if batch.catchesUp {
             nextCatchUpGroup &+= 1
@@ -242,7 +230,6 @@ public final class DanmakuPresentationController:
         identity = nil
         discontinuityGeneration = nil
         latestSnapshot = nil
-        statistics.updateActive(0)
     }
 
     private func updateSurfaceSize(
@@ -250,7 +237,7 @@ public final class DanmakuPresentationController:
         height: Double,
         backingScale: Double
     ) {
-        let normalizedScale = Self.normalizedBackingScale(backingScale)
+        let normalizedScale = DanmakuTextureRasterizer.normalizedBackingScale(backingScale)
         if normalizedScale != self.backingScale {
             self.backingScale = normalizedScale
             cancelPendingPreparations()
@@ -272,6 +259,7 @@ public final class DanmakuPresentationController:
         )
     }
 
+    /// 新 overlay 接管 surface：记下 owner 并清屏；同一 owner 重复调用是空操作。
     @discardableResult
     public func attachSurface(ownerID: UUID) -> Bool {
         guard surfaceOwnerID != ownerID else { return true }
@@ -280,6 +268,7 @@ public final class DanmakuPresentationController:
         return true
     }
 
+    /// 只有当前 owner 能交还 surface，交还时清屏；返回是否生效。
     @discardableResult
     public func detachSurface(ownerID: UUID) -> Bool {
         guard surfaceOwnerID == ownerID else { return false }
@@ -288,6 +277,7 @@ public final class DanmakuPresentationController:
         return true
     }
 
+    /// 只接受当前 owner 的尺寸更新；返回是否生效。
     @discardableResult
     public func updateSurface(
         width: Double,
@@ -306,14 +296,12 @@ public final class DanmakuPresentationController:
 
     public func rendererDidFinish(eventID: String) {
         allocator.remove(eventID: eventID)
-        statistics.updateActive(allocator.activeCount)
     }
 
     private func clearBackendAndAllocator() {
         cancelPendingPreparations()
         _ = allocator.clear()
         backend.clearAll()
-        statistics.updateActive(0)
     }
 
     /// 先登记整批再开始准备：缓存命中会同步完成，补位批次必须在第一条完成前就知道同批还有谁。
@@ -406,7 +394,6 @@ public final class DanmakuPresentationController:
             releaseDeferred(deferred)
             return
         }
-        var failedRenders = 0
         for item in deferred {
             let placement = item.placement
             let isVisible = placement.expiresAtSeconds > now
@@ -420,14 +407,9 @@ public final class DanmakuPresentationController:
             {
                 continue
             }
-            if isVisible {
-                failedRenders += 1
-            }
             allocator.remove(eventID: placement.request.event.id)
             backend.discardPreparation(preparationID: item.preparationID)
         }
-        statistics.recordCapacityDrops(failedRenders)
-        statistics.updateActive(allocator.activeCount)
     }
 
     private func processPreparation(
@@ -447,9 +429,6 @@ public final class DanmakuPresentationController:
             return
         }
         guard case .ready(let metrics) = result else {
-            if case .rejected(let reason) = result {
-                statistics.recordPreparationDrop(reason)
-            }
             backend.discardPreparation(preparationID: preparationID)
             return
         }
@@ -491,10 +470,9 @@ public final class DanmakuPresentationController:
                     DeferredCatchUp(placement: $0, preparationID: preparationID)
                 }
             )
-            statistics.record(admission)
             return
         }
-        var installed: [DanmakuLanePlacement] = []
+        var installedAny = false
         for placement in admission.admitted {
             if backend.renderPrepared(
                 placement,
@@ -502,25 +480,14 @@ public final class DanmakuPresentationController:
                 generation: preparationGeneration,
                 elapsedSeconds: now - admissionSeconds
             ) {
-                installed.append(placement)
+                installedAny = true
             } else {
                 allocator.remove(eventID: placement.request.event.id)
             }
         }
-        if installed.isEmpty {
+        if !installedAny {
             backend.discardPreparation(preparationID: preparationID)
         }
-        statistics.recordCapacityDrops(
-            admission.admitted.count - installed.count
-        )
-        statistics.record(
-            DanmakuLaneAdmission(
-                expired: admission.expired,
-                admitted: installed,
-                dropCounts: admission.dropCounts
-            )
-        )
-        statistics.updateActive(allocator.activeCount)
     }
 
     /// 等待上屏的补位弹幕已占用车道，丢弃时一并归还，否则车道会被看不见的弹幕占到过期。
@@ -529,7 +496,6 @@ public final class DanmakuPresentationController:
             allocator.remove(eventID: item.placement.request.event.id)
             backend.discardPreparation(preparationID: item.preparationID)
         }
-        statistics.updateActive(allocator.activeCount)
     }
 
     private func cancelPendingPreparations() {
@@ -540,12 +506,6 @@ public final class DanmakuPresentationController:
         pendingOrder.removeAll(keepingCapacity: false)
         completedPreparations.removeAll(keepingCapacity: false)
         backend.cancelPendingPreparations()
-    }
-
-    private static func normalizedBackingScale(_ scale: Double) -> Double {
-        scale.isFinite
-            ? min(max(scale, 1), DanmakuTextureRasterizer.maximumBackingScale)
-            : 2
     }
 
     private func updateAdmissionPolicy() {

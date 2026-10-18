@@ -2,11 +2,13 @@ import BiliApplication
 import BiliModels
 import Foundation
 
+/// 字幕目录不可用：轨道 ID 重复或显示名为空；bridge 收到后按无字幕起播。
 enum NativeSubtitleSourceError: Error, Sendable, Equatable {
     case duplicateTrackID
     case emptyDisplayLabel
 }
 
+/// 字幕目录的一项：轨道 ID、显示名、BCP 47 语言标签（无法识别时为 `und`）与 HLS 特征。
 struct NativeSubtitleCatalogEntry: Sendable, Equatable {
     let trackID: String
     let label: String
@@ -43,6 +45,7 @@ struct NativeSubtitleSource: Sendable {
         try await useCase.cues(for: trackID, identity: identity)
     }
 
+    /// 规范化为 BCP 47 形状（自动字幕去掉 `ai-` 前缀），不合规时为 `und`；playlist 只写这个规范值。
     private static func languageTag(for track: SubtitleTrack) -> String {
         var source = track.languageCode
             .trimmingCharacters(in: .whitespacesAndNewlines)

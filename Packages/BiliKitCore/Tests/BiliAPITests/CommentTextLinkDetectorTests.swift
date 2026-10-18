@@ -70,7 +70,7 @@ struct CommentTextLinkDetectorTests {
             Issue.record("公开 HTTPS 外链应保持为外链")
             return
         }
-        #expect(reference.remoteURL?.absoluteString == url)
+        #expect(reference.remoteURL.absoluteString == url)
     }
 
     /// `http` 网址只在指向站内目标时升级；其余 `http` 与通不过公开 HTTPS 复核的地址不显示为链接。

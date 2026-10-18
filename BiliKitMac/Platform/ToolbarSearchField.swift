@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// 工具栏正中的搜索框宽度：窗口足够宽时与原先的系统搜索框一致，变窄时随工具栏压缩。
+/// 工具栏正中的搜索框宽度：窗口足够宽时取理想宽度，变窄时随工具栏压缩到最小宽度。
 enum ToolbarSearchFieldLayout {
     static let minimumWidth: CGFloat = 200
     static let idealWidth: CGFloat = 544
@@ -49,6 +49,12 @@ struct ToolbarSearchField: NSViewRepresentable {
         field.target = nil
     }
 
+    /// 搜索框的 delegate、action target 与联想 delegate：在搜索框与 SwiftUI 草稿之间同步文字，
+    /// 并提供联想。
+    ///
+    /// 拥有联想请求 Task：系统重新索取、结束编辑、提交、选中联想与拆除视图时取消，
+    /// 旧请求的结果不再交给系统。MainActor 隔离；`parent` 在每次 `updateNSView` 时换成最新的值。
+    /// 规则见 docs/ARCHITECTURE.md「搜索起始页」。
     @MainActor
     final class Coordinator: NSObject, NSSearchFieldDelegate, NSTextSuggestionsDelegate {
         typealias SuggestionItemType = String

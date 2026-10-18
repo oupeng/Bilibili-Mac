@@ -1,5 +1,6 @@
 import Foundation
 
+/// 搜索结果的排序方式；BiliAPI 把它映射为接口的 `order` 参数，rawValue 不进入请求。
 public enum VideoSearchOrder: String, Sendable, Hashable, CaseIterable, Identifiable {
     case relevance
     case mostPlayed
@@ -10,6 +11,7 @@ public enum VideoSearchOrder: String, Sendable, Hashable, CaseIterable, Identifi
     public var id: Self { self }
 }
 
+/// 搜索结果的时长筛选；rawValue 原样作为接口的 `duration` 参数，改动会改变请求含义。
 public enum VideoDurationFilter: Int, Sendable, Hashable, CaseIterable, Identifiable {
     case all = 0
     case underTenMinutes = 1
@@ -31,6 +33,8 @@ public struct VideoPublicationTimeRange: Sendable, Hashable {
     }
 }
 
+/// 搜索页的发布时间筛选选项；由 `VideoPublicationRangeResolver` 解析为冻结的闭区间后才进入
+/// criteria。
 public enum VideoPublicationFilter: Sendable, Hashable, CaseIterable, Identifiable {
     case all
     case today
@@ -41,6 +45,8 @@ public enum VideoPublicationFilter: Sendable, Hashable, CaseIterable, Identifiab
     public var id: Self { self }
 }
 
+/// `VideoPublicationRangeResolver` 无法给出区间的原因：起始晚于结束、结束晚于今天，
+/// 或日历无法推算日期。
 public enum VideoPublicationRangeError: Error, Sendable, Equatable {
     case startAfterEnd
     case futureDate
@@ -101,6 +107,8 @@ public enum VideoPublicationRangeResolver {
 ///
 /// `query` 在初始化时即完成空白规范化。
 public struct VideoSearchCriteria: Sendable, Hashable {
+    /// 搜索每页条数；`isValid` 要求请求使用这一固定值，调整会改变每次加载更多的条数，
+    /// 以及达到列表条目上限所需的页数。
     public static let pageSize = 20
 
     public let query: String
@@ -122,6 +130,8 @@ public struct VideoSearchCriteria: Sendable, Hashable {
         self.pageSize = Self.pageSize
     }
 
+    /// 查询词长度上限（按字符计）；超过的输入不发搜索或联想请求，联想会发送未提交的输入，见
+    /// SECURITY-MODEL §3。
     public static let maximumQueryLength = 100
 
     /// 查询非空且不超过上限、使用固定页大小、发布时间范围不为负且不倒置。

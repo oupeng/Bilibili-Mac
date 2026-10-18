@@ -18,7 +18,6 @@ struct DanmakuLaneAllocatorTests {
             at: 3
         )
 
-        #expect(admission.dropCounts.total == 0)
         #expect(
             admission.admitted.map(\.request.event.id)
                 == ["top", "bottom", "scroll"]
@@ -47,7 +46,6 @@ struct DanmakuLaneAllocatorTests {
                 == ["top", "scroll", "bottom"]
         )
         #expect(admission.admitted.map(\.originY) == [0, 0, 0])
-        #expect(admission.dropCounts.noLane == 2)
     }
 
     @Test
@@ -86,7 +84,6 @@ struct DanmakuLaneAllocatorTests {
 
         let next = allocator.admit([request(id: "next")], at: 4)
 
-        #expect(next.dropCounts.total == 0)
         #expect(next.admitted.map(\.laneIndex) == [1])
         #expect(next.admitted.map(\.overlapDepth) == [0])
     }
@@ -118,7 +115,6 @@ struct DanmakuLaneAllocatorTests {
         )
 
         #expect(blockedByOldDepth.admitted.isEmpty)
-        #expect(blockedByOldDepth.dropCounts.noLane == 1)
 
         let recovered = allocator.admit(
             [request(id: "recovered", duration: 8)],
@@ -145,7 +141,6 @@ struct DanmakuLaneAllocatorTests {
             at: 0
         )
 
-        #expect(admission.dropCounts.total == 0)
         #expect(admission.admitted.map(\.laneIndex) == [0, 1, 2, 0, 1, 2, 0])
         #expect(admission.admitted.map(\.overlapDepth) == [0, 0, 0, 1, 1, 1, 2])
     }
@@ -162,7 +157,6 @@ struct DanmakuLaneAllocatorTests {
 
         #expect(admission.admitted.map(\.laneIndex) == [0, 1, 2])
         #expect(admission.admitted.map(\.overlapDepth) == [0, 0, 0])
-        #expect(admission.dropCounts.noLane == 1)
     }
 
     @Test
@@ -180,7 +174,7 @@ struct DanmakuLaneAllocatorTests {
             [request(id: "early", width: 100)],
             at: 1
         )
-        #expect(tooEarly.dropCounts.noLane == 1)
+        #expect(tooEarly.admitted.isEmpty)
 
         _ = allocator.clear()
         _ = allocator.admit(
@@ -191,7 +185,7 @@ struct DanmakuLaneAllocatorTests {
             [request(id: "fast", width: 600)],
             at: 2
         )
-        #expect(catchesUp.dropCounts.noLane == 1)
+        #expect(catchesUp.admitted.isEmpty)
 
         let safe = allocator.admit(
             [request(id: "safe", width: 100)],
@@ -214,7 +208,7 @@ struct DanmakuLaneAllocatorTests {
             [request(id: "blocked", mode: .top, duration: 4)],
             at: 3.9
         )
-        #expect(occupied.dropCounts.noLane == 1)
+        #expect(occupied.admitted.isEmpty)
 
         let expired = allocator.admit(
             [request(id: "next", mode: .top, duration: 4)],
@@ -241,7 +235,6 @@ struct DanmakuLaneAllocatorTests {
 
         #expect(next.expired.map(\.request.event.id) == ["first"])
         #expect(next.admitted.map(\.request.event.id) == ["next"])
-        #expect(next.dropCounts.total == 0)
     }
 
     @Test
@@ -261,8 +254,6 @@ struct DanmakuLaneAllocatorTests {
         #expect(
             admission.admitted.map(\.request.event.id) == ["a", "b"]
         )
-        #expect(admission.dropCounts.capacity == 1)
-        #expect(admission.dropCounts.total == 1)
         #expect(allocator.activeCount == 2)
 
         let removed = allocator.remove(eventID: "a")
@@ -292,7 +283,6 @@ struct DanmakuLaneAllocatorTests {
         let admission = allocator.admit(requests, at: 0)
 
         #expect(admission.admitted.count == maximumActiveCount)
-        #expect(admission.dropCounts.capacity == 1)
         #expect(allocator.activeCount == maximumActiveCount)
     }
 
@@ -315,7 +305,6 @@ struct DanmakuLaneAllocatorTests {
         )
 
         #expect(admission.admitted.isEmpty)
-        #expect(admission.dropCounts.noLane == 1)
     }
 
     @Test
@@ -326,7 +315,7 @@ struct DanmakuLaneAllocatorTests {
             [request(id: "tall", height: 61)],
             at: 0
         )
-        #expect(tooTall.dropCounts.noLane == 1)
+        #expect(tooTall.admitted.isEmpty)
 
         allocator.updateConfiguration(
             configuration(surfaceWidth: 0)
@@ -336,7 +325,7 @@ struct DanmakuLaneAllocatorTests {
             [request(id: "unavailable")],
             at: 1
         )
-        #expect(unavailable.dropCounts.invalidRequest == 1)
+        #expect(unavailable.admitted.isEmpty)
         #expect(allocator.activeCount == 1)
 
         allocator.updateConfiguration(
@@ -349,7 +338,7 @@ struct DanmakuLaneAllocatorTests {
             [request(id: "over-limit")],
             at: 2
         )
-        #expect(overHardLimit.dropCounts.invalidRequest == 1)
+        #expect(overHardLimit.admitted.isEmpty)
         #expect(allocator.activeCount == 1)
 
         allocator.updateConfiguration(
@@ -359,7 +348,7 @@ struct DanmakuLaneAllocatorTests {
             [request(id: "invalid-coverage")],
             at: 3
         )
-        #expect(invalidCoverage.dropCounts.invalidRequest == 1)
+        #expect(invalidCoverage.admitted.isEmpty)
         #expect(allocator.activeCount == 1)
 
         allocator.updateConfiguration(configuration())
@@ -388,7 +377,6 @@ struct DanmakuLaneAllocatorTests {
         #expect(admission.admitted.map(\.request.event.id) == ["large", "small"])
         #expect(admission.admitted.map(\.laneIndex) == [0, 2])
         #expect(admission.admitted.map(\.originY) == [0, 40])
-        #expect(admission.dropCounts.noLane == 1)
     }
 
     @Test(
@@ -427,7 +415,6 @@ struct DanmakuLaneAllocatorTests {
         )
         #expect(reused.admitted.map(\.request.event.id) == ["large-next"])
         #expect(reused.admitted.first?.laneIndex == 0)
-        #expect(reused.dropCounts.total == 0)
     }
 
     @Test
@@ -472,7 +459,6 @@ struct DanmakuLaneAllocatorTests {
             at: 0.2
         )
         let placement = try #require(following.admitted.first)
-        #expect(following.dropCounts.total == 0)
         #expect(placement.surfaceWidthAtAdmission == 1_200)
         #expect(placement.laneIndex == first.admitted.first?.laneIndex)
         #expect(allocator.activeCount == 2)
@@ -509,8 +495,6 @@ struct DanmakuLaneAllocatorTests {
 
         #expect(top.admitted.map(\.originY) == expectedTop)
         #expect(bottom.admitted.map(\.originY) == expectedBottom)
-        #expect(top.dropCounts.total == 0)
-        #expect(bottom.dropCounts.total == 0)
     }
 
     @Test(arguments: DanmakuDisplayArea.allCases)
@@ -527,7 +511,6 @@ struct DanmakuLaneAllocatorTests {
         )
 
         #expect(admission.admitted.count == area.rawValue / 5)
-        #expect(admission.dropCounts.noLane == 20 - area.rawValue / 5)
     }
 
     enum LaneRelease: Sendable {

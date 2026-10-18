@@ -441,3 +441,21 @@ private actor RouteBenchmarkProgressRecorder {
         latest = (completed, total)
     }
 }
+
+extension BilivideoRouteBenchmark {
+    /// 用同一模板作为 `repetitions` 个样本测一轮；只是测试里构造样本数组的简写。
+    fileprivate func benchmarkUnifiedPool(
+        template: MediaRepresentation,
+        headers: [String: String],
+        repetitions: Int = 1,
+        progress: @escaping @Sendable (Int, Int) async -> Void = { _, _ in }
+    ) async throws -> [PlaybackRouteMeasurement] {
+        try await benchmarkUnifiedPool(
+            samples: Array(
+                repeating: PlaybackRouteBenchmarkSample(template: template, headers: headers),
+                count: repetitions
+            ),
+            progress: progress
+        )
+    }
+}

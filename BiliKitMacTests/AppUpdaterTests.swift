@@ -3,6 +3,7 @@ import Testing
 
 @testable import BiliKit
 
+/// 更新器只在 Info.plist 的更新配置完整且符合 SECURITY-MODEL §7 时启动，任一安全项缺失或放宽都不启动。
 @MainActor
 struct AppUpdaterTests {
     private var configuredInfo: [String: Any] {
@@ -14,17 +15,24 @@ struct AppUpdaterTests {
             "SUEnableDownloaderService": false,
             "SUVerifyUpdateBeforeExtraction": true,
             "SURequireSignedFeed": true,
+            "SUEnableSystemProfiling": false,
             "SUSignedFeedFailureExpirationInterval": 0
         ]
     }
 
+    /// Debug 构建（含 Gate）即使随包配置完整也不启用更新检查：不启动 Sparkle，菜单按未配置显示。
     @Test
-    func incompleteConfigurationLeavesUpdaterUnavailable() {
-        let updater = AppUpdater(info: [:])
+    func debugBuildNeverStartsUpdateChecksEvenWithCompleteBundledConfiguration() {
+        #expect(AppUpdater.hasValidConfiguration(Bundle.main.infoDictionary ?? [:]))
+        let updater = AppUpdater()
         #expect(!updater.isConfigured)
         #expect(!updater.canCheckForUpdates)
         #expect(!updater.failedToStart)
         updater.checkForUpdates()
+    }
+
+    @Test
+    func incompleteConfigurationLeavesUpdaterUnavailable() {
         var info = configuredInfo
         info["BiliKitUpdaterEnabled"] = false
         #expect(!AppUpdater.hasValidConfiguration(info))
@@ -71,6 +79,23 @@ struct AppUpdaterTests {
         #expect(!AppUpdater.hasValidConfiguration(info))
         info = configuredInfo
         info["SUEnableDownloaderService"] = true
+        #expect(!AppUpdater.hasValidConfiguration(info))
+    }
+
+    @Test
+    func bundledInfoPlistPassesTheSparkleSafetyChecks() {
+        // 只核对 Sparkle 安全键：是否启用更新器按构建配置决定（Debug 可以关闭），这里视为启用。
+        var info = Bundle.main.infoDictionary ?? [:]
+        info["BiliKitUpdaterEnabled"] = true
+        #expect(AppUpdater.hasValidConfiguration(info))
+    }
+
+    @Test
+    func systemProfilingMustBeExplicitlyDisabled() {
+        var info = configuredInfo
+        info["SUEnableSystemProfiling"] = true
+        #expect(!AppUpdater.hasValidConfiguration(info))
+        info["SUEnableSystemProfiling"] = nil
         #expect(!AppUpdater.hasValidConfiguration(info))
     }
 }

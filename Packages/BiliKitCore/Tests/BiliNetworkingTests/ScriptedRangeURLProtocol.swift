@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// BiliNetworkingTests 唯一的 URLProtocol 替身：按脚本返回状态、响应头与分块正文，并记录请求、
 /// 启动与停止。
@@ -48,23 +49,26 @@ struct RangeURLProtocolScript: Sendable {
     let withholdsBody: Bool
 }
 
-final class ScriptedRangeURLProtocolState: @unchecked Sendable {
-    private let lock = NSLock()
-    private var script = RangeURLProtocolScript(
-        statusCode: 500,
-        headers: [:],
-        chunks: [],
-        withholdsBody: false
-    )
-    private var stopped = false
-    private var delivered = 0
-    private var capturedRequest: URLRequest?
-    private var startWaiters: [CheckedContinuation<Void, Never>] = []
-    private var stopWaiters: [CheckedContinuation<Void, Never>] = []
-    private var deliveryWaiters: [(bytes: Int, continuation: CheckedContinuation<Void, Never>)] = []
+final class ScriptedRangeURLProtocolState: Sendable {
+    private struct State {
+        var script = RangeURLProtocolScript(
+            statusCode: 500,
+            headers: [:],
+            chunks: [],
+            withholdsBody: false
+        )
+        var stopped = false
+        var delivered = 0
+        var capturedRequest: URLRequest?
+        var startWaiters: [CheckedContinuation<Void, Never>] = []
+        var stopWaiters: [CheckedContinuation<Void, Never>] = []
+        var deliveryWaiters: [(bytes: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    }
 
-    var wasStopped: Bool { lock.withLock { stopped } }
-    var lastRequest: URLRequest? { lock.withLock { capturedRequest } }
+    private let state = Mutex(State())
+
+    var wasStopped: Bool { state.withLock { $0.stopped } }
+    var lastRequest: URLRequest? { state.withLock { $0.capturedRequest } }
 
     func configure(
         statusCode: Int,
@@ -72,24 +76,24 @@ final class ScriptedRangeURLProtocolState: @unchecked Sendable {
         chunks: [Data],
         withholdsBody: Bool = false
     ) {
-        lock.withLock {
-            script = RangeURLProtocolScript(
+        state.withLock { state in
+            state.script = RangeURLProtocolScript(
                 statusCode: statusCode,
                 headers: headers,
                 chunks: chunks,
                 withholdsBody: withholdsBody
             )
-            stopped = false
-            delivered = 0
-            capturedRequest = nil
+            state.stopped = false
+            state.delivered = 0
+            state.capturedRequest = nil
         }
     }
 
     func begin(request: URLRequest) -> RangeURLProtocolScript {
-        let (script, waiters) = lock.withLock {
-            capturedRequest = request
-            defer { startWaiters.removeAll() }
-            return (script, startWaiters)
+        let (script, waiters) = state.withLock { state in
+            state.capturedRequest = request
+            defer { state.startWaiters.removeAll() }
+            return (state.script, state.startWaiters)
         }
         for waiter in waiters { waiter.resume() }
         return script
@@ -97,9 +101,9 @@ final class ScriptedRangeURLProtocolState: @unchecked Sendable {
 
     func waitUntilStarted() async {
         await withCheckedContinuation { continuation in
-            let isStarted = lock.withLock {
-                guard capturedRequest == nil else { return true }
-                startWaiters.append(continuation)
+            let isStarted = state.withLock { state in
+                guard state.capturedRequest == nil else { return true }
+                state.startWaiters.append(continuation)
                 return false
             }
             if isStarted { continuation.resume() }
@@ -107,19 +111,19 @@ final class ScriptedRangeURLProtocolState: @unchecked Sendable {
     }
 
     func markStopped() {
-        let waiters = lock.withLock {
-            stopped = true
-            defer { stopWaiters.removeAll() }
-            return stopWaiters
+        let waiters = state.withLock { state in
+            state.stopped = true
+            defer { state.stopWaiters.removeAll() }
+            return state.stopWaiters
         }
         for waiter in waiters { waiter.resume() }
     }
 
     func waitUntilStopped() async {
         await withCheckedContinuation { continuation in
-            let isStopped = lock.withLock {
-                guard !stopped else { return true }
-                stopWaiters.append(continuation)
+            let isStopped = state.withLock { state in
+                guard !state.stopped else { return true }
+                state.stopWaiters.append(continuation)
                 return false
             }
             if isStopped { continuation.resume() }
@@ -127,10 +131,11 @@ final class ScriptedRangeURLProtocolState: @unchecked Sendable {
     }
 
     func markDelivered(_ count: Int) {
-        let ready = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
-            delivered += count
-            let ready = deliveryWaiters.filter { $0.bytes <= delivered }.map(\.continuation)
-            deliveryWaiters.removeAll { $0.bytes <= delivered }
+        let ready = state.withLock { state -> [CheckedContinuation<Void, Never>] in
+            state.delivered += count
+            let delivered = state.delivered
+            let ready = state.deliveryWaiters.filter { $0.bytes <= delivered }.map(\.continuation)
+            state.deliveryWaiters.removeAll { $0.bytes <= delivered }
             return ready
         }
         for waiter in ready { waiter.resume() }
@@ -139,9 +144,9 @@ final class ScriptedRangeURLProtocolState: @unchecked Sendable {
     /// 等到脚本已向 URLSession 交付至少 `bytes` 字节正文。
     func waitUntilDelivered(bytes: Int) async {
         await withCheckedContinuation { continuation in
-            let isDelivered = lock.withLock {
-                guard delivered < bytes else { return true }
-                deliveryWaiters.append((bytes, continuation))
+            let isDelivered = state.withLock { state in
+                guard state.delivered < bytes else { return true }
+                state.deliveryWaiters.append((bytes, continuation))
                 return false
             }
             if isDelivered { continuation.resume() }

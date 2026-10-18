@@ -1,5 +1,7 @@
 import Foundation
+import Synchronization
 
+/// 测速 Range 读取的结果：已验证的 `Content-Range`、精确字节数与请求耗时；只有要求保留时才带正文。
 public struct HTTPBoundedRangeResult: Sendable, Equatable {
     public let contentRange: HTTPContentRange
     public let body: Data?
@@ -19,6 +21,10 @@ public struct HTTPBoundedRangeResult: Sendable, Equatable {
     }
 }
 
+/// 线路测速使用的单来源有界 Range 读取 port，生产实现是 `HTTPBoundedRangeClient`。
+///
+/// `invalidate()` 由测速的 owner 在结束或取消时调用，取消在途请求并作废 session；
+/// 默认实现什么都不做。
 public protocol HTTPBoundedRangeFetching: Sendable {
     func fetch(
         from url: URL,
@@ -88,21 +94,29 @@ public struct HTTPBoundedRangeClient: HTTPBoundedRangeFetching, Sendable {
     }
 }
 
-private final class BoundedRangeOperation: URLSessionRangeOperation, @unchecked Sendable {
-    private let lock = NSLock()
+/// 一次有界 Range 请求：验证响应头、计数或保留正文，达到精确长度即得出结果。
+///
+/// 拥有 data task 与结束回调，直到 `finish` 把它们取出：取消 task、解除 transport 登记，再交付唯一
+/// 结果。可变状态只经 `Mutex` 访问；task 的取消与回调都在锁外执行。
+private final class BoundedRangeOperation: URLSessionRangeOperation, Sendable {
+    /// 一次请求的 task、结束回调、计时、已验证的响应头与计数；只在 `state` 锁内读写。
+    private struct State {
+        var task: URLSessionDataTask?
+        var onFinish: (@Sendable () -> Void)?
+        var startedAt: ContinuousClock.Instant?
+        var contentRange: HTTPContentRange?
+        var received: UInt64 = 0
+        var retained: Data?
+        var pendingResult: HTTPBoundedRangeResult?
+        var finished = false
+    }
+
+    private let state: Mutex<State>
     private let validator: HTTPRangeResponseValidator
     private let expectedRange: HTTPByteRange
     private let collectBody: Bool
     private let clock = ContinuousClock()
     private let outcome = OneShotResult<HTTPBoundedRangeResult>()
-    private var task: URLSessionDataTask?
-    private var onFinish: (@Sendable () -> Void)?
-    private var startedAt: ContinuousClock.Instant?
-    private var contentRange: HTTPContentRange?
-    private var received: UInt64 = 0
-    private var retained: Data?
-    private var pendingResult: HTTPBoundedRangeResult?
-    private var finished = false
 
     init(
         validator: HTTPRangeResponseValidator,
@@ -111,18 +125,18 @@ private final class BoundedRangeOperation: URLSessionRangeOperation, @unchecked 
         self.validator = validator
         expectedRange = validator.expectedRange
         self.collectBody = collectBody
-        retained = collectBody ? Data() : nil
+        state = Mutex(State(retained: collectBody ? Data() : nil))
     }
 
     func start(
         _ task: URLSessionDataTask,
         onFinish: @escaping @Sendable () -> Void
     ) async throws -> HTTPBoundedRangeResult {
-        let shouldStart = lock.withLock {
-            guard !finished else { return false }
-            self.task = task
-            self.onFinish = onFinish
-            startedAt = clock.now
+        let shouldStart = state.withLock { state in
+            guard !state.finished else { return false }
+            state.task = task
+            state.onFinish = onFinish
+            state.startedAt = clock.now
             return true
         }
         if shouldStart {
@@ -144,8 +158,8 @@ private final class BoundedRangeOperation: URLSessionRangeOperation, @unchecked 
     ) {
         do {
             let validated = try validator.validate(response)
-            lock.withLock {
-                contentRange = validated.contentRange
+            state.withLock { state in
+                state.contentRange = validated.contentRange
             }
             completionHandler(.allow)
         } catch {
@@ -156,10 +170,10 @@ private final class BoundedRangeOperation: URLSessionRangeOperation, @unchecked 
 
     func receive(_ data: Data) {
         var outcome: Result<HTTPBoundedRangeResult, any Error>?
-        lock.withLock {
-            guard !finished else { return }
-            let next = received + UInt64(data.count)
-            guard next <= expectedRange.length, pendingResult == nil else {
+        state.withLock { state in
+            guard !state.finished else { return }
+            let next = state.received + UInt64(data.count)
+            guard next <= expectedRange.length, state.pendingResult == nil else {
                 outcome = .failure(
                     HTTPRangeResponseError.bodyLengthMismatch(
                         expected: expectedRange.length,
@@ -168,18 +182,18 @@ private final class BoundedRangeOperation: URLSessionRangeOperation, @unchecked 
                 )
                 return
             }
-            retained?.append(data)
-            received = next
-            guard received == expectedRange.length,
-                let contentRange,
-                let startedAt
+            state.retained?.append(data)
+            state.received = next
+            guard state.received == expectedRange.length,
+                let contentRange = state.contentRange,
+                let startedAt = state.startedAt
             else { return }
             let completedAt = clock.now
-            pendingResult =
+            state.pendingResult =
                 HTTPBoundedRangeResult(
                     contentRange: contentRange,
-                    body: retained,
-                    byteCount: received,
+                    body: state.retained,
+                    byteCount: state.received,
                     requestDurationSeconds: max(
                         durationSeconds(startedAt.duration(to: completedAt)),
                         .leastNonzeroMagnitude
@@ -199,14 +213,14 @@ private final class BoundedRangeOperation: URLSessionRangeOperation, @unchecked 
                 )
             )
         } else {
-            let completion = lock.withLock {
-                if let pendingResult {
+            let completion = state.withLock { state in
+                if let pendingResult = state.pendingResult {
                     return Result<HTTPBoundedRangeResult, any Error>.success(pendingResult)
                 }
                 return .failure(
                     HTTPRangeResponseError.bodyLengthMismatch(
                         expected: expectedRange.length,
-                        actual: received
+                        actual: state.received
                     )
                 )
             }
@@ -215,19 +229,19 @@ private final class BoundedRangeOperation: URLSessionRangeOperation, @unchecked 
     }
 
     private func finish(_ result: Result<HTTPBoundedRangeResult, any Error>) {
-        let resources = lock.withLock {
-            guard !finished else {
+        let resources = state.withLock { state in
+            guard !state.finished else {
                 return (
                     false,
                     nil as URLSessionDataTask?,
                     nil as (@Sendable () -> Void)?
                 )
             }
-            finished = true
-            let task = self.task
-            self.task = nil
-            let onFinish = self.onFinish
-            self.onFinish = nil
+            state.finished = true
+            let task = state.task
+            state.task = nil
+            let onFinish = state.onFinish
+            state.onFinish = nil
             return (true, task, onFinish)
         }
         guard resources.0 else { return }

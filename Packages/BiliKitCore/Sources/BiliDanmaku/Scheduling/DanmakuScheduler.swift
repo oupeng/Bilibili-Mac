@@ -63,19 +63,31 @@ public struct DanmakuBatch: Sendable, Equatable {
 /// 补发回看窗口（`setCatchUpWindow`）内本应仍在屏上的弹幕，打开弹幕或覆盖窗口的分段迟到时同样
 /// 补位。暂停和倍速直接使用 timeline 快照，不创建独立 wall-clock timer。
 public struct DanmakuScheduler: Sendable {
+    /// 弹幕分段的时长：B 站按每 6 分钟一段提供 protobuf 分段，分段号从 1 开始。
     public static let segmentDurationSeconds = 360.0
+    /// 同时缓存的分段数，够放当前分段与前后各一段；超出时离当前位置最远的先淘汰，已投递 ID
+    /// 也只保留当前及之前的这么多段。
+    ///
+    /// 调大占用更多内存，调小则来回拖动时更常重新请求分段。
     public static let maximumCachedSegments = 3
 
     private var identity: PlaybackItemIdentity?
     private var filter = DanmakuFilter()
     private var isEnabled = true
+    /// 按分段号缓存、已按时间排序的事件。
     private var segments: [Int: [DanmakuEvent]] = [:]
+    /// 每个分段下一条待投递事件的下标；不连续、回跳、暂停或开关弹幕时清空，下次按位置重新定位。
     private var nextEventIndexBySegment: [Int: Int] = [:]
+    /// 已投递的事件 ID，按分段记录；补位与迟到分段据此去重。
     private var deliveredIDsBySegment: [Int: Set<String>] = [:]
+    /// 上一个快照的位置；它与本次位置之间出现的事件是这次要投递的。
     private var previousPositionSeconds: Double?
+    /// 最近一次见到的 discontinuity generation；快照带来的值不同时先发清屏 batch。
     private var discontinuityGeneration: UInt64?
     /// 补位回看的时长，由呈现端按画面宽度与弹幕速度给出；为 0 时不补位。
     private var catchUpWindowSeconds = 0.0
+    /// 下一个播放中的快照是否补位：不连续、时间回跳、打开弹幕或覆盖回看窗口的分段迟到时置位，
+    /// 处理下一个播放中的快照后清除。
     private var needsCatchUp = false
 
     public init() {}

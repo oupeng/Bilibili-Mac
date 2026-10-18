@@ -2,6 +2,7 @@ import BiliModels
 import BiliNetworking
 import Foundation
 
+/// bridge 准备播放会话的失败：媒体表示缺失或不一致、来源不合规、缺少完整长度与字幕目录问题。
 public enum DASHToHLSBridgeError: Error, Sendable, Equatable {
     case missingVideoRepresentation
     case unsupportedAudioTrackCount(Int)
@@ -18,7 +19,7 @@ public enum DASHToHLSBridgeError: Error, Sendable, Equatable {
 /// 一次已启动的 loopback 播放会话；其生命周期就是底层 server 的生命周期。
 ///
 /// owner 必须在替换播放项或失败时调用 `stop`；`deinit` 只是最后一道幂等清理保障。
-public final class PreparedPlaybackAsset: @unchecked Sendable {
+public final class PreparedPlaybackAsset: Sendable {
     public let url: URL
     private let server: LoopbackPlaybackServer
 
@@ -43,13 +44,13 @@ public final class PreparedPlaybackAsset: @unchecked Sendable {
 ///
 /// Bridge 只构造内存 playlist 与按需代理，不下载完整媒体；任一步失败都会停止已启动 server。
 public struct DASHToHLSBridge: Sendable {
-    private let indexLoader: RepresentationIndexLoader
-    private let audioFormatLoader: AudioFormatMetadataLoader
+    let indexLoader: RepresentationIndexLoader
+    let audioFormatLoader: AudioFormatMetadataLoader
     private let mediaPlaylistBuilder: HLSMediaPlaylistBuilder
     private let iFramePlaylistBuilder: HLSIFramePlaylistBuilder
-    private let subtitlePlaylistBuilder: HLSSubtitlePlaylistBuilder
+    let subtitlePlaylistBuilder: HLSSubtitlePlaylistBuilder
     private let masterPlaylistBuilder: HLSMasterPlaylistBuilder
-    private let webVTTEncoder: WebVTTEncoder
+    let webVTTEncoder: WebVTTEncoder
     private let serverFactory: @Sendable () -> LoopbackPlaybackServer
 
     public init() {
@@ -95,6 +96,7 @@ public struct DASHToHLSBridge: Sendable {
                 candidateURLs: source.urlCandidates,
                 contentLength: source.contentLength,
                 contentType: source.contentType,
+                // 源声明为 MP4 容器且全部候选 URL 的扩展名都是 `.mp4`，才算有容器证据。
                 allowsOctetStreamWithContainerEvidence:
                     source.container == .mp4
                     && source.urlCandidates.allSatisfy {
@@ -171,7 +173,7 @@ public struct DASHToHLSBridge: Sendable {
             }
         }
 
-        // SIDX 读取就是首个上游连接；此前复核每个候选来源，失败关闭。
+        // SIDX 读取就是首个上游连接；此前复核每个候选来源，失败关闭，见 SECURITY-MODEL §4。
         let mediaURLPolicy = BiliMediaCDNURLPolicy()
         for representation in videos + audioTracks.map(\.representation)
         where !representation.urlCandidates.allSatisfy(mediaURLPolicy.allows) {
@@ -357,6 +359,8 @@ public struct DASHToHLSBridge: Sendable {
                 )
                 localizedSubtitleCatalog = subtitleCatalog
             } catch {
+                // 字幕 route 或带字幕的 master 生成失败只放弃字幕，按无字幕重新生成 master；
+                // 这次再失败才让播放失败。
                 registrations.removeSubrange(mediaRegistrationCount...)
                 masterPlaylist = try masterPlaylistBuilder.build(
                     videoVariants: variants,
@@ -394,24 +398,7 @@ public struct DASHToHLSBridge: Sendable {
         }
     }
 
-    private func optionalAudioFormat(
-        for audio: MediaRepresentation,
-        sourceURL: URL,
-        headers: [String: String]
-    ) async throws -> AudioFormatMetadata? {
-        do {
-            return try await audioFormatLoader.load(
-                for: audio,
-                sourceURL: sourceURL,
-                headers: headers
-            )
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            return nil
-        }
-    }
-
+    /// 只有全部 reference 从 type-1 SAP 开始且 `SAP_delta_time` 为 0 时才发布 I-frame rendition。
     private func isEligibleForIFramePlaylist(_ index: SegmentIndex) -> Bool {
         !index.references.isEmpty
             && index.references.allSatisfy { reference in
@@ -419,264 +406,6 @@ public struct DASHToHLSBridge: Sendable {
                     && reference.sapType == 1
                     && reference.sapDeltaTime == 0
             }
-    }
-
-    private func loadAudioRenditions(
-        _ audioTracks: [SelectedPlaybackAudioTrack],
-        headers: [String: String]
-    ) async throws -> [LoadedAudioRendition] {
-        try await withThrowingTaskGroup(
-            of: (Int, LoadedAudioRendition?).self
-        ) { group in
-            for (offset, selectedTrack) in audioTracks.enumerated() {
-                group.addTask {
-                    do {
-                        let audio = selectedTrack.representation
-                        let index = try await indexLoader.load(
-                            for: audio,
-                            headers: headers
-                        )
-                        guard index.completeMediaLength != nil else {
-                            if selectedTrack.track.role == .machineGenerated {
-                                return (offset, nil)
-                            }
-                            throw
-                                DASHToHLSBridgeError
-                                .missingCompleteMediaLength(
-                                    representationID: audio.id
-                                )
-                        }
-                        let format = try await optionalAudioFormat(
-                            for: audio,
-                            sourceURL: index.sourceURL,
-                            headers: headers
-                        )
-                        return (
-                            offset,
-                            LoadedAudioRendition(
-                                selectedTrack: selectedTrack,
-                                index: index,
-                                format: format
-                            )
-                        )
-                    } catch is CancellationError {
-                        throw CancellationError()
-                    } catch  where selectedTrack.track.role == .machineGenerated {
-                        return (offset, nil)
-                    } catch {
-                        throw error
-                    }
-                }
-            }
-            var loaded: [(Int, LoadedAudioRendition?)] = []
-            loaded.reserveCapacity(audioTracks.count)
-            for try await result in group {
-                loaded.append(result)
-            }
-            return loaded.sorted { $0.0 < $1.0 }.compactMap(\.1)
-        }
-    }
-
-    private func localizedRenditionNamesResource(
-        audioTracks: [PlaybackAudioTrack],
-        subtitleCatalog: [NativeSubtitleCatalogEntry]
-    ) throws -> LoopbackPlaybackResource {
-        var localizedNames: [String: [String: String]] = [:]
-        for track in audioTracks where track.role == .original {
-            localizedNames[track.displayName] = [
-                "en": "Original audio",
-                "ja": "オリジナル音声",
-                "zh": "原声",
-                "zh-Hans": "原声",
-                "zh-Hant": "原聲"
-            ]
-        }
-        let subtitleLanguageGroups = Dictionary(
-            grouping: subtitleCatalog,
-            by: { primaryLanguageSubtag($0.languageTag) }
-        )
-        for (language, languageEntries) in subtitleLanguageGroups
-        where language != "und" {
-            let translations = localizedLanguageNames(for: language)
-            guard !translations.isEmpty else { continue }
-            for entry in languageEntries
-            where entry.characteristics.contains("public.machine-generated")
-                && localizedNames[entry.label] == nil
-            {
-                // AVFoundation localizes the machine-generated characteristic
-                // separately. Give it the language's base name so a source
-                // label such as "中文（AI）" does not become
-                // "中文（AI）（生成）" when it is the only rendition.
-                localizedNames[entry.label] = translations
-            }
-        }
-        for (language, languageEntries) in subtitleLanguageGroups
-        where language != "und" && languageEntries.count > 1 {
-            let labelGroups = Dictionary(
-                grouping: languageEntries,
-                by: { baseSubtitleLabel($0.label) }
-            )
-            for entries in labelGroups.values where entries.count > 1 {
-                let characteristicSignatures = Set(
-                    entries.map {
-                        $0.characteristics.sorted().joined(separator: ",")
-                    }
-                )
-                guard characteristicSignatures.count == entries.count else {
-                    continue
-                }
-                let translations = localizedLanguageNames(for: language)
-                guard !translations.isEmpty else { continue }
-                for entry in entries where localizedNames[entry.label] == nil {
-                    localizedNames[entry.label] = translations
-                }
-            }
-        }
-        let body = try JSONSerialization.data(
-            withJSONObject: localizedNames,
-            options: [.sortedKeys]
-        )
-        return .inMemory(
-            data: body,
-            contentType: "application/json; charset=utf-8"
-        )
-    }
-
-    private func primaryLanguageSubtag(_ languageTag: String) -> String {
-        languageTag.split(separator: "-", maxSplits: 1).first.map {
-            String($0).lowercased()
-        } ?? "und"
-    }
-
-    private func baseSubtitleLabel(_ label: String) -> String {
-        let suffix = "（AI）"
-        guard label.hasSuffix(suffix) else { return label }
-        return String(label.dropLast(suffix.count))
-    }
-
-    private func localizedLanguageNames(
-        for language: String
-    ) -> [String: String] {
-        var names: [String: String] = [:]
-        for interfaceLanguage in ["en", "ja", "zh"] {
-            if let name = Locale(identifier: interfaceLanguage)
-                .localizedString(forLanguageCode: language)
-            {
-                names[interfaceLanguage] = name
-            }
-        }
-        return names
-    }
-
-    private func freezeCatalog(
-        _ catalogTask: Task<[NativeSubtitleCatalogEntry], any Error>?
-    ) async throws -> [NativeSubtitleCatalogEntry] {
-        guard let catalogTask else { return [] }
-        let relay = OneShotResult<[NativeSubtitleCatalogEntry]>()
-        let observer = Task {
-            do {
-                relay.resolve(.success(try await catalogTask.value))
-            } catch {
-                relay.resolve(.failure(error))
-            }
-        }
-        let timeout = Task {
-            do {
-                try await Task.sleep(for: Self.subtitleCatalogGrace)
-                catalogTask.cancel()
-                relay.resolve(
-                    .failure(DASHToHLSBridgeError.subtitleCatalogTimedOut)
-                )
-            } catch is CancellationError {
-                return
-            } catch {
-                relay.resolve(.failure(error))
-            }
-        }
-        do {
-            let result = try await withTaskCancellationHandler {
-                try await relay.value()
-            } onCancel: {
-                catalogTask.cancel()
-                relay.resolve(.failure(CancellationError()))
-            }
-            timeout.cancel()
-            observer.cancel()
-            return result
-        } catch is CancellationError where Task.isCancelled {
-            timeout.cancel()
-            observer.cancel()
-            catalogTask.cancel()
-            throw CancellationError()
-        } catch {
-            timeout.cancel()
-            observer.cancel()
-            catalogTask.cancel()
-            return []
-        }
-    }
-
-    private func makeSubtitleRoutes(
-        catalog: [NativeSubtitleCatalogEntry],
-        source: NativeSubtitleSource?,
-        videoIndices: [SegmentIndex],
-        registrations: inout [LoopbackRouteRegistration],
-        server: LoopbackPlaybackServer
-    ) throws -> [HLSSubtitleRendition] {
-        guard let source, !catalog.isEmpty else { return [] }
-        guard let videoIndex = videoIndices.first,
-            videoIndices.dropFirst().allSatisfy({
-                hasMatchingSubtitleTimeline($0, canonical: videoIndex)
-            })
-        else {
-            throw DASHToHLSBridgeError.inconsistentSubtitleTimeline
-        }
-        let duration =
-            videoIndices.map { index in
-                index.references.reduce(0.0) {
-                    $0 + Double($1.duration) / Double(index.timescale)
-                }
-            }.max() ?? 0
-
-        return try catalog.enumerated().map { offset, entry in
-            let playlistPath = "subtitle/\(offset).m3u8"
-            let bodyPath = "subtitle/generated/\(offset).vtt"
-            let playlistURL = try server.url(for: playlistPath)
-            let bodyURL = try server.url(for: bodyPath)
-            let generated = try LoopbackGeneratedResource(
-                contentType: "text/vtt; charset=utf-8",
-                maximumContentLength: 2 * 1_024 * 1_024
-            ) {
-                let cues = try await source.cues(for: entry.trackID)
-                return try webVTTEncoder.encode(
-                    cues: cues,
-                    earliestPresentationTime: videoIndex.earliestPresentationTime,
-                    timescale: videoIndex.timescale
-                )
-            }
-            let playlist = try subtitlePlaylistBuilder.build(
-                segmentURI: bodyURL,
-                duration: duration
-            )
-            registrations.append(
-                LoopbackRouteRegistration(
-                    relativePath: playlistPath,
-                    resource: playlistResource(playlist)
-                )
-            )
-            registrations.append(
-                LoopbackRouteRegistration(
-                    relativePath: bodyPath,
-                    resource: .generated(generated)
-                )
-            )
-            return HLSSubtitleRendition(
-                name: entry.label,
-                languageTag: entry.languageTag,
-                characteristics: entry.characteristics,
-                playlistURI: playlistURL
-            )
-        }
     }
 
     func hasMatchingSubtitleTimeline(
@@ -693,6 +422,8 @@ public struct DASHToHLSBridge: Sendable {
         hasMatchingTimelineOrigin(candidate, canonical: canonical)
     }
 
+    /// 两份 SIDX 的起始呈现时间换算成秒后相差不超过 1/90000 秒（HLS 90 kHz 时钟的一个 tick）
+    /// 即视为同一起点。
     private func hasMatchingTimelineOrigin(
         _ candidate: SegmentIndex,
         canonical: SegmentIndex
@@ -767,7 +498,7 @@ public struct DASHToHLSBridge: Sendable {
         }
     }
 
-    private func playlistResource(_ playlist: String) -> LoopbackPlaybackResource {
+    func playlistResource(_ playlist: String) -> LoopbackPlaybackResource {
         .inMemory(
             data: Data(playlist.utf8),
             contentType: "application/vnd.apple.mpegurl"
@@ -779,10 +510,4 @@ private struct LoadedVideoVariant: Sendable {
     let representation: MediaRepresentation
     let index: LoadedSegmentIndex
     let completeMediaLength: Int64
-}
-
-private struct LoadedAudioRendition: Sendable {
-    let selectedTrack: SelectedPlaybackAudioTrack
-    let index: LoadedSegmentIndex
-    let format: AudioFormatMetadata?
 }

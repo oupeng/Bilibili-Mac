@@ -1,5 +1,8 @@
 import Foundation
 
+/// 媒体文件里的闭区间字节范围，用于 HTTP Range 请求与 HLS byte-range。
+///
+/// 构造时拒绝负起点与终点小于起点的区间，保证 `httpRangeHeaderValue` 总是合法的单段 Range。
 public struct MediaByteRange: Sendable, Equatable {
     public let start: Int64
     public let endInclusive: Int64
@@ -21,10 +24,14 @@ public struct MediaByteRange: Sendable, Equatable {
     }
 }
 
+/// `MediaByteRange` 构造时区间不合法；BiliAPI 映射把它归为媒体数据无效。
 public enum MediaByteRangeError: Error, Sendable, Equatable {
     case invalidBounds(start: Int64, endInclusive: Int64)
 }
 
+/// DASH `SegmentBase`：初始化段与 SIDX 索引在同一媒体文件中的字节范围，由 playurl 映射产生。
+///
+/// 播放桥按 `index` 读取 SIDX 生成 HLS 分段，按 `initialization` 生成 init 段。
 public struct SegmentBase: Sendable, Equatable {
     public let initialization: MediaByteRange
     public let index: MediaByteRange
@@ -35,6 +42,7 @@ public struct SegmentBase: Sendable, Equatable {
     }
 }
 
+/// 一条媒体表示是视频还是音频；BiliAPI 映射时只对视频要求尺寸属性。
 public enum MediaKind: String, Sendable, Equatable {
     case video
     case audio
@@ -69,6 +77,9 @@ public struct PlaybackLoudnessMetadata: Sendable, Equatable {
     }
 }
 
+/// 视频表示的尺寸与帧率；构造时拒绝非正宽高和非有限或非正的帧率，帧率缺失时为 nil。
+///
+/// BiliAPI 映射时视频表示必须带合法属性，否则整份媒体数据无效。
 public struct VideoRepresentationAttributes: Sendable, Equatable {
     public let width: Int
     public let height: Int
@@ -97,10 +108,16 @@ public struct VideoRepresentationAttributes: Sendable, Equatable {
     }
 }
 
+/// `VideoRepresentationAttributes` 构造时数值不合法。
 public enum VideoRepresentationAttributesError: Error, Sendable, Equatable {
     case invalidValues(width: Int, height: Int, frameRate: Double?)
 }
 
+/// DASH 里的一条视频或音频表示，由 BiliAPI 的 `DASHRepresentationPayload` 映射产生，
+/// 播放桥与线路测速消费。
+///
+/// `primaryURL` 与 `backupURLs` 映射时都已通过 `BiliMediaCDNURLPolicy` 并去重；线路偏好可能重排或
+/// 改写候选，所以播放桥读取 SIDX 前与 loopback 资源构造时仍会再查（见 SECURITY-MODEL §4）。
 public struct MediaRepresentation: Sendable, Equatable {
     public let id: Int
     public let kind: MediaKind
@@ -141,6 +158,9 @@ public struct MediaRepresentation: Sendable, Equatable {
 
 /// 用户可选择的一条语义音轨；`representations` 是同一声音内容的媒体候选，而不是独立音轨。
 public struct PlaybackAudioTrack: Sendable, Equatable, Identifiable {
+    /// 音轨来源：`original` 为原声，`machineGenerated` 为 AI 配音。
+    ///
+    /// 播放桥要求原声同时是默认与自动选择，AI 配音不是默认且带语言标记，否则拒绝选中的音轨。
     public enum Role: Sendable, Equatable {
         case original
         case machineGenerated
@@ -174,8 +194,34 @@ public struct PlaybackAudioTrack: Sendable, Equatable, Identifiable {
         self.loudnessMetadata = loudnessMetadata
         self.representations = representations
     }
+
+    /// 默认原声音轨的显示名；AI 配音的显示名不得与它重复。
+    public static let originalDisplayName = "原声"
+
+    /// 默认原声音轨的唯一构造处，BiliAPI 的 playurl 映射经它组装清单。
+    ///
+    /// 原声同时是默认与自动选择、不带语言标记，满足播放桥对原声音轨的要求。
+    public static func original(
+        representations: [MediaRepresentation],
+        loudnessMetadata: PlaybackLoudnessMetadata?
+    ) -> PlaybackAudioTrack {
+        PlaybackAudioTrack(
+            id: "original",
+            displayName: originalDisplayName,
+            role: .original,
+            isDefault: true,
+            isAutoselect: true,
+            loudnessMetadata: loudnessMetadata,
+            representations: representations
+        )
+    }
 }
 
+/// DASH 播放所需的视频表示与语义音轨，由 `BiliAPIClient` 的 playurl 映射组装，`DASHToHLSBridge`
+/// 消费。
+///
+/// BiliAPI 只保留 AVC 视频与 AAC 音频，两者都非空才组装；首条音轨是默认原声，已认证时可追加 AI
+/// 配音音轨。
 public struct PlaybackManifest: Sendable, Equatable {
     public let videoRepresentations: [MediaRepresentation]
     public let audioTracks: [PlaybackAudioTrack]
@@ -187,36 +233,17 @@ public struct PlaybackManifest: Sendable, Equatable {
         self.videoRepresentations = videoRepresentations
         self.audioTracks = audioTracks
     }
-
-    /// 把现有 DASH AAC 码率梯度迁移为唯一原声音轨；空输入继续表达缺少可播放音频。
-    public init(
-        videoRepresentations: [MediaRepresentation],
-        originalAudioRepresentations: [MediaRepresentation]
-    ) {
-        self.videoRepresentations = videoRepresentations
-        audioTracks =
-            originalAudioRepresentations.isEmpty
-            ? []
-            : [
-                PlaybackAudioTrack(
-                    id: "original",
-                    displayName: "原声",
-                    role: .original,
-                    isDefault: true,
-                    isAutoselect: true,
-                    representations: originalAudioRepresentations
-                )
-            ]
-    }
 }
 
+/// 渐进媒体的容器格式；目前只接受 MP4。
 public enum ProgressiveMediaContainer: String, Sendable, Equatable {
     case mp4
 }
 
-/// 服务端返回的单文件渐进媒体。
+/// 服务端返回的单文件渐进媒体，由 BiliAPI 的 `DURLPayload` 映射产生。
 ///
-/// 候选仍是不可信远端输入，连接前必须再次通过媒体 URL policy。
+/// 映射时候选已通过 `BiliMediaCDNURLPolicy` 并去重，长度与时长只接受正数；
+/// 连接前播放桥仍须再次检查来源（见 SECURITY-MODEL §4）。
 public struct ProgressivePlaybackSource: Sendable, Equatable {
     public let primaryURL: URL
     public let backupURLs: [URL]

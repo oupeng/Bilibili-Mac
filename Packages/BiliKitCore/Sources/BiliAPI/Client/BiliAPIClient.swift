@@ -3,23 +3,38 @@ import BiliModels
 import BiliNetworking
 import Foundation
 
-/// Bilibili endpoint/DTO adapter；把远端协议限制在 `BiliAPI`，并返回稳定模型。
+/// Bilibili endpoint 与 DTO 的 adapter：把远端协议限制在 `BiliAPI`，对外只返回稳定模型。
 ///
-/// 请求默认匿名，只有 `RequestAccess.accountRead` 才经过 authorizer。允许游客增强的读取
-/// 也只有在本地明确无凭据时保持匿名，并继续使用同一个 endpoint。
-/// 响应在解码前还要满足状态、大小与 Content-Type 边界。actor 隔离可变
-/// transport/WBI cache；跨 `await` 可重入，用户意图的取消与写回代次仍由上层 owner 管理。
+/// 请求默认匿名、不带 Cookie；只有 `RequestAccess.accountRead` 与 `.historyWrite`
+/// 经过各自注入的授权器，允许游客增强的读取只在本地明确无凭据时匿名请求同一个 endpoint（见
+/// SECURITY-MODEL §3）。响应在解码前还要满足状态、大小与 Content-Type 边界。
+///
+/// 拥有当前 transport 与 `HTTPClient`、WBI key 缓存和认证 epoch，都由 actor 隔离；跨 `await`
+/// 可重入，用户意图的取消与写回代次由上层 ViewModel 管理。实例由 Composition（`LiveAPIClients`）
+/// 按用途构造：每个窗口一个主 API，进程级的线路测速与观看进度写入各一个；都登记进账户会话，登出、
+/// 换号与凭据失效时经 `invalidateAuthenticatedSession()` 一并失效。
 ///
 /// 本文件只含请求管线（access 选择、授权、epoch 复核、envelope 解码）、WBI key 与签名读取序列
 /// （`signedRequest`）；各域 endpoint 在同 actor 的 `BiliAPIClient+*.swift` 扩展中，签名读取一律经
 /// `signedRequest`。`RequestAccess` 与管线方法对 `BiliAPI` 内部可见
 /// 只为这些扩展；Repository adapter 只调用 endpoint 方法，不得自行构造 `RequestAccess`。
 public actor BiliAPIClient: AuthenticatedSessionInvalidating {
+    /// 账户读取在本地明确无凭据时的去向：`fail` 失败为“需要登录”，`useAnonymousRequest`
+    /// 匿名请求同一 endpoint。
+    ///
+    /// 未注入账户读取授权器的 client 同样按本地无凭据处理。凭据失效、Keychain
+    /// 不可用与授权器拒绝从不回退匿名，见 SECURITY-MODEL §3。
     enum MissingCredentialBehavior: Sendable, Equatable {
         case fail
         case useAnonymousRequest
     }
 
+    /// 一次请求的授权方式，由 endpoint 扩展逐请求选择；Repository adapter 不得构造（见
+    /// docs/ARCHITECTURE.md「认证」）。
+    ///
+    /// `anonymous` 不经授权器；`accountRead` 经账户读取授权器，path 必须来自 `BiliAccountReadPath`
+    /// 并在 Composition 的 allowlist 内；`historyWrite` 只用于观看进度 heartbeat，
+    /// 经独立的写授权器。需要认证的两种访问绑定认证 epoch，见 `authenticatedSessionEpoch`。
     enum RequestAccess: Sendable {
         case anonymous
         case accountRead(missingCredential: MissingCredentialBehavior)
@@ -38,6 +53,10 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
         }
     }
 
+    /// 请求实际以何种身份发出：`authenticated` 表示授权器写入了凭据，`anonymous`
+    /// 含匿名访问与无凭据时的匿名回退。
+    ///
+    /// -101 的映射与是否采纳只属于账户的数据（playurl 的续播位置与 AI 配音）都按它判定。
     enum AuthorizationProvenance: Sendable {
         case anonymous
         case authenticated
@@ -53,11 +72,14 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
         }
     }
 
+    /// 解码后的 `data` 与这次请求的实际授权来源。
     struct AuthorizedResponse<Payload: Sendable>: Sendable {
         let payload: Payload
         let authorizationProvenance: AuthorizationProvenance
     }
 
+    /// 已通过状态码与大小检查、尚未解码的 HTTP 响应及其授权来源；JSON、protobuf 与 heartbeat
+    /// 各自在其上判定正文。
     struct AuthorizedHTTPResponse: Sendable {
         let response: HTTPResponse
         let authorizationProvenance: AuthorizationProvenance
@@ -70,11 +92,17 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
         return url
     }()
 
+    /// JSON 接口默认的响应正文上限，在完整收到正文后检查；超出按 `responseTooLarge` 失败关闭、
+    /// 不解码。
+    ///
+    /// 字幕目录、评论页、弹幕分段与 heartbeat 按各自形状传入更紧的上限；
+    /// 调小可能误拒较大的正常列表，调大放宽单次解码的输入规模。
     private static let maximumResponseSize = 5 * 1_024 * 1_024
 
-    /// 搜索接口要求的 `buvid3`，进程内随机生成一次，只附加到搜索请求。
+    /// 搜索接口要求的 `buvid3`，进程内随机生成一次，只附加到视频搜索请求。
     ///
-    /// 只在内存中，不持久化、不关联账户；格式与 yt-dlp 相同（小写 UUID + `infoc`）。
+    /// 只在内存中，不持久化、不关联账户；格式与 yt-dlp 相同（小写 UUID + `infoc`）。见
+    /// SECURITY-MODEL §3。
     static let searchBuvid3Cookie = "buvid3=\(UUID().uuidString.lowercased())infoc"
 
     private var httpClient: HTTPClient
@@ -87,6 +115,14 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
     let timestampProvider: @Sendable () -> Int64
     let wbiSigner = WBISigner()
     private var cachedWBIKey: CachedWBIKey?
+    /// 认证会话 epoch：只在 `invalidateAuthenticatedSession()` 递增（登出、换号与凭据失效），
+    /// 登录成功不推进。
+    ///
+    /// 需要认证的请求在授权前记录它，授权返回后、发送前与响应返回后比对；`signedRequest` 在取 key
+    /// 后与 `send` 返回后比对，WBI nav 返回后比对决定是否写回 key 缓存，playurl
+    /// 对带凭据的结果再比对一次。不一致一律抛 `CancellationError`，丢弃授权结果或响应，不以新会话、
+    /// 新 key 或匿名身份补发。登录方向由关闭依赖账户的播放器与各页面的 generation 隔离旧结果。见
+    /// SECURITY-MODEL §3。
     private(set) var authenticatedSessionEpoch: UInt64 = 0
 
     /// 端点扩展只需知道是否注入了授权器；授权器本身不离开请求管线。
@@ -113,7 +149,11 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
         decoder = JSONDecoder()
     }
 
-    /// 认证会话失效时取消旧 transport 请求、换入干净 session，并丢弃关联 WBI key。
+    /// 认证会话失效时推进 epoch、取消旧 transport 的在途请求、换入新 transport，并丢弃 WBI key
+    /// 缓存。
+    ///
+    /// 由账户会话 coordinator 在登出、换号与凭据失效时调用（`AuthenticatedSessionInvalidating`）。
+    /// 被取消的需要认证的请求随后看到 epoch 不符，以 `CancellationError` 结束而不是报告网络失败。
     public func invalidateAuthenticatedSession() {
         authenticatedSessionEpoch &+= 1
         if let invalidating = transport as? any HTTPTransportInvalidating {
@@ -195,6 +235,10 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
         )
     }
 
+    /// JSON 请求的 HTTP 层：固定 `Accept`、`Referer` 与 `User-Agent`，经请求管线后要求正文像 JSON。
+    ///
+    /// 不像 JSON（如 HTML 风控页）按 `nonJSONResponse` 失败关闭；不解码 envelope，WBI nav
+    /// 直接读它的正文。
     func response(
         url: URL,
         referer: String,
@@ -222,15 +266,21 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
         return response
     }
 
-    /// `additionalCookie` 只承载 endpoint 要求的非秘密 Cookie，在授权之后并入请求，
-    /// 因此不会绕过授权器对调用方自带 Cookie 的拒绝。
+    /// 所有请求的唯一管线：按 `access` 选择授权器并授权，附加非秘密 Cookie，
+    /// 发送并检查状态码与大小。
+    ///
+    /// 返回实际授权来源；认证 epoch 的比对规则见 `authenticatedSessionEpoch`。`additionalCookie`
+    /// 只承载 endpoint 要求的非秘密 Cookie，在授权之后并入请求，因此不会绕过授权器对调用方自带
+    /// Cookie 的拒绝（见 SECURITY-MODEL §3）。
     func response(
         baseRequest: HTTPRequest,
         access: RequestAccess,
         maximumResponseSize: Int,
         additionalCookie: String? = nil
     ) async throws -> AuthorizedHTTPResponse {
+        // 在第一个 await 之前取出 client：授权期间会话失效换入的新 transport 不会被这次请求使用。
         let requestClient = httpClient
+        // 只有需要认证的访问绑定会话 epoch；匿名请求不比对。
         let requestSessionEpoch =
             access.requiresAuthentication ? authenticatedSessionEpoch : nil
         var request: HTTPRequest
@@ -251,9 +301,12 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
             } catch is CancellationError {
                 throw CancellationError()
             } catch let error as any HTTPRequestAuthorizationFailure {
+                // 授权期间会话已失效：失败属于旧会话，按取消结束，不报告为凭据问题。
                 guard requestSessionEpoch == authenticatedSessionEpoch else {
                     throw CancellationError()
                 }
+                // 只有本地明确无凭据且 endpoint 允许时才匿名回退；凭据失效、Keychain
+                // 不可用与授权器拒绝都失败关闭，见 SECURITY-MODEL §3。
                 switch error.authorizationFailureKind {
                 case .missingCredential where access.permitsMissingCredentialFallback:
                     request = baseRequest
@@ -276,6 +329,7 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
                 throw BiliAPIError.authorizationUnavailable
             }
         } else if access.permitsMissingCredentialFallback {
+            // 未注入对应授权器（如观看进度写入 client 没有账户读取授权器）时按本地无凭据处理。
             request = baseRequest
             authorizationProvenance = .anonymous
         } else if access.requiresAuthentication {
@@ -404,12 +458,19 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
         return data.count == 1 && data["v_voucher"] != nil
     }
 
+    /// 当前认证 epoch 不等于调用方进入时记录的值就抛 `CancellationError`；endpoint
+    /// 扩展在使用带凭据的结果前调用。
     func requireAuthenticatedSessionEpoch(_ expected: UInt64) throws {
         guard authenticatedSessionEpoch == expected else {
             throw CancellationError()
         }
     }
 
+    /// 取 WBI key：非强制时复用同一 UTC 日（时间戳 ÷ 86400）取得的缓存，跨日后首个签名请求重新读取
+    /// nav。
+    ///
+    /// `forceRefresh` 先清空缓存，只在签名读取被 -403 或 `v_voucher` 拒绝后的重试中使用。nav
+    /// 永远匿名，见 SECURITY-MODEL §3。
     func wbiKey(forceRefresh: Bool) async throws -> WBIKeyMaterial {
         let currentDay = timestampProvider() / 86_400
         if forceRefresh {
@@ -420,6 +481,8 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
 
         // 会话失效会清掉缓存的 key；nav 返回前会话已失效时不把迟到的 key 写回去。
         let sessionEpoch = authenticatedSessionEpoch
+        // 与 BiliAuth 的会话校验同一 path（`BiliAuthenticationService.sessionValidationPath`），但这里永远匿名、
+        // 不在任何 allowlist；BiliAuth 不能依赖 BiliAPI，所以两边各留一份。见 SECURITY-MODEL §3。
         let url = try endpoint(path: "/x/web-interface/nav", queryItems: [])
         let response = try await response(
             url: url,
@@ -447,6 +510,7 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
         return key
     }
 
+    /// endpoint 地址都只拼到固定的 `https://api.bilibili.com`，调用方只给 path 与 query。
     func endpoint(
         path: String,
         queryItems: [URLQueryItem]
@@ -482,6 +546,8 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
         return url
     }
 
+    /// BVID 形状：`BV` 前缀加 1–22 位 ASCII 字母或数字；用 BVID 拼 query 或 Referer 的 endpoint
+    /// 都先过它。
     static func isValidBVID(_ bvid: String) -> Bool {
         bvid.hasPrefix("BV")
             && bvid.count > 2
@@ -494,11 +560,14 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
     }
 }
 
+/// 缓存的 WBI key 及取得它的 UTC 日序号。
 private struct CachedWBIKey: Sendable {
     let key: WBIKeyMaterial
     let day: Int64
 }
 
+/// B 站 JSON 响应顶层的 `code` 与 `message`，在解码 `data` 之前读取；`code` 决定 -101 映射、
+/// 业务拒绝或成功。
 struct APIStatusEnvelope: Decodable, Sendable {
     let code: Int
     let message: String?

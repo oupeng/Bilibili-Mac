@@ -16,10 +16,10 @@ BiliKit 是原生、macOS-first、非官方 B 站浏览与播放客户端：Swif
 ## 架构与安全
 
 ```text
-Bili*Feature ──> BiliApplication ──> BiliModels      Browse/Library ──> BiliUI
+Bili*Feature ──> BiliApplication ──> BiliModels      Browse/VideoDetail/Library ──> BiliUI ──> Application
                         ^ ports
 BiliAPI / BiliAuth / BiliPlayback ──> BiliNetworking    BiliDanmaku ──> Application/Models
-App（Composition、AppKit/AVKit 宿主）组装以上全部
+App（Composition、AppKit/AVKit 宿主）组装以上全部    Browse/VideoDetail/Library ──> BiliVideoCollectionUI（AppKit 卡片与网格）──> BiliUI
 ```
 
 - Feature 不互相 import；跨页面协调在 App 层，具体 adapter 只在 `Composition/`、`Platform/`、`Settings/` 可见。
@@ -81,7 +81,7 @@ App（Composition、AppKit/AVKit 宿主）组装以上全部
 - 迭代时用定向测试。任务临时根由当前任务唯一创建，可在任务内复用，结束时删除：
 
 ```sh
-sh Scripts/run-targeted-tests.sh "$task_artifact_root" package 'BrowseAndVideoViewModelTests'
+sh Scripts/run-targeted-tests.sh "$task_artifact_root" package 'FeedPagingTests'
 sh Scripts/run-targeted-tests.sh "$task_artifact_root" app 'BiliKitMacTests/PlaybackSourceSettingsTests'
 ```
 

@@ -1,11 +1,15 @@
+import BiliApplication
 import BiliAuthFeature
 import SwiftUI
 
-/// 使用系统 Sidebar List 表达窗口内当前可用的平级来源。
+/// 使用系统 Sidebar List 表达窗口内当前可用的平级来源；行按 `AppSources` 的顺序与描述渲染。
+///
+/// 底部账号行的头像经窗口图片管线加载（`AccountAvatarImage`），不拥有管线。
 struct AppNavigationSidebar: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let sources: [AppSourceDescriptor]
     @Binding var selection: AppTab
     let accountState: AccountPresentationState
+    let imagePipeline: NativeVideoImagePipeline
     let onPresentAuthentication: () -> Void
 
     var body: some View {
@@ -17,17 +21,14 @@ struct AppNavigationSidebar: View {
 
     private var navigationList: some View {
         List(selection: selectionBinding) {
-            Label("搜索", systemImage: "magnifyingglass")
-                .tag(AppTab.search)
-
-            Label("首页", systemImage: "house")
-                .tag(AppTab.home)
-
-            Label("热门", systemImage: "flame")
-                .tag(AppTab.popular)
-
-            Label("观看历史", systemImage: "clock.arrow.circlepath")
-                .tag(AppTab.history)
+            ForEach(sources) { source in
+                Label {
+                    Text(source.title)
+                } icon: {
+                    Image(systemName: source.systemImage)
+                }
+                .tag(source.id)
+            }
         }
         .listStyle(.sidebar)
     }
@@ -92,21 +93,11 @@ struct AppNavigationSidebar: View {
 
     private var accountAvatar: some View {
         Group {
-            if let avatarURL = accountState.avatarURL {
-                AsyncImage(
-                    url: avatarURL,
-                    transaction: avatarLoadingTransaction
-                ) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .scaledToFill()
-                            .transition(.opacity)
-                    default:
-                        fallbackAvatar
-                            .transition(.opacity)
-                    }
+            if let requestURL = NativeVideoImagePipeline.accountAvatarRequestURL(
+                for: accountState.avatarURL
+            ) {
+                AccountAvatarImage(requestURL: requestURL, imagePipeline: imagePipeline) {
+                    fallbackAvatar
                 }
             } else {
                 fallbackAvatar
@@ -122,11 +113,5 @@ struct AppNavigationSidebar: View {
             .resizable()
             .scaledToFit()
             .symbolRenderingMode(.hierarchical)
-    }
-
-    private var avatarLoadingTransaction: Transaction {
-        Transaction(
-            animation: reduceMotion ? nil : .easeOut(duration: 0.16)
-        )
     }
 }

@@ -15,6 +15,10 @@ public enum HTTPRequestAuthorizationFailureKind: Sendable, Equatable {
     case denied
 }
 
+/// 授权器抛出的错误必须遵守的分类接口。
+///
+/// `BiliAPIClient` 只按 `authorizationFailureKind` 决定匿名回退或失败，不读取具体错误类型
+/// （见 SECURITY-MODEL §3）。
 public protocol HTTPRequestAuthorizationFailure: Error {
     var authorizationFailureKind: HTTPRequestAuthorizationFailureKind { get }
 }

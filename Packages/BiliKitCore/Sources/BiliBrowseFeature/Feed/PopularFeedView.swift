@@ -1,30 +1,37 @@
 import BiliApplication
 import BiliModels
 import BiliUI
+import BiliVideoCollectionUI
 import SwiftUI
 
-public struct PopularFeedView<LoadedContent: View>: View {
+/// 热门来源的根视图：按 `BrowseViewModel` 的状态显示骨架、空页、失败页或原生网格，叠加刷新与分页状态
+/// 胶囊，并在工具栏提供刷新。
+///
+/// 拥有呈现与网格渲染；不拥有请求、分页与 generation（`BrowseViewModel`），也不拥有滚动位置、回顶请求与
+/// 图片管线——它们属于 App 窗口，经 `NativeVideoGridHostContext` 原样交给网格，App 据此在刷新与账户变化时
+/// 让网格回到顶部。
+public struct PopularFeedView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.locale) private var locale
     private let model: BrowseViewModel
     private let request: FeedRequest
     private let initialPage: Int
     private let pageSize: Int
-    private let makeLoadedContent: (LoadedFeedContent<PopularVideo>) -> LoadedContent
+    private let gridHost: NativeVideoGridHostContext
     private let onSelect: (String) -> Void
 
     public init(
         model: BrowseViewModel,
         page: Int = 1,
         pageSize: Int = BrowseViewModel.popularPageSize,
-        makeLoadedContent:
-            @escaping (LoadedFeedContent<PopularVideo>) -> LoadedContent,
+        gridHost: NativeVideoGridHostContext,
         onSelect: @escaping (String) -> Void
     ) {
         self.model = model
         request = .popular(page: page, pageSize: pageSize)
         initialPage = page
         self.pageSize = pageSize
-        self.makeLoadedContent = makeLoadedContent
+        self.gridHost = gridHost
         self.onSelect = onSelect
     }
 
@@ -58,10 +65,10 @@ public struct PopularFeedView<LoadedContent: View>: View {
         switch presentation.state {
         case .idle, .loading:
             VideoCardGridSkeleton(loadingLabel: BrowseFeatureStrings.localized("正在加载热门视频"))
-        case .loaded(.popular(let page)) where page.videos.isEmpty:
+        case .loaded(.popular(let list)) where list.items.isEmpty:
             emptyResults(presentation: presentation)
-        case .loaded(.popular(let page)):
-            loadedResults(page: page, presentation: presentation)
+        case .loaded(.popular(let list)):
+            loadedResults(videos: list.items, presentation: presentation)
         case .failed(request: .popular(_, _), let error):
             BrowseFailureView(
                 error: error,
@@ -86,44 +93,31 @@ public struct PopularFeedView<LoadedContent: View>: View {
     }
 
     private func loadedResults(
-        page: PopularPage,
+        videos: [PopularVideo],
         presentation: FeedPresentation
     ) -> some View {
         let pagination = model.pagination(for: request)
-        return makeLoadedContent(
-            LoadedFeedContent(
-                items: page.videos,
-                canLoadMore: pagination.canLoadMore,
-                tailIdentity: pagination.tailIdentity,
-                isLoadingMore: pagination.isLoadingMore,
+        return PopularNativeGridView(
+            content: LoadedFeedContent(
+                items: videos,
+                tailState: pagination.gridTailState,
                 loadMore: { model.loadMore(.popular) },
                 select: onSelect
-            )
+            ),
+            host: gridHost
         )
+        .ignoresSafeArea(.container, edges: .top)
         .overlay(alignment: .top) {
             refreshStatus(presentation)
         }
         .overlay(alignment: .bottom) {
-            if pagination.isLoadingMore {
-                ProgressView()
-                    .controlSize(.small)
-                    .padding(8)
-                    .background(.regularMaterial, in: Capsule())
-                    .accessibilityLabel(BrowseFeatureStrings.localized("正在加载更多热门视频"))
-            } else if let error = pagination.loadMoreError {
-                HStack(spacing: 8) {
-                    Text(error.displayMessage)
-                        .lineLimit(2)
-                    if error.isRetryable {
-                        Button(BrowseFeatureStrings.localized("重试")) {
-                            model.retryLoadMore(.popular)
-                        }
-                    }
-                }
-                .font(.caption)
-                .padding(8)
-                .background(.regularMaterial, in: Capsule())
-            }
+            PaginationStatusOverlay(
+                pagination.overlayStatus(
+                    loadingMoreLabel: BrowseFeatureStrings.localized("正在加载更多热门视频", locale: locale),
+                    locale: locale,
+                    retry: { model.loadMore(.popular) }
+                )
+            )
         }
     }
 
@@ -133,7 +127,9 @@ public struct PopularFeedView<LoadedContent: View>: View {
         RefreshStatusCapsule(
             isRefreshing: presentation.isRefreshing,
             refreshingLabel: BrowseFeatureStrings.localized("正在刷新热门视频"),
-            errorMessage: presentation.refreshError?.displayMessage
+            errorMessage: presentation.refreshError.map {
+                ContentFailureText.message(for: $0, locale: locale)
+            }
         )
     }
 
@@ -149,7 +145,7 @@ public struct PopularFeedView<LoadedContent: View>: View {
         switch state {
         case .idle, .loading:
             .loading
-        case .loaded(.popular(let page)) where page.videos.isEmpty:
+        case .loaded(.popular(let list)) where list.items.isEmpty:
             .empty
         case .loaded(.popular(_)):
             .content

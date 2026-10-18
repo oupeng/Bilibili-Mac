@@ -12,6 +12,7 @@ public struct WatchHistoryContinuation: Sendable, Equatable {
     }
 }
 
+/// 观看历史的一页：条目与下一页 continuation，continuation 为 nil 表示远端没有更多。
 public struct WatchHistoryPage: Sendable, Equatable {
     public let items: [WatchHistoryItem]
     public let continuation: WatchHistoryContinuation?
@@ -27,8 +28,9 @@ public struct WatchHistoryPage: Sendable, Equatable {
 
 /// 观看历史的认证数据 port；Presentation 只能回传 adapter 生成的不透明 continuation。
 ///
-/// Endpoint、凭据与远端错误映射属于具体 adapter，不进入 Application；失败统一抛出
-/// `ContentApplicationError`。
+/// 实现是 BiliAPI 的 `BiliWatchHistoryRepository`，只经 `WatchHistoryUseCase` 调用；只按账户读取，
+/// 本地无凭据时失败，不退回匿名请求。Endpoint、凭据与远端错误映射属于具体 adapter，不进入
+/// Application；失败统一抛出 `ContentApplicationError`，取消原样传播。
 public protocol WatchHistoryRepository: Sendable {
     func watchHistory(
         after continuation: WatchHistoryContinuation?,

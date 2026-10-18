@@ -1,7 +1,16 @@
 import Foundation
 
-@MainActor
 /// 把平台无关时间线收敛为有界 heartbeat 序列；远端失败只关闭报告，不控制播放器。
+///
+/// 每个窗口一个，由 App 的 `WatchProgressWindowConnection` 创建，并驱动 `start`／`stop`、
+/// 系统睡眠时的 `suspend`／`resumeAfterSuspension` 与账户范围变化时的 `setReportingAccess`；
+/// MainActor 隔离。拥有时间线同步观察、周期 tick Task、唯一的在途写入 Task 与有界待发队列；
+/// 不拥有写入串行化与认证代次（进程级 `SerializedWatchProgressRepository`），也不拥有时间线本身。
+///
+/// 取消与清理：写入开关关闭时取消周期 Task 与在途写入并清空队列；`stop` 先停止观察与周期 Task，
+/// 再为当前会话入队最终 ended，不取消在途写入，让退出边界尽量送达；`deinit` 取消剩余 Task。见
+/// SECURITY-MODEL §3。
+@MainActor
 public final class WatchProgressSession {
     public typealias TargetResolver =
         @MainActor (
@@ -9,7 +18,7 @@ public final class WatchProgressSession {
             PlaybackLoadIntent
         ) -> WatchProgressTarget?
 
-    /// 会话读取的墙钟时间戳、单调时间、会话 ID 与周期 tick 来源；App 传 `.live`，测试注入可控实现。
+    /// 会话读取的墙钟时间戳、单调时间、会话 ID 与周期 tick 来源，是本会话的时钟边界；App 传 `.live`。
     public struct Environment: Sendable {
         let timestamp: @Sendable () -> Int64
         let monotonicTime: @MainActor @Sendable () -> Double
@@ -45,10 +54,18 @@ public final class WatchProgressSession {
         }
     }
 
+    /// 每个窗口的待发报告上限：周期报告只保留最新、边界挤掉周期、ended 一定入队。
+    ///
+    /// 调小会在网络慢时更早合并中间的暂停与恢复，调大只会积压更多过时的进度。
     private static let pendingLimit = 8
-    /// 播放中 periodic heartbeat 的间隔。
+    /// 播放中 periodic heartbeat 的间隔；调小会增加写请求次数，调大会让服务端记录的进度更滞后。
     private static let periodicIntervalSeconds = 15.0
 
+    /// 一次报告会话：从开始播放到结束（ended、换项、停止或登出）为止的目标、会话 ID、generation，
+    /// 以及累计的播放时长与最大位置。
+    ///
+    /// 由 `active` 唯一持有，结束时置 nil。`reportingDisabled` 在本会话任一报告失败或被取消后置位，
+    /// 之后不再入队；`didEnqueueEnded` 保证每个会话只入队一次 ended。
     private struct ActiveSession {
         let target: WatchProgressTarget
         let sessionStartTimestamp: Int64
@@ -80,11 +97,21 @@ public final class WatchProgressSession {
 
     private var cancelTimelineObservation: (@MainActor @Sendable () -> Void)?
     private var periodicTask: Task<Void, Never>?
+    /// 唯一的在途写入 Task；与 `inFlight` 同时设置与清空，为 nil 且队列非空时 `drainPendingReport`
+    /// 发出下一个。
     private var reportTask: Task<Void, Never>?
     private var inFlight: PendingReport?
     private var active: ActiveSession?
     private var pending: [PendingReport] = []
+    /// 报告会话代次：每开始一个报告会话、以及写入开关变化时以 `&+=` 递增，并写进该会话的每个报告。
+    ///
+    /// 待发队列按它合并同一会话的周期报告与 ended；写入失败或被取消时，
+    /// 按它移除同一会话排队中的报告，且只在当前会话仍是该代次时关闭报告。
     private var generation: UInt64 = 0
+    /// 报告序号：每次生成报告前递增，跨会话单调。
+    ///
+    /// `finish` 以它确认完成的是仍在途的那次写入；登出时被丢弃的旧 Task 完成后序号与 `inFlight`
+    /// 不匹配，结果被忽略。
     private var sequence: UInt64 = 0
     private var reportingAccessEnabled = false
     private var isSuspended = false

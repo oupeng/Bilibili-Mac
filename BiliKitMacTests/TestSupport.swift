@@ -1,19 +1,17 @@
 import AppKit
 import BiliApplication
-import BiliBrowseFeature
+import BiliModels
+import BiliVideoCollectionUI
+import BiliVideoDetailFeature
 import Foundation
+import MediaPlayer
 import Observation
+import Synchronization
 import Testing
 
 @testable import BiliKit
 
-/// App 测试 target 共用的等待、记录替身与视图遍历；各测试文件不再各自复制。
-
-/// 视图及其全部子孙视图，按深度优先顺序；只用来找可见控件，不依赖层级位置。
-@MainActor
-func descendants(of view: NSView) -> [NSView] {
-    view.subviews.flatMap { [$0] + descendants(of: $0) }
-}
+/// App 测试 target 共用的等待与记录替身；各测试文件不再各自复制。
 
 /// 在一次性的 UserDefaults suite 中执行；前后都清空，测试之间、测试与真实偏好互不影响。
 func withIsolatedDefaults(_ body: (UserDefaults) throws -> Void) rethrows {
@@ -132,11 +130,433 @@ actor RecordingSessionInvalidator: AuthenticatedSessionInvalidating {
     }
 }
 
-/// 侧栏控制器的测试组装：不解析评论资源，图片管线不经窗口 owner、随测试释放。
+/// 卡片取图 port 的最小替身：从不命中缓存，加载也不返回图；给只需要传入 port、不验证取图的视图用。
+struct NoImageCardLoader: NativeVideoImageLoading {
+    func cachedImage(for url: URL, kind: NativeVideoCardImageKind) -> CGImage? { nil }
+
+    func image(for url: URL, kind: NativeVideoCardImageKind) async -> NativeVideoCardImage? { nil }
+}
+
+/// Feed port 的唯一测试替身：推荐不可用，热门与搜索恒为空页。
+///
+/// App 根视图会激活浏览页，这里给不验证 Feed 的测试一个不依赖网络的来源。
+struct EmptyFeedRepository: FeedRepository {
+    func recommendations(
+        after continuation: RecommendationContinuation?
+    ) async throws -> RecommendationPage {
+        throw ContentApplicationError.unavailable
+    }
+
+    func popular(page: Int, pageSize: Int) async throws -> PopularPage {
+        PopularPage(videos: [], pageNumber: page, pageSize: pageSize)
+    }
+
+    func searchVideos(request: VideoSearchRequest) async throws -> SearchPage {
+        SearchPage(
+            videos: [],
+            pageNumber: request.page,
+            pageSize: 20,
+            totalResults: 0,
+            totalPages: 0
+        )
+    }
+}
+
+/// 观看历史 port 的唯一测试替身：给了 `error` 时每次读取都失败，否则返回空页。
+struct WatchHistoryRepositoryStub: WatchHistoryRepository {
+    var error: ContentApplicationError?
+
+    func watchHistory(
+        after continuation: WatchHistoryContinuation?,
+        pageSize: Int
+    ) async throws -> WatchHistoryPage {
+        if let error { throw error }
+        return WatchHistoryPage(items: [], continuation: nil)
+    }
+}
+
+/// 单个视频的手写详情、分 P 与播放地址；`FixtureVideoRepository` 按它回答。
+struct VideoFixture: Sendable {
+    let aid: Int64
+    let bvid: String
+    let page: VideoPage
+    let title: String
+
+    init(
+        aid: Int64 = 700_000,
+        bvid: String = "BV1LifecycleFixture",
+        cid: Int64 = 900_001,
+        title: String = "生命周期测试视频"
+    ) {
+        self.aid = aid
+        self.bvid = bvid
+        page = VideoPage(
+            cid: cid,
+            index: 1,
+            title: "P1",
+            durationSeconds: 120
+        )
+        self.title = title
+    }
+
+    var identity: PlaybackItemIdentity {
+        PlaybackItemIdentity(bvid: bvid, cid: page.cid)
+    }
+
+    var detail: VideoDetail {
+        VideoDetail(
+            bvid: bvid,
+            title: title,
+            summary: "手写测试数据",
+            coverURL: nil,
+            owner: VideoOwner(id: 10_001, name: "测试 UP 主"),
+            statistics: VideoStatistics(
+                viewCount: 10,
+                danmakuCount: 2,
+                likeCount: 3
+            ),
+            durationSeconds: 120,
+            publishedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            aid: aid,
+            pages: [page]
+        )
+    }
+
+    var playback: VideoPlayback {
+        VideoPlayback(
+            media: .dash(
+                PlaybackManifest(
+                    videoRepresentations: [],
+                    audioTracks: []
+                )
+            ),
+            mediaHeaders: [:]
+        )
+    }
+}
+
+/// 视频 port 的唯一测试替身：按 BVID 选择 fixture 回答详情与播放；`playbackError` 让每次播放请求都失败。
+struct FixtureVideoRepository: VideoRepository {
+    private let fixturesByBVID: [String: VideoFixture]
+    private let playbackError: ContentApplicationError?
+
+    init(
+        fixtures: [VideoFixture],
+        playbackError: ContentApplicationError? = nil
+    ) {
+        fixturesByBVID = Dictionary(uniqueKeysWithValues: fixtures.map { ($0.bvid, $0) })
+        self.playbackError = playbackError
+    }
+
+    func videoDetail(for bvid: String) async throws -> VideoDetail {
+        try fixture(bvid).detail
+    }
+
+    func playback(for bvid: String, cid: Int64) async throws -> VideoPlayback {
+        if let playbackError { throw playbackError }
+        return try fixture(bvid).playback
+    }
+
+    private func fixture(_ bvid: String) throws -> VideoFixture {
+        guard let fixture = fixturesByBVID[bvid] else {
+            throw ContentApplicationError.invalidRequest
+        }
+        return fixture
+    }
+}
+
+/// UP 主名片 port 的唯一测试替身：`holdsRequests` 时请求挂起到 `releaseLateResult()` 为止（验证迟到结果与
+/// 取消），否则立即返回空名片。
+actor UploaderProfileRepositoryStub:
+    UploaderProfileRepository
+{
+    private let holdsRequests: Bool
+    private var requestStarted = false
+    private var requestWaiters: [CheckedContinuation<Void, Never>] = []
+    private var resultContinuation: CheckedContinuation<UploaderProfile, Never>?
+    private var requestCompleted = false
+    private var completionWaiters: [CheckedContinuation<Void, Never>] = []
+
+    init(holdsRequests: Bool) {
+        self.holdsRequests = holdsRequests
+    }
+
+    func uploaderProfile(for ownerID: Int64) async throws -> UploaderProfile {
+        requestStarted = true
+        requestWaiters.resumeAll()
+        guard holdsRequests else { return UploaderProfile() }
+        let result = await withCheckedContinuation { continuation in
+            resultContinuation = continuation
+        }
+        requestCompleted = true
+        completionWaiters.resumeAll()
+        return result
+    }
+
+    func waitForRequest() async throws {
+        guard !requestStarted else { return }
+        await withCheckedContinuation { continuation in
+            requestWaiters.append(continuation)
+        }
+    }
+
+    func releaseLateResult() {
+        resultContinuation?.resume(returning: UploaderProfile(signature: "迟到签名", isVIP: true))
+        resultContinuation = nil
+    }
+
+    func waitForCompletion() async throws {
+        guard !requestCompleted else { return }
+        await withCheckedContinuation { continuation in
+            completionWaiters.append(continuation)
+        }
+    }
+}
+
+/// 播放 port 的唯一测试替身：记录 load/begin/stop；`holdsLoads` 时 load 挂起到
+/// `failPendingLoad()` 为止，用于驱动加载失败路径。
 @MainActor
-func makeSidebarController() -> NativePlaybackSidebarController {
-    NativePlaybackSidebarController(
-        commentAssetURLResolver: { _, _ in nil },
-        imagePipeline: NativeVideoImagePipeline(cacheLimits: .window)
+final class RecordingPlayback: PlaybackControlling {
+    private struct ControlledFailure: Error {}
+
+    private let holdsLoads: Bool
+    private(set) var loadedIdentities: [PlaybackItemIdentity] = []
+    private(set) var startedIdentities: [PlaybackItemIdentity] = []
+    private(set) var stopCallCount = 0
+    private var pendingLoad: CheckedContinuation<Void, any Error>?
+    private var loadWaiters = CountWaiters()
+    private var stopWaiters = CountWaiters()
+
+    init(holdsLoads: Bool = false) {
+        self.holdsLoads = holdsLoads
+    }
+
+    func playbackFailureEvents() -> AsyncStream<PlaybackFailureEvent> {
+        AsyncStream { $0.finish() }
+    }
+
+    func load(
+        _ playback: VideoPlayback,
+        identity: PlaybackItemIdentity,
+        intent: PlaybackLoadIntent,
+        startPositionSeconds: Double?
+    ) async throws {
+        loadedIdentities.append(identity)
+        loadWaiters.resume(reaching: loadedIdentities.count)
+        guard holdsLoads else { return }
+        try await withCheckedThrowingContinuation { continuation in
+            pendingLoad = continuation
+        }
+    }
+
+    func beginPlayback(
+        identity: PlaybackItemIdentity,
+        intent: PlaybackLoadIntent
+    ) async -> PlaybackStartOutcome {
+        startedIdentities.append(identity)
+        return .startedAtBeginning
+    }
+
+    func restartFromBeginning(
+        identity: PlaybackItemIdentity,
+        intent: PlaybackLoadIntent,
+        resumeToken: PlaybackResumeToken
+    ) async -> Bool { false }
+
+    func pause() {}
+
+    func stop() {
+        stopCallCount += 1
+        stopWaiters.resume(reaching: stopCallCount)
+    }
+
+    func failPendingLoad() {
+        pendingLoad?.resume(throwing: ControlledFailure())
+        pendingLoad = nil
+    }
+
+    func waitForLoadCallCount(_ target: Int) async {
+        await withCheckedContinuation {
+            loadWaiters.add($0, until: target, current: loadedIdentities.count)
+        }
+    }
+
+    func waitForStopCallCount(_ target: Int) async {
+        await withCheckedContinuation {
+            stopWaiters.add($0, until: target, current: stopCallCount)
+        }
+    }
+}
+
+/// UP 主空间投稿 port 的唯一测试替身：每次读取都失败（不可用），只用于让空间层打开而不依赖网络。
+struct UnavailableUploaderVideoRepository: UploaderVideoRepository {
+    func uploaderVideos(
+        ownerID: Int64,
+        order: UploaderVideoOrder,
+        page: Int
+    ) async throws -> UploaderVideoPage {
+        throw ContentApplicationError.unavailable
+    }
+}
+
+/// 侧栏上下文层（UP 主空间）的真实模型；投稿读取恒失败，名片请求挂起到测试放行。
+@MainActor
+func makeUploaderSpace(
+    profiles: UploaderProfileRepositoryStub = UploaderProfileRepositoryStub(holdsRequests: true)
+) -> UploaderSpaceViewModel {
+    UploaderSpaceViewModel(
+        useCase: UploaderVideoUseCase(repository: UnavailableUploaderVideoRepository()),
+        profileUseCase: UploaderProfileUseCase(repository: profiles)
+    )
+}
+
+/// 系统 Now Playing 信息中心的唯一测试替身：记录发布、状态与清除。
+@MainActor
+final class RecordingNowPlayingCenter: SystemNowPlayingCenterWriting {
+    private(set) var publications: [[String: Any]] = []
+    private(set) var states: [MPNowPlayingPlaybackState] = []
+    private(set) var clearCount = 0
+    var onPublish: (([String: Any]) -> Void)?
+
+    var latestTitle: String? {
+        publications.last?[MPMediaItemPropertyTitle] as? String
+    }
+
+    func publish(info: [String: Any], state: MPNowPlayingPlaybackState) {
+        publications.append(info)
+        states.append(state)
+        onPublish?(info)
+    }
+
+    func clear() {
+        clearCount += 1
+    }
+}
+
+/// 系统远程命令中心的唯一测试替身：记录安装与移除，可代系统触发命令。
+@MainActor
+final class RecordingRemoteCommands: SystemRemoteCommandManaging {
+    private(set) var installationCount = 0
+    private(set) var removalCount = 0
+    private var handler:
+        (
+            @Sendable (SystemNowPlayingCommand) ->
+                SystemNowPlayingCommandResult
+        )?
+
+    func install(
+        handler:
+            @escaping @Sendable (SystemNowPlayingCommand) ->
+            SystemNowPlayingCommandResult
+    ) {
+        guard self.handler == nil else { return }
+        installationCount += 1
+        self.handler = handler
+    }
+
+    func removeHandlers() {
+        guard handler != nil else { return }
+        removalCount += 1
+        handler = nil
+    }
+
+    func invoke(
+        _ command: SystemNowPlayingCommand
+    ) -> SystemNowPlayingCommandResult {
+        handler?(command) ?? .noSuchContent
+    }
+}
+
+/// 线路偏好存储的唯一测试替身：只在内存里保存。
+final class MemoryPlaybackSourcePreferenceStore: PlaybackSourcePreferenceStoring, Sendable {
+    private let record: Mutex<PlaybackSourcePreferenceRecord>
+    init(record: PlaybackSourcePreferenceRecord = .defaults) { self.record = Mutex(record) }
+    func load() -> PlaybackSourcePreferenceRecord { record.withLock { $0 } }
+    func save(_ record: PlaybackSourcePreferenceRecord) { self.record.withLock { $0 = record } }
+}
+
+/// 观看进度 port 的唯一测试替身：`holdsReports` 时上报挂起到 `release()` 为止，否则立即丢弃。
+actor WatchProgressRepositoryStub: WatchProgressRepository {
+    private let holdsReports: Bool
+    private var reportCount = 0
+    private var reportWaiters = CountWaiters()
+    private var held: [CheckedContinuation<Void, Never>] = []
+    private var isReleased = false
+
+    init(holdsReports: Bool) {
+        self.holdsReports = holdsReports
+    }
+
+    func report(_ progress: WatchProgressReport) async {
+        reportCount += 1
+        reportWaiters.resume(reaching: reportCount)
+        guard holdsReports, !isReleased else { return }
+        await withCheckedContinuation { held.append($0) }
+    }
+
+    func waitForReportCount(_ target: Int) async {
+        await withCheckedContinuation {
+            reportWaiters.add($0, until: target, current: reportCount)
+        }
+    }
+
+    func release() {
+        isReleased = true
+        held.resumeAll()
+    }
+}
+
+/// 测试用的进程级组装：与生产同一个类型，换成不碰网络、系统 Now Playing 与真实偏好的替身。
+///
+/// 搜索历史用一次性的 UserDefaults suite，按 `withIsolatedDefaults` 的约定在使用前后清空：构造前清一次，搜索历史
+/// 读完初值后再清一次。经它构造的窗口不写入搜索历史（测试的搜索会话各自注入写入闭包）。
+@MainActor
+func makeTestProcess() -> ProcessComposition {
+    let suiteName = "BiliKitMacTests.process.\(UUID().uuidString)"
+    guard let defaults = UserDefaults(suiteName: suiteName) else {
+        preconditionFailure("无法创建隔离的 UserDefaults suite")
+    }
+    defaults.removePersistentDomain(forName: suiteName)
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    return ProcessComposition(
+        accountSession: AccountSessionCoordinator(),
+        watchProgressRepository: WatchProgressRepositoryStub(holdsReports: false),
+        settings: AppSettingsModel(
+            store: MemoryPlaybackSourcePreferenceStore(),
+            discover: { _ in [] },
+            resetDiscovery: {},
+            run: { _, _ in [] }
+        ),
+        nowPlaying: SystemNowPlayingController(
+            center: RecordingNowPlayingCenter(),
+            remoteCommands: RecordingRemoteCommands(),
+            artworkLoader: { _ in nil }
+        ),
+        searchHistory: SearchHistoryStore(defaults: defaults),
+        updater: AppUpdater()
+    )
+}
+
+/// 相关推荐 port 的唯一测试替身：恒为空。
+struct EmptyRelatedVideoRepository: RelatedVideoRepository {
+    func relatedVideos(to bvid: String) async throws -> [RelatedVideo] { [] }
+}
+
+/// 本 target 构造 `VideoViewModel` 的唯一入口：相关推荐默认为空、UP 主名片默认立即为空名片、播放附带的凭据
+/// 失效流默认立即结束。
+@MainActor
+func makeVideoViewModel(
+    useCase: VideoUseCase,
+    playback: any PlaybackControlling,
+    uploaderProfileUseCase: UploaderProfileUseCase = UploaderProfileUseCase(
+        repository: UploaderProfileRepositoryStub(holdsRequests: false)
+    )
+) -> VideoViewModel {
+    VideoViewModel(
+        useCase: useCase,
+        playback: playback,
+        relatedVideoUseCase: RelatedVideoUseCase(repository: EmptyRelatedVideoRepository()),
+        uploaderProfileUseCase: uploaderProfileUseCase,
+        playbackAuthenticationInvalidations: AsyncStream { $0.finish() }
     )
 }

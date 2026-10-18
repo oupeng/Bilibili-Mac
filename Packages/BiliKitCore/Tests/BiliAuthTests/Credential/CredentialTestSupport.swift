@@ -37,15 +37,21 @@ final class AuthEventRecorder: Sendable {
 }
 
 /// 本 target 唯一的 `WebCredentialStoring` 替身；load/save/delete 错误只触发一次。
-final class MemoryWebCredentialStore: WebCredentialStoring, @unchecked Sendable {
-    private let lock = NSLock()
-    private var credential: WebCredential?
-    private var nextLoadError: (any Error)?
-    private var nextSaveError: (any Error)?
-    private var nextDeleteError: (any Error)?
+final class MemoryWebCredentialStore: WebCredentialStoring, Sendable {
+    private struct State {
+        var credential: WebCredential?
+        var nextLoadError: (any Error)?
+        var nextSaveError: (any Error)?
+        var nextDeleteError: (any Error)?
+        var deleteCount = 0
+        var saveCount = 0
+    }
+
+    private let state: Mutex<State>
     private let events: AuthEventRecorder?
-    private(set) var deleteCount = 0
-    private(set) var saveCount = 0
+
+    var deleteCount: Int { state.withLock { $0.deleteCount } }
+    var saveCount: Int { state.withLock { $0.saveCount } }
 
     init(
         credential: WebCredential? = nil,
@@ -54,43 +60,47 @@ final class MemoryWebCredentialStore: WebCredentialStoring, @unchecked Sendable 
         deleteError: (any Error)? = nil,
         events: AuthEventRecorder? = nil
     ) {
-        self.credential = credential
-        nextLoadError = loadError
-        nextSaveError = saveError
-        nextDeleteError = deleteError
+        state = Mutex(
+            State(
+                credential: credential,
+                nextLoadError: loadError,
+                nextSaveError: saveError,
+                nextDeleteError: deleteError
+            )
+        )
         self.events = events
     }
 
     func load() throws -> WebCredential? {
-        try lock.withLock {
-            if let nextLoadError {
-                self.nextLoadError = nil
+        try state.withLock { state in
+            if let nextLoadError = state.nextLoadError {
+                state.nextLoadError = nil
                 throw nextLoadError
             }
-            return credential
+            return state.credential
         }
     }
 
     func save(_ credential: WebCredential) throws {
-        try lock.withLock {
-            if let nextSaveError {
-                self.nextSaveError = nil
+        try state.withLock { state in
+            if let nextSaveError = state.nextSaveError {
+                state.nextSaveError = nil
                 throw nextSaveError
             }
-            self.credential = credential
-            saveCount += 1
+            state.credential = credential
+            state.saveCount += 1
         }
     }
 
     func delete() throws {
-        try lock.withLock {
-            if let nextDeleteError {
-                self.nextDeleteError = nil
+        try state.withLock { state in
+            if let nextDeleteError = state.nextDeleteError {
+                state.nextDeleteError = nil
                 events?.append("credential-delete-failed")
                 throw nextDeleteError
             }
-            credential = nil
-            deleteCount += 1
+            state.credential = nil
+            state.deleteCount += 1
             events?.append("credential-deleted")
         }
     }

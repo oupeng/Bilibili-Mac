@@ -115,8 +115,8 @@ enum CommentTextLinkDetector {
         switch target {
         case .video, .member, .space, .shortLink, .timestamp:
             return target
-        case .external:
-            guard !isInsecure, BiliCommentLinkResolver().externalURL(for: target) != nil
+        case .external(let reference):
+            guard !isInsecure, BiliCommentLinkResolver().externalURL(for: reference) != nil
             else { return nil }
             return target
         }

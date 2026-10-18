@@ -1,3 +1,4 @@
+import BiliVideoDetailFeature
 import CoreGraphics
 import Foundation
 
@@ -10,11 +11,15 @@ struct NativeVideoImageCacheLimits: Sendable, Equatable {
     static let maximumEntryCostDivisor = 4
 
     /// 窗口内所有封面、头像与评论图片共用。
+    ///
+    /// 调大占用更多常驻内存，调小在网格来回滚动时要重新下载更多图片；见 SECURITY-MODEL §4。
     static let window = NativeVideoImageCacheLimits(
         countLimit: 160,
         costLimit: 64 * 1_024 * 1_024
     )
     /// 进程级 Now Playing 只显示当前一张封面，留少量余地给切换前后的封面。
+    ///
+    /// 成本上限的 1/4（2 MiB）同时是单张封面能进缓存的上限，超出的封面照常显示但不缓存。
     static let nowPlayingArtwork = NativeVideoImageCacheLimits(
         countLimit: 4,
         costLimit: 8 * 1_024 * 1_024
@@ -26,7 +31,15 @@ struct NativeVideoImageCacheLimits: Sendable, Equatable {
     var maximumEntryCost: Int { costLimit / Self.maximumEntryCostDivisor }
 }
 
+/// 按最近使用淘汰的有界内存解码缓存，张数与成本两个上限同时生效。
+///
+/// 由 `NativeVideoImagePipeline` 放在自己的 `Mutex` 状态里访问，本身不加锁；没有磁盘缓存，
+/// 内存压力时由管线整体清空（见 SECURITY-MODEL §4）。单项成本超过 `maximumEntryCost` 的不进缓存，
+/// 交给调用方自己持有。
 struct NativeVideoImageCache {
+    /// 一项缓存：第一帧、可选的动图编码数据、计入总成本的字节数，以及最近访问序号。
+    ///
+    /// `recency` 取递增的 `clock`，命中与写入时更新；超限时淘汰序号最小的一项。
     private struct Entry {
         let image: CGImage
         let animation: NativeAnimatedImage?

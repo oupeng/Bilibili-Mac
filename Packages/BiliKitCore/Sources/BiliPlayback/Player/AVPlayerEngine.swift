@@ -3,6 +3,7 @@ import BiliApplication
 import BiliModels
 import Foundation
 
+/// 播放准备与控制的失败分类：媒体表示缺失或不一致、item 失败（只带错误类型名）与非法倍速。
 public enum AVPlayerEngineError: Error, Sendable, Equatable {
     case missingVideoRepresentation
     case missingAudioRepresentation
@@ -14,35 +15,11 @@ public enum AVPlayerEngineError: Error, Sendable, Equatable {
     case invalidPlaybackRate
 }
 
+/// 切换原生字幕的结果：已开启（带系统字幕选项的显示名）、已关闭，或当前 item 没有可切换的字幕。
 public enum NativeSubtitleToggleResult: Sendable, Equatable {
     case enabled(label: String)
     case disabled
     case unavailable
-}
-
-private struct NativeSubtitleSelectionPreference: Sendable {
-    let propertyListData: Data?
-}
-
-/// 起播判定与 seek 的时间策略。
-private enum SeekPolicy {
-    static let timescale: CMTimeScale = 600
-    /// transport 相对跳转允许落在最近的可解码位置。
-    static let relativeSeekTolerance = CMTime(seconds: 0.25, preferredTimescale: timescale)
-    /// 就绪位置不超过该值视为从头开始，否则按续播报告。
-    static let beginningThresholdSeconds = 0.25
-    /// “从头播放”的落点不超过该位置才算成功。
-    static let restartLandingLimitSeconds = 0.5
-}
-
-private enum SeekSettlement: Equatable {
-    /// 已被更新的 seek、重新 load 或外部时间跳变取代。
-    case superseded
-    /// AVPlayer 未完成 seek，或落点不满足调用方要求。
-    case failed
-    /// 等待期间 load、intent、identity 或用户交互已变化。
-    case contextChanged
-    case landed(positionSeconds: Double)
 }
 
 /// AVPlayer、DASH→HLS 会话与统一播放时间线的唯一资源 owner。
@@ -64,14 +41,29 @@ public final class AVPlayerEngine:
     private let timeline: AVPlayerTimelineAdapter
     private var loadTask: Task<PreparedPlaybackAsset, any Error>?
     private var readinessTask: Task<Void, any Error>?
+    /// 每次 load、停止、失败与 item 失败都由 `releaseCurrentPlayback` 换新。
+    ///
+    /// 准备、就绪、seek 完成与字幕切换在 await 之后比对，不一致时停止迟到的 loopback
+    /// 会话或丢弃回调。
     private var loadGeneration = UUID()
     private var loadIntent: PlaybackLoadIntent?
+    /// `beginPlayback` 报告续播时发出；只有持同一 token 的“从头播放”才执行，从头开始、release
+    /// 或重新开始成功后清除。
     private var activeResumeToken: PlaybackResumeToken?
+    /// 在途“从头播放”的操作 ID，同时只允许一个；新的 transport 或精确 seek 清掉它，旧的 restart
+    /// 收尾时按被取代处理。
     private var restartOperation: UUID?
+    /// 当前拥有时间线待定 seek 的操作（从头播放、transport 或精确 seek），新 seek 覆盖它。
+    ///
+    /// 只有仍匹配的操作才能经 `settleSeek` 写回时间线；release 与外部时间跳变取代时清除。
     private var activeSeekOperationID: UUID?
     private var preparedAsset: PreparedPlaybackAsset?
     private var subtitleIdentity: PlaybackItemIdentity?
+    /// 字幕缓存按 identity 重置，重置 Task 串成链；新 load 先等上一次重置完成再取字幕目录，
+    /// 旧重置不会清掉新目录。
     private var subtitleResetTask: Task<Void, Never>?
+    /// 最近一次字幕切换的操作 ID；await 字幕组之后比对，不一致（被新切换或 release 取代）时返回
+    /// `.unavailable`、不改选择。
     private var subtitleToggleOperationID: UUID?
     private var lastSubtitleSelection: NativeSubtitleSelectionPreference?
     private var transportSeek = TransportSeekOperationState()
@@ -673,76 +665,6 @@ public final class AVPlayerEngine:
         releaseCurrentPlayback()
         timeline.clear()
         _ = enqueueSubtitleReset()
-    }
-
-    private static func validSeconds(_ time: CMTime) -> Double? {
-        let seconds = CMTimeGetSeconds(time)
-        guard seconds.isFinite, seconds >= 0 else { return nil }
-        return seconds
-    }
-
-    /// Progressive MP4 使用音视频轨道实际 timeRange 的最晚样本边界，不用服务端 length 减固定 tolerance。
-    ///
-    /// 空轨、无效时间或零时长保持系统默认结束语义。
-    package static func lastPresentableMediaEndTime(
-        in asset: AVAsset
-    ) async throws -> CMTime? {
-        let tracks = try await asset.load(.tracks).filter {
-            $0.mediaType == .video || $0.mediaType == .audio
-        }
-        var latest: CMTime?
-        for track in tracks {
-            let timeRange = try await track.load(.timeRange)
-            let end = CMTimeRangeGetEnd(timeRange)
-            guard let seconds = validSeconds(end), seconds > 0 else { continue }
-            if latest.map({ CMTimeCompare(end, $0) > 0 }) ?? true {
-                latest = end
-            }
-        }
-        return latest
-    }
-
-    private static func subtitlePreference(
-        for option: AVMediaSelectionOption
-    ) -> NativeSubtitleSelectionPreference {
-        NativeSubtitleSelectionPreference(
-            propertyListData: try? PropertyListSerialization.data(
-                fromPropertyList: option.propertyList(),
-                format: .binary,
-                options: 0
-            )
-        )
-    }
-
-    private static func subtitleOption(
-        in group: AVMediaSelectionGroup,
-        restoring preference: NativeSubtitleSelectionPreference?
-    ) -> AVMediaSelectionOption? {
-        let playable = AVMediaSelectionGroup.playableMediaSelectionOptions(
-            from: group.options
-        )
-        guard !playable.isEmpty else { return nil }
-        if let preference {
-            if let data = preference.propertyListData,
-                let propertyList = try? PropertyListSerialization.propertyList(
-                    from: data,
-                    options: [],
-                    format: nil
-                ),
-                let exact = group.mediaSelectionOption(
-                    withPropertyList: propertyList
-                ),
-                exact.isPlayable
-            {
-                return exact
-            }
-        }
-        let preferred = AVMediaSelectionGroup.mediaSelectionOptions(
-            from: playable,
-            filteredAndSortedAccordingToPreferredLanguages:
-                Locale.preferredLanguages
-        )
-        return preferred.first ?? playable.first
     }
 
     private func finishSubtitleToggle(_ operationID: UUID) {
