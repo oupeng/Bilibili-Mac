@@ -131,8 +131,8 @@ public protocol DanmakuRenderingBackend: AnyObject {
     func clearAll()
     /// 画面是否静止（暂停、缓冲、未播放）；决定 `recompositeIfStill` 是否需要请求下一帧。
     func setStill(_ still: Bool)
-    /// 一整批改动（一次 reconcile、一次布局替换或一次清屏）结束后调用一次：静止且这批改动了画面时，
-    /// 在下一显示帧强制窗口重新合成，暂停时不留残影。
+    /// 静止且有改动时在下一显示帧强制窗口重新合成。呈现端目前不调用，只有宿主恢复可见时调用；
+    /// 实机确认静止时没有残影后整体删除。
     func recompositeIfStill()
     func setOpacity(_ opacity: DanmakuOpacity)
     func updateSurfaceSize(

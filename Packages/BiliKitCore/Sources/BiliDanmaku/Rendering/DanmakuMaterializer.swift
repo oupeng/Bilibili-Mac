@@ -100,7 +100,6 @@ final class DanmakuMaterializer {
             reconcilesAfterCommit = true
         } else {
             reconcileNow()
-            backend.recompositeIfStill()
         }
     }
 
@@ -170,7 +169,6 @@ final class DanmakuMaterializer {
             backend.discardPreparation(preparationID: preparation.preparationID)
         }
         reconcileNow()
-        backend.recompositeIfStill()
     }
 
     /// 普通 reconcile：立即移除与替换，缺纹理的发起准备。
@@ -297,7 +295,6 @@ final class DanmakuMaterializer {
             hasRetryableRejections = false
             reconcileNow()
         }
-        backend.recompositeIfStill()
     }
 
     /// 挂上或原位替换一条弹幕；为腾纹理字节被 backend 移除的弹幕从记录里删掉，之后的 reconcile 再请求。

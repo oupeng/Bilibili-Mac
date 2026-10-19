@@ -23,10 +23,11 @@ import QuartzCore
 ///
 /// 静止时的重新合成：暂停、缓冲时视频不出新帧，同步 layer 的速率为 0，渲染服务器不再主动出帧；提交后
 /// 屏上那块区域若没有完整重新合成，旧画面会一直留着，表现为错开几 pt 的两份弹幕，直到别的界面事件触发
-/// 重绘。呈现端在一整批改动结束后调用 `recompositeIfStill`：静止（`setStill`）且这批确实改动了 layer
-/// 树时，经宿主的 `frameScheduler`（App overlay 按需建立的 display link）在下一帧对 `rootLayer` 做一次
-/// 无视觉变化的属性写入。请求挂 `frameRequestTimeout` 兜底，到点没回调就放弃并让宿主释放 display link；
-/// `stop` 取消在途请求。
+/// 重绘。`recompositeIfStill` 在静止（`setStill`）且有改动时，经宿主的 `frameScheduler`（App overlay
+/// 按需建立的 display link）在下一帧对 `rootLayer` 做一次无视觉变化的属性写入。请求挂
+/// `frameRequestTimeout` 兜底，到点没回调就放弃并让宿主释放 display link；`stop` 取消在途请求。
+/// 目前呈现端不再主动调用它，只剩 overlay 恢复可见时的一处；这套机制留待实机确认静止时没有残影后
+/// 整体删除。
 @MainActor
 public final class CoreAnimationDanmakuRenderer:
     DanmakuRenderingBackend

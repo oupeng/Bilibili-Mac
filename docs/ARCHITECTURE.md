@@ -228,14 +228,11 @@ discontinuity generation，以及 seek 阶段与落地代号。消费者不自�
 - 纹理字节上限（64 MiB）只作内存安全阀，按全部 layer（含前瞻弹幕）计：超限时先移除已走完、还没等到
   对齐的，再由已进场的弹幕挤掉进场最晚的前瞻弹幕；前瞻弹幕之间不互相挤，超限即被拒。被拒的弹幕缺席，
   但不影响车道布局。
-- 静止时的重新合成：暂停与缓冲时视频不出新帧、同步 layer 速率为 0，渲染服务器不再主动出帧，提交后屏上
-  那块区域可能没有完整重新合成（错开几 pt 的两份弹幕，直到别的界面事件触发重绘）。呈现端在一整批改动
-  （一次对齐、一次暂存提交、一次清屏、显隐变化）结束后调用 renderer 的 `recompositeIfStill`：静止（由呈现
-  控制器按快照的状态与速率设置）且这批改动了 layer 树时，在下一显示帧于显式事务里切换一次 `rootLayer` 的
-  透明背景，不 flush，同一轮的多次请求合并。下一帧由弹幕 overlay（`DanmakuOverlayView`，实现
-  `DanmakuFrameScheduling`）按需建立的 display link 提供，回调一次即停；视图不可见（隐藏、最小化、被完全
-  遮挡、不在窗口里）时拒绝请求，变为不可见、交还 surface 或会话 stop 时取消，renderer 另挂 0.1 秒时限
-  兜底。被拒绝、没出帧或超时的改动保留，overlay 恢复可见时再请求一次。弹幕 layer 与 `rootLayer` 用
+- 静止时不再主动请求重新合成：呈现端的对齐、暂存提交与清屏之后都不调用 renderer 的
+  `recompositeIfStill`。这套机制（renderer 的 `recompositeIfStill`、`DanmakuFrameScheduling` 与 overlay
+  按需的 display link、可见性监听）暂时保留，只剩 overlay 恢复可见时调用一次；它原本用来补暂停时视频不出
+  新帧、提交后那块区域没有完整重新合成（错开几 pt 的两份弹幕）。实机确认暂停、暂停中 seek、暂停时改设置、
+  开关弹幕、分段晚到与换屏之后都没有残影，就整体删除。弹幕 layer 与 `rootLayer` 用
   `actions` 禁用上屏、移除、子层、显隐与几何变化的隐式动画，增删不另包显式事务（顶层显式事务会单独提交，
   把同一次对齐拆进不同的提交）。
 - 大会员彩色弹幕：元素字段 24 `colorful` 为 60001 时映射为 `DanmakuColorStyle.vipGradient`，其余类型按普通

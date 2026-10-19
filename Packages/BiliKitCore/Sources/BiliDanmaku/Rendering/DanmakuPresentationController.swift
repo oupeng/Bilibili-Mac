@@ -154,7 +154,6 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
             reconcile(staged: true)
         } else {
             materializer.clear()
-            backend.recompositeIfStill()
         }
     }
 
@@ -217,7 +216,6 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         guard surfaceOwnerID == ownerID else { return }
         materializer.clear()
         landingGeneration = nil
-        backend.recompositeIfStill()
     }
 
     /// 只接受当前 owner 的尺寸更新。
@@ -259,7 +257,6 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         latestSnapshot = nil
         reconciledPosition = nil
         landingGeneration = nil
-        backend.recompositeIfStill()
     }
 
     /// 把当前设置交给布局 coordinator；画面尚未布局（尺寸为 0）时不布局。
