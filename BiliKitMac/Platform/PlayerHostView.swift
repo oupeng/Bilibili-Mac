@@ -186,6 +186,7 @@ private struct AVPlayerContainerView: NSViewRepresentable {
         view.setResumeNotice(nil, restartFromBeginning: {})
         view.setPreviewEndedNotice(nil)
         view.danmakuOverlay.detachSurface()
+        view.danmakuOverlay.bind(to: nil)
         view.stopObservingFocusLoss()
         view.stopObservingPlayerItemChanges()
         view.stopKeyboardMonitoring()
@@ -214,8 +215,10 @@ enum PlayerPlaybackPreparationPolicy {
 /// controller（本地 key monitor）、浮层模型、player 的三个 KVO 观察、item
 /// 时间跳转观察与失焦通知观察；不拥有 player、弹幕 renderer 与弹幕 controller，它们由窗口组装持有。
 /// 拆除由 `AVPlayerContainerView.dismantleNSView` 按顺序进行：清除提示、撤销弹幕 surface、
-/// 停止失焦与 player 观察、停止键盘监听、结束临时倍速，最后断开 player。`momentaryRatePressID`
-/// 记录当前临时倍速对应的按压，结束回调按它比对，旧按压迟到的结束不影响新的临时倍速。
+/// 解开弹幕同步 layer 与 item 的绑定、停止失焦与 player 观察、停止键盘监听、结束临时倍速，最后断开
+/// player。`currentItem` 变化时先让弹幕 overlay 换绑同步 layer（见 `DanmakuOverlayView.bind(to:)`）。
+/// `momentaryRatePressID` 记录当前临时倍速对应的按压，结束回调按它比对，旧按压迟到的结束不影响新的
+/// 临时倍速。
 @MainActor
 final class DanmakuPlayerView: AVPlayerView {
     let danmakuOverlay: DanmakuOverlayView
@@ -447,6 +450,7 @@ final class DanmakuPlayerView: AVPlayerView {
             Task { @MainActor in
                 self?.cancelMomentaryPlaybackRate()
                 self?.overlayModel.clearResumeNotice(markDismissed: true)
+                self?.danmakuOverlay.bind(to: self?.player?.currentItem)
                 self?.startObservingCurrentItemTimeJumps()
                 self?.updatePlaybackActivity()
             }
@@ -472,6 +476,7 @@ final class DanmakuPlayerView: AVPlayerView {
                 self?.updatePlaybackActivity()
             }
         }
+        danmakuOverlay.bind(to: player.currentItem)
         startObservingCurrentItemTimeJumps()
         updatePlaybackActivity()
     }

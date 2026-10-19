@@ -86,7 +86,7 @@ struct PlayerHostViewIdentityTests {
 
         firstWindow.contentView?.addSubview(overlay)
         overlay.layoutSubtreeIfNeeded()
-        #expect(renderer.rootLayer.superlayer === overlay.layer)
+        #expect(renderer.rootLayer.superlayer === overlay.synchronizedLayer)
 
         let identity = PlaybackItemIdentity(bvid: "fixture", cid: 1)
         let beforeReparent = danmakuEvent(at: 1, id: "before-reparent", mode: .scrolling)
@@ -97,7 +97,7 @@ struct PlayerHostViewIdentityTests {
 
         overlay.removeFromSuperview()
         #expect(overlay.window == nil)
-        #expect(renderer.rootLayer.superlayer === overlay.layer)
+        #expect(renderer.rootLayer.superlayer === overlay.synchronizedLayer)
         #expect(renderer.rootLayer.sublayers?.first === firstLayer)
         #expect((renderer.rootLayer.sublayers?.count ?? 0) == 1)
 
@@ -112,13 +112,60 @@ struct PlayerHostViewIdentityTests {
         overlay.frame = secondWindow.contentView?.bounds ?? .zero
         secondWindow.contentView?.addSubview(overlay)
         overlay.layoutSubtreeIfNeeded()
-        #expect(renderer.rootLayer.superlayer === overlay.layer)
+        #expect(renderer.rootLayer.superlayer === overlay.synchronizedLayer)
         #expect(renderer.rootLayer.sublayers?.first === firstLayer)
         #expect((renderer.rootLayer.sublayers?.count ?? 0) == 2)
 
         overlay.detachSurface()
         #expect(renderer.rootLayer.superlayer == nil)
         #expect((renderer.rootLayer.sublayers?.count ?? 0) == 0)
+    }
+
+    /// 弹幕同步 layer 不会随 `replaceCurrentItem` 自动换绑：宿主在 `currentItem` 变化时先清屏再换绑，
+    /// 旧 item 的弹幕不会留在新 item 的时间线上。
+    @Test
+    @MainActor
+    func danmakuClockFollowsTheCurrentItemAndClearsOnReplacement() async throws {
+        let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
+        let controller = DanmakuPresentationController(
+            backend: renderer,
+            configuration: Self.emptyDanmakuConfiguration
+        )
+        let view = DanmakuPlayerView(
+            renderer: renderer,
+            controller: controller,
+            beginMomentaryPlaybackRate: nil,
+            endMomentaryPlaybackRate: nil
+        )
+        view.frame = NSRect(x: 0, y: 0, width: 800, height: 300)
+        let window = NSWindow(
+            contentRect: view.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView?.addSubview(view)
+        view.layoutSubtreeIfNeeded()
+        let first = AVPlayerItem(url: URL(fileURLWithPath: "/nonexistent/first.mp4"))
+        let second = AVPlayerItem(url: URL(fileURLWithPath: "/nonexistent/second.mp4"))
+        let player = AVPlayer(playerItem: first)
+        view.player = player
+        view.startObservingPlayerItemChanges()
+        #expect(view.danmakuOverlay.synchronizedLayer.playerItem === first)
+
+        let identity = PlaybackItemIdentity(bvid: "item-fixture", cid: 1)
+        controller.apply(pausedSnapshot(identity: identity, position: 1))
+        controller.setSegments(
+            [1: [danmakuEvent(at: 1, id: "before-replacement", mode: .top)]],
+            for: identity
+        )
+        #expect(await waitUntil { (renderer.rootLayer.sublayers?.count ?? 0) == 1 })
+
+        player.replaceCurrentItem(with: second)
+        #expect(await waitUntil { view.danmakuOverlay.synchronizedLayer.playerItem === second })
+        #expect(renderer.rootLayer.sublayers?.isEmpty ?? true)
+        #expect(renderer.rootLayer.superlayer === view.danmakuOverlay.synchronizedLayer)
+        view.stopObservingPlayerItemChanges()
     }
 
     private func danmakuEvent(

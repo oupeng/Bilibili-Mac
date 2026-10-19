@@ -1,12 +1,19 @@
+import AVFoundation
 import AppKit
 import BiliDanmaku
 
-/// 将 renderer 的 layer 挂到当前 `AVPlayerView` overlay，并独占其尺寸更新权。
+/// 将 renderer 的 layer 挂到当前 `AVPlayerView` overlay 的同步 layer 下，并独占其尺寸更新权。
 ///
 /// `ownerID` 防止已拆除 host 的迟到 layout/detach 清空新 host；零尺寸只表示 surface 尚未完成布局，
 /// 不会扩大为另一个渲染会话。用 AppKit：弹幕由 Core Animation layer 树渲染，要作为 layer-backed
 /// `NSView` 放进 `AVPlayerView` 的 content overlay，才能随 detached 全屏一起移动，见
 /// docs/ARCHITECTURE.md「播放页布局」。不接收鼠标事件。
+///
+/// 弹幕的时间来自 `synchronizedLayer`（`AVSynchronizedLayer`）：它的子树按绑定的播放 item 的时间运行，
+/// AVFoundation 在主线程上随 item timebase 的速率变化与时间跳变调整它，暂停、倍速、seek、缓冲停顿与
+/// 播放结束都由它处理，renderer 的 `rootLayer` 挂在它下面。它不会跟随 `replaceCurrentItem` 自动换绑：
+/// 播放器宿主在 `currentItem` 变化时调用 `bind(to:)`，先让呈现控制器清屏，再换绑，否则旧弹幕会在新
+/// item 的时间线上错位。同步只在 layer 进入渲染上下文后才启动，overlay 在窗口里即可。
 ///
 /// 这是 layer-backed 视图加自定义 layer（先 `wantsLayer` 再设 `layer`），不是 layer-hosting；视图本身
 /// 从不绘制，AppKit 不会主动重绘它。暂停时视频不出新帧、弹幕 `rootLayer.speed` 为 0，窗口可能停在一次
@@ -21,6 +28,8 @@ import BiliDanmaku
 final class DanmakuOverlayView: NSView, DanmakuFrameScheduling {
     private let renderer: CoreAnimationDanmakuRenderer
     private let controller: DanmakuPresentationController
+    /// 按播放 item 时间运行的父层；renderer 的 `rootLayer` 在 surface 接管期间挂在它下面。
+    let synchronizedLayer = AVSynchronizedLayer()
     private let ownerID = UUID()
     private var previousSize: CGSize?
     private var previousBackingScale: CGFloat?
@@ -41,6 +50,10 @@ final class DanmakuOverlayView: NSView, DanmakuFrameScheduling {
         wantsLayer = true
         layer = CALayer()
         layer?.masksToBounds = true
+        // 尺寸随视图变化时不带隐式过渡。
+        synchronizedLayer.actions = ["bounds": NSNull(), "position": NSNull()]
+        synchronizedLayer.anchorPoint = .zero
+        layer?.addSublayer(synchronizedLayer)
     }
 
     @available(*, unavailable)
@@ -70,7 +83,19 @@ final class DanmakuOverlayView: NSView, DanmakuFrameScheduling {
 
     override func layout() {
         super.layout()
+        synchronizedLayer.frame = bounds
         updateSurfaceIfNeeded()
+    }
+
+    /// 同步 layer 换绑到 `item`（nil 表示没有 item）；持有 surface 时先让呈现控制器清屏。
+    ///
+    /// 由播放器宿主在 `currentItem` 变化与开始观察 player 时调用；同一 item 重复调用是空操作。
+    func bind(to item: AVPlayerItem?) {
+        guard synchronizedLayer.playerItem !== item else { return }
+        if isSurfaceAttached {
+            controller.playerItemWillChange(ownerID: ownerID)
+        }
+        synchronizedLayer.playerItem = item
     }
 
     override func viewDidChangeBackingProperties() {
@@ -115,7 +140,9 @@ final class DanmakuOverlayView: NSView, DanmakuFrameScheduling {
         if renderer.frameScheduler === self {
             renderer.frameScheduler = nil
         }
-        if controller.detachSurface(ownerID: ownerID) {
+        if controller.detachSurface(ownerID: ownerID),
+            renderer.rootLayer.superlayer === synchronizedLayer
+        {
             renderer.rootLayer.removeFromSuperlayer()
         }
     }
@@ -205,7 +232,7 @@ final class DanmakuOverlayView: NSView, DanmakuFrameScheduling {
         isSurfaceAttached = true
         controller.attachSurface(ownerID: ownerID)
         renderer.frameScheduler = self
-        layer?.addSublayer(renderer.rootLayer)
+        synchronizedLayer.addSublayer(renderer.rootLayer)
         previousSize = nil
         previousBackingScale = nil
         updateSurfaceIfNeeded()

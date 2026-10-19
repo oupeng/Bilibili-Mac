@@ -222,6 +222,19 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         return true
     }
 
+    /// 宿主的同步 layer 即将换绑到另一个播放 item：先清屏，再由宿主换绑；只接受当前 owner，返回是否生效。
+    ///
+    /// 同步 layer 换绑后时间立刻按新 item 走，旧 layer 留着会在新时间线上错位，所以必须先清。布局表保留
+    /// （同一视频换线路或清晰度时仍然有效），下一个落地快照按新 item 的时刻整屏挂上。
+    @discardableResult
+    public func playerItemWillChange(ownerID: UUID) -> Bool {
+        guard surfaceOwnerID == ownerID else { return false }
+        materializer.clear()
+        landingGeneration = nil
+        backend.recompositeIfStill()
+        return true
+    }
+
     /// 只接受当前 owner 的尺寸更新；返回是否生效。
     ///
     /// 已有布局表时按新尺寸重新布局要去抖（live resize），期间屏上沿用旧布局。
