@@ -35,8 +35,6 @@ public final class CoreAnimationDanmakuRenderer:
         let layer: CALayer
         var placement: DanmakuLanePlacement
         let textureByteCost: Int
-        /// 纹理栅格化时的 backing scale；与当前 scale 不同时 `update` 拒绝复用。
-        let backingScale: Double
     }
 
     /// 已上屏 layer（含已挂上、还没进场的前瞻弹幕）的纹理字节总上限；超出时按 `makeRoom` 的顺序腾地方，
@@ -180,8 +178,7 @@ public final class CoreAnimationDanmakuRenderer:
         entries[event.id] = Entry(
             layer: layer,
             placement: placement,
-            textureByteCost: payload.byteCost,
-            backingScale: backingScale
+            textureByteCost: payload.byteCost
         )
         activeTextureByteCost += payload.byteCost - replacedCost
         hasChangesSinceRecomposite = true
@@ -226,9 +223,7 @@ public final class CoreAnimationDanmakuRenderer:
     @discardableResult
     public func update(_ placement: DanmakuLanePlacement) -> Bool {
         let eventID = placement.request.event.id
-        guard var entry = entries[eventID], entry.backingScale == backingScale else {
-            return false
-        }
+        guard var entry = entries[eventID] else { return false }
         guard entry.placement != placement else { return true }
         entry.placement = placement
         entries[eventID] = entry
@@ -343,9 +338,8 @@ public final class CoreAnimationDanmakuRenderer:
         height: Double,
         backingScale: Double
     ) {
-        let normalizedScale = DanmakuTextureRasterizer.normalizedBackingScale(backingScale)
-        if normalizedScale != self.backingScale {
-            self.backingScale = normalizedScale
+        if backingScale != self.backingScale {
+            self.backingScale = backingScale
             preparationOwner.cancelAllPreparations()
         }
         let oldSurfaceSize = surfaceSize

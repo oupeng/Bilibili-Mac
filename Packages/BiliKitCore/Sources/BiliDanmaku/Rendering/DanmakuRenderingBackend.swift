@@ -97,7 +97,7 @@ enum DanmakuMotionPolicy {
 /// 弹幕 layer 按 placement 的媒体时间运动，port 不涉及时钟：暂停、倍速与 seek 由宿主的同步 layer
 /// 处理。`clearAll` 取消在途准备并移除全部 layer；`stop` 还取消静止重新合成的请求。尺寸变化只
 /// 更新 surface geometry：已有滚动弹幕保持布局时的运动，顶部与底部弹幕随新宽度重新居中、底部弹幕随
-/// 高度变化平移；backing scale 变化会取消在途准备。
+/// 高度变化平移；backing scale 由调用方归一化后传入，变化时取消在途准备。
 @MainActor
 public protocol DanmakuRenderingBackend: AnyObject {
     /// 按 renderer 当前的 backing scale 准备纹理；完成回调必须返回 MainActor。
@@ -129,8 +129,10 @@ public protocol DanmakuRenderingBackend: AnyObject {
         generation: UInt64,
         at position: Double
     ) -> DanmakuInstallResult
-    /// 已在屏的弹幕换成新的 placement（重新布局后车道或时长变了），复用原纹理；不在屏、或纹理是按旧的
-    /// backing scale 栅格化的（窗口换到另一块屏幕）时返回 false，调用方移除后重新准备。
+    /// 已在屏的弹幕换成新的 placement（重新布局后车道或时长变了），复用原纹理；不在屏时返回 false。
+    ///
+    /// 纹理是否仍按当前 backing scale 栅格化由 `DanmakuMaterializer` 记录与判断，旧 scale 的纹理不会经
+    /// 这里复用。
     @discardableResult
     func update(_ placement: DanmakuLanePlacement) -> Bool
     /// 丢弃一条没有上屏的准备记录；对未知 ID 是空操作。

@@ -354,7 +354,7 @@ struct CoreAnimationDanmakuRendererTests {
         #expect(abs(localTime(atHostTime: now + 0.5) - 13) < 0.001)
     }
 
-    /// 重新布局后就地换成新的车道，复用纹理，不重新准备；backing scale 变了则不复用。
+    /// 重新布局后就地换成新的车道，复用纹理，不重新准备。
     @Test
     func updateMovesAnInstalledLayerToItsNewPlacement() async throws {
         let renderer = makeRenderer()
@@ -382,12 +382,6 @@ struct CoreAnimationDanmakuRendererTests {
         #expect(layer.contents as AnyObject? === contents)
         #expect(abs(layer.position.y - (80 + metrics.height / 2)) < 0.001)
         #expect(!renderer.update(absent))
-
-        // 窗口换到另一块屏幕后纹理按旧 scale 栅格化，不再复用。
-        renderer.updateSurfaceSize(width: 800, height: 240, backingScale: 3)
-        #expect(
-            !renderer.update(placement(event: event, metrics: metrics, originY: 20, admittedAt: 3))
-        )
     }
 
     /// 纹理字节超限时：前瞻弹幕不能再挂上，也不挤掉别人；已进场的弹幕挤掉进场最晚的前瞻弹幕后挂上。

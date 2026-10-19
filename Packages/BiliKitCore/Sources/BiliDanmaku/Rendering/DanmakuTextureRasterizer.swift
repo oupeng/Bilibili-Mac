@@ -49,15 +49,15 @@ enum DanmakuTextureRasterizer {
     static let maximumHeightPixels = 512
     /// 单个纹理的字节上限，也是纹理缓存的单项上限；宽度接近像素上限的长文本主要受它约束。
     static let maximumTextureByteCost = 8 * 1_024 * 1_024
-    /// 支持的最大 backing scale；renderer 与呈现控制器把更大的值夹到这里。
+    /// 支持的最大 backing scale；呈现控制器归一时把更大的值夹到这里。
     static let maximumBackingScale = 4.0
     /// 宿主还没报告窗口 backing scale 时的初值，也是非有限值的回退：Retina 屏是 2。
     static let defaultBackingScale = 2.0
 
-    /// renderer 与呈现控制器共用的 backing scale 归一。
+    /// 窗口报告的 backing scale 归一到 1...`maximumBackingScale`，非有限值回退到 `defaultBackingScale`。
     ///
-    /// 夹到 1...`maximumBackingScale`，非有限值回退到 `defaultBackingScale`。两边必须一致，否则
-    /// 控制器认为 scale 没变而 renderer 已经换了栅格倍率，或反过来多取消一轮准备。
+    /// 只由呈现控制器在 surface 更新时调用一次，再把结果交给 renderer 与 materializer；两边不再各自
+    /// 归一，否则一边认为 scale 没变、另一边已经换了栅格倍率。
     static func normalizedBackingScale(_ scale: Double) -> Double {
         scale.isFinite ? min(max(scale, 1), maximumBackingScale) : defaultBackingScale
     }

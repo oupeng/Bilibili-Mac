@@ -35,7 +35,8 @@ final class DanmakuMaterializer {
 
     /// backend 上每条在屏弹幕当前使用的 placement。
     private(set) var installed: [String: DanmakuLanePlacement] = [:]
-    /// 每条在屏弹幕的纹理按哪个 backing scale 栅格化；与当前 scale 不同的要重新准备、原位换纹理。
+    /// 每条在屏弹幕的纹理按哪个 backing scale 栅格化，是这件事唯一的记录；与当前 scale 不同的要重新
+    /// 准备、原位换纹理，renderer 不另记。
     private var installedScales: [String: Double] = [:]
     /// 已发起、尚未完成的纹理准备。
     private var pending: [String: Preparation] = [:]
@@ -122,9 +123,8 @@ final class DanmakuMaterializer {
     ///
     /// 已在屏的弹幕不移除，之后的 reconcile 为它们按新 scale 准备纹理并原位替换。
     func setBackingScale(_ scale: Double) {
-        let normalized = DanmakuTextureRasterizer.normalizedBackingScale(scale)
-        guard normalized != backingScale else { return }
-        backingScale = normalized
+        guard scale != backingScale else { return }
+        backingScale = scale
         preparationGeneration &+= 1
         backend.cancelPendingPreparations()
         pending.removeAll(keepingCapacity: false)
