@@ -83,18 +83,40 @@ public enum PlaybackTimelineState: Sendable, Equatable {
     case failed
 }
 
+/// 弹幕等需要“落点”的消费者使用的 seek 阶段。
+///
+/// 由 BiliPlayback 按 item timebase 的 time-jump 通知写入：收到跳变即 `seeking`，最后一次跳变之后
+/// 静默满时限才回到 `settled` 并递增 `landingGeneration`。拖动进度条期间一直是 `seeking`；暂停、
+/// 缓冲与改速率不影响它。
+public enum PlaybackSeekPhase: Sendable, Equatable {
+    case settled
+    case seeking
+}
+
 /// 平台无关的媒体时间事实。
 ///
 /// `discontinuityGeneration` 在换项、seek 或时间跳变时前进，消费者不能只比较秒数来判断连续性。
+/// `seekPhase` 与 `landingGeneration` 是另一套只来自 timebase 跳变的 seek 事实，与
+/// `discontinuityGeneration` 各自独立，见 docs/ARCHITECTURE.md「媒体时间轴」。
 public struct PlaybackTimelineSnapshot: Sendable, Equatable {
     public let identity: PlaybackItemIdentity?
     /// 当前播放器 item 的不可复用加载意图；用于拒绝相同 identity 的 ABA 迟到结果。
     public let loadIntent: PlaybackLoadIntent?
+    /// 媒体位置（秒）。
+    ///
+    /// `seeking` 期间不写入周期回调的读数，只随每次跳变更新为跳变后的 timebase 时间；落地的快照写入
+    /// 落地时刻的 timebase 时间。
     public let positionSeconds: Double
     public let durationSeconds: Double?
     public let rate: Double
     public let state: PlaybackTimelineState
     public let discontinuityGeneration: UInt64
+    public let seekPhase: PlaybackSeekPhase
+    /// 落地代号。
+    ///
+    /// 一次 seek 落地、换项、续播起点就绪与 clear 时递增，同一次 seek（含拖动）只递增一次，
+    /// `seeking` 期间不变。消费者见到它变化，就以这个快照的位置为落点。
+    public let landingGeneration: UInt64
 
     public init(
         identity: PlaybackItemIdentity?,
@@ -103,7 +125,9 @@ public struct PlaybackTimelineSnapshot: Sendable, Equatable {
         rate: Double,
         state: PlaybackTimelineState,
         discontinuityGeneration: UInt64,
-        loadIntent: PlaybackLoadIntent? = nil
+        loadIntent: PlaybackLoadIntent? = nil,
+        seekPhase: PlaybackSeekPhase = .settled,
+        landingGeneration: UInt64 = 0
     ) {
         self.identity = identity
         self.loadIntent = loadIntent
@@ -112,6 +136,8 @@ public struct PlaybackTimelineSnapshot: Sendable, Equatable {
         self.rate = Self.nonnegativeFinite(rate) ?? 0
         self.state = state
         self.discontinuityGeneration = discontinuityGeneration
+        self.seekPhase = seekPhase
+        self.landingGeneration = landingGeneration
     }
 
     public static let idle = PlaybackTimelineSnapshot(
@@ -124,6 +150,30 @@ public struct PlaybackTimelineSnapshot: Sendable, Equatable {
         loadIntent: nil
     )
 
+    /// 以本快照为底、只替换给出的字段；store 的各写入口共用，`durationSeconds` 传 `.some(nil)` 表示清空。
+    fileprivate func replacing(
+        positionSeconds: Double? = nil,
+        durationSeconds: Double?? = nil,
+        rate: Double? = nil,
+        state: PlaybackTimelineState? = nil,
+        discontinuityGeneration: UInt64? = nil,
+        seekPhase: PlaybackSeekPhase? = nil,
+        landingGeneration: UInt64? = nil
+    ) -> PlaybackTimelineSnapshot {
+        PlaybackTimelineSnapshot(
+            identity: identity,
+            positionSeconds: positionSeconds ?? self.positionSeconds,
+            durationSeconds: durationSeconds ?? self.durationSeconds,
+            rate: rate ?? self.rate,
+            state: state ?? self.state,
+            discontinuityGeneration: discontinuityGeneration
+                ?? self.discontinuityGeneration,
+            loadIntent: loadIntent,
+            seekPhase: seekPhase ?? self.seekPhase,
+            landingGeneration: landingGeneration ?? self.landingGeneration
+        )
+    }
+
     private static func nonnegativeFinite(_ value: Double) -> Double? {
         guard value.isFinite, value >= 0 else { return nil }
         return value
@@ -134,7 +184,7 @@ public struct PlaybackTimelineSnapshot: Sendable, Equatable {
 ///
 /// 实现是 BiliPlayback 的 `AVPlayerEngine`，见 docs/ARCHITECTURE.md「媒体时间轴」。
 /// 新订阅者应先得到当前快照；消费者不自建计时器，用 `discontinuityGeneration`
-/// 而不是秒数判断时间是否连续。
+/// 而不是秒数判断时间是否连续；需要 seek 落点的消费者（弹幕）用 `seekPhase` 与 `landingGeneration`。
 @MainActor
 public protocol PlaybackTimelineProviding: AnyObject {
     var currentTimelineSnapshot: PlaybackTimelineSnapshot { get }
@@ -189,7 +239,8 @@ package struct PlaybackTimelineItemToken: Sendable, Equatable {
 /// 取得 token。拥有当前快照、当前 token、`AsyncBroadcast` 订阅与同步 observer 表，不拥有 AVPlayer
 /// 或 KVO observation。只有当前 token 的写入生效，`clear(token: nil)` 不比对 token；
 /// 相同快照不重复发布。`discontinuityGeneration` 在 `beginItem`、`markDiscontinuity` 与 `clear`
-/// 时递增。
+/// 时递增；`landingGeneration` 在 `beginItem`、`land`、`markDiscontinuity(lands: true)` 与 `clear`
+/// 时递增，这几处同时回到 `settled`，只有 `beginSeeking` 进入 `seeking`。
 @MainActor
 package final class PlaybackTimelineStore {
     package private(set) var currentSnapshot = PlaybackTimelineSnapshot.idle
@@ -231,8 +282,10 @@ package final class PlaybackTimelineStore {
                 durationSeconds: nil,
                 rate: 0,
                 state: .loading,
-                discontinuityGeneration: nextGeneration(),
-                loadIntent: loadIntent
+                discontinuityGeneration: nextDiscontinuityGeneration(),
+                loadIntent: loadIntent,
+                seekPhase: .settled,
+                landingGeneration: nextLandingGeneration()
             )
         )
         return token
@@ -248,15 +301,9 @@ package final class PlaybackTimelineStore {
             ? PlaybackTimelineState.ready
             : currentSnapshot.state
         publish(
-            PlaybackTimelineSnapshot(
-                identity: currentSnapshot.identity,
-                positionSeconds: currentSnapshot.positionSeconds,
-                durationSeconds: durationSeconds,
-                rate: currentSnapshot.rate,
-                state: state,
-                discontinuityGeneration:
-                    currentSnapshot.discontinuityGeneration,
-                loadIntent: currentSnapshot.loadIntent
+            currentSnapshot.replacing(
+                durationSeconds: .some(durationSeconds),
+                state: state
             )
         )
     }
@@ -269,23 +316,19 @@ package final class PlaybackTimelineStore {
     ) {
         guard token == currentToken else { return }
         publish(
-            PlaybackTimelineSnapshot(
-                identity: currentSnapshot.identity,
-                positionSeconds: positionSeconds
-                    ?? currentSnapshot.positionSeconds,
-                durationSeconds: currentSnapshot.durationSeconds,
-                rate: rate ?? currentSnapshot.rate,
-                state: state ?? currentSnapshot.state,
-                discontinuityGeneration:
-                    currentSnapshot.discontinuityGeneration,
-                loadIntent: currentSnapshot.loadIntent
+            currentSnapshot.replacing(
+                positionSeconds: positionSeconds,
+                rate: rate,
+                state: state
             )
         )
     }
 
+    /// `lands` 为 true 时这次不连续同时算一次落地（续播起点就绪），两者在同一个快照里发布。
     package func markDiscontinuity(
         token: PlaybackTimelineItemToken,
-        positionSeconds: Double
+        positionSeconds: Double,
+        lands: Bool = false
     ) {
         guard token == currentToken else { return }
         // ended 只描述当前终点；seek/replay 一旦形成新时间段就不再是 ended。
@@ -294,14 +337,41 @@ package final class PlaybackTimelineStore {
             ? PlaybackTimelineState.paused
             : currentSnapshot.state
         publish(
-            PlaybackTimelineSnapshot(
-                identity: currentSnapshot.identity,
+            currentSnapshot.replacing(
                 positionSeconds: positionSeconds,
-                durationSeconds: currentSnapshot.durationSeconds,
-                rate: currentSnapshot.rate,
                 state: state,
-                discontinuityGeneration: nextGeneration(),
-                loadIntent: currentSnapshot.loadIntent
+                discontinuityGeneration: nextDiscontinuityGeneration(),
+                seekPhase: lands ? .settled : nil,
+                landingGeneration: lands ? nextLandingGeneration() : nil
+            )
+        )
+    }
+
+    /// 进入 `seeking`；`positionSeconds` 是跳变后的 timebase 时间，读不到时保留原位置。
+    package func beginSeeking(
+        token: PlaybackTimelineItemToken,
+        positionSeconds: Double?
+    ) {
+        guard token == currentToken else { return }
+        publish(
+            currentSnapshot.replacing(
+                positionSeconds: positionSeconds,
+                seekPhase: .seeking
+            )
+        )
+    }
+
+    /// 一次 seek 落地：回到 `settled`、递增 `landingGeneration`，位置写为落点。
+    package func land(
+        token: PlaybackTimelineItemToken,
+        positionSeconds: Double
+    ) {
+        guard token == currentToken else { return }
+        publish(
+            currentSnapshot.replacing(
+                positionSeconds: positionSeconds,
+                seekPhase: .settled,
+                landingGeneration: nextLandingGeneration()
             )
         )
     }
@@ -323,14 +393,20 @@ package final class PlaybackTimelineStore {
                 durationSeconds: nil,
                 rate: 0,
                 state: .idle,
-                discontinuityGeneration: nextGeneration(),
-                loadIntent: nil
+                discontinuityGeneration: nextDiscontinuityGeneration(),
+                loadIntent: nil,
+                seekPhase: .settled,
+                landingGeneration: nextLandingGeneration()
             )
         )
     }
 
-    private func nextGeneration() -> UInt64 {
+    private func nextDiscontinuityGeneration() -> UInt64 {
         currentSnapshot.discontinuityGeneration &+ 1
+    }
+
+    private func nextLandingGeneration() -> UInt64 {
+        currentSnapshot.landingGeneration &+ 1
     }
 
     private func publish(_ snapshot: PlaybackTimelineSnapshot) {

@@ -158,6 +158,8 @@ struct AVPlayerTimelineAdapterTests {
         timeline.prepareObservedSeek(operationID: operationID, to: 15)
         timeline.seekCompleted(operationID: operationID, at: 14.9)
         timeline.observeTimeJump(at: 14.9)
+        // 暂停中 seek 后开播时系统在原处再报一次跳变，仍属于这次 seek。
+        timeline.observeTimeJump(at: 14.9)
 
         #expect(
             timeline.currentSnapshot.discontinuityGeneration == before + 1
@@ -168,9 +170,10 @@ struct AVPlayerTimelineAdapterTests {
         )
     }
 
+    /// 收尾前已见到落点跳变时，落点同样持续有效到被取代；取代之后回到原处的跳变是新的不连续。
     @Test
     @MainActor
-    func landingBeforeCompletionDoesNotLeaveStaleSuppression() {
+    func landingSeenBeforeCompletionAbsorbsRepeatsUntilSuperseded() {
         let timeline = AVPlayerTimelineAdapter(player: AVPlayer())
         timeline.begin(
             identity: PlaybackItemIdentity(bvid: "BVSeekEarlyLanding", cid: 1)
@@ -184,13 +187,15 @@ struct AVPlayerTimelineAdapterTests {
         timeline.prepareObservedSeek(operationID: operationID, to: 15)
         timeline.observeTimeJump(at: 15)
         timeline.seekCompleted(operationID: operationID, at: 14.9)
+        timeline.observeTimeJump(at: 14.9)
 
         #expect(
             timeline.currentSnapshot.discontinuityGeneration == before + 1
         )
+        timeline.observeTimeJump(at: 30)
         timeline.observeTimeJump(at: 14.9)
         #expect(
-            timeline.currentSnapshot.discontinuityGeneration == before + 2
+            timeline.currentSnapshot.discontinuityGeneration == before + 3
         )
     }
 
