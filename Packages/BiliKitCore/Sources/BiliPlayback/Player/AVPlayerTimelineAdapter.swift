@@ -7,11 +7,16 @@ import os
 ///
 /// 所有 callback 都同时核对当前 `AVPlayerItem` 与 item token；observer bag 在替换、失败和
 /// clear 时统一释放，避免旧 item 继续推进弹幕、观看进度等时间线消费方。
+///
+/// 两套 seek 事实分开维护：`discontinuityGeneration` 由 engine 的 seek 收尾与 `AVPlayerItem` 的
+/// time-jump 通知推进（观看进度、Now Playing 使用）；`seekPhase`／`landingGeneration` 只由 item
+/// timebase 的 time-jump 通知经 `seekLandingTimer` 推进（弹幕使用），不看 engine 的 seek 记录。
+/// 计时 Task 由 `seekLandingTimer` 持有，与 observer bag 在同几处取消（`releaseItemObservation`）。
 @MainActor
 final class AVPlayerTimelineAdapter {
     /// 已发出、尚未收尾的 seek：目标位置，以及是否已观察到落在目标附近的系统 time-jump。
     ///
-    /// 已观察到时，收尾不再登记落点；未观察到就被新 seek 取代时，目标转入过期落点，
+    /// 收尾时把是否已观察到一并记进落点；未观察到就被新 seek 取代时，目标转入过期落点，
     /// 迟到的跳变据此被吞掉。
     private struct PendingSeek {
         let operationID: UUID
@@ -19,10 +24,15 @@ final class AVPlayerTimelineAdapter {
         var observedLanding = false
     }
 
-    /// 一次 seek 的落点，用来辨认迟到的系统 time-jump。
+    /// 一次 seek 的落点，用来辨认迟到或重复的系统 time-jump。
+    ///
+    /// `observedJump` 表示已经见过落在这里的系统跳变：之后再落在这里的跳变（例如暂停中 seek 后开播时
+    /// 系统再报一次）仍按同一次 seek 吞掉；被新 seek 或外部跳变取代时，已见过的落点不再转入过期落点，
+    /// 否则之后真正回到这个位置的跳变会被误吞。
     private struct SeekLanding {
         let operationID: UUID
         let positionSeconds: Double
+        var observedJump = false
     }
 
     /// 按住期间的临时倍速；只有同一 ID、同一 item 时 `endMomentaryRate` 才恢复速率。
@@ -61,14 +71,23 @@ final class AVPlayerTimelineAdapter {
     private var failedToken: PlaybackTimelineItemToken?
     private var momentaryRateSession: MomentaryRateSession?
     private var pendingSeek: PendingSeek?
-    /// 已收尾、但尚未观察到对应系统跳变的落点；之后落在附近的跳变按这次 seek 的迟到跳变吞掉。
+    /// 最近一次已收尾的 seek 落点；之后落在附近的系统跳变都按这次 seek 吞掉，直到播放离开落点
+    /// （`observePeriodicPosition`），或被新 seek、外部跳变、换 item、clear 取代。
     private var completedSeekLanding: SeekLanding?
     private var staleSeekLandings: [SeekLanding] = []
     private var interactionTracker = PlaybackInteractionTracker()
     private var startPositionSeconds: Double = 0
+    private let seekLandingTimer: PlaybackSeekLandingTimer
+    /// 进入 seeking 时跳变所在的 timebase，落地时从它读取落点；落地、换 item、失败与 clear 时置 nil。
+    private var seekingTimebase: CMTimebase?
 
-    init(player: AVPlayer) {
+    /// `landingClock` 是 seek 落地计时的时钟边界，生产用 `ContinuousClock`。
+    init(
+        player: AVPlayer,
+        landingClock: any Clock<Duration> = ContinuousClock()
+    ) {
         self.player = player
+        seekLandingTimer = PlaybackSeekLandingTimer(clock: landingClock)
         let initialRate = Self.validatedPlaybackRate(player.defaultRate) ?? 1
         player.defaultRate = initialRate
     }
@@ -90,7 +109,7 @@ final class AVPlayerTimelineAdapter {
         startPositionSeconds: Double = 0
     ) {
         momentaryRateSession = nil
-        observers.reset()
+        releaseItemObservation()
         pendingSeek = nil
         completedSeekLanding = nil
         staleSeekLandings.removeAll(keepingCapacity: true)
@@ -102,9 +121,9 @@ final class AVPlayerTimelineAdapter {
         failedToken = nil
     }
 
-    /// 为当前 item 安装位置、速率、状态、结束、失败与时间跳变观察，并替换旧观察集合。
+    /// 为当前 item 安装位置、速率、状态、结束、失败、时间跳变与 timebase 跳变观察，并替换旧观察集合。
     func installObservers(for item: AVPlayerItem) {
-        observers.reset()
+        releaseItemObservation()
         guard let token else { return }
         let interactionTracker = interactionTracker
 
@@ -114,13 +133,10 @@ final class AVPlayerTimelineAdapter {
         ) { [weak self, weak item] time in
             Task { @MainActor in
                 guard let self, let item, self.player.currentItem === item,
+                    self.token == token,
                     let seconds = Self.seconds(from: time)
                 else { return }
-                self.store.update(
-                    token: token,
-                    positionSeconds: seconds,
-                    rate: Double(self.player.rate)
-                )
+                self.observePeriodicPosition(seconds)
             }
         }
 
@@ -233,6 +249,19 @@ final class AVPlayerTimelineAdapter {
             }
         }
 
+        // AVPlayerItem 创建时就带只读 timebase，换 player 也不变；万一没有，就没有 seek 阶段与落地，
+        // 弹幕只在换项时补位。
+        let timebaseJumpObserver = item.timebase.map { timebase in
+            PlaybackTimebaseJumps.observe(timebase) { [weak self, weak item] jump in
+                Task { @MainActor in
+                    guard let self, let item, self.player.currentItem === item,
+                        self.token == token
+                    else { return }
+                    self.observeTimebaseJump(jump, on: timebase)
+                }
+            }
+        }
+
         observers.replace(
             player: player,
             periodicTimeObserver: periodicTimeObserver,
@@ -241,8 +270,63 @@ final class AVPlayerTimelineAdapter {
             statusObservation: statusObservation,
             endNotificationObserver: endNotificationObserver,
             failureNotificationObserver: failureNotificationObserver,
-            timeJumpNotificationObserver: timeJumpNotificationObserver
+            timeJumpNotificationObserver: timeJumpNotificationObserver,
+            timebaseJumpObserver: timebaseJumpObserver
         )
+    }
+
+    /// timebase 跳变的主线程入口：seek 跳变进入 seeking，位置写为跳变时的 timebase 时间，并重新计时
+    /// 落地。
+    ///
+    /// 由 `installObservers` 安装的通知回调切回主线程后调用，`jump` 是通知线程上当场读到的值。音频
+    /// 时钟重新锚定的跳变（速率大于 0，见 `PlaybackTimebaseJump`）不进入 seeking，也不刷新落地计时，
+    /// 否则每次继续播放、改速率都会让弹幕清屏重补。加载中的跳变（续播起点就位）不算 seek，起点由
+    /// `markReady` 落地。
+    func observeTimebaseJump(_ jump: PlaybackTimebaseJump, on timebase: CMTimebase) {
+        guard jump.isSeek, let token, store.currentSnapshot.state != .loading else { return }
+        seekingTimebase = timebase
+        store.beginSeeking(token: token, positionSeconds: jump.positionSeconds)
+        seekLandingTimer.restart { [weak self] in
+            self?.landSeek()
+        }
+    }
+
+    private func landSeek() {
+        guard let token, let timebase = seekingTimebase else { return }
+        seekingTimebase = nil
+        store.land(
+            token: token,
+            positionSeconds: Self.seconds(from: CMTimebaseGetTime(timebase))
+                ?? store.currentSnapshot.positionSeconds
+        )
+    }
+
+    /// 周期回调的主线程入口：写入位置与速率，并在播放离开上次 seek 落点后结束那个落点的有效期。
+    ///
+    /// seeking 期间不写位置：读数可能是跳变前的旧位置，位置只随跳变与落地更新。已见过系统跳变的落点
+    /// 只在播放位置仍在落点附近时吞掉重复跳变（暂停中 seek 后开播那一次）；位置离开超过容差后，之后
+    /// 回到原处的原生 seek 是新的不连续，不能再被吞掉。还没见过跳变的落点保留，等迟到的跳变。
+    func observePeriodicPosition(_ seconds: Double) {
+        guard let token else { return }
+        if let completedSeekLanding, completedSeekLanding.observedJump,
+            abs(seconds - completedSeekLanding.positionSeconds)
+                > SeekPolicy.landingMatchToleranceSeconds
+        {
+            self.completedSeekLanding = nil
+        }
+        let isSeeking = store.currentSnapshot.seekPhase == .seeking
+        store.update(
+            token: token,
+            positionSeconds: isSeeking ? nil : seconds,
+            rate: Double(player.rate)
+        )
+    }
+
+    /// 释放当前 item 的全部观察并取消落地计时；换 item、安装新观察、失败与 clear 时调用。
+    private func releaseItemObservation() {
+        observers.reset()
+        seekLandingTimer.cancel()
+        seekingTimebase = nil
     }
 
     func markReady(duration: CMTime) {
@@ -251,19 +335,20 @@ final class AVPlayerTimelineAdapter {
             token: token,
             durationSeconds: Self.seconds(from: duration)
         )
-        // 从 playlist 起播位置开始的 item 一就绪就位于该处；标记不连续，弹幕等消费方从这里排起，
-        // 而不是把 0 到起播位置之间当作连续前进。
+        // 从 playlist 起播位置开始的 item 一就绪就位于该处；标记不连续并算一次落地，弹幕等消费方从
+        // 这里排起，而不是把 0 到起播位置之间当作连续前进。
         guard startPositionSeconds > 0 else { return }
         store.markDiscontinuity(
             token: token,
             positionSeconds: Self.seconds(from: player.currentTime())
-                ?? startPositionSeconds
+                ?? startPositionSeconds,
+            lands: true
         )
     }
 
     func markFailed() {
         momentaryRateSession = nil
-        observers.reset()
+        releaseItemObservation()
         guard let token else { return }
         failedToken = token
         store.markFailed(token: token)
@@ -385,7 +470,7 @@ final class AVPlayerTimelineAdapter {
                 positionSeconds: pendingSeek.targetSeconds
             )
         }
-        if let completedSeekLanding {
+        if let completedSeekLanding, !completedSeekLanding.observedJump {
             appendStaleSeekLanding(completedSeekLanding)
         }
         pendingSeek = PendingSeek(
@@ -408,7 +493,7 @@ final class AVPlayerTimelineAdapter {
             ) {
                 return
             }
-            if currentDistance <= 0.5 {
+            if currentDistance <= SeekPolicy.landingMatchToleranceSeconds {
                 discardEquivalentStaleSeekLandings(
                     to: pendingSeek.targetSeconds
                 )
@@ -440,16 +525,18 @@ final class AVPlayerTimelineAdapter {
         ) {
             return
         }
-        if completedDistance <= 0.5 {
-            if let completedSeekLanding {
-                discardEquivalentStaleSeekLandings(
-                    to: completedSeekLanding.positionSeconds
-                )
-            }
-            completedSeekLanding = nil
+        if completedDistance <= SeekPolicy.landingMatchToleranceSeconds,
+            var completedSeekLanding
+        {
+            discardEquivalentStaleSeekLandings(
+                to: completedSeekLanding.positionSeconds
+            )
+            // 落点继续有效：暂停中 seek 后开播时系统会在原处再报一次跳变，它不是新的不连续。
+            completedSeekLanding.observedJump = true
+            self.completedSeekLanding = completedSeekLanding
             return
         }
-        if let completedSeekLanding {
+        if let completedSeekLanding, !completedSeekLanding.observedJump {
             appendStaleSeekLanding(completedSeekLanding)
         }
         completedSeekLanding = nil
@@ -486,13 +573,11 @@ final class AVPlayerTimelineAdapter {
             let token
         else { return }
         pendingSeek = nil
-        completedSeekLanding =
-            completedPendingSeek.observedLanding
-            ? nil
-            : SeekLanding(
-                operationID: operationID,
-                positionSeconds: positionSeconds
-            )
+        completedSeekLanding = SeekLanding(
+            operationID: operationID,
+            positionSeconds: positionSeconds,
+            observedJump: completedPendingSeek.observedLanding
+        )
         interactionTracker.completeInternalSeek(at: positionSeconds)
         store.markDiscontinuity(
             token: token,
@@ -502,7 +587,7 @@ final class AVPlayerTimelineAdapter {
 
     func clear() {
         momentaryRateSession = nil
-        observers.reset()
+        releaseItemObservation()
         pendingSeek = nil
         completedSeekLanding = nil
         staleSeekLandings.removeAll(keepingCapacity: true)
@@ -543,7 +628,9 @@ final class AVPlayerTimelineAdapter {
             )
         else { return false }
         let distance = abs(candidate.element.positionSeconds - positionSeconds)
-        guard distance <= 0.5, distance < competingDistance else { return false }
+        guard distance <= SeekPolicy.landingMatchToleranceSeconds,
+            distance < competingDistance
+        else { return false }
         staleSeekLandings.remove(at: candidate.offset)
         return true
     }
@@ -560,7 +647,7 @@ final class AVPlayerTimelineAdapter {
 
         failedToken = token
         momentaryRateSession = nil
-        observers.reset()
+        releaseItemObservation()
         store.markFailed(token: token)
         onFailed?()
     }
@@ -577,8 +664,10 @@ final class AVPlayerTimelineAdapter {
     }
 }
 
-/// 当前 item 的 AVPlayer 观察集合（periodic observer、KVO 与通知 observer）：替换或清空时在锁内整体
-/// 换出，在锁外注销换出的旧集合；deinit 兜底注销。
+/// 当前 item 的 AVPlayer 观察集合（periodic observer、KVO、item 通知与 timebase 跳变通知 observer）。
+///
+/// 替换或清空时在锁内整体换出，在锁外注销换出的旧集合；deinit 兜底注销。timebase 通知在 CoreMedia
+/// 后台线程上回调，注销之后不再回调；注销前已切回主线程的回调由 adapter 比对 item 与 token 丢弃。
 ///
 /// 用 `OSAllocatedUnfairLock(uncheckedState:)` 而不用 `Mutex`：`replace` 要把调用方传入的 observer
 /// （`Any`、`NSObjectProtocol` 等非 Sendable 值）存进锁内状态，`Mutex` 的 `inout sending` 闭包参数
@@ -595,6 +684,7 @@ private final class PlayerTimelineObserverBag: Sendable {
         var endNotificationObserver: NSObjectProtocol? = nil
         var failureNotificationObserver: NSObjectProtocol? = nil
         var timeJumpNotificationObserver: NSObjectProtocol? = nil
+        var timebaseJumpObserver: NSObjectProtocol? = nil
     }
 
     private let storage = OSAllocatedUnfairLock(uncheckedState: Storage())
@@ -611,7 +701,8 @@ private final class PlayerTimelineObserverBag: Sendable {
         statusObservation: NSKeyValueObservation,
         endNotificationObserver: NSObjectProtocol,
         failureNotificationObserver: NSObjectProtocol,
-        timeJumpNotificationObserver: NSObjectProtocol
+        timeJumpNotificationObserver: NSObjectProtocol,
+        timebaseJumpObserver: NSObjectProtocol?
     ) {
         let previous = storage.withLockUnchecked { storage -> Storage in
             let previous = storage
@@ -623,7 +714,8 @@ private final class PlayerTimelineObserverBag: Sendable {
                 statusObservation: statusObservation,
                 endNotificationObserver: endNotificationObserver,
                 failureNotificationObserver: failureNotificationObserver,
-                timeJumpNotificationObserver: timeJumpNotificationObserver
+                timeJumpNotificationObserver: timeJumpNotificationObserver,
+                timebaseJumpObserver: timebaseJumpObserver
             )
             return previous
         }
@@ -648,14 +740,14 @@ private final class PlayerTimelineObserverBag: Sendable {
         storage.rateObservation?.invalidate()
         storage.timeControlObservation?.invalidate()
         storage.statusObservation?.invalidate()
-        if let endNotificationObserver = storage.endNotificationObserver {
-            NotificationCenter.default.removeObserver(endNotificationObserver)
-        }
-        if let failureNotificationObserver = storage.failureNotificationObserver {
-            NotificationCenter.default.removeObserver(failureNotificationObserver)
-        }
-        if let timeJumpNotificationObserver = storage.timeJumpNotificationObserver {
-            NotificationCenter.default.removeObserver(timeJumpNotificationObserver)
+        let notificationObservers = [
+            storage.endNotificationObserver,
+            storage.failureNotificationObserver,
+            storage.timeJumpNotificationObserver,
+            storage.timebaseJumpObserver
+        ]
+        for observer in notificationObservers.compactMap(\.self) {
+            NotificationCenter.default.removeObserver(observer)
         }
     }
 }

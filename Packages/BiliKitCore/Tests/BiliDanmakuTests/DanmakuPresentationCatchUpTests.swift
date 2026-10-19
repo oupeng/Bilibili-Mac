@@ -6,7 +6,7 @@ import Testing
 @testable import BiliDanmaku
 
 /// 固定补位批次的呈现契约：按各自时间点准入并从已走过的位置开始，同批一起上屏，
-/// 取消时归还车道，候选只准备车道容纳得下的最新几条。
+/// 取消时归还车道，候选只准备车道容纳得下的最新几条；清屏与补位可在同一批，暂停时以速率 0 上屏。
 @MainActor
 @Suite
 struct DanmakuPresentationCatchUpTests {
@@ -179,5 +179,123 @@ struct DanmakuPresentationCatchUpTests {
         #expect(backend.preparationIDs.count == limit)
         #expect(!backend.renderedEventIDs.contains("candidate-0"))
         #expect(!backend.renderedEventIDs.contains("candidate-1"))
+    }
+
+    /// 同一批先清屏再按同一快照补位；暂停时速率为 0，补位弹幕停在已走过的位置；整批结束后才请求
+    /// 静止重新合成。
+    @Test
+    func clearAndCatchUpInOneBatchRenderWhilePaused() throws {
+        let backend = RecordingRenderingBackend()
+        let controller = DanmakuPresentationController(
+            backend: backend,
+            configuration: configuration(maximumActiveCount: 20)
+        )
+        let identity = PlaybackItemIdentity(bvid: "BV1PausedCatchUp", cid: 1)
+        controller.apply(
+            update(
+                identity: identity,
+                position: 10,
+                generation: 1,
+                events: [timedEvent(id: "before-seek", time: 10, mode: .top)]
+            )
+        )
+        let clearCount = backend.clearCount
+
+        controller.apply(
+            update(
+                identity: identity,
+                position: 100,
+                generation: 2,
+                state: .paused,
+                rate: 0,
+                events: [timedEvent(id: "mid-way", time: 97, mode: .top)],
+                catchesUp: true,
+                clearsExisting: true
+            )
+        )
+
+        #expect(backend.clearCount > clearCount)
+        #expect(backend.activeEventIDs == ["mid-way"])
+        #expect(backend.renderedElapsedSeconds.last == 3)
+        #expect(backend.rates.last == 0)
+        let lastRecomposite = try #require(backend.recomposites.last)
+        #expect(lastRecomposite.clearCount == backend.clearCount)
+        #expect(lastRecomposite.renderCount == backend.renderedEventIDs.count)
+    }
+
+    /// 连续落地：每次清屏都取消上一组补位并归还车道，只有最后一组上屏，车道从头分配。
+    @Test
+    func consecutiveLandingsRenderOnlyTheLastCatchUpGroup() {
+        let backend = RecordingRenderingBackend()
+        backend.delaysPreparation = true
+        let controller = DanmakuPresentationController(
+            backend: backend,
+            configuration: configuration(maximumActiveCount: 20)
+        )
+        let identity = PlaybackItemIdentity(bvid: "BV1DragCatchUp", cid: 1)
+        let landings: [(generation: UInt64, position: Double, ids: [String])] = [
+            (2, 50, ["first-a", "first-b"]),
+            (3, 80, ["second-a", "second-b"]),
+            (4, 100, ["last-a", "last-b"])
+        ]
+        var preparationIDsByLanding: [[UInt64]] = []
+        for landing in landings {
+            let preparedBefore = backend.preparationIDs.count
+            controller.apply(
+                update(
+                    identity: identity,
+                    position: landing.position,
+                    generation: landing.generation,
+                    state: .paused,
+                    rate: 0,
+                    events: landing.ids.enumerated().map {
+                        timedEvent(
+                            id: $0.element,
+                            time: landing.position - 2 + Double($0.offset),
+                            mode: .top
+                        )
+                    },
+                    catchesUp: true,
+                    clearsExisting: true
+                )
+            )
+            let ids = Array(backend.preparationIDs[preparedBefore...])
+            preparationIDsByLanding.append(ids)
+            // 每组只完成第一条：已准入、占着车道等同组其余纹理。
+            backend.completePreparation(ids[0])
+        }
+        #expect(backend.renderedEventIDs.isEmpty)
+
+        for ids in preparationIDsByLanding {
+            for id in ids.dropFirst() {
+                backend.completePreparation(id)
+            }
+        }
+
+        #expect(backend.renderedEventIDs == ["last-a", "last-b"])
+        #expect(backend.renderedPlacements.map(\.laneIndex) == [0, 1])
+        #expect(backend.renderedElapsedSeconds == [2, 1])
+    }
+
+    /// 画面尺寸为 0 时没有补位窗口；布局得到有效尺寸时通知一次，之后的尺寸变化不再通知。
+    @Test
+    func catchUpWindowIsUnavailableUntilTheSurfaceHasASize() {
+        let backend = RecordingRenderingBackend()
+        let controller = DanmakuPresentationController(
+            backend: backend,
+            configuration: .production(surfaceWidth: 0, surfaceHeight: 0)
+        )
+        var availabilityCount = 0
+        controller.catchUpWindowAvailabilityHandler = { availabilityCount += 1 }
+        let owner = UUID()
+        controller.attachSurface(ownerID: owner)
+        #expect(controller.catchUpWindowSeconds == nil)
+
+        controller.updateSurface(width: 800, height: 300, ownerID: owner)
+        #expect(controller.catchUpWindowSeconds != nil)
+        #expect(availabilityCount == 1)
+
+        controller.updateSurface(width: 1_000, height: 400, ownerID: owner)
+        #expect(availabilityCount == 1)
     }
 }

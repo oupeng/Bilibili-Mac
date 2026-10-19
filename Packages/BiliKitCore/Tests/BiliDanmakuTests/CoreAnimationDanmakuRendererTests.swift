@@ -292,6 +292,93 @@ struct CoreAnimationDanmakuRendererTests {
         #expect(animation.duration == 4)
     }
 
+    /// 暂停（速率 0）时上屏的补位弹幕停在已走过的位置，不随时间前进；恢复播放后从原位接着走。
+    @Test
+    func catchUpRenderedWhilePausedStaysStillAndResumesFromThere() async throws {
+        let renderer = CoreAnimationDanmakuRenderer()
+        renderer.updateSurfaceSize(width: 800, height: 240, backingScale: 2)
+        renderer.setPlaybackRate(0)
+        let fixture = fixtureEvent(id: "paused-catch-up", mode: .scrolling)
+
+        _ = try await prepareAndRender(
+            renderer: renderer,
+            event: fixture,
+            preparationID: 1,
+            originY: 20,
+            elapsedSeconds: 2
+        )
+        let layer = try #require(renderer.rootLayer.sublayers?.first)
+        let animation = try #require(
+            layer.animation(forKey: CoreAnimationDanmakuRenderer.animationKey)
+        )
+        // 动画进度 = layer 局部时间 − beginTime；用将来的媒体时间换算，不必真的等待。
+        func progress(at mediaTime: CFTimeInterval) -> Double {
+            layer.convertTime(mediaTime, from: nil) - animation.beginTime
+        }
+        let pausedAt = CACurrentMediaTime()
+        #expect(abs(progress(at: pausedAt) - 2) < 0.001)
+        #expect(abs(progress(at: pausedAt + 10) - 2) < 0.001)
+
+        renderer.setPlaybackRate(1)
+        let resumedAt = CACurrentMediaTime()
+        #expect(abs(progress(at: resumedAt) - 2) < 0.05)
+        #expect(abs(progress(at: resumedAt + 1) - progress(at: resumedAt) - 1) < 0.001)
+    }
+
+    /// 静止时上屏与清屏都算这批的改动：整批结束后请求一次下一帧重新合成。
+    @Test
+    func stillRenderAndClearRequestOneRecompositePerBatch() async throws {
+        let renderer = CoreAnimationDanmakuRenderer()
+        renderer.updateSurfaceSize(width: 800, height: 240, backingScale: 2)
+        let scheduler = ManualFrameScheduler()
+        renderer.frameScheduler = scheduler
+        renderer.setPlaybackRate(0)
+        renderer.recompositeIfStill()
+        scheduler.fire()
+
+        _ = try await prepareAndRender(
+            renderer: renderer,
+            event: fixtureEvent(id: "still-a", mode: .top),
+            preparationID: 1,
+            originY: 20
+        )
+        _ = try await prepareAndRender(
+            renderer: renderer,
+            event: fixtureEvent(id: "still-b", mode: .top),
+            preparationID: 2,
+            originY: 60
+        )
+        #expect(scheduler.pendingRequestCount == 0)
+        renderer.recompositeIfStill()
+        #expect(scheduler.pendingRequestCount == 1)
+        scheduler.fire()
+
+        renderer.clearAll()
+        renderer.recompositeIfStill()
+        #expect(scheduler.pendingRequestCount == 1)
+        scheduler.fire()
+        #expect(scheduler.requestCount == 3)
+    }
+
+    /// 上屏、移除与子层变化不带隐式过渡：弹幕 layer 与 rootLayer 都禁用这些动作。
+    @Test
+    func renderedLayersAndRootDisableImplicitOrderingActions() async throws {
+        let renderer = CoreAnimationDanmakuRenderer()
+        renderer.updateSurfaceSize(width: 800, height: 240, backingScale: 2)
+        _ = try await prepareAndRender(
+            renderer: renderer,
+            event: fixtureEvent(id: "no-fade", mode: .top),
+            preparationID: 1,
+            originY: 20
+        )
+        let layer = try #require(renderer.rootLayer.sublayers?.first)
+
+        for key in ["onOrderIn", "onOrderOut", "sublayers"] {
+            #expect(layer.actions?[key] is NSNull)
+            #expect(renderer.rootLayer.actions?[key] is NSNull)
+        }
+    }
+
     private func prepareAndRender(
         renderer: CoreAnimationDanmakuRenderer,
         event: DanmakuEvent,

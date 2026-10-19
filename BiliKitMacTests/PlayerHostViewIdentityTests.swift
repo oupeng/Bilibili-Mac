@@ -152,11 +152,12 @@ struct PlayerHostViewIdentityTests {
                 durationSeconds: 100,
                 rate: 1,
                 state: .playing,
-                discontinuityGeneration: 1
+                discontinuityGeneration: 1,
+                landingGeneration: 1
             ),
             batch: DanmakuBatch(
                 identity: identity,
-                discontinuityGeneration: 1,
+                landingGeneration: 1,
                 events: [event],
                 clearsExisting: false,
                 catchesUp: false

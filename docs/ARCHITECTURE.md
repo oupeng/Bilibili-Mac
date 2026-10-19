@@ -148,8 +148,8 @@ session path，提供内存中生成的 master／media playlist，并把 AVPlaye
 ### 媒体时间轴
 
 `BiliApplication.PlaybackTimelineProviding` 是弹幕、Now Playing 与观看进度的唯一时间来源，由
-`BiliPlayback` 用 AVPlayer observation 实现，表达 item identity、位置、速率、状态和 discontinuity
-generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CMTime`／KVO；各自 timer 无法正确
+`BiliPlayback` 用 AVPlayer observation 与 item timebase 通知实现，表达 item identity、位置、速率、状态、
+discontinuity generation，以及 seek 阶段与落地代号。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CMTime`／KVO；各自 timer 无法正确
 表达卡顿、暂停、倍速和 seek。字幕作为原生 subtitle rendition 进入同一 `AVPlayerItem`，由系统字幕
 菜单选择。
 
@@ -158,6 +158,21 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   time-jump 来源的竞态。`beginPlayback` 只按就绪位置报告续播或从头开始；“从头播放”仍是 seek 到 0。
 - 时间轴与交互记录器在 item 开始时得知起播位置：就绪时据此标记一次 discontinuity，弹幕从起播位置
   排起；落在起播位置的系统 time-jump 不算用户操作，否则会拒绝自动开播。
+- seek 有两套互不影响的事实。`discontinuityGeneration` 由 engine 的 seek 收尾与 `AVPlayerItem` 的
+  time-jump 通知推进，观看进度与 Now Playing 使用；一次 seek 的落点记录在播放位置仍在落点附近时吞掉落在
+  它附近的重复跳变（例如暂停中 seek 后开播时系统再报一次），播放离开落点、新 seek、外部跳变、换项或 clear
+  之后不再吞。`seekPhase` 与 `landingGeneration` 只来自 item timebase 的
+  `kCMTimebaseNotification_TimeJumped`，弹幕使用。只有跳变发出时 timebase 速率为 0 的才是 seek：seek
+  （含拖动的每一步）与播放到结尾时，系统先把速率设为 0 再设定时间；带音轨的媒体在开播、继续播放与改速率
+  （含临时倍速）时按音频时钟重新锚定，也发跳变（时间往回几十毫秒），但此刻速率已大于 0，播放中 seek 时
+  还会在 seek 跳变约 20ms 后再报一次这样的重新锚定。速率在通知线程上当场读取，切回主线程时可能已经恢复。
+  这是在 macOS 27 上用本地 HLS 与 mp4（含音轨）实测的系统行为，AirPlay、码率切换等场景没有验证。收到 seek
+  跳变即进入 `seeking`，位置写为跳变时的 timebase 时间，期间不写周期回调的读数；最后一次 seek 跳变之后
+  静默 150ms 才落地：读 timebase 时间为落点、递增 `landingGeneration`、回到 `settled`。拖动时跳变间隔远
+  小于 150ms，一次拖动只落地一次；暂停中 seek 时有效速率一直为 0、播放中拖动时每步之间速率又会恢复，所以
+  不以速率恢复判定落地，单次 seek 因此最多晚 150ms 补位。换项、续播起点就绪与 clear 各算一次落地，失败时
+  回到 `settled`；加载中的跳变不算 seek。通知在 CoreMedia 后台线程到达，切回主线程后核对 item 与 token；
+  observer 随 item 的观察集合在换项、失败与 clear 时移除，落地计时同时取消，计时用注入的 `Clock`。
 - progressive 单文件（充电试看、没有 DASH 的较早视频）没有 playlist，不续播，一律从头播放。
 
 ### 弹幕
@@ -171,13 +186,31 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   窗口关闭时先于会话注销取消，与图片管线共用 `SystemMemoryPressureObserver`。
 - 分段请求会被间歇风控（游客更常见），被 HTTP 412 拒绝的分段由 API 客户端等 2 秒后再请求一次（等待期间
   占一个加载名额）；其余失败与再次被拒的分段在当前视频内不再请求，换视频或重开会话才重来。
-- 补位：seek、续播起点与时间回跳仍先清屏，播放中打开弹幕时从空屏开始；之后第一个播放中的快照补发回看窗口
-  内本应仍在屏上的弹幕（暂停时 seek 等到继续播放才补）。窗口由 `DanmakuMotionPolicy.catchUpWindow` 按画面
-  宽度与速度给出：顶部／底部 4 秒与“和画面等宽的滚动弹幕”跑完全程的时长取较大者。补位弹幕按自己的时间点做
-  车道准入（准备按入队顺序完成，准入时间不倒退）；同批纹理全部准备好后一起上屏，已走过的时长按上屏时刻
-  计算，renderer 把动画开始时间移到过去，从已走过的位置继续；等待期间已走完的丢弃，候选按车道数 × 重叠
-  层数 × 4 取最新的。窗口跨进上一分段时一并请求上一分段，覆盖窗口的分段迟到时再补一次并按 ID 去重。切换
-  弹幕类型显隐仍只清屏、不补位。
+- 补位：调度器只消费时间线的 seek 事实，不从位置序列推断跳转。`seeking` 时清屏一次、之后不投递，拖动进度条
+  期间因此保持空屏；`landingGeneration` 变化（落地、换项、续播起点、clear）时在同一 batch 里清屏并在落点补发
+  回看窗口内本应仍在屏上的弹幕，不看播放状态。其余时候播放中的相邻快照只投递两者之间首次出现的弹幕；同一
+  落地代号内位置倒退是采样抖动（含继续播放时音频时钟重新锚定的几十毫秒回退），不清屏、不投递，上一位置也
+  不倒退。暂停、缓冲时速率为 0，补位弹幕静止在应有位置；继续播放、改速率与临时倍速不是 seek，弹幕从原位
+  接着走，不再重补。seeking 期间分段缓存按拖动中的位置裁剪，落点所在分段不会因离起拖位置远而被淘汰。窗口由 `DanmakuMotionPolicy.catchUpWindow` 按画面宽度与速度给出：
+  顶部／底部 4 秒与“和画面等宽的滚动弹幕”跑完全程的时长取较大者。补位弹幕按自己的时间点做车道准入（准备按
+  入队顺序完成，准入时间不倒退）；同批纹理全部准备好后一起上屏，已走过的时长按上屏时刻计算，renderer 把
+  动画开始时间移到过去，从已走过的位置继续；等待期间已走完的丢弃，候选按车道数 × 重叠层数 × 4 取最新的。
+  新的落地或 seeking 清屏时取消在途的补位组并归还车道。窗口跨进上一分段时一并请求上一分段；补位之前到达的
+  分段并入那次补位，之后才到的覆盖窗口的分段按 ID 去重追加、不清屏。打开弹幕后立即清屏重补。暂停、缓冲时
+  没有后续快照，会话用最近处理过的快照再处理一次：迟到的分段、打开弹幕与画面完成布局都不等继续播放。画面
+  尚未布局（尺寸为 0）时呈现端不给补位窗口，调度器保留补位、不把窗口内的弹幕记为已投递。切换弹幕类型显隐
+  仍只清屏、不补位。
+- 静止时的重新合成：暂停与缓冲时视频不出新帧、`rootLayer.speed` 为 0，渲染服务器不再主动出帧，提交后屏上
+  那块区域可能没有完整重新合成（错开几 pt 的两份弹幕，直到别的界面事件触发重绘）。呈现控制器在一整批改动
+  （一次 `apply`、一组补位上屏、一次清屏）结束后调用 renderer 的 `recompositeIfStill`：静止且这批改动了
+  layer 树时，在下一显示帧于显式事务里切换一次 `rootLayer` 的透明背景，不 flush，同一轮的多次请求合并。
+  下一帧由弹幕 overlay（`DanmakuOverlayView`，实现 `DanmakuFrameScheduling`）按需建立的 display link 提供，
+  回调一次即停；视图不可见（隐藏、最小化、被完全遮挡、不在窗口里）时拒绝请求，变为不可见、交还 surface 或
+  会话 stop 时取消，renderer 另挂 0.1 秒时限兜底。被拒绝、没出帧或超时的改动保留，overlay 恢复可见时再请求
+  一次。速率切换按调用时刻立即生效。弹幕 layer 与 `rootLayer` 用 `actions` 禁用上屏、移除与子层变化的隐式
+  动画，清屏与移除不另包显式事务（顶层显式事务会单独提交，把清屏与补位上屏拆开）。上屏时 `renderPrepared`
+  仍包一个只为关闭属性动作的显式事务：本轮已有隐式事务（清屏刚移除过 layer）时它嵌套其中、随本轮一起提交，
+  屏上原本为空时它可能单独提交。
 - 大会员彩色弹幕：元素字段 24 `colorful` 为 60001 时映射为 `DanmakuColorStyle.vipGradient`，其余类型按普通
   弹幕显示。外观按官方贴图的结论内置：白色填充、0.5pt 描边从文字左缘到右缘按采样色标做横向渐变、阴影
   仍为深色；不下载分段回复 `colorfulSrc` 给的贴图，纹理同步绘制，官方更换贴图时不会跟随。

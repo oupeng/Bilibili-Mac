@@ -136,6 +136,37 @@ struct PlaybackTimelineStoreTests {
         )
     }
 
+    /// 落地代号只在换项、落地、续播起点与 clear 时前进；seeking 与普通不连续都不推进它。
+    @Test
+    func landingGenerationAdvancesOnlyOnLandings() {
+        let store = PlaybackTimelineStore()
+        let token = store.beginItem(
+            identity: PlaybackItemIdentity(bvid: "BV1LandingTimeline", cid: 900_001)
+        )
+        let begun = store.currentSnapshot.landingGeneration
+        store.markReady(token: token, durationSeconds: 120)
+        store.update(token: token, positionSeconds: 5, rate: 1, state: .playing)
+
+        store.beginSeeking(token: token, positionSeconds: 40)
+        #expect(store.currentSnapshot.seekPhase == .seeking)
+        #expect(store.currentSnapshot.positionSeconds == 40)
+        store.markDiscontinuity(token: token, positionSeconds: 40)
+        #expect(store.currentSnapshot.seekPhase == .seeking)
+        #expect(store.currentSnapshot.landingGeneration == begun)
+
+        store.land(token: token, positionSeconds: 40.5)
+        #expect(store.currentSnapshot.seekPhase == .settled)
+        #expect(store.currentSnapshot.positionSeconds == 40.5)
+        #expect(store.currentSnapshot.landingGeneration == begun + 1)
+
+        store.markDiscontinuity(token: token, positionSeconds: 60, lands: true)
+        #expect(store.currentSnapshot.landingGeneration == begun + 2)
+
+        store.clear(token: token)
+        #expect(store.currentSnapshot.landingGeneration == begun + 3)
+        #expect(store.currentSnapshot.seekPhase == .settled)
+    }
+
     @Test
     func newSubscriberReceivesCurrentSnapshot() async {
         let store = PlaybackTimelineStore()
