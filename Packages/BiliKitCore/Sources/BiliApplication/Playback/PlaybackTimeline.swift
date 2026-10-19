@@ -85,9 +85,10 @@ public enum PlaybackTimelineState: Sendable, Equatable {
 
 /// 弹幕等需要“落点”的消费者使用的 seek 阶段。
 ///
-/// 由 BiliPlayback 按 item timebase 的 time-jump 通知写入：收到跳变即 `seeking`，最后一次跳变之后
-/// 静默满时限才回到 `settled` 并递增 `landingGeneration`。拖动进度条期间一直是 `seeking`；暂停、
-/// 缓冲与改速率不影响它。
+/// 由 BiliPlayback 按 item timebase 的 time-jump 通知写入：收到 seek 跳变（跳变时 timebase 速率为 0）
+/// 即 `seeking`，最后一次 seek 跳变之后静默满时限才回到 `settled` 并递增 `landingGeneration`。拖动
+/// 进度条期间一直是 `seeking`；暂停、继续播放、缓冲与改速率不影响它，带音轨媒体在这些时刻按音频时钟
+/// 重新锚定发出的跳变（速率大于 0）也不算 seek。失败时回到 `settled`。
 public enum PlaybackSeekPhase: Sendable, Equatable {
     case settled
     case seeking
@@ -240,7 +241,7 @@ package struct PlaybackTimelineItemToken: Sendable, Equatable {
 /// 或 KVO observation。只有当前 token 的写入生效，`clear(token: nil)` 不比对 token；
 /// 相同快照不重复发布。`discontinuityGeneration` 在 `beginItem`、`markDiscontinuity` 与 `clear`
 /// 时递增；`landingGeneration` 在 `beginItem`、`land`、`markDiscontinuity(lands: true)` 与 `clear`
-/// 时递增，这几处同时回到 `settled`，只有 `beginSeeking` 进入 `seeking`。
+/// 时递增，这几处与 `markFailed` 同时回到 `settled`，只有 `beginSeeking` 进入 `seeking`。
 @MainActor
 package final class PlaybackTimelineStore {
     package private(set) var currentSnapshot = PlaybackTimelineSnapshot.idle
@@ -376,8 +377,13 @@ package final class PlaybackTimelineStore {
         )
     }
 
+    /// 标记失败并回到 `settled`。
+    ///
+    /// 失败会取消落地计时，不回到 settled 的话，seeking 中失败的快照会永远停在 seeking。不递增
+    /// `landingGeneration`，失败不是落点。
     package func markFailed(token: PlaybackTimelineItemToken) {
-        update(token: token, rate: 0, state: .failed)
+        guard token == currentToken else { return }
+        publish(currentSnapshot.replacing(rate: 0, state: .failed, seekPhase: .settled))
     }
 
     package func clear(token: PlaybackTimelineItemToken?) {

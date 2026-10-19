@@ -71,8 +71,8 @@ final class AVPlayerTimelineAdapter {
     private var failedToken: PlaybackTimelineItemToken?
     private var momentaryRateSession: MomentaryRateSession?
     private var pendingSeek: PendingSeek?
-    /// 最近一次已收尾的 seek 落点；之后落在附近的系统跳变都按这次 seek 吞掉，直到被新 seek、外部跳变、
-    /// 换 item 或 clear 取代。
+    /// 最近一次已收尾的 seek 落点；之后落在附近的系统跳变都按这次 seek 吞掉，直到播放离开落点
+    /// （`observePeriodicPosition`），或被新 seek、外部跳变、换 item、clear 取代。
     private var completedSeekLanding: SeekLanding?
     private var staleSeekLandings: [SeekLanding] = []
     private var interactionTracker = PlaybackInteractionTracker()
@@ -133,15 +133,10 @@ final class AVPlayerTimelineAdapter {
         ) { [weak self, weak item] time in
             Task { @MainActor in
                 guard let self, let item, self.player.currentItem === item,
+                    self.token == token,
                     let seconds = Self.seconds(from: time)
                 else { return }
-                // seeking 期间不写周期读数：它可能是跳变前的旧位置，位置只随跳变与落地更新。
-                let isSeeking = self.store.currentSnapshot.seekPhase == .seeking
-                self.store.update(
-                    token: token,
-                    positionSeconds: isSeeking ? nil : seconds,
-                    rate: Double(self.player.rate)
-                )
+                self.observePeriodicPosition(seconds)
             }
         }
 
@@ -257,12 +252,12 @@ final class AVPlayerTimelineAdapter {
         // AVPlayerItem 创建时就带只读 timebase，换 player 也不变；万一没有，就没有 seek 阶段与落地，
         // 弹幕只在换项时补位。
         let timebaseJumpObserver = item.timebase.map { timebase in
-            PlaybackTimebaseJumps.observe(timebase) { [weak self, weak item] in
+            PlaybackTimebaseJumps.observe(timebase) { [weak self, weak item] jump in
                 Task { @MainActor in
                     guard let self, let item, self.player.currentItem === item,
                         self.token == token
                     else { return }
-                    self.observeTimebaseJump(on: timebase)
+                    self.observeTimebaseJump(jump, on: timebase)
                 }
             }
         }
@@ -280,17 +275,17 @@ final class AVPlayerTimelineAdapter {
         )
     }
 
-    /// timebase 跳变的主线程入口：进入 seeking，位置写为跳变后的 timebase 时间，并重新计时落地。
+    /// timebase 跳变的主线程入口：seek 跳变进入 seeking，位置写为跳变时的 timebase 时间，并重新计时
+    /// 落地。
     ///
-    /// 由 `installObservers` 安装的通知回调切回主线程后调用。加载中的跳变（续播起点就位）不算 seek，
-    /// 起点由 `markReady` 落地。
-    func observeTimebaseJump(on timebase: CMTimebase) {
-        guard let token, store.currentSnapshot.state != .loading else { return }
+    /// 由 `installObservers` 安装的通知回调切回主线程后调用，`jump` 是通知线程上当场读到的值。音频
+    /// 时钟重新锚定的跳变（速率大于 0，见 `PlaybackTimebaseJump`）不进入 seeking，也不刷新落地计时，
+    /// 否则每次继续播放、改速率都会让弹幕清屏重补。加载中的跳变（续播起点就位）不算 seek，起点由
+    /// `markReady` 落地。
+    func observeTimebaseJump(_ jump: PlaybackTimebaseJump, on timebase: CMTimebase) {
+        guard jump.isSeek, let token, store.currentSnapshot.state != .loading else { return }
         seekingTimebase = timebase
-        store.beginSeeking(
-            token: token,
-            positionSeconds: Self.seconds(from: CMTimebaseGetTime(timebase))
-        )
+        store.beginSeeking(token: token, positionSeconds: jump.positionSeconds)
         seekLandingTimer.restart { [weak self] in
             self?.landSeek()
         }
@@ -303,6 +298,27 @@ final class AVPlayerTimelineAdapter {
             token: token,
             positionSeconds: Self.seconds(from: CMTimebaseGetTime(timebase))
                 ?? store.currentSnapshot.positionSeconds
+        )
+    }
+
+    /// 周期回调的主线程入口：写入位置与速率，并在播放离开上次 seek 落点后结束那个落点的有效期。
+    ///
+    /// seeking 期间不写位置：读数可能是跳变前的旧位置，位置只随跳变与落地更新。已见过系统跳变的落点
+    /// 只在播放位置仍在落点附近时吞掉重复跳变（暂停中 seek 后开播那一次）；位置离开超过容差后，之后
+    /// 回到原处的原生 seek 是新的不连续，不能再被吞掉。还没见过跳变的落点保留，等迟到的跳变。
+    func observePeriodicPosition(_ seconds: Double) {
+        guard let token else { return }
+        if let completedSeekLanding, completedSeekLanding.observedJump,
+            abs(seconds - completedSeekLanding.positionSeconds)
+                > SeekPolicy.landingMatchToleranceSeconds
+        {
+            self.completedSeekLanding = nil
+        }
+        let isSeeking = store.currentSnapshot.seekPhase == .seeking
+        store.update(
+            token: token,
+            positionSeconds: isSeeking ? nil : seconds,
+            rate: Double(player.rate)
         )
     }
 
@@ -477,7 +493,7 @@ final class AVPlayerTimelineAdapter {
             ) {
                 return
             }
-            if currentDistance <= 0.5 {
+            if currentDistance <= SeekPolicy.landingMatchToleranceSeconds {
                 discardEquivalentStaleSeekLandings(
                     to: pendingSeek.targetSeconds
                 )
@@ -509,7 +525,9 @@ final class AVPlayerTimelineAdapter {
         ) {
             return
         }
-        if completedDistance <= 0.5, var completedSeekLanding {
+        if completedDistance <= SeekPolicy.landingMatchToleranceSeconds,
+            var completedSeekLanding
+        {
             discardEquivalentStaleSeekLandings(
                 to: completedSeekLanding.positionSeconds
             )
@@ -610,7 +628,9 @@ final class AVPlayerTimelineAdapter {
             )
         else { return false }
         let distance = abs(candidate.element.positionSeconds - positionSeconds)
-        guard distance <= 0.5, distance < competingDistance else { return false }
+        guard distance <= SeekPolicy.landingMatchToleranceSeconds,
+            distance < competingDistance
+        else { return false }
         staleSeekLandings.remove(at: candidate.offset)
         return true
     }

@@ -199,6 +199,37 @@ struct AVPlayerTimelineAdapterTests {
         )
     }
 
+    /// 落点只在播放位置仍在附近时吞掉重复跳变：播放离开落点之后，用原生控制条点回原处是新的不连续。
+    @Test
+    @MainActor
+    func playbackLeavingTheLandingEndsItsRepeatAllowance() {
+        let timeline = AVPlayerTimelineAdapter(player: AVPlayer())
+        timeline.begin(
+            identity: PlaybackItemIdentity(bvid: "BVSeekLeaveLanding", cid: 1)
+        )
+        timeline.markReady(
+            duration: CMTime(seconds: 100, preferredTimescale: 600)
+        )
+        let operationID = UUID()
+        let before = timeline.currentSnapshot.discontinuityGeneration
+
+        timeline.prepareObservedSeek(operationID: operationID, to: 15)
+        timeline.seekCompleted(operationID: operationID, at: 15)
+        timeline.observeTimeJump(at: 15)
+        timeline.observePeriodicPosition(15.2)
+        timeline.observeTimeJump(at: 15)
+        #expect(
+            timeline.currentSnapshot.discontinuityGeneration == before + 1
+        )
+
+        timeline.observePeriodicPosition(45)
+        timeline.observeTimeJump(at: 15.3)
+        #expect(
+            timeline.currentSnapshot.discontinuityGeneration == before + 2
+        )
+        #expect(timeline.currentSnapshot.positionSeconds == 15.3)
+    }
+
     @Test
     @MainActor
     func staleSeekCallbacksCannotClearOrCompleteReplacementOperation() {
