@@ -13,7 +13,7 @@ import Foundation
 /// presentation sink：呈现控制器由 App 的窗口组装持有。
 ///
 /// 会话只负责数据：每个快照原样交给呈现端，分段到达或被淘汰时把整份缓存交给呈现端；哪些弹幕在屏上
-/// 由呈现端按媒体时间决定。暂停、缓冲时没有后续快照，一个分段加载完腾出名额后，用最近处理过的快照
+/// 由呈现端按媒体时间决定。暂停、缓冲时没有后续快照，一个分段加载完腾出名额后，按时间线当前的快照
 /// 继续请求还缺的分段。会话不自建计时器。
 @MainActor
 public final class DanmakuSession: DanmakuPresentationControlling {
@@ -43,8 +43,6 @@ public final class DanmakuSession: DanmakuPresentationControlling {
     private var failedSegmentIndices: Set<Int> = []
     /// 同一会话只报告一次需要复核账户，`stop` 时重置。
     private var authenticationInvalidationReported = false
-    /// 最近处理过的当前 identity 快照，分段加载完腾出名额后据此继续请求；`stop` 时清空。
-    private var lastSnapshot: PlaybackTimelineSnapshot?
 
     public init(
         useCase: DanmakuSegmentUseCase,
@@ -134,13 +132,11 @@ public final class DanmakuSession: DanmakuPresentationControlling {
         failedSegmentIndices.removeAll(keepingCapacity: false)
         authenticationInvalidationReported = false
         identity = nil
-        lastSnapshot = nil
         segmentCache.reset()
     }
 
     private func handle(_ snapshot: PlaybackTimelineSnapshot) {
         guard let identity, snapshot.identity == identity else { return }
-        lastSnapshot = snapshot
         segmentCache.observe(snapshot)
         presentationSink?.apply(snapshot)
         requestSegments(for: snapshot)
@@ -160,10 +156,11 @@ public final class DanmakuSession: DanmakuPresentationControlling {
         }
     }
 
-    /// 一个分段加载结束、腾出名额后，按最近处理过的快照继续请求；暂停时不会有新快照来触发。
+    /// 一个分段加载结束、腾出名额后，按时间线当前的快照继续请求；暂停时不会有新快照来触发。
+    ///
+    /// 快照不属于当前 identity（换视频的途中）时 `desiredSegmentIndices` 给出空集，什么都不请求。
     private func requestRemainingSegments() {
-        guard let lastSnapshot else { return }
-        requestSegments(for: lastSnapshot)
+        requestSegments(for: timeline.currentTimelineSnapshot)
     }
 
     private func load(
