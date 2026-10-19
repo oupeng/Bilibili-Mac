@@ -6,8 +6,8 @@ import Testing
 @testable import BiliDanmaku
 
 /// 固定呈现控制器的契约：画面在分段布局完成后按当前时刻整屏出现；拖动期间不清屏、不对齐，落地后按新
-/// 时刻整屏对齐（落点分段未到时不留旧画面），原地跳变画面不变；关闭弹幕清屏、打开恢复；设置变化整屏换成新布局；换视频清屏；
-/// 旧 surface owner 的操作无效。
+/// 时刻整屏对齐（落点分段未到时不留旧画面），原地跳变画面不变；关闭弹幕清屏、打开恢复；设置变化整屏换成
+/// 新布局；换视频清屏；换 item 只接受当前 owner，清屏后按原布局表挂回；旧 surface owner 的操作无效。
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct DanmakuPresentationControllerTests {
@@ -123,6 +123,34 @@ struct DanmakuPresentationControllerTests {
         #expect(controller.layoutTable.isEmpty)
     }
 
+    /// 换 item 前只有当前 surface owner 能清屏；别的 owner 调用无效，画面不动。
+    @Test
+    func playerItemChangeFromAnotherOwnerIsIgnored() async {
+        let owner = UUID()
+        let (controller, backend) = await laidOutController(at: 30, surfaceOwner: owner)
+        let before = backend.installed
+        let clearCount = backend.clearCount
+
+        #expect(!controller.playerItemWillChange(ownerID: UUID()))
+        #expect(backend.installed == before)
+        #expect(backend.clearCount == clearCount)
+    }
+
+    /// 同一视频换线路或清晰度：换 item 时清屏、保留布局表，下一个 settled 快照（落地代号不变）按原布局表
+    /// 在当前时刻整屏挂回。
+    @Test
+    func playerItemChangeClearsAndTheNextSnapshotRestoresTheSameLayout() async {
+        let owner = UUID()
+        let (controller, backend) = await laidOutController(at: 30, surfaceOwner: owner)
+        let before = backend.installed
+
+        #expect(controller.playerItemWillChange(ownerID: owner))
+        #expect(backend.installed.isEmpty)
+
+        controller.apply(snapshot(identity: identity, position: 30, generation: 1, state: .paused))
+        #expect(backend.installed == before)
+    }
+
     @Test
     func staleSurfaceOwnerCannotResizeOrDetach() async {
         let (controller, backend) = makeController()
@@ -148,9 +176,13 @@ struct DanmakuPresentationControllerTests {
 
     /// 暂停在 `position`、第一段已布局并挂上屏的控制器。
     private func laidOutController(
-        at position: Double
+        at position: Double,
+        surfaceOwner: UUID? = nil
     ) async -> (DanmakuPresentationController, RecordingRenderingBackend) {
         let (controller, backend) = makeController()
+        if let surfaceOwner {
+            controller.attachSurface(ownerID: surfaceOwner)
+        }
         controller.apply(
             snapshot(identity: identity, position: position, generation: 1, state: .paused)
         )
