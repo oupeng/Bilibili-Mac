@@ -7,12 +7,12 @@ import Testing
 
 @testable import BiliDanmaku
 
-/// 固定静止时重新合成的契约：静止且一批改动之后只请求一次下一帧，走动中或不可见时不请求；
+/// 固定静止时重新合成的契约：静止且一批改动（这里用挂上一条弹幕）之后只请求一次下一帧，走动中或不可见时不请求；
 /// 没能合成的改动（被拒绝、没出帧、超时）保留到下次；stop 取消在途请求。
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct DanmakuRecompositeTests {
-    /// 静止状态的切换本身不请求帧，只记为这批的改动。
+    /// 静止状态的切换不算改动：弹幕 layer 树没变，不请求帧。
     @Test
     func stillnessChangesAloneRequestNoFrame() {
         let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
@@ -22,18 +22,20 @@ struct DanmakuRecompositeTests {
         renderer.setStill(true)
         renderer.setStill(false)
         renderer.setStill(true)
+        renderer.recompositeIfStill()
 
         #expect(scheduler.requestCount == 0)
     }
 
     /// 静止时一批改动后只请求一次下一帧：同一轮再调用合并进在途请求，回调后没有新改动也不再请求。
     @Test
-    func stillBatchRequestsTheNextFrameOnce() {
+    func stillBatchRequestsTheNextFrameOnce() async {
         let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
         let scheduler = ManualFrameScheduler()
         renderer.frameScheduler = scheduler
 
         renderer.setStill(true)
+        await installLayer(in: renderer)
         renderer.recompositeIfStill()
         renderer.recompositeIfStill()
         #expect(scheduler.requestCount == 1)
@@ -46,12 +48,13 @@ struct DanmakuRecompositeTests {
 
     /// 走动中改动不请求帧：渲染服务器本来就在出帧。
     @Test
-    func movingBatchDoesNotRequestAFrame() {
+    func movingBatchDoesNotRequestAFrame() async {
         let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
         let scheduler = ManualFrameScheduler()
         renderer.frameScheduler = scheduler
 
         renderer.setStill(false)
+        await installLayer(in: renderer)
         renderer.recompositeIfStill()
 
         #expect(scheduler.requestCount == 0)
@@ -59,13 +62,14 @@ struct DanmakuRecompositeTests {
 
     /// 宿主不可见时不接受请求，renderer 也不挂时限。
     @Test
-    func invisibleHostAcceptsNoRequest() {
+    func invisibleHostAcceptsNoRequest() async {
         let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
         let scheduler = ManualFrameScheduler()
         scheduler.acceptsRequests = false
         renderer.frameScheduler = scheduler
 
         renderer.setStill(true)
+        await installLayer(in: renderer)
         renderer.recompositeIfStill()
 
         #expect(scheduler.requestCount == 1)
@@ -81,6 +85,7 @@ struct DanmakuRecompositeTests {
         renderer.frameScheduler = scheduler
 
         renderer.setStill(true)
+        await installLayer(in: renderer)
         renderer.recompositeIfStill()
         await scheduler.waitForCancel()
         renderer.recompositeIfStill()
@@ -92,12 +97,13 @@ struct DanmakuRecompositeTests {
 
     /// 不可见时被拒绝的改动保留：恢复可见后宿主再调用时请求一次。
     @Test
-    func rejectedChangesAreRequestedAgainOnceVisible() {
+    func rejectedChangesAreRequestedAgainOnceVisible() async {
         let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
         let scheduler = ManualFrameScheduler()
         scheduler.acceptsRequests = false
         renderer.frameScheduler = scheduler
         renderer.setStill(true)
+        await installLayer(in: renderer)
         renderer.recompositeIfStill()
 
         scheduler.acceptsRequests = true
@@ -110,11 +116,12 @@ struct DanmakuRecompositeTests {
 
     /// 宿主没出帧就停了（以 false 回调）时改动保留，下次再请求。
     @Test
-    func changesSurviveAFrameRequestStoppedWithoutDisplay() {
+    func changesSurviveAFrameRequestStoppedWithoutDisplay() async {
         let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
         let scheduler = ManualFrameScheduler()
         renderer.frameScheduler = scheduler
         renderer.setStill(true)
+        await installLayer(in: renderer)
         renderer.recompositeIfStill()
 
         scheduler.cancelNextFrameRequests()
@@ -126,12 +133,13 @@ struct DanmakuRecompositeTests {
 
     /// 被拒绝后恢复播放：渲染服务器在出帧，恢复可见时不再请求。
     @Test
-    func rejectedChangesAreDroppedOncePlaybackMoves() {
+    func rejectedChangesAreDroppedOncePlaybackMoves() async {
         let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
         let scheduler = ManualFrameScheduler()
         scheduler.acceptsRequests = false
         renderer.frameScheduler = scheduler
         renderer.setStill(true)
+        await installLayer(in: renderer)
         renderer.recompositeIfStill()
 
         scheduler.acceptsRequests = true
@@ -143,11 +151,12 @@ struct DanmakuRecompositeTests {
 
     /// 会话结束时取消在途帧请求。
     @Test
-    func stopCancelsTheFrameRequest() {
+    func stopCancelsTheFrameRequest() async {
         let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
         let scheduler = ManualFrameScheduler()
         renderer.frameScheduler = scheduler
         renderer.setStill(true)
+        await installLayer(in: renderer)
         renderer.recompositeIfStill()
 
         renderer.stop()
@@ -155,6 +164,36 @@ struct DanmakuRecompositeTests {
         #expect(scheduler.cancelCount == 1)
         #expect(scheduler.pendingRequestCount == 0)
     }
+}
+
+/// 在 renderer 上挂一条弹幕，算作一批改动。
+@MainActor
+func installLayer(in renderer: CoreAnimationDanmakuRenderer) async {
+    renderer.updateSurfaceSize(width: 800, height: 240, backingScale: 2)
+    let event = fixtureEvent(id: "change", mode: .top)
+    let result = await withCheckedContinuation { continuation in
+        renderer.prepare(event, preparationID: 1, generation: 0) { result in
+            continuation.resume(returning: result)
+        }
+    }
+    guard case .ready(let metrics) = result else {
+        Issue.record("texture preparation was rejected")
+        return
+    }
+    let placement = DanmakuLanePlacement(
+        request: DanmakuLaneRequest(
+            event: event,
+            width: metrics.width,
+            height: metrics.height,
+            durationSeconds: 4
+        ),
+        laneIndex: 0,
+        originY: 0,
+        surfaceWidthAtAdmission: 800,
+        admittedAtSeconds: 1,
+        expiresAtSeconds: 5
+    )
+    #expect(renderer.install(placement, preparationID: 1, generation: 0, at: 1).isInstalled)
 }
 
 /// 本 target 唯一的「下一显示帧」宿主替身：由测试逐帧触发，可设为不可见；记录请求与取消次数，

@@ -113,7 +113,6 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
 
         guard snapshot.seekPhase == .settled else {
             // 拖动期间不 reconcile：屏上的 layer 已随同步 layer 跟着媒体时间走，落地时再整屏对齐。
-            backend.recompositeIfStill()
             return
         }
         let landed = landingGeneration != snapshot.landingGeneration
@@ -124,8 +123,6 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
             abs(snapshot.positionSeconds - $0) >= Self.reconcileStride
         }) ?? true {
             reconcile(staged: false)
-        } else {
-            backend.recompositeIfStill()
         }
     }
 

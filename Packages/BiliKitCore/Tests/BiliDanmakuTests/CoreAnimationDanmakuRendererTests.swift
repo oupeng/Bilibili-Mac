@@ -453,8 +453,6 @@ struct CoreAnimationDanmakuRendererTests {
         let scheduler = ManualFrameScheduler()
         renderer.frameScheduler = scheduler
         renderer.setStill(true)
-        renderer.recompositeIfStill()
-        scheduler.fire()
 
         _ = try await prepareAndInstall(
             renderer: renderer,
@@ -477,7 +475,7 @@ struct CoreAnimationDanmakuRendererTests {
         renderer.recompositeIfStill()
         #expect(scheduler.pendingRequestCount == 1)
         scheduler.fire()
-        #expect(scheduler.requestCount == 3)
+        #expect(scheduler.requestCount == 2)
     }
 
     /// 上屏、移除、子层与几何变化不带隐式过渡：弹幕 layer 与 rootLayer 都禁用这些动作。

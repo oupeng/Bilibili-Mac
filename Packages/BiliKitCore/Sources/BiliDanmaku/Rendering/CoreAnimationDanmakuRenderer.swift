@@ -73,7 +73,7 @@ public final class CoreAnimationDanmakuRenderer:
     private let beginTimeAtZero: CFTimeInterval
     /// 画面此刻是否静止（暂停、缓冲、未播放）；由呈现控制器按时间线快照设置，还没有快照时按走动处理。
     private var isStill = false
-    /// 是否有还没重新合成的改动（上屏、更新、移除、清屏或静止状态变化）。
+    /// 是否有还没重新合成的改动（上屏、更新、移除或清屏）。
     ///
     /// 请求被宿主接受时清除；被拒绝（不可见）、以 false 回调（没出帧就停了）或超时放弃时恢复，宿主恢复
     /// 可见后再调用 `recompositeIfStill` 补上。走动中直接清除：渲染服务器本来就在出帧。
@@ -279,11 +279,9 @@ public final class CoreAnimationDanmakuRenderer:
         removeAllEntries()
     }
 
+    /// 只记下状态，不算一次改动：停下与走动改变的是同步 layer 的速率，弹幕 layer 树本身没变。
     public func setStill(_ still: Bool) {
-        guard isStill != still else { return }
         isStill = still
-        // 刚停下时最后一帧也要完整合成；开始走动后渲染服务器本来就在出帧。
-        hasChangesSinceRecomposite = true
     }
 
     /// 一整批改动结束后由呈现端调用一次；静止且这批改动了 layer 树时请求下一帧重新合成。
