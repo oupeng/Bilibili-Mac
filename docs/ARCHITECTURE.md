@@ -48,7 +48,7 @@ BiliNetworking 不依赖任何 Bili 模块
 | `BiliAPI` | endpoint DTO、WBI、解码、protobuf wire、远端错误映射，并实现 Application 仓库 port | `BiliAuth`（只接受注入的授权器） |
 | `BiliAuth` | Web QR 状态机、Cookie envelope、Keychain store、请求授权器，实现 `AuthenticationServicing` | `BiliAPI`、`BiliPlayback`、`BiliDanmaku`、Feature、UI 框架 |
 | `BiliPlayback` | DASH→HLS bridge、loopback server、SIDX、`AVPlayerEngine`、线路偏好与测速、响度 tap | `BiliAPI`、`BiliAuth` |
-| `BiliDanmaku` | 弹幕会话、按媒体时间调度、lane 分配、Core Animation renderer | `BiliAPI`、`BiliAuth`、`BiliNetworking`、`BiliPlayback`、Feature、SwiftUI |
+| `BiliDanmaku` | 弹幕会话与分段缓存、确定性车道布局、按媒体时间的 materializer、Core Animation renderer | `BiliAPI`、`BiliAuth`、`BiliNetworking`、`BiliPlayback`、Feature、SwiftUI |
 | `Bili*Feature` | SwiftUI View 与 `@MainActor` ViewModel；Browse（Feed/Search，含推荐、热门、搜索的原生网格、热搜图标的取图 port `TrendingSearchIconLoading`、搜索会话 `VideoSearchSession`（草稿、排序与筛选、提交，以及来源到工作集的激活 `BrowseActivation`））、Library（观看历史、稍后再看与收藏夹：三者共用登录门槛、工具栏控件与刷新的外壳 `LibrarySourceShell`、账户复核进度 `LibraryAccountRevalidation` 与不可用原因的文字 `LibraryUnavailabilityFormatting`；观看历史与稍后再看共用资料库列表 ViewModel `LibraryVideoListModel` 与原生网格，各来源只给出读取、翻页策略、文案与卡片映射；稍后再看与收藏夹的不可用条目映射为不可用卡片；稍后再看的排序、筛选与关键词在每个窗口一份的会话 `WatchLaterSession`；收藏夹按页整体替换，不走 `PagedVideoList`：侧栏的收藏夹列表 `FavoriteFolderListModel` 与夹内页面 `FavoriteFolderViewModel`（选中的收藏夹、排序与关键词），以及侧栏分段视图 `FavoriteFolderSidebarSection`）、Auth（扫码登录、登出与账户投影的来源），播放页见下一行。共享的 AppKit 卡片与网格经 `BiliVideoCollectionUI` 渲染 | adapter target、其他 Feature、直接 import AppKit/AVKit/AVFoundation（播放页的例外见下一行） |
 | `BiliVideoDetailFeature` | 播放页（VideoDetail）与侧栏上下文层 UP 主空间（UploaderSpace）：视频与分 P 意图、续播与链接起播、相关推荐与 UP 主名片（`VideoViewModel`；导航给出的 `PlaybackSelectionIntent` 怎样落到当前视频——就地换分 P、链接 `t=` 原地跳转或重新加载——以及失败后由模型重试还是交回导航，也只在这里），合集选集的分 P（`CollectionEpisodePagesController`），评论（`PlaybackCommentsViewModel`），弹幕设置，空间投稿列表（`UploaderSpaceViewModel`），以及主区布局、骨架、相关推荐横排与选集、评论、投稿行的呈现投影；播放页失败（`VideoLoadFailure`）的标题、说明与是否可重试只在这里。这些页面的 AppKit 视图也在这里：播放侧栏（`NativePlaybackSidebarView`，含评论原生 item）、评论图片预览与保存（`NativeCommentImagePreviewView`、`NativeCommentImageSaver`、动图播放）、相关推荐横排（`RelatedNativeShelfView`）与空间列表（`UploaderSpaceSidebarView`）。取图 port `VideoDetailImageLoading`（头像、封面、表情、评论图片与预览；结果含图、可选的动图数据 `NativeAnimatedImage` 与是否淡入，评论图片另可取原图数据；相关推荐横排是共享卡片，仍走卡片 port `NativeVideoImageLoading`，不为本 Feature 的其他用途放宽它），App 构造的评论资源地址闭包`CommentAssetURLResolver`，以及 App 键盘控制器检查的 `PlayerKeyboardFocusOwner`。拥有自己的字符串目录；App 用到的类型为 `public`，有 library product | 同其他 Feature，但可直接 import AppKit、CoreText（评论正文排版）与 ImageIO（动图逐帧解码）；横排卡片与集合视图支撑经 `BiliVideoCollectionUI`；不依赖 AVKit/AVFoundation、网络与 adapter；下载、来源与响应校验、首帧解码、动图播放门槛和缓存只在 App 管线，本 target 只对管线按门槛放行的 `NativeAnimatedImage` 数据逐帧解码播放 |
 | `BiliUI` | Feature 共享的 SwiftUI 呈现层：卡片几何、网格、骨架、加载过渡、刷新与分页状态胶囊、按页整体替换的列表底部悬浮的页码条（`PageNumberPager`，几何与列表为它留出的高度在 `PageNumberPagerGeometry`）、整页失败视图，只按账户读取的来源共用的登录门槛（`AccountGateView`，形态映射为 `AccountGatePhase`），`ContentApplicationError` 的失败文案（`ContentFailureText`），计数、时长与日期格式化，视频卡片的 B 站图片缩略地址；拥有自己的字符串目录。默认 `package` 访问级别，App 直接使用的卡片几何、时长格式化、播放器加载转圈、单行失败说明（`ContentFailureText.message`）、头像图片的像素边长（`BiliAvatarImageSize`：卡片、评论与侧栏账号头像的请求框、图片管线的头像解码上限都取它）与头像缩略地址（`BiliImageThumbnail` 的头像尺寸，侧栏账号头像请求前经它改写）为 `public`；AppKit target `BiliVideoCollectionUI` 也经 `package` 接口取用它的文案（卡片选中与不可播放的读屏值 `VideoCardAccessibilityText`）。无 library product | 除 Foundation、SwiftUI、BiliApplication 外的任何模块（含 BiliModels、AppKit 与其他 Feature） |
@@ -150,7 +150,9 @@ session path，提供内存中生成的 master／media playlist，并把 AVPlaye
 `BiliApplication.PlaybackTimelineProviding` 是弹幕、Now Playing 与观看进度的唯一时间来源，由
 `BiliPlayback` 用 AVPlayer observation 与 item timebase 通知实现，表达 item identity、位置、速率、状态、
 discontinuity generation，以及 seek 阶段与落地代号。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CMTime`／KVO；各自 timer 无法正确
-表达卡顿、暂停、倍速和 seek。字幕作为原生 subtitle rendition 进入同一 `AVPlayerItem`，由系统字幕
+表达卡顿、暂停、倍速和 seek。唯一的例外是弹幕动画本身：弹幕 layer 挂在播放器宿主的
+`AVSynchronizedLayer` 下，由 AVFoundation 按 item timebase 驱动（见「弹幕」）；哪些弹幕在屏上、何时请求
+分段仍按时间线快照决定，`BiliDanmaku` 不接触 AVFoundation。字幕作为原生 subtitle rendition 进入同一 `AVPlayerItem`，由系统字幕
 菜单选择。
 
 - 续播位置在 load 时写入 master playlist 的 `#EXT-X-START:TIME-OFFSET=…,PRECISE=YES`，item 就绪即
@@ -162,7 +164,7 @@ discontinuity generation，以及 seek 阶段与落地代号。消费者不自�
   time-jump 通知推进，观看进度与 Now Playing 使用；一次 seek 的落点记录在播放位置仍在落点附近时吞掉落在
   它附近的重复跳变（例如暂停中 seek 后开播时系统再报一次），播放离开落点、新 seek、外部跳变、换项或 clear
   之后不再吞。`seekPhase` 与 `landingGeneration` 只来自 item timebase 的
-  `kCMTimebaseNotification_TimeJumped`，弹幕使用。只有跳变发出时 timebase 速率为 0 的才是 seek：seek
+  `kCMTimebaseNotification_TimeJumped`，弹幕只用它们在拖动期间隐藏、落地后按新时刻整屏对齐。只有跳变发出时 timebase 速率为 0 的才是 seek：seek
   （含拖动的每一步）与播放到结尾时，系统先把速率设为 0 再设定时间；带音轨的媒体在开播、继续播放与改速率
   （含临时倍速）时按音频时钟重新锚定，也发跳变（时间往回几十毫秒），但此刻速率已大于 0，播放中 seek 时
   还会在 seek 跳变约 20ms 后再报一次这样的重新锚定。速率在通知线程上当场读取，切回主线程时可能已经恢复。
@@ -170,7 +172,8 @@ discontinuity generation，以及 seek 阶段与落地代号。消费者不自�
   跳变即进入 `seeking`，位置写为跳变时的 timebase 时间，期间不写周期回调的读数；最后一次 seek 跳变之后
   静默 150ms 才落地：读 timebase 时间为落点、递增 `landingGeneration`、回到 `settled`。拖动时跳变间隔远
   小于 150ms，一次拖动只落地一次；暂停中 seek 时有效速率一直为 0、播放中拖动时每步之间速率又会恢复，所以
-  不以速率恢复判定落地，单次 seek 因此最多晚 150ms 补位。换项、续播起点就绪与 clear 各算一次落地，失败时
+  不以速率恢复判定落地，单次 seek 后弹幕因此最多隐藏 150ms。起播前暂停、缓冲恢复时系统也会发速率为 0 的
+  跳变，时间线同样把它当作一次 seek，弹幕按位置是否离开落地位置区分（见「弹幕」）。换项、续播起点就绪与 clear 各算一次落地，失败时
   回到 `settled`；加载中的跳变不算 seek。通知在 CoreMedia 后台线程到达，切回主线程后核对 item 与 token；
   observer 随 item 的观察集合在换项、失败与 clear 时移除，落地计时同时取消，计时用注入的 `Clock`。
 - progressive 单文件（充电试看、没有 DASH 的较早视频）没有 playlist，不续播，一律从头播放。
@@ -181,36 +184,51 @@ discontinuity generation，以及 seek 阶段与落地代号。消费者不自�
   `.proto` 自行编写，用同版本 `protoc-gen-swift` 显式生成并提交 `.pb.swift`，不挂 build plugin。
   手写 wire reader 要长期自维护 varint、未知字段和恶意长度边界，成本高于约 1.8 MiB 的体积。
 - wire 类型解码后立即映射为 `BiliModels.DanmakuEvent`；`BiliDanmaku` 只见 Models/Application。
-- renderer 使用 Core Animation layer 与纹理缓存，调度与 lane 分配可用虚拟时间独立测试。系统内存压力时
+- renderer 使用 Core Animation layer 与纹理缓存，车道布局与 materializer 可用虚拟时间独立测试。系统内存压力时
   清空纹理缓存，在途准备以容量不足拒绝；`BiliDanmaku` 不自己监听内存压力，监听由窗口 adapter（`WindowAdapters.live`）持有并在
   窗口关闭时先于会话注销取消，与图片管线共用 `SystemMemoryPressureObserver`。
 - 分段请求会被间歇风控（游客更常见），被 HTTP 412 拒绝的分段由 API 客户端等 2 秒后再请求一次（等待期间
   占一个加载名额）；其余失败与再次被拒的分段在当前视频内不再请求，换视频或重开会话才重来。
-- 补位：调度器只消费时间线的 seek 事实，不从位置序列推断跳转。`seeking` 时清屏一次、之后不投递，拖动进度条
-  期间因此保持空屏；`landingGeneration` 变化（落地、换项、续播起点、clear）时在同一 batch 里清屏并在落点补发
-  回看窗口内本应仍在屏上的弹幕，不看播放状态。其余时候播放中的相邻快照只投递两者之间首次出现的弹幕；同一
-  落地代号内位置倒退是采样抖动（含继续播放时音频时钟重新锚定的几十毫秒回退），不清屏、不投递，上一位置也
-  不倒退。暂停、缓冲时速率为 0，补位弹幕静止在应有位置；继续播放、改速率与临时倍速不是 seek，弹幕从原位
-  接着走，不再重补。seeking 期间分段缓存按拖动中的位置裁剪，落点所在分段不会因离起拖位置远而被淘汰。窗口由 `DanmakuMotionPolicy.catchUpWindow` 按画面宽度与速度给出：
-  顶部／底部 4 秒与“和画面等宽的滚动弹幕”跑完全程的时长取较大者。补位弹幕按自己的时间点做车道准入（准备按
-  入队顺序完成，准入时间不倒退）；同批纹理全部准备好后一起上屏，已走过的时长按上屏时刻计算，renderer 把
-  动画开始时间移到过去，从已走过的位置继续；等待期间已走完的丢弃，候选按车道数 × 重叠层数 × 4 取最新的。
-  新的落地或 seeking 清屏时取消在途的补位组并归还车道。窗口跨进上一分段时一并请求上一分段；补位之前到达的
-  分段并入那次补位，之后才到的覆盖窗口的分段按 ID 去重追加、不清屏。打开弹幕后立即清屏重补。暂停、缓冲时
-  没有后续快照，会话用最近处理过的快照再处理一次：迟到的分段、打开弹幕与画面完成布局都不等继续播放。画面
-  尚未布局（尺寸为 0）时呈现端不给补位窗口，调度器保留补位、不把窗口内的弹幕记为已投递。切换弹幕类型显隐
-  仍只清屏、不补位。
-- 静止时的重新合成：暂停与缓冲时视频不出新帧、`rootLayer.speed` 为 0，渲染服务器不再主动出帧，提交后屏上
-  那块区域可能没有完整重新合成（错开几 pt 的两份弹幕，直到别的界面事件触发重绘）。呈现控制器在一整批改动
-  （一次 `apply`、一组补位上屏、一次清屏）结束后调用 renderer 的 `recompositeIfStill`：静止且这批改动了
-  layer 树时，在下一显示帧于显式事务里切换一次 `rootLayer` 的透明背景，不 flush，同一轮的多次请求合并。
-  下一帧由弹幕 overlay（`DanmakuOverlayView`，实现 `DanmakuFrameScheduling`）按需建立的 display link 提供，
-  回调一次即停；视图不可见（隐藏、最小化、被完全遮挡、不在窗口里）时拒绝请求，变为不可见、交还 surface 或
-  会话 stop 时取消，renderer 另挂 0.1 秒时限兜底。被拒绝、没出帧或超时的改动保留，overlay 恢复可见时再请求
-  一次。速率切换按调用时刻立即生效。弹幕 layer 与 `rootLayer` 用 `actions` 禁用上屏、移除与子层变化的隐式
-  动画，清屏与移除不另包显式事务（顶层显式事务会单独提交，把清屏与补位上屏拆开）。上屏时 `renderPrepared`
-  仍包一个只为关闭属性动作的显式事务：本轮已有隐式事务（清屏刚移除过 layer）时它嵌套其中、随本轮一起提交，
-  屏上原本为空时它可能单独提交。
+- 画面是媒体时间的纯函数：任一时刻屏上的弹幕与从头连续播放到该时刻完全一致，seek（含暂停中）之后立即
+  满屏，不需要识别 seek 才能正确显示，也没有投递游标、去重或补位。三部分：
+  - 车道布局（`DanmakuLayoutPlanner`，后台由 `DanmakuLayoutCoordinator` 串行计算）：每个缓存的分段把
+    通过过滤的事件按 (时间, ID) 排序，在弹幕自己的时间点逐条交给 `DanmakuLaneAllocator` 准入，得到车道、
+    层、纵坐标与运动时长；同屏上限 `hardMaximumActiveCount` 在这里按同一顺序丢弃。宽度来自只排版不栅格化的
+    测量，与纹理共用一份排版计算，按文字、字号与 scale 缓存。分段边界以上一段末尾的车道占用为种子，边界处
+    不重叠；上一段晚到时以它为种子重排本段，结果与从头连续排一致，只在两份占用收敛之前的开头不同（屏上
+    少数弹幕可能换一次车道），末尾占用变了才继续重排下一段。设置（类型显隐、速度、显示区域、密度、画面
+    尺寸、backing scale）变化时后台整张重排，generation 丢弃过期结果，完成后一次替换；窗口 live resize
+    去抖 200ms，期间沿用旧布局。画面尚未布局（尺寸为 0）时不布局。
+  - materializer（`DanmakuMaterializer`）：时刻 t 在屏的 layer 是布局表里已进场未走完、或 2 秒内要进场的
+    弹幕；纹理提前准备，以将来的开始时间挂上，迟到的纹理挂上后直接出现在中途应在的位置。播放中时间每推进
+    1 秒对齐一次；布局表替换、落地、打开弹幕、接管 surface 时暂存提交：缺的纹理全部有结果后，在一次调用里
+    按此刻完成整屏的移除、换车道与挂上。
+  - 渲染：`rootLayer` 挂在播放器宿主（`DanmakuOverlayView`）的 `AVSynchronizedLayer` 下，子树的局部时间
+    就是播放 item 的时间。动画 `beginTime` 是弹幕的时间点（0 写成 `AVCoreAnimationBeginTimeAtZero`，由
+    App 注入，`BiliDanmaku` 不 import AVFoundation），`removedOnCompletion` 为 false；fillMode 保持默认，
+    动画区间外呈现回到模型值，所以模型值本身不可见（滚动弹幕在画面左外侧，顶部底部弹幕不透明度为 0），
+    可见区间由动画撑起。暂停、倍速、缓冲停顿、播放结束与暂停中 seek 都由 AVFoundation 调整同步 layer，
+    renderer 没有时钟；主线程卡顿时渲染服务器按原速率继续插值，之后精确跳回。同步 layer 不随
+    `replaceCurrentItem` 自动换绑：宿主在 `currentItem` 变化时先让呈现控制器清屏（只接受当前 surface
+    owner，布局表保留），再换绑。以上是在 macOS 27 上用本地 HLS 与 mp4 实测的系统行为。
+- seek 信号只用于拖动期间空屏：时间线进入 `seeking` 且位置离开最近的落地位置超过 0.5 秒时隐藏整个弹幕层
+  （不清 layer），落地后按新时刻暂存提交、提交完成再显示；位置几乎不变的速率为 0 的跳变（起播前暂停、
+  缓冲恢复）不隐藏，避免闪一下。落点分段未到时落地即显示空屏，分段到达后整屏挂上。清屏只在换 item、
+  换视频、关闭弹幕与交接 surface 时出现；关闭弹幕保留布局表，打开时按当前时刻整屏挂上。
+- 分段缓存（`DanmakuSegmentCache`）最多三段，淘汰离最近快照位置（拖动中随拖动更新）最远的；位置在分段
+  开头 60 秒（滚动弹幕的最长时长）内时一并请求上一段，未到结尾时请求下一段。暂停、缓冲时没有新快照，
+  一个分段加载完腾出名额后，会话按最近处理过的快照继续请求。
+- 纹理字节上限（64 MiB）只作内存安全阀：被它拒绝的弹幕缺席，但不影响车道布局。
+- 静止时的重新合成：暂停与缓冲时视频不出新帧、同步 layer 速率为 0，渲染服务器不再主动出帧，提交后屏上
+  那块区域可能没有完整重新合成（错开几 pt 的两份弹幕，直到别的界面事件触发重绘）。呈现端在一整批改动
+  （一次对齐、一次暂存提交、一次清屏、显隐变化）结束后调用 renderer 的 `recompositeIfStill`：静止（由呈现
+  控制器按快照的状态与速率设置）且这批改动了 layer 树时，在下一显示帧于显式事务里切换一次 `rootLayer` 的
+  透明背景，不 flush，同一轮的多次请求合并。下一帧由弹幕 overlay（`DanmakuOverlayView`，实现
+  `DanmakuFrameScheduling`）按需建立的 display link 提供，回调一次即停；视图不可见（隐藏、最小化、被完全
+  遮挡、不在窗口里）时拒绝请求，变为不可见、交还 surface 或会话 stop 时取消，renderer 另挂 0.1 秒时限
+  兜底。被拒绝、没出帧或超时的改动保留，overlay 恢复可见时再请求一次。弹幕 layer 与 `rootLayer` 用
+  `actions` 禁用上屏、移除、子层、显隐与几何变化的隐式动画，增删不另包显式事务（顶层显式事务会单独提交，
+  把同一次对齐拆进不同的提交）。
 - 大会员彩色弹幕：元素字段 24 `colorful` 为 60001 时映射为 `DanmakuColorStyle.vipGradient`，其余类型按普通
   弹幕显示。外观按官方贴图的结论内置：白色填充、0.5pt 描边从文字左缘到右缘按采样色标做横向渐变、阴影
   仍为深色；不下载分段回复 `colorfulSrc` 给的贴图，纹理同步绘制，官方更换贴图时不会跟随。
@@ -549,6 +567,8 @@ gain 只压低不放大：`min(−18 LUFS − I, 0)`，下限 −12 dB。不放�
 - 第三方 DI、Coordinator 框架、Redux／TCA。
 - 每个模块独立 `Package.swift`；为单一调用方新建 renderer／Shared target。
 - Feature 直接观察 `AVPlayer`；字幕或弹幕独立 timer；弹幕放进 Feature 或在 `BiliDanmaku` 解码 wire。
+- 弹幕自建动画时钟（按快照改 `rootLayer` 的速率与时间）或靠识别 seek 清屏、补位：时钟切换与误判的跳变
+  都会闪，画面也依赖到达顺序；弹幕动画只由同步 layer 按 item 时间驱动。
 - mpv 等第二播放后端；AVPlayer + loopback 能满足当前需求。
 - `*.bilibili.com` 后缀匹配授权；WKWebView 登录；共享 `HTTPCookieStorage` 或 `URLSession.shared`
   作为登录态。
