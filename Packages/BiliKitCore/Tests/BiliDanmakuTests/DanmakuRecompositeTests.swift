@@ -1,3 +1,4 @@
+import AVFoundation
 import BiliApplication
 import BiliModels
 import Foundation
@@ -6,40 +7,33 @@ import Testing
 
 @testable import BiliDanmaku
 
-/// 固定静止时重新合成与速率切换的契约：速率立即生效；静止且一批改动之后只请求一次下一帧，
-/// 走动中或不可见时不请求；没能合成的改动（被拒绝、没出帧、超时）保留到下次；stop 取消在途请求。
+/// 固定静止时重新合成的契约：静止且一批改动之后只请求一次下一帧，走动中或不可见时不请求；
+/// 没能合成的改动（被拒绝、没出帧、超时）保留到下次；stop 取消在途请求。
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct DanmakuRecompositeTests {
-    /// 有宿主时速率切换也立即按此刻生效，不等下一帧；切换本身不请求帧。
+    /// 静止状态的切换本身不请求帧，只记为这批的改动。
     @Test
-    func playbackRateChangesTakeEffectImmediately() {
-        let renderer = CoreAnimationDanmakuRenderer()
+    func stillnessChangesAloneRequestNoFrame() {
+        let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
         let scheduler = ManualFrameScheduler()
         renderer.frameScheduler = scheduler
 
-        let before = renderer.rootLayer.convertTime(CACurrentMediaTime(), from: nil)
-        renderer.setPlaybackRate(0)
-        let after = renderer.rootLayer.convertTime(CACurrentMediaTime(), from: nil)
-        let frozen = renderer.rootLayer.convertTime(CACurrentMediaTime() + 5, from: nil)
+        renderer.setStill(true)
+        renderer.setStill(false)
+        renderer.setStill(true)
 
-        #expect(renderer.rootLayer.speed == 0)
-        #expect(frozen >= before && frozen <= after)
-        #expect(scheduler.requestCount == 0)
-
-        renderer.setPlaybackRate(2)
-        #expect(renderer.rootLayer.speed == 2)
         #expect(scheduler.requestCount == 0)
     }
 
     /// 静止时一批改动后只请求一次下一帧：同一轮再调用合并进在途请求，回调后没有新改动也不再请求。
     @Test
     func stillBatchRequestsTheNextFrameOnce() {
-        let renderer = CoreAnimationDanmakuRenderer()
+        let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
         let scheduler = ManualFrameScheduler()
         renderer.frameScheduler = scheduler
 
-        renderer.setPlaybackRate(0)
+        renderer.setStill(true)
         renderer.recompositeIfStill()
         renderer.recompositeIfStill()
         #expect(scheduler.requestCount == 1)
@@ -53,11 +47,11 @@ struct DanmakuRecompositeTests {
     /// 走动中改动不请求帧：渲染服务器本来就在出帧。
     @Test
     func movingBatchDoesNotRequestAFrame() {
-        let renderer = CoreAnimationDanmakuRenderer()
+        let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
         let scheduler = ManualFrameScheduler()
         renderer.frameScheduler = scheduler
 
-        renderer.setPlaybackRate(2)
+        renderer.setStill(false)
         renderer.recompositeIfStill()
 
         #expect(scheduler.requestCount == 0)
@@ -66,12 +60,12 @@ struct DanmakuRecompositeTests {
     /// 宿主不可见时不接受请求，renderer 也不挂时限。
     @Test
     func invisibleHostAcceptsNoRequest() {
-        let renderer = CoreAnimationDanmakuRenderer()
+        let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
         let scheduler = ManualFrameScheduler()
         scheduler.acceptsRequests = false
         renderer.frameScheduler = scheduler
 
-        renderer.setPlaybackRate(0)
+        renderer.setStill(true)
         renderer.recompositeIfStill()
 
         #expect(scheduler.requestCount == 1)
@@ -82,11 +76,11 @@ struct DanmakuRecompositeTests {
     /// 宿主一直不回调（例如显示器休眠）时，renderer 到点取消请求，宿主释放 display link。
     @Test
     func unansweredRequestIsCancelledAfterTheTimeout() async {
-        let renderer = CoreAnimationDanmakuRenderer()
+        let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
         let scheduler = ManualFrameScheduler()
         renderer.frameScheduler = scheduler
 
-        renderer.setPlaybackRate(0)
+        renderer.setStill(true)
         renderer.recompositeIfStill()
         await scheduler.waitForCancel()
         renderer.recompositeIfStill()
@@ -99,11 +93,11 @@ struct DanmakuRecompositeTests {
     /// 不可见时被拒绝的改动保留：恢复可见后宿主再调用时请求一次。
     @Test
     func rejectedChangesAreRequestedAgainOnceVisible() {
-        let renderer = CoreAnimationDanmakuRenderer()
+        let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
         let scheduler = ManualFrameScheduler()
         scheduler.acceptsRequests = false
         renderer.frameScheduler = scheduler
-        renderer.setPlaybackRate(0)
+        renderer.setStill(true)
         renderer.recompositeIfStill()
 
         scheduler.acceptsRequests = true
@@ -117,10 +111,10 @@ struct DanmakuRecompositeTests {
     /// 宿主没出帧就停了（以 false 回调）时改动保留，下次再请求。
     @Test
     func changesSurviveAFrameRequestStoppedWithoutDisplay() {
-        let renderer = CoreAnimationDanmakuRenderer()
+        let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
         let scheduler = ManualFrameScheduler()
         renderer.frameScheduler = scheduler
-        renderer.setPlaybackRate(0)
+        renderer.setStill(true)
         renderer.recompositeIfStill()
 
         scheduler.cancelNextFrameRequests()
@@ -133,34 +127,33 @@ struct DanmakuRecompositeTests {
     /// 被拒绝后恢复播放：渲染服务器在出帧，恢复可见时不再请求。
     @Test
     func rejectedChangesAreDroppedOncePlaybackMoves() {
-        let renderer = CoreAnimationDanmakuRenderer()
+        let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
         let scheduler = ManualFrameScheduler()
         scheduler.acceptsRequests = false
         renderer.frameScheduler = scheduler
-        renderer.setPlaybackRate(0)
+        renderer.setStill(true)
         renderer.recompositeIfStill()
 
         scheduler.acceptsRequests = true
-        renderer.setPlaybackRate(1)
+        renderer.setStill(false)
         renderer.recompositeIfStill()
 
         #expect(scheduler.requestCount == 1)
     }
 
-    /// 会话结束时取消在途帧请求，速率立即归零。
+    /// 会话结束时取消在途帧请求。
     @Test
     func stopCancelsTheFrameRequest() {
-        let renderer = CoreAnimationDanmakuRenderer()
+        let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
         let scheduler = ManualFrameScheduler()
         renderer.frameScheduler = scheduler
-        renderer.setPlaybackRate(0)
+        renderer.setStill(true)
         renderer.recompositeIfStill()
 
         renderer.stop()
 
         #expect(scheduler.cancelCount == 1)
         #expect(scheduler.pendingRequestCount == 0)
-        #expect(renderer.rootLayer.speed == 0)
     }
 }
 

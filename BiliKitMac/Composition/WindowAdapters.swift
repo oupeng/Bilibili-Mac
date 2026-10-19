@@ -199,7 +199,8 @@ private struct LiveDanmaku {
     let memoryPressure: SystemMemoryPressureObserver
 
     init(repository: any DanmakuSegmentRepository, timeline: AVPlayerEngine) {
-        let renderer = CoreAnimationDanmakuRenderer()
+        // 弹幕 layer 挂在播放器宿主的同步 layer 下，媒体时间 0 按 AVFoundation 的约定写成这个常量。
+        let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
         let controller = DanmakuPresentationController(
             backend: renderer,
             configuration: .production(surfaceWidth: 0, surfaceHeight: 0)

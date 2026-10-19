@@ -1,3 +1,4 @@
+import AVFoundation
 import BiliApplication
 import BiliModels
 import Foundation
@@ -7,19 +8,20 @@ import Testing
 
 @testable import BiliDanmaku
 
+/// 固定 Core Animation renderer 的契约：弹幕动画按媒体时间开始、模型值不可见，位置只由同步父层给出的
+/// 媒体时间决定；纹理准备有界、内存压力与无效文本失败关闭；用户透明度在根层，改动不带隐式过渡。
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct CoreAnimationDanmakuRendererTests {
     @Test
     func rendererAppliesUserOpacityAtRootAndReleasesTextureBytes() async throws {
-        let renderer = CoreAnimationDanmakuRenderer()
-        renderer.updateSurfaceSize(width: 800, height: 240, backingScale: 2)
+        let renderer = makeRenderer()
         let fixture = fixtureEvent(
             id: "one-layer",
             mode: .scrolling,
             colorRGB: 0xD0E0F0
         )
-        _ = try await prepareAndRender(
+        _ = try await prepareAndInstall(
             renderer: renderer,
             event: fixture,
             preparationID: 1,
@@ -75,8 +77,7 @@ struct CoreAnimationDanmakuRendererTests {
     /// 内存压力只拒绝当时在途的准备；之后重新准备同一事件仍能上屏。
     @Test
     func memoryPressureRejectsInflightPreparationWithoutBlockingLaterRender() async throws {
-        let renderer = CoreAnimationDanmakuRenderer()
-        renderer.updateSurfaceSize(width: 800, height: 240, backingScale: 2)
+        let renderer = makeRenderer()
         let fixture = fixtureEvent(id: "pressure", mode: .scrolling)
 
         let rejected = await withCheckedContinuation { continuation in
@@ -93,7 +94,7 @@ struct CoreAnimationDanmakuRendererTests {
         }
         #expect(rejected == .rejected(.capacity))
 
-        _ = try await prepareAndRender(
+        _ = try await prepareAndInstall(
             renderer: renderer,
             event: fixture,
             preparationID: 2,
@@ -135,74 +136,12 @@ struct CoreAnimationDanmakuRendererTests {
     }
 
     @Test
-    func staleAnimationCompletionCannotRemoveReplacement() async throws {
-        let renderer = CoreAnimationDanmakuRenderer()
-        let delegate = RecordingRendererDelegate()
-        renderer.delegate = delegate
-        renderer.updateSurfaceSize(width: 800, height: 200, backingScale: 2)
-        let fixture = fixtureEvent(id: "reused", mode: .top)
-        _ = try await prepareAndRender(
-            renderer: renderer,
-            event: fixture,
-            preparationID: 1,
-            originY: 10
-        )
-        let oldRelay = try completionRelay(in: renderer)
-
-        renderer.clearAll()
-        _ = try await prepareAndRender(
-            renderer: renderer,
-            event: fixture,
-            preparationID: 2,
-            generation: 1,
-            originY: 10
-        )
-        let replacement = try #require(renderer.rootLayer.sublayers?.first)
-        let newRelay = try completionRelay(in: renderer)
-
-        // 按各自动画回调携带的身份完成；旧回调晚到也不能移除同一事件 ID 的新 layer。
-        complete(oldRelay, in: renderer)
-        #expect(renderer.rootLayer.sublayers?.count == 1)
-        #expect(renderer.rootLayer.sublayers?.first === replacement)
-        #expect(delegate.finishedEventIDs.isEmpty)
-
-        complete(newRelay, in: renderer)
-        #expect(renderer.rootLayer.sublayers?.isEmpty ?? true)
-        #expect(delegate.finishedEventIDs == [fixture.id])
-    }
-
-    /// 取出唯一活动 layer 上动画的完成回调；它携带渲染时记下的事件 ID、对象身份与 epoch。
-    private func completionRelay(
-        in renderer: CoreAnimationDanmakuRenderer
-    ) throws -> AnimationCompletionRelay {
-        let layers = try #require(renderer.rootLayer.sublayers)
-        try #require(layers.count == 1)
-        let animation = try #require(
-            layers[0].animation(forKey: CoreAnimationDanmakuRenderer.animationKey)
-        )
-        return try #require(animation.delegate as? AnimationCompletionRelay)
-    }
-
-    /// 与 `AnimationCompletionRelay.animationDidStop` 转交的调用相同，只是同步执行以便逐步断言。
-    private func complete(
-        _ relay: AnimationCompletionRelay,
-        in renderer: CoreAnimationDanmakuRenderer
-    ) {
-        renderer.completeAnimation(
-            eventID: relay.eventID,
-            objectIdentity: relay.objectIdentity,
-            renderEpoch: relay.renderEpoch
-        )
-    }
-
-    @Test
     func stoppedPreparationOwnerAndRendererAreReleased() async throws {
         weak var weakRenderer: CoreAnimationDanmakuRenderer?
         do {
-            let renderer = CoreAnimationDanmakuRenderer()
+            let renderer = makeRenderer()
             weakRenderer = renderer
-            renderer.updateSurfaceSize(width: 800, height: 300, backingScale: 2)
-            _ = try await prepareAndRender(
+            _ = try await prepareAndInstall(
                 renderer: renderer,
                 event: fixtureEvent(id: "release", mode: .scrolling),
                 preparationID: 1,
@@ -215,8 +154,7 @@ struct CoreAnimationDanmakuRendererTests {
 
     @Test
     func invalidAndOversizedTextFailClosedBeforeLaneAdmission() async {
-        let renderer = CoreAnimationDanmakuRenderer()
-        renderer.updateSurfaceSize(width: 800, height: 300, backingScale: 2)
+        let renderer = makeRenderer()
         let invalid = DanmakuEvent(
             id: "invalid",
             timeSeconds: 1,
@@ -267,82 +205,174 @@ struct CoreAnimationDanmakuRendererTests {
         #expect(owner.outstandingRequestCount == 0)
     }
 
-    /// 补位弹幕的动画开始时间移到过去，从已经走过的位置继续，而不是从右边缘重新进场。
+    /// 动画在弹幕自己的媒体时间开始（时间点 0 换成同步 layer 约定的常量），结束后不移除；
+    /// 模型值不可见：滚动弹幕停在画面左外侧，顶部底部弹幕不透明度为 0。
     @Test
-    func catchUpRenderStartsTheAnimationPartWay() async throws {
-        let renderer = CoreAnimationDanmakuRenderer()
-        renderer.updateSurfaceSize(width: 800, height: 240, backingScale: 2)
-        let fixture = fixtureEvent(id: "catch-up", mode: .scrolling)
-
-        _ = try await prepareAndRender(
+    func animationsStartAtTheEventsMediaTimeAndLeaveInvisibleModelValues() async throws {
+        let renderer = makeRenderer()
+        _ = try await prepareAndInstall(
             renderer: renderer,
-            event: fixture,
+            event: fixtureEvent(id: "scroll-zero", mode: .scrolling),
             preparationID: 1,
             originY: 20,
-            elapsedSeconds: 2
+            admittedAt: 0
         )
-        let layer = try #require(renderer.rootLayer.sublayers?.first)
-        let animation = try #require(
-            layer.animation(forKey: CoreAnimationDanmakuRenderer.animationKey)
+        let scrollingLayer = try #require(renderer.rootLayer.sublayers?.last)
+        _ = try await prepareAndInstall(
+            renderer: renderer,
+            event: fixtureEvent(id: "top-later", mode: .top),
+            preparationID: 2,
+            originY: 60,
+            admittedAt: 12.5
         )
-        let localNow = layer.convertTime(CACurrentMediaTime(), from: nil)
+        let topLayer = try #require(renderer.rootLayer.sublayers?.last)
+        let scrollingAnimation = try #require(
+            scrollingLayer.animation(forKey: CoreAnimationDanmakuRenderer.animationKey)
+                as? CABasicAnimation
+        )
+        let topAnimation = try #require(
+            topLayer.animation(forKey: CoreAnimationDanmakuRenderer.animationKey)
+                as? CABasicAnimation
+        )
 
-        #expect(animation.beginTime < localNow - 1.5)
-        #expect(animation.beginTime > localNow - 2.5)
-        #expect(animation.duration == 4)
+        #expect(scrollingAnimation.beginTime == AVCoreAnimationBeginTimeAtZero)
+        #expect(topAnimation.beginTime == 12.5)
+        #expect(!scrollingAnimation.isRemovedOnCompletion)
+        #expect(!topAnimation.isRemovedOnCompletion)
+        #expect(scrollingAnimation.duration == 4)
+        #expect(scrollingLayer.position.x == -scrollingLayer.bounds.width / 2)
+        #expect(scrollingLayer.opacity == 1)
+        #expect(topLayer.opacity == 0)
+        #expect(topAnimation.keyPath == "opacity")
+        #expect(topAnimation.fromValue as? Double == 1)
     }
 
-    /// 暂停（速率 0）时上屏的补位弹幕停在已走过的位置，不随时间前进；恢复播放后从原位接着走。
+    /// 在模拟同步 layer 的父层下，layer 的局部时间就是父层给出的媒体时间：暂停时冻结、seek 时跳到
+    /// 新位置、倍速时按倍率推进，弹幕位置按媒体时间计算，与 renderer 自身无关。
     @Test
-    func catchUpRenderedWhilePausedStaysStillAndResumesFromThere() async throws {
-        let renderer = CoreAnimationDanmakuRenderer()
-        renderer.updateSurfaceSize(width: 800, height: 240, backingScale: 2)
-        renderer.setPlaybackRate(0)
-        let fixture = fixtureEvent(id: "paused-catch-up", mode: .scrolling)
-
-        _ = try await prepareAndRender(
+    func positionFollowsTheSynchronizedParentsMediaTime() async throws {
+        let renderer = makeRenderer()
+        let clock = CALayer()
+        clock.addSublayer(renderer.rootLayer)
+        let metrics = try await prepareAndInstall(
             renderer: renderer,
-            event: fixture,
+            event: fixtureEvent(id: "media-time", mode: .scrolling),
             preparationID: 1,
             originY: 20,
-            elapsedSeconds: 2
+            admittedAt: 10
         )
         let layer = try #require(renderer.rootLayer.sublayers?.first)
         let animation = try #require(
             layer.animation(forKey: CoreAnimationDanmakuRenderer.animationKey)
+                as? CABasicAnimation
         )
-        // 动画进度 = layer 局部时间 − beginTime；用将来的媒体时间换算，不必真的等待。
-        func progress(at mediaTime: CFTimeInterval) -> Double {
-            layer.convertTime(mediaTime, from: nil) - animation.beginTime
+        // 按 layer 局部时间插值的滚动弹幕中心 x；动画区间外回到模型值。
+        func presentedX(atHostTime hostTime: CFTimeInterval) -> Double {
+            let local = layer.convertTime(hostTime, from: nil)
+            let progress = (local - animation.beginTime) / animation.duration
+            guard progress >= 0, progress < 1 else { return layer.position.x }
+            let from = animation.fromValue as? Double ?? .nan
+            let to = animation.toValue as? Double ?? .nan
+            return from + (to - from) * progress
         }
-        let pausedAt = CACurrentMediaTime()
-        #expect(abs(progress(at: pausedAt) - 2) < 0.001)
-        #expect(abs(progress(at: pausedAt + 10) - 2) < 0.001)
+        // 从头连续播放到媒体时间 `mediaTime` 时应在的中心 x。
+        func expectedX(atMediaTime mediaTime: Double) -> Double {
+            let travel = (800 + metrics.width) * (mediaTime - 10) / 4
+            return 800 + metrics.width / 2 - travel
+        }
 
-        renderer.setPlaybackRate(1)
-        let resumedAt = CACurrentMediaTime()
-        #expect(abs(progress(at: resumedAt) - 2) < 0.05)
-        #expect(abs(progress(at: resumedAt + 1) - progress(at: resumedAt) - 1) < 0.001)
+        // 暂停在 11 秒：速率为 0，局部时间冻结在 11。
+        let now = CACurrentMediaTime()
+        clock.speed = 0
+        clock.timeOffset = 11
+        #expect(abs(presentedX(atHostTime: now) - expectedX(atMediaTime: 11)) < 0.001)
+        #expect(abs(presentedX(atHostTime: now + 30) - expectedX(atMediaTime: 11)) < 0.001)
+
+        // 暂停中 seek 到 13 秒：立即落到新位置，与从头播到 13 秒一致。
+        clock.timeOffset = 13
+        #expect(abs(presentedX(atHostTime: now) - expectedX(atMediaTime: 13)) < 0.001)
+
+        // 以 2 倍速从 12 秒起播：半秒主机时间推进一秒媒体时间。
+        clock.beginTime = now
+        clock.timeOffset = 12
+        clock.speed = 2
+        #expect(abs(presentedX(atHostTime: now + 0.5) - expectedX(atMediaTime: 13)) < 0.001)
+
+        // seek 到动画区间之外：回到不可见的模型值。
+        clock.speed = 0
+        clock.beginTime = 0
+        clock.timeOffset = 20
+        #expect(presentedX(atHostTime: now) == -metrics.width / 2)
+        clock.timeOffset = 5
+        #expect(presentedX(atHostTime: now) == -metrics.width / 2)
+    }
+
+    /// 重新布局后就地换成新的车道，复用纹理，不重新准备。
+    @Test
+    func updateMovesAnInstalledLayerToItsNewPlacement() async throws {
+        let renderer = makeRenderer()
+        let event = fixtureEvent(id: "relayout", mode: .scrolling)
+        let metrics = try await prepareAndInstall(
+            renderer: renderer,
+            event: event,
+            preparationID: 1,
+            originY: 20,
+            admittedAt: 3
+        )
+        let layer = try #require(renderer.rootLayer.sublayers?.first)
+        let contents = layer.contents as AnyObject?
+        let moved = placement(event: event, metrics: metrics, originY: 80, admittedAt: 3)
+        let absent = placement(
+            event: fixtureEvent(id: "absent", mode: .top),
+            metrics: metrics,
+            originY: 0,
+            admittedAt: 0
+        )
+
+        #expect(renderer.update(moved))
+        #expect(renderer.rootLayer.sublayers?.count == 1)
+        #expect(renderer.rootLayer.sublayers?.first === layer)
+        #expect(layer.contents as AnyObject? === contents)
+        #expect(abs(layer.position.y - (80 + metrics.height / 2)) < 0.001)
+        #expect(!renderer.update(absent))
+    }
+
+    /// 隐藏整个弹幕层不移除 layer。
+    @Test
+    func hidingKeepsTheInstalledLayers() async throws {
+        let renderer = makeRenderer()
+        _ = try await prepareAndInstall(
+            renderer: renderer,
+            event: fixtureEvent(id: "hidden", mode: .top),
+            preparationID: 1,
+            originY: 20,
+            admittedAt: 1
+        )
+
+        renderer.setHidden(true)
+        #expect(renderer.rootLayer.isHidden)
+        #expect(renderer.rootLayer.sublayers?.count == 1)
+        renderer.setHidden(false)
+        #expect(!renderer.rootLayer.isHidden)
     }
 
     /// 静止时上屏与清屏都算这批的改动：整批结束后请求一次下一帧重新合成。
     @Test
     func stillRenderAndClearRequestOneRecompositePerBatch() async throws {
-        let renderer = CoreAnimationDanmakuRenderer()
-        renderer.updateSurfaceSize(width: 800, height: 240, backingScale: 2)
+        let renderer = makeRenderer()
         let scheduler = ManualFrameScheduler()
         renderer.frameScheduler = scheduler
-        renderer.setPlaybackRate(0)
+        renderer.setStill(true)
         renderer.recompositeIfStill()
         scheduler.fire()
 
-        _ = try await prepareAndRender(
+        _ = try await prepareAndInstall(
             renderer: renderer,
             event: fixtureEvent(id: "still-a", mode: .top),
             preparationID: 1,
             originY: 20
         )
-        _ = try await prepareAndRender(
+        _ = try await prepareAndInstall(
             renderer: renderer,
             event: fixtureEvent(id: "still-b", mode: .top),
             preparationID: 2,
@@ -360,12 +390,11 @@ struct CoreAnimationDanmakuRendererTests {
         #expect(scheduler.requestCount == 3)
     }
 
-    /// 上屏、移除与子层变化不带隐式过渡：弹幕 layer 与 rootLayer 都禁用这些动作。
+    /// 上屏、移除、子层、显隐与几何变化不带隐式过渡：弹幕 layer 与 rootLayer 都禁用这些动作。
     @Test
     func renderedLayersAndRootDisableImplicitOrderingActions() async throws {
-        let renderer = CoreAnimationDanmakuRenderer()
-        renderer.updateSurfaceSize(width: 800, height: 240, backingScale: 2)
-        _ = try await prepareAndRender(
+        let renderer = makeRenderer()
+        _ = try await prepareAndInstall(
             renderer: renderer,
             event: fixtureEvent(id: "no-fade", mode: .top),
             preparationID: 1,
@@ -373,19 +402,29 @@ struct CoreAnimationDanmakuRendererTests {
         )
         let layer = try #require(renderer.rootLayer.sublayers?.first)
 
-        for key in ["onOrderIn", "onOrderOut", "sublayers"] {
+        for key in [
+            "onOrderIn", "onOrderOut", "sublayers", "hidden", "position", "bounds", "opacity"
+        ] {
             #expect(layer.actions?[key] is NSNull)
             #expect(renderer.rootLayer.actions?[key] is NSNull)
         }
     }
 
-    private func prepareAndRender(
+    private func makeRenderer() -> CoreAnimationDanmakuRenderer {
+        let renderer = CoreAnimationDanmakuRenderer(
+            beginTimeAtZero: AVCoreAnimationBeginTimeAtZero
+        )
+        renderer.updateSurfaceSize(width: 800, height: 240, backingScale: 2)
+        return renderer
+    }
+
+    private func prepareAndInstall(
         renderer: CoreAnimationDanmakuRenderer,
         event: DanmakuEvent,
         preparationID: UInt64,
         generation: UInt64 = 0,
         originY: Double,
-        elapsedSeconds: Double = 0
+        admittedAt: Double = 1
     ) async throws -> DanmakuTextMetrics {
         let result = await prepare(
             renderer: renderer,
@@ -397,13 +436,12 @@ struct CoreAnimationDanmakuRendererTests {
             Issue.record("texture preparation was rejected")
             return DanmakuTextMetrics(width: 0, height: 0)
         }
-        let didRender = renderer.renderPrepared(
-            placement(event: event, metrics: metrics, originY: originY),
+        let didInstall = renderer.install(
+            placement(event: event, metrics: metrics, originY: originY, admittedAt: admittedAt),
             preparationID: preparationID,
-            generation: generation,
-            elapsedSeconds: elapsedSeconds
+            generation: generation
         )
-        #expect(didRender)
+        #expect(didInstall)
         return metrics
     }
 
@@ -445,7 +483,8 @@ struct CoreAnimationDanmakuRendererTests {
     private func placement(
         event: DanmakuEvent,
         metrics: DanmakuTextMetrics,
-        originY: Double
+        originY: Double,
+        admittedAt: Double
     ) -> DanmakuLanePlacement {
         DanmakuLanePlacement(
             request: DanmakuLaneRequest(
@@ -457,8 +496,8 @@ struct CoreAnimationDanmakuRendererTests {
             laneIndex: 0,
             originY: originY,
             surfaceWidthAtAdmission: 800,
-            admittedAtSeconds: 1,
-            expiresAtSeconds: 5
+            admittedAtSeconds: admittedAt,
+            expiresAtSeconds: admittedAt + 4
         )
     }
 }
@@ -471,16 +510,5 @@ private final class RasterizationCounter: Sendable {
     func rasterize(_ key: DanmakuTextureCacheKey) -> DanmakuTexturePayload? {
         value.withLock { $0 += 1 }
         return fixtureTexturePayload(byteCost: 64)
-    }
-}
-
-@MainActor
-private final class RecordingRendererDelegate:
-    DanmakuRenderingBackendDelegate
-{
-    private(set) var finishedEventIDs: [String] = []
-
-    func rendererDidFinish(eventID: String) {
-        finishedEventIDs.append(eventID)
     }
 }

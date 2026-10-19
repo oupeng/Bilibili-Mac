@@ -98,28 +98,18 @@ enum DanmakuMotionPolicy {
     }
 }
 
-/// renderer 回报弹幕动画自然结束的通道，由 `DanmakuPresentationController` 实现以回收车道。
+/// Renderer 的最小平台 port，由 `DanmakuMaterializer` 驱动。
 ///
-/// 只对仍是当前对象的 layer 回调；经 `remove`、`clearAll`、`stop` 移除的不回调，
-/// 车道由调用方自己清理。
-@MainActor
-public protocol DanmakuRenderingBackendDelegate: AnyObject {
-    func rendererDidFinish(eventID: String)
-}
-
-/// Renderer 的最小平台 port。
-///
-/// `clearAll` 取消在途准备并移除活动对象；`stop` 还把播放速率归零。尺寸变化只更新 surface
-/// geometry：已有滚动弹幕保持入场时的运动，顶部与底部弹幕随新宽度重新居中、底部弹幕随高度变化平移；
-/// 新对象使用新尺寸。backing scale 变化会取消在途准备。
+/// 弹幕 layer 按 placement 的媒体时间运动，port 不涉及时钟：暂停、倍速与 seek 由宿主的同步 layer
+/// 处理。`clearAll` 取消在途准备并移除全部 layer；`stop` 还取消显隐与静止重新合成的请求。尺寸变化只
+/// 更新 surface geometry：已有滚动弹幕保持布局时的运动，顶部与底部弹幕随新宽度重新居中、底部弹幕随
+/// 高度变化平移；backing scale 变化会取消在途准备。
 @MainActor
 public protocol DanmakuRenderingBackend: AnyObject {
-    var delegate: (any DanmakuRenderingBackendDelegate)? { get set }
-
-    /// 准备完成回调必须返回 MainActor；controller 只会在 `.ready` 后执行 lane 准入。
+    /// 准备完成回调必须返回 MainActor。
     ///
     /// 缓存命中与立即拒绝会在调用内同步回调，调用方必须先登记请求再调用。`generation`
-    /// 随准备记录保存，`renderPrepared` 时复核。
+    /// 随准备记录保存，`install` 时复核。
     func prepare(
         _ event: DanmakuEvent,
         preparationID: UInt64,
@@ -131,27 +121,31 @@ public protocol DanmakuRenderingBackend: AnyObject {
             ) -> Void
     )
 
-    /// `elapsedSeconds` 是这条弹幕进场后已经走过的媒体时长；补位时大于 0，从对应位置开始运动。
+    /// 用已准备好的纹理按 placement 安装一条弹幕；动画在 placement 的媒体时间开始，安装时已过了开始
+    /// 时间的直接出现在中途应在的位置。
     ///
-    /// 返回 false 表示没有上屏：同一事件 ID 已在屏、活动数或纹理字节超限、画面尺寸为 0、
-    /// 准备已失效或被淘汰，或 CGImage 创建失败。返回前 renderer 已消费或丢弃这条准备记录；
-    /// 调用方归还车道即可，再调用 `discardPreparation` 也无害。
+    /// 返回 false 表示没有上屏：同一事件 ID 已在屏、纹理字节超限、画面尺寸为 0、准备已失效或被淘汰，
+    /// 或 CGImage 创建失败。返回前 renderer 已消费或丢弃这条准备记录。
     @discardableResult
-    func renderPrepared(
+    func install(
         _ placement: DanmakuLanePlacement,
         preparationID: UInt64,
-        generation: UInt64,
-        elapsedSeconds: Double
+        generation: UInt64
     ) -> Bool
+    /// 已在屏的弹幕换成新的 placement（重新布局后车道或时长变了），复用原纹理；不在屏时返回 false。
+    @discardableResult
+    func update(_ placement: DanmakuLanePlacement) -> Bool
     /// 丢弃一条没有上屏的准备记录；对未知 ID 是空操作。
     func discardPreparation(preparationID: UInt64)
     /// 取消全部在途与已就绪未上屏的准备，被取消的请求不再回调。
     func cancelPendingPreparations()
     func remove(eventID: String)
     func clearAll()
-    /// 立即按此刻切换动画速率，保持局部时间连续。
-    func setPlaybackRate(_ rate: Double)
-    /// 一整批改动（一次 `apply`、一组补位上屏或一次清屏）结束后调用一次：静止且这批改动了画面时，
+    /// 整体隐藏或显示弹幕，不移除 layer；拖动进度条期间用它保持空屏。
+    func setHidden(_ hidden: Bool)
+    /// 画面是否静止（暂停、缓冲、未播放）；决定 `recompositeIfStill` 是否需要请求下一帧。
+    func setStill(_ still: Bool)
+    /// 一整批改动（一次 reconcile、一次布局替换或一次清屏）结束后调用一次：静止且这批改动了画面时，
     /// 在下一显示帧强制窗口重新合成，暂停时不留残影。
     func recompositeIfStill()
     func setOpacity(_ opacity: DanmakuOpacity)

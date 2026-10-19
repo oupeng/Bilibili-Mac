@@ -5,259 +5,156 @@ import Testing
 
 @testable import BiliDanmaku
 
-/// 固定呈现控制器的准入与生命周期契约：先移除过期再准入，突发与待准备队列有全局上限，
-/// 暂停停表、换代清屏，过期的清屏批次与表面 owner 不能清掉当前呈现。
+/// 固定呈现控制器的契约：画面在分段布局完成后按当前时刻整屏出现；拖动进度条期间隐藏、落地后按新时刻
+/// 显示，位置几乎不变的误判跳变不隐藏；关闭弹幕清屏、打开恢复；设置变化整屏换成新布局；换视频清屏；
+/// 旧 surface owner 的操作无效。
 @MainActor
-@Suite
+@Suite(.timeLimit(.minutes(1)))
 struct DanmakuPresentationControllerTests {
+    private let identity = PlaybackItemIdentity(bvid: "BV1Controller", cid: 1)
+
     @Test
-    func controllerRemovesExpiredBeforeRenderingNewAdmission() {
-        let backend = RecordingRenderingBackend()
-        let controller = DanmakuPresentationController(
-            backend: backend,
-            configuration: configuration(maximumActiveCount: 2)
-        )
-        let identity = PlaybackItemIdentity(bvid: "BV1OrderFixture", cid: 1)
+    func screenAppearsOnceTheSegmentIsLaidOut() async {
+        let (controller, backend) = makeController()
+        controller.apply(snapshot(identity: identity, position: 30, generation: 1, state: .paused))
+        controller.setSegments([1: events()], for: identity)
 
-        controller.apply(
-            update(
-                identity: identity,
-                position: 1,
-                generation: 1,
-                events: [fixtureEvent(id: "first", mode: .top)]
-            )
-        )
-        controller.apply(
-            update(
-                identity: identity,
-                position: 1 + DanmakuMotionPolicy.fixedSeconds + 1,
-                generation: 1,
-                events: [fixtureEvent(id: "second", mode: .top)]
-            )
-        )
-
-        #expect(backend.lifecycle == ["+first", "-first", "+second"])
-        #expect(backend.activeEventIDs.count == 1)
+        await backend.waitUntil { !backend.installed.isEmpty }
+        #expect(backend.installedEventIDs == expectedIDs(at: 30, in: controller))
+        #expect(backend.isStill)
     }
 
     @Test
-    func burstWorkIsBoundedBeforeTextMeasurement() {
+    func draggingHidesAndTheLandingShowsTheNewTime() async {
+        let (controller, backend) = await laidOutController(at: 30)
+
+        controller.apply(
+            snapshot(identity: identity, position: 120, generation: 1, seekPhase: .seeking)
+        )
+        #expect(backend.isHidden)
+        controller.apply(
+            snapshot(identity: identity, position: 200, generation: 1, seekPhase: .seeking)
+        )
+        #expect(backend.isHidden)
+
+        controller.apply(snapshot(identity: identity, position: 200, generation: 2))
+        #expect(!backend.isHidden)
+        #expect(backend.installedEventIDs == expectedIDs(at: 200, in: controller))
+    }
+
+    @Test
+    func timeJumpInPlaceDoesNotHide() async {
+        let (controller, backend) = await laidOutController(at: 30)
+        let before = backend.installed
+        let clearCount = backend.clearCount
+
+        controller.apply(
+            snapshot(identity: identity, position: 30.05, generation: 1, seekPhase: .seeking)
+        )
+        #expect(!backend.isHidden)
+        controller.apply(snapshot(identity: identity, position: 30.05, generation: 2))
+        #expect(!backend.isHidden)
+        #expect(backend.installed == before)
+        #expect(backend.clearCount == clearCount)
+    }
+
+    @Test
+    func disablingClearsAndEnablingRestoresTheCurrentTime() async {
+        let (controller, backend) = await laidOutController(at: 30)
+
+        controller.setEnabled(false)
+        #expect(backend.installed.isEmpty)
+        controller.apply(snapshot(identity: identity, position: 45, generation: 1, state: .paused))
+        #expect(backend.installed.isEmpty)
+
+        controller.setEnabled(true)
+        #expect(backend.installedEventIDs == expectedIDs(at: 45, in: controller))
+    }
+
+    @Test
+    func settingsChangeReplacesTheScreenWithTheNewLayout() async {
+        let (controller, backend) = await laidOutController(at: 30)
+        let before = backend.installed
+
+        controller.setSpeedLevel(.one)
+        await backend.waitUntil { backend.installed != before }
+        let expected = DanmakuMaterializer.desiredPlacements(
+            in: controller.layoutTable,
+            at: 30
+        )
+        #expect(expected.allSatisfy { backend.installed[$0.request.event.id] == $0 })
+        #expect(backend.installed.count == expected.count)
+    }
+
+    @Test
+    func newIdentityClearsTheScreen() async {
+        let (controller, backend) = await laidOutController(at: 30)
+
+        controller.apply(
+            snapshot(
+                identity: PlaybackItemIdentity(bvid: "BV1Other", cid: 2),
+                position: 0,
+                generation: 1
+            )
+        )
+        #expect(backend.installed.isEmpty)
+        controller.setSegments([1: events()], for: identity)
+        #expect(controller.layoutTable.isEmpty)
+    }
+
+    @Test
+    func staleSurfaceOwnerCannotResizeOrDetach() async {
+        let (controller, backend) = makeController()
+        let first = UUID()
+        let second = UUID()
+        controller.attachSurface(ownerID: first)
+        controller.attachSurface(ownerID: second)
+
+        #expect(!controller.updateSurface(width: 10, height: 10, ownerID: first))
+        #expect(!controller.detachSurface(ownerID: first))
+        #expect(controller.detachSurface(ownerID: second))
+        #expect(backend.stopCount == 0)
+    }
+
+    private func makeController() -> (DanmakuPresentationController, RecordingRenderingBackend) {
         let backend = RecordingRenderingBackend()
         let controller = DanmakuPresentationController(
             backend: backend,
-            configuration: configuration(maximumActiveCount: 1)
+            configuration: configuration()
         )
-        let identity = PlaybackItemIdentity(bvid: "BV1BurstFixture", cid: 20)
-        let events = (0...DanmakuLaneConfiguration.hardMaximumActiveCount).map {
-            fixtureEvent(id: "event-\($0)", mode: .scrolling)
+        return (controller, backend)
+    }
+
+    /// 暂停在 `position`、第一段已布局并挂上屏的控制器。
+    private func laidOutController(
+        at position: Double
+    ) async -> (DanmakuPresentationController, RecordingRenderingBackend) {
+        let (controller, backend) = makeController()
+        controller.apply(
+            snapshot(identity: identity, position: position, generation: 1, state: .paused)
+        )
+        controller.setSegments([1: events()], for: identity)
+        await backend.waitUntil { !backend.installed.isEmpty }
+        return (controller, backend)
+    }
+
+    private func events() -> [DanmakuEvent] {
+        (0..<600).map { offset in
+            timedEvent(
+                id: "event-\(offset)",
+                time: Double(offset) * 0.6,
+                mode: offset % 4 == 0 ? .top : .scrolling
+            )
         }
-
-        controller.apply(
-            update(
-                identity: identity,
-                position: 1,
-                generation: 1,
-                events: events
-            )
-        )
-
-        #expect(
-            backend.measureCount
-                == DanmakuLaneConfiguration.hardMaximumActiveCount
-        )
-        #expect(backend.renderedEventIDs.count == 1)
     }
 
-    @Test
-    func pendingPreparationQueueIsGloballyBoundedAcrossBatches() {
-        let backend = RecordingRenderingBackend()
-        backend.delaysPreparation = true
-        let controller = DanmakuPresentationController(
-            backend: backend,
-            configuration: configuration(maximumActiveCount: 640)
+    private func expectedIDs(
+        at position: Double,
+        in controller: DanmakuPresentationController
+    ) -> Set<String> {
+        Set(
+            DanmakuMaterializer.desiredPlacements(in: controller.layoutTable, at: position)
+                .map(\.request.event.id)
         )
-        let identity = PlaybackItemIdentity(bvid: "BV1PendingBound", cid: 1)
-        let maximum = DanmakuLaneConfiguration.hardMaximumActiveCount
-
-        controller.apply(
-            update(
-                identity: identity,
-                position: 1,
-                generation: 1,
-                events: (0..<maximum).map {
-                    fixtureEvent(id: "first-\($0)", mode: .scrolling)
-                }
-            )
-        )
-        controller.apply(
-            update(
-                identity: identity,
-                position: 2,
-                generation: 1,
-                events: (0...maximum).map {
-                    fixtureEvent(id: "blocked-\($0)", mode: .scrolling)
-                }
-            )
-        )
-
-        #expect(backend.preparationIDs.count == maximum)
-        controller.clearPresentation()
-        #expect(backend.activeEventIDs.count == 0)
-    }
-
-    @Test
-    func pausedStateStopsClockAndGenerationChangeClearsPresentation() {
-        let backend = RecordingRenderingBackend()
-        let controller = DanmakuPresentationController(
-            backend: backend,
-            configuration: configuration(maximumActiveCount: 4)
-        )
-        let identity = PlaybackItemIdentity(bvid: "BV1LifecycleFixture", cid: 3)
-
-        controller.apply(
-            update(
-                identity: identity,
-                position: 1,
-                generation: 4,
-                state: .paused,
-                rate: 1
-            )
-        )
-        controller.apply(
-            update(
-                identity: identity,
-                position: 1,
-                generation: 4,
-                state: .playing,
-                rate: 2
-            )
-        )
-        #expect(backend.rates == [0, 2])
-        let clearCount = backend.clearCount
-
-        controller.apply(
-            update(
-                identity: identity,
-                position: 8,
-                generation: 5,
-                events: [fixtureEvent(id: "after-seek", mode: .top)]
-            )
-        )
-        #expect(backend.clearCount == clearCount + 1)
-        #expect(backend.activeEventIDs.count == 1)
-
-        controller.stopPresentation()
-        #expect(backend.stopCount == 1)
-        #expect(backend.activeEventIDs.count == 0)
-    }
-
-    @Test
-    func mismatchedClearBatchCannotClearCurrentGeneration() {
-        let backend = RecordingRenderingBackend()
-        let controller = DanmakuPresentationController(
-            backend: backend,
-            configuration: configuration(maximumActiveCount: 4)
-        )
-        let identity = PlaybackItemIdentity(bvid: "BV1OldClearFixture", cid: 30)
-        controller.apply(
-            update(
-                identity: identity,
-                position: 1,
-                generation: 8,
-                events: [fixtureEvent(id: "current", mode: .top)]
-            )
-        )
-        let clearCount = backend.clearCount
-        let staleClear = DanmakuBatch(
-            identity: identity,
-            landingGeneration: 7,
-            events: [],
-            clearsExisting: true,
-            catchesUp: false
-        )
-
-        controller.apply(
-            DanmakuPresentationUpdate(
-                snapshot: PlaybackTimelineSnapshot(
-                    identity: identity,
-                    positionSeconds: 2,
-                    durationSeconds: 100,
-                    rate: 1,
-                    state: .playing,
-                    discontinuityGeneration: 8,
-                    landingGeneration: 8
-                ),
-                batch: staleClear
-            )
-        )
-
-        #expect(backend.clearCount == clearCount)
-        #expect(backend.activeEventIDs.count == 1)
-    }
-
-    @Test
-    func surfaceResizePreservesActiveUntilOwnerReplacement() {
-        let backend = RecordingRenderingBackend()
-        let controller = DanmakuPresentationController(
-            backend: backend,
-            configuration: configuration(maximumActiveCount: 1)
-        )
-        let firstOwner = UUID()
-        let replacementOwner = UUID()
-        #expect(controller.attachSurface(ownerID: firstOwner))
-        let identity = PlaybackItemIdentity(bvid: "BV1SurfaceFixture", cid: 31)
-        controller.apply(
-            update(
-                identity: identity,
-                position: 1,
-                generation: 1,
-                events: [fixtureEvent(id: "before-detach", mode: .top)]
-            )
-        )
-        #expect(backend.activeEventIDs.count == 1)
-        let clearCount = backend.clearCount
-
-        #expect(
-            !controller.updateSurface(
-                width: 0,
-                height: 0,
-                ownerID: replacementOwner
-            )
-        )
-        #expect(
-            controller.updateSurface(
-                width: 0,
-                height: 0,
-                ownerID: firstOwner
-            )
-        )
-        #expect(backend.clearCount == clearCount)
-        #expect(backend.activeEventIDs.count == 1)
-        #expect(
-            controller.updateSurface(
-                width: 800,
-                height: 300,
-                ownerID: firstOwner
-            )
-        )
-        #expect(backend.clearCount == clearCount)
-        #expect(backend.activeEventIDs.count == 1)
-
-        #expect(controller.attachSurface(ownerID: replacementOwner))
-        #expect(backend.clearCount == clearCount + 1)
-        #expect(backend.activeEventIDs.count == 0)
-        #expect(!controller.detachSurface(ownerID: firstOwner))
-        #expect(backend.clearCount == clearCount + 1)
-
-        controller.apply(
-            update(
-                identity: identity,
-                position: 2,
-                generation: 1,
-                events: [fixtureEvent(id: "after-attach", mode: .top)]
-            )
-        )
-        #expect(backend.renderedEventIDs.last == "after-attach")
-        #expect(backend.activeEventIDs.count == 1)
     }
 }

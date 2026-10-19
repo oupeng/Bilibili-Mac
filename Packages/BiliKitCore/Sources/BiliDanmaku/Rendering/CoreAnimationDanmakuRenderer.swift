@@ -4,65 +4,71 @@ import BiliModels
 import Foundation
 import QuartzCore
 
-/// 有硬上限的 Core Animation 弹幕 backend，负责纹理准备、layer identity、动画时钟与回收。
+/// Core Animation 弹幕 backend：纹理准备、按媒体时间安装的弹幕 layer 与静止时的重新合成。
 ///
 /// Core Text shaping、整行 union mask、vImage 阴影与 RGBA 合成都由有界 preparation owner
 /// 在后台完成。MainActor 只消费不可变像素并安装一个普通 `CALayer`；用户透明度统一落在
 /// `rootLayer.opacity`，活动 layer 不启用实时 shadow。
 ///
-/// 用 Core Animation 而不用 SwiftUI：每条弹幕是一个由渲染服务器插值的 layer 动画，暂停与倍速只改
-/// `rootLayer` 的时间，不需要逐帧驱动（见 docs/ARCHITECTURE.md「弹幕」）。拥有 `rootLayer`、活动
-/// layer 与纹理准备 owner；`rootLayer` 挂到哪个视图由 App 的 overlay 决定，内存压力监听由 App 窗口
-/// adapter 持有。`clearAll` 与 `stop` 先递增 `renderEpoch` 再取消准备、移除 layer，
-/// 移除触发的迟到动画回调因此失效。
+/// 用 Core Animation 而不用 SwiftUI：每条弹幕是一个由渲染服务器插值的 layer 动画，不需要逐帧驱动（见
+/// docs/ARCHITECTURE.md「弹幕」）。`rootLayer` 由 App 挂在跟随播放 item 时间的同步 layer 下，这里的
+/// 局部时间就是媒体时间：动画的 `beginTime` 是弹幕自己的时间点，暂停、倍速、seek 与缓冲停顿都由同步
+/// layer 处理，renderer 不维护时钟。时间点 0 不能直接写 0（Core Animation 会当作「现在」），用宿主
+/// 注入的 `beginTimeAtZero`。动画 `removedOnCompletion` 为 false、fillMode 保持默认：动画区间之外
+/// 呈现回到模型值，所以模型值本身不可见（滚动弹幕停在画面左外侧，顶部底部弹幕不透明度为 0），
+/// 区间之内由动画撑起。layer 何时移除由 `DanmakuMaterializer` 按媒体时间决定，renderer 不监听动画结束。
 ///
-/// 静止时的重新合成：暂停、缓冲时视频不出新帧、`rootLayer.speed` 为 0，渲染服务器不再主动出帧；提交后
+/// 拥有 `rootLayer`、活动 layer 与纹理准备 owner；`rootLayer` 挂到哪里由 App 的 overlay 决定，内存压力
+/// 监听由 App 窗口 adapter 持有。
+///
+/// 静止时的重新合成：暂停、缓冲时视频不出新帧，同步 layer 的速率为 0，渲染服务器不再主动出帧；提交后
 /// 屏上那块区域若没有完整重新合成，旧画面会一直留着，表现为错开几 pt 的两份弹幕，直到别的界面事件触发
-/// 重绘。呈现控制器在一整批改动结束后调用 `recompositeIfStill`：静止且这批确实改动了 layer 树时，经宿主
-/// 的 `frameScheduler`（App overlay 按需建立的 display link）在下一帧对 `rootLayer` 做一次无视觉变化的
-/// 属性写入。请求挂 `frameRequestTimeout` 兜底，到点没回调就放弃并让宿主释放 display link；`stop` 取消
-/// 在途请求。
+/// 重绘。呈现端在一整批改动结束后调用 `recompositeIfStill`：静止（`setStill`）且这批确实改动了 layer
+/// 树时，经宿主的 `frameScheduler`（App overlay 按需建立的 display link）在下一帧对 `rootLayer` 做一次
+/// 无视觉变化的属性写入。请求挂 `frameRequestTimeout` 兜底，到点没回调就放弃并让宿主释放 display link；
+/// `stop` 取消在途请求。
 @MainActor
 public final class CoreAnimationDanmakuRenderer:
     DanmakuRenderingBackend
 {
     private struct Entry {
         let layer: CALayer
-        let placement: DanmakuLanePlacement
+        var placement: DanmakuLanePlacement
         let textureByteCost: Int
-        let objectIdentity: UInt64
-        let relay: AnimationCompletionRelay
     }
 
-    /// 已上屏 layer 的纹理字节总上限；超出时新弹幕不上屏，呈现控制器归还它占用的车道。
+    /// 已上屏 layer 的纹理字节总上限；超出时新弹幕不上屏。
     ///
-    /// 与活动数硬上限一起限定最坏情况的纹理内存：调大允许更多长文本同屏，调小则高峰期更早丢弃。
+    /// 只作内存安全阀：同屏数量由布局阶段的 `hardMaximumActiveCount` 决定，这里拒绝的弹幕不归还车道，
+    /// 车道布局因此不受它影响。调大允许更多长文本同屏，调小则高峰期更早缺席。
     static let maximumActiveTextureByteCost = 64 * 1_024 * 1_024
-    /// 每个弹幕 layer 上唯一的位移／停留动画的 key。
+    /// 每个弹幕 layer 上唯一的位移／显隐动画的 key。
     static let animationKey = "danmaku"
     /// 下一帧请求的兜底时限：到点还没回调就放弃这次重新合成，并让宿主释放 display link。
     ///
     /// 60～120Hz 下下一帧在 17ms 内到达；显示器休眠等情况下 display link 可能一直不回调，没有时限请求会
     /// 永远挂着。调小会在卡顿时提前放弃，调大则 display link 在不出帧时多占一会儿。
     static let frameRequestTimeout = Duration.milliseconds(100)
-    /// 弹幕 layer 与 `rootLayer` 上禁用的隐式动画：上屏、移除与子层变化都不带过渡。
+    /// 弹幕 layer 与 `rootLayer` 上禁用的隐式动画：上屏、移除、子层、显隐与几何变化都不带过渡。
     ///
-    /// 用 `actions` 逐个 layer 关掉，而不是给清屏与移除另包显式事务：顶层显式事务在 commit 时就单独
-    /// 提交，会把同一轮的清屏与补位上屏拆开；速率为 0 时移除的淡出过渡还会冻在第一帧。上屏的
-    /// `renderPrepared` 仍包一个只为关闭 position 等属性动作的显式事务：本轮已有隐式事务（例如清屏
-    /// 刚移除过 layer）时它嵌套其中、随本轮一起提交，屏上原本为空时它可能单独提交。
+    /// 用 `actions` 逐个 layer 关掉，而不是给改动另包显式事务：顶层显式事务在 commit 时就单独提交，会把
+    /// 同一次 reconcile 的增删拆进不同的提交；速率为 0 时移除的淡出过渡还会冻在第一帧。
     private static let disabledActions: [String: any CAAction] = [
-        "onOrderIn": NSNull(), "onOrderOut": NSNull(), "sublayers": NSNull()
+        "onOrderIn": NSNull(), "onOrderOut": NSNull(), "sublayers": NSNull(),
+        "hidden": NSNull(), "position": NSNull(), "bounds": NSNull(), "opacity": NSNull()
     ]
 
-    public weak var delegate: (any DanmakuRenderingBackendDelegate)?
     public let rootLayer: CALayer
     /// 提供下一显示帧回调的宿主。
     ///
     /// 由 App 的弹幕 overlay 在接管 surface 时设置、交还时清空；弱引用，overlay 持有 renderer。
     public weak var frameScheduler: (any DanmakuFrameScheduling)?
 
-    /// 是否有还没重新合成的改动（上屏、移除、清屏或速率变化）。
+    /// 媒体时间 0 对应的动画 `beginTime`，由宿主按同步 layer 的约定注入。
+    private let beginTimeAtZero: CFTimeInterval
+    /// 画面此刻是否静止（暂停、缓冲、未播放）；由呈现控制器按时间线快照设置，还没有快照时按走动处理。
+    private var isStill = false
+    /// 是否有还没重新合成的改动（上屏、更新、移除、清屏、显隐或静止状态变化）。
     ///
     /// 请求被宿主接受时清除；被拒绝（不可见）、以 false 回调（没出帧就停了）或超时放弃时恢复，宿主恢复
     /// 可见后再调用 `recompositeIfStill` 补上。走动中直接清除：渲染服务器本来就在出帧。
@@ -74,24 +80,20 @@ public final class CoreAnimationDanmakuRenderer:
     /// 重新合成时在两个值之间切换的标记，保证每次都是一次真实的属性变化。
     private var recompositeMarker = false
 
-    /// `clearAll` 与 `stop` 时递增；随动画回调携带，`completeAnimation` 比对不等就丢弃该回调，
-    /// 清屏前的迟到回调因此不会移除清屏后的新 layer，也不会回报给控制器。
-    private var renderEpoch: UInt64 = 0
-
     /// 当前 surface 的 backing scale，已归一到 1...`maximumBackingScale`；变化时取消在途准备，
     /// 因为纹理按 scale 栅格化。
     private var backingScale: Double
     private var entries: [String: Entry] = [:]
-    /// 每安装一个 layer 递增；同一事件 ID 被移除后再次上屏时，旧 layer 的迟到回调因 identity
-    /// 不等而被丢弃。
-    private var nextObjectIdentity: UInt64 = 0
     private var surfaceSize = CGSize.zero
     private let preparationOwner: DanmakuTexturePreparationOwner
     /// 已上屏 layer 的纹理字节合计，对照 `maximumActiveTextureByteCost`。
     private(set) var activeTextureByteCost = 0
 
+    /// `beginTimeAtZero` 是媒体时间 0 对应的动画开始时间（App 传 `AVCoreAnimationBeginTimeAtZero`）。
+    ///
     /// 初始 backing scale 取默认值；宿主挂上 surface 后经 `updateSurfaceSize` 换成窗口的实际值。
-    public init() {
+    public init(beginTimeAtZero: CFTimeInterval) {
+        self.beginTimeAtZero = beginTimeAtZero
         backingScale = DanmakuTextureRasterizer.defaultBackingScale
         preparationOwner = DanmakuTexturePreparationOwner()
         rootLayer = CALayer()
@@ -101,6 +103,9 @@ public final class CoreAnimationDanmakuRenderer:
         rootLayer.masksToBounds = true
         rootLayer.actions = Self.disabledActions
     }
+
+    /// 当前在屏的弹幕 ID。
+    var installedEventIDs: Set<String> { Set(entries.keys) }
 
     public func prepare(
         _ event: DanmakuEvent,
@@ -127,16 +132,13 @@ public final class CoreAnimationDanmakuRenderer:
     }
 
     @discardableResult
-    public func renderPrepared(
+    public func install(
         _ placement: DanmakuLanePlacement,
         preparationID: UInt64,
-        generation: UInt64,
-        elapsedSeconds: Double
+        generation: UInt64
     ) -> Bool {
         let event = placement.request.event
         guard entries[event.id] == nil,
-            entries.count
-                < DanmakuLaneConfiguration.hardMaximumActiveCount,
             surfaceSize.width > 0,
             surfaceSize.height > 0,
             let key = DanmakuTextureRasterizer.key(
@@ -162,41 +164,35 @@ public final class CoreAnimationDanmakuRenderer:
             return false
         }
 
-        nextObjectIdentity &+= 1
-        let objectIdentity = nextObjectIdentity
-        let layer = makeLayer(for: placement, image: image, scale: backingScale)
-        let relay = AnimationCompletionRelay(
-            renderer: self,
-            eventID: event.id,
-            objectIdentity: objectIdentity,
-            renderEpoch: renderEpoch
-        )
-        let animation = makeAnimation(for: placement, layer: layer)
-        animation.delegate = relay
+        let layer = CALayer()
+        layer.contents = image
+        layer.contentsScale = CGFloat(backingScale)
+        layer.contentsGravity = .resize
+        layer.magnificationFilter = .linear
+        layer.minificationFilter = .linear
+        layer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        layer.shadowOpacity = 0
+        layer.actions = Self.disabledActions
+        configure(layer, for: placement)
         entries[event.id] = Entry(
             layer: layer,
             placement: placement,
-            textureByteCost: payload.byteCost,
-            objectIdentity: objectIdentity,
-            relay: relay
+            textureByteCost: payload.byteCost
         )
         activeTextureByteCost += payload.byteCost
-
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
         rootLayer.addSublayer(layer)
-        // 模型值直接设为终点：动画结束到 layer 被异步移除之间，layer 停在画面外，不会闪回起点。
-        if event.mode == .scrolling {
-            layer.position.x = -layer.bounds.width / 2
-        }
-        // 补位：把开始时间移到过去，动画从已经走过的位置继续，并在剩余时长后结束。时间换算经过
-        // rootLayer，暂停与倍速调整的是 rootLayer 的时间，补位弹幕随之一起停走。
-        if elapsedSeconds > 0, elapsedSeconds.isFinite {
-            animation.beginTime =
-                layer.convertTime(CACurrentMediaTime(), from: nil) - elapsedSeconds
-        }
-        layer.add(animation, forKey: Self.animationKey)
-        CATransaction.commit()
+        hasChangesSinceRecomposite = true
+        return true
+    }
+
+    @discardableResult
+    public func update(_ placement: DanmakuLanePlacement) -> Bool {
+        let eventID = placement.request.event.id
+        guard var entry = entries[eventID] else { return false }
+        guard entry.placement != placement else { return true }
+        entry.placement = placement
+        entries[eventID] = entry
+        configure(entry.layer, for: placement)
         hasChangesSinceRecomposite = true
         return true
     }
@@ -219,40 +215,40 @@ public final class CoreAnimationDanmakuRenderer:
     }
 
     public func remove(eventID: String) {
-        removeEntry(eventID: eventID)
+        guard let entry = entries.removeValue(forKey: eventID) else {
+            return
+        }
+        activeTextureByteCost -= entry.textureByteCost
+        hasChangesSinceRecomposite = true
+        entry.layer.removeAllAnimations()
+        entry.layer.removeFromSuperlayer()
     }
 
     public func clearAll() {
-        advanceEpoch()
         preparationOwner.cancelAllPreparations()
         removeAllEntries()
     }
 
-    /// 在保持当前 layer 局部时间连续的前提下暂停或调整动画速率；立即按此刻生效。
-    public func setPlaybackRate(_ rate: Double) {
-        let newRate = rate.isFinite ? max(rate, 0) : 0
-        guard Double(rootLayer.speed) != newRate else { return }
+    public func setHidden(_ hidden: Bool) {
+        guard rootLayer.isHidden != hidden else { return }
+        rootLayer.isHidden = hidden
         hasChangesSinceRecomposite = true
-        let mediaTime = CACurrentMediaTime()
-        let parentTime =
-            rootLayer.superlayer?
-            .convertTime(mediaTime, from: nil)
-            ?? mediaTime
-        let localTime = rootLayer.convertTime(mediaTime, from: nil)
-        // 局部时间按 (父时间 − beginTime) × speed + timeOffset 换算，只改 speed 会让局部时间跳变；
-        // 先以此刻为 beginTime、以当前局部时间为 timeOffset，再改 speed，动画从原位置按新速率继续。
-        rootLayer.beginTime = parentTime
-        rootLayer.timeOffset = localTime
-        rootLayer.speed = Float(newRate)
     }
 
-    /// 一整批改动结束后由呈现控制器调用一次；静止且这批改动了 layer 树时请求下一帧重新合成。
+    public func setStill(_ still: Bool) {
+        guard isStill != still else { return }
+        isStill = still
+        // 刚停下时最后一帧也要完整合成；开始走动后渲染服务器本来就在出帧。
+        hasChangesSinceRecomposite = true
+    }
+
+    /// 一整批改动结束后由呈现端调用一次；静止且这批改动了 layer 树时请求下一帧重新合成。
     ///
     /// 同一轮或下一帧之前的多次调用合并为一次请求；不静止或没有可用的显示帧时不请求。
     /// 宿主从不可见恢复可见时也调用它，补上不可见期间没能完成的重新合成。
     public func recompositeIfStill() {
         guard hasChangesSinceRecomposite else { return }
-        guard rootLayer.speed == 0, !isFrameRequested else {
+        guard isStill, !isFrameRequested else {
             // 走动中不需要；已有请求在途时这批改动随它一起合成。
             hasChangesSinceRecomposite = false
             return
@@ -278,7 +274,7 @@ public final class CoreAnimationDanmakuRenderer:
     private func frameDidArrive(didDisplay: Bool, generation: UInt64) {
         guard generation == frameRequestGeneration, isFrameRequested else { return }
         isFrameRequested = false
-        guard rootLayer.speed == 0 else { return }
+        guard isStill else { return }
         guard didDisplay else {
             hasChangesSinceRecomposite = true
             return
@@ -337,85 +333,54 @@ public final class CoreAnimationDanmakuRenderer:
         CATransaction.commit()
     }
 
-    /// 会话结束：清屏、速率归零，并取消在途的帧请求，display link 随之停止。
+    /// 会话结束：清屏、取消显隐，并取消在途的帧请求，display link 随之停止。
     public func stop() {
-        advanceEpoch()
         preparationOwner.cancelAllPreparations()
         removeAllEntries()
-        setPlaybackRate(0)
+        rootLayer.isHidden = false
+        isStill = false
         hasChangesSinceRecomposite = false
         cancelFrameRequests()
     }
 
-    /// 由 `AnimationCompletionRelay` 在 MainActor 调用；epoch 与 object identity 都匹配时才移除
-    /// layer 并通知 delegate。
-    func completeAnimation(
-        eventID: String,
-        objectIdentity: UInt64,
-        renderEpoch completionEpoch: UInt64
-    ) {
-        guard completionEpoch == renderEpoch,
-            let entry = entries[eventID],
-            entry.objectIdentity == objectIdentity
-        else {
-            return
-        }
-        removeEntry(eventID: eventID)
-        delegate?.rendererDidFinish(eventID: eventID)
+    /// 媒体时间换算成同步 layer 下的动画开始时间；0 写成 `beginTimeAtZero`，否则会被当作「现在」。
+    func animationBeginTime(forMediaTime seconds: Double) -> CFTimeInterval {
+        seconds > 0 ? seconds : beginTimeAtZero
     }
 
-    private func makeLayer(
-        for placement: DanmakuLanePlacement,
-        image: CGImage,
-        scale: Double
-    ) -> CALayer {
-        let layer = CALayer()
-        layer.contents = image
-        layer.contentsScale = CGFloat(scale)
-        layer.contentsGravity = .resize
-        layer.magnificationFilter = .linear
-        layer.minificationFilter = .linear
-        layer.bounds = CGRect(
-            x: 0,
-            y: 0,
-            width: placement.request.width,
-            height: placement.request.height
-        )
-        layer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
-        layer.position = CGPoint(
-            x: placement.request.event.mode == .scrolling
-                ? surfaceSize.width + layer.bounds.width / 2
-                : surfaceSize.width / 2,
-            y: placement.originY + layer.bounds.height / 2
-        )
-        layer.shadowOpacity = 0
-        layer.actions = Self.disabledActions
-        return layer
-    }
-
-    private func makeAnimation(
-        for placement: DanmakuLanePlacement,
-        layer: CALayer
-    ) -> CABasicAnimation {
+    /// 按 placement 设定 layer 的几何、不可见的模型值与唯一的动画；安装与布局替换共用。
+    private func configure(_ layer: CALayer, for placement: DanmakuLanePlacement) {
+        let request = placement.request
+        let width = request.width
+        layer.bounds = CGRect(x: 0, y: 0, width: width, height: request.height)
+        let centerY = placement.originY + request.height / 2
         let animation: CABasicAnimation
-        switch placement.request.event.mode {
+        switch request.event.mode {
         case .scrolling:
+            // 模型值在画面左外侧：动画开始之前与结束之后都看不见。
+            layer.position = CGPoint(x: -width / 2, y: centerY)
+            layer.opacity = 1
             animation = CABasicAnimation(keyPath: "position.x")
-            animation.fromValue = layer.position.x
-            animation.toValue = -layer.bounds.width / 2
+            animation.fromValue = placement.surfaceWidthAtAdmission + width / 2
+            animation.toValue = -width / 2
             animation.timingFunction = CAMediaTimingFunction(name: .linear)
         case .top, .bottom:
-            // 顶部与底部弹幕不移动，用一个不改变外观的 opacity 动画计时，结束时同样经 delegate
-            // 回收。
+            // 模型不透明度为 0，停留期间由不透明度为 1 的动画撑起。
+            layer.position = CGPoint(x: surfaceSize.width / 2, y: centerY)
+            layer.opacity = 0
             animation = CABasicAnimation(keyPath: "opacity")
             animation.fromValue = 1
             animation.toValue = 1
         }
-        animation.duration = placement.request.durationSeconds
-        return animation
+        animation.beginTime = animationBeginTime(forMediaTime: placement.admittedAtSeconds)
+        animation.duration = request.durationSeconds
+        animation.isRemovedOnCompletion = false
+        layer.add(animation, forKey: Self.animationKey)
     }
 
-    /// 顶部与底部弹幕随新宽度重新居中，底部弹幕随高度变化平移以贴住底边；滚动弹幕保持入场时的运动。
+    /// 顶部与底部弹幕随新宽度重新居中，底部弹幕随高度变化平移以贴住底边；滚动弹幕保持布局时的运动。
+    ///
+    /// 只在尺寸变化到按新尺寸重新布局之间起作用，重新布局后整屏换成新布局。
     private func updateFixedGeometry(
         for entry: Entry,
         heightDelta: CGFloat
@@ -431,10 +396,6 @@ public final class CoreAnimationDanmakuRenderer:
         }
     }
 
-    private func advanceEpoch() {
-        renderEpoch &+= 1
-    }
-
     private func removeAllEntries() {
         let oldEntries = entries
         entries.removeAll(keepingCapacity: false)
@@ -446,16 +407,6 @@ public final class CoreAnimationDanmakuRenderer:
             entry.layer.removeAllAnimations()
             entry.layer.removeFromSuperlayer()
         }
-    }
-
-    private func removeEntry(eventID: String) {
-        guard let entry = entries.removeValue(forKey: eventID) else {
-            return
-        }
-        activeTextureByteCost -= entry.textureByteCost
-        hasChangesSinceRecomposite = true
-        entry.layer.removeAllAnimations()
-        entry.layer.removeFromSuperlayer()
     }
 
     private static func makeImage(

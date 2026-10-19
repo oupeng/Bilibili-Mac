@@ -47,10 +47,13 @@ final class DanmakuLayoutCoordinator {
         debounceTask?.cancel()
     }
 
-    /// 换上会话当前缓存的全部分段；新分段排进布局表，被淘汰的分段的布局随之丢弃。
+    /// 换上会话当前缓存的全部分段；新分段排进布局表，被淘汰或内容变了的分段的布局随之丢弃。
     func setSegments(_ segments: [Int: [DanmakuEvent]]) {
+        let previous = self.segments
         self.segments = segments
-        layouts = layouts.filter { segments[$0.key] != nil }
+        layouts = layouts.filter { index, _ in
+            segments[index].map { $0 == previous[index] } ?? false
+        }
         startIfNeeded()
     }
 

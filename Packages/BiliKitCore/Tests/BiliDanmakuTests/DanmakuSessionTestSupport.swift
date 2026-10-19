@@ -27,15 +27,17 @@ func snapshot(
     )
 }
 
-/// 弹幕会话测试唯一的呈现端替身：记录收到的更新与清空、停止次数，向会话报告可配置的补位窗口
-/// （nil 表示画面尺寸不可用，`makeCatchUpWindowAvailable` 模拟布局完成），可等到收到满足条件的更新；
-/// 不渲染任何弹幕。
+/// 弹幕会话测试唯一的呈现端替身：记录收到的快照、分段、开关、过滤与停止次数，每收到一个快照或分段
+/// 检查一次等待条件；不渲染任何弹幕。
 @MainActor
 final class SessionPresentationSink: DanmakuPresentationSink {
-    var catchUpWindowSeconds: Double? = 0
-    var catchUpWindowAvailabilityHandler: (@MainActor () -> Void)?
-    private(set) var updates: [DanmakuPresentationUpdate] = []
-    private(set) var clearCount = 0
+    private(set) var snapshots: [PlaybackTimelineSnapshot] = []
+    /// 每次收到的整份分段缓存，按到达顺序。
+    private(set) var segmentDeliveries:
+        [(identity: PlaybackItemIdentity, segments: [Int: [DanmakuEvent]])] =
+            []
+    private(set) var enabledChanges: [Bool] = []
+    private(set) var filters: [DanmakuFilter] = []
     private(set) var stopCount = 0
     private var updateWaiters:
         [UUID: (
@@ -43,12 +45,25 @@ final class SessionPresentationSink: DanmakuPresentationSink {
             continuation: CheckedContinuation<Void, any Error>
         )] = [:]
 
-    func apply(_ update: DanmakuPresentationUpdate) {
-        updates.append(update)
-        let ready = updateWaiters.filter { $0.value.isSatisfied() }
-        for (id, waiter) in ready where updateWaiters.removeValue(forKey: id) != nil {
-            waiter.continuation.resume()
-        }
+    func apply(_ snapshot: PlaybackTimelineSnapshot) {
+        snapshots.append(snapshot)
+        resumeSatisfiedWaiters()
+    }
+
+    func setSegments(
+        _ segments: [Int: [DanmakuEvent]],
+        for identity: PlaybackItemIdentity
+    ) {
+        segmentDeliveries.append((identity, segments))
+        resumeSatisfiedWaiters()
+    }
+
+    func setEnabled(_ enabled: Bool) {
+        enabledChanges.append(enabled)
+    }
+
+    func setFilter(_ filter: DanmakuFilter) {
+        filters.append(filter)
     }
 
     func setSpeedLevel(_ speedLevel: DanmakuSpeedLevel) {}
@@ -56,20 +71,14 @@ final class SessionPresentationSink: DanmakuPresentationSink {
     func setDisplayArea(_ displayArea: DanmakuDisplayArea) {}
     func setDensity(_ density: DanmakuDensity) {}
 
-    func clearPresentation() {
-        clearCount += 1
-    }
-
     func stopPresentation() {
         stopCount += 1
     }
 
-    /// 补位窗口从不可用变为 `seconds`，并像呈现控制器一样通知会话。
-    func makeCatchUpWindowAvailable(_ seconds: Double) {
-        let wasAvailable = catchUpWindowSeconds != nil
-        catchUpWindowSeconds = seconds
-        if !wasAvailable {
-            catchUpWindowAvailabilityHandler?()
+    private func resumeSatisfiedWaiters() {
+        let ready = updateWaiters.filter { $0.value.isSatisfied() }
+        for (id, waiter) in ready where updateWaiters.removeValue(forKey: id) != nil {
+            waiter.continuation.resume()
         }
     }
 
@@ -82,7 +91,7 @@ final class SessionPresentationSink: DanmakuPresentationSink {
         }
     }
 
-    /// 等到收到的更新满足 `isSatisfied`；每收到一个更新检查一次，取消时抛出 `CancellationError`。
+    /// 等到收到的快照与分段满足 `isSatisfied`；每收到一个检查一次，取消时抛出 `CancellationError`。
     func waitForUpdates(
         where isSatisfied: @escaping @MainActor () -> Bool
     ) async throws {
@@ -111,7 +120,7 @@ final class SessionPresentationSink: DanmakuPresentationSink {
     }
 
     func updateCount(for identity: PlaybackItemIdentity) -> Int {
-        updates.lazy.filter { $0.snapshot.identity == identity }.count
+        snapshots.lazy.filter { $0.identity == identity }.count
     }
 }
 

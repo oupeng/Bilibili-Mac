@@ -1,3 +1,4 @@
+import AVFoundation
 import AVKit
 import AppKit
 import BiliApplication
@@ -12,7 +13,7 @@ struct PlayerHostViewIdentityTests {
     @Test
     @MainActor
     func nativePlayerViewLeavesNowPlayingOwnershipToProcessController() {
-        let renderer = CoreAnimationDanmakuRenderer()
+        let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
         let controller = DanmakuPresentationController(
             backend: renderer,
             configuration: Self.emptyDanmakuConfiguration
@@ -30,7 +31,7 @@ struct PlayerHostViewIdentityTests {
     @Test
     @MainActor
     func playbackPreparationBlocksNativePlayerInputAndAccessibility() {
-        let renderer = CoreAnimationDanmakuRenderer()
+        let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
         let controller = DanmakuPresentationController(
             backend: renderer,
             configuration: Self.emptyDanmakuConfiguration
@@ -60,7 +61,7 @@ struct PlayerHostViewIdentityTests {
     @Test
     @MainActor
     func danmakuSurfaceSurvivesTemporaryWindowReparenting() async throws {
-        let renderer = CoreAnimationDanmakuRenderer()
+        let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
         let controller = DanmakuPresentationController(
             backend: renderer,
             configuration: Self.emptyDanmakuConfiguration
@@ -88,14 +89,9 @@ struct PlayerHostViewIdentityTests {
         #expect(renderer.rootLayer.superlayer === overlay.layer)
 
         let identity = PlaybackItemIdentity(bvid: "fixture", cid: 1)
-        controller.apply(
-            danmakuUpdate(
-                identity: identity,
-                position: 1,
-                eventID: "before-reparent",
-                mode: .scrolling
-            )
-        )
+        let beforeReparent = danmakuEvent(at: 1, id: "before-reparent", mode: .scrolling)
+        controller.apply(pausedSnapshot(identity: identity, position: 1))
+        controller.setSegments([1: [beforeReparent]], for: identity)
         #expect(await waitUntil { (renderer.rootLayer.sublayers?.count ?? 0) == 1 })
         let firstLayer = try #require(renderer.rootLayer.sublayers?.first)
 
@@ -107,13 +103,9 @@ struct PlayerHostViewIdentityTests {
 
         overlay.frame = .zero
         overlay.layoutSubtreeIfNeeded()
-        controller.apply(
-            danmakuUpdate(
-                identity: identity,
-                position: 2,
-                eventID: "during-reparent",
-                mode: .top
-            )
+        controller.setSegments(
+            [1: [beforeReparent, danmakuEvent(at: 1.5, id: "during-reparent", mode: .top)]],
+            for: identity
         )
         #expect(await waitUntil { (renderer.rootLayer.sublayers?.count ?? 0) == 2 })
 
@@ -129,15 +121,14 @@ struct PlayerHostViewIdentityTests {
         #expect((renderer.rootLayer.sublayers?.count ?? 0) == 0)
     }
 
-    private func danmakuUpdate(
-        identity: PlaybackItemIdentity,
-        position: Double,
-        eventID: String,
+    private func danmakuEvent(
+        at time: Double,
+        id: String,
         mode: DanmakuPresentationMode
-    ) -> DanmakuPresentationUpdate {
-        let event = DanmakuEvent(
-            id: eventID,
-            timeSeconds: position,
+    ) -> DanmakuEvent {
+        DanmakuEvent(
+            id: id,
+            timeSeconds: time,
             mode: mode,
             text: "reparent fixture",
             fontSize: 24,
@@ -145,23 +136,20 @@ struct PlayerHostViewIdentityTests {
             colorStyle: .solid,
             weight: 1
         )
-        return DanmakuPresentationUpdate(
-            snapshot: PlaybackTimelineSnapshot(
-                identity: identity,
-                positionSeconds: position,
-                durationSeconds: 100,
-                rate: 1,
-                state: .playing,
-                discontinuityGeneration: 1,
-                landingGeneration: 1
-            ),
-            batch: DanmakuBatch(
-                identity: identity,
-                landingGeneration: 1,
-                events: [event],
-                clearsExisting: false,
-                catchesUp: false
-            )
+    }
+
+    private func pausedSnapshot(
+        identity: PlaybackItemIdentity,
+        position: Double
+    ) -> PlaybackTimelineSnapshot {
+        PlaybackTimelineSnapshot(
+            identity: identity,
+            positionSeconds: position,
+            durationSeconds: 100,
+            rate: 0,
+            state: .paused,
+            discontinuityGeneration: 1,
+            landingGeneration: 1
         )
     }
 
