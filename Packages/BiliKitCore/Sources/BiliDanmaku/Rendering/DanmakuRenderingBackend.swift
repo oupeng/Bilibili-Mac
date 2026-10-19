@@ -25,6 +25,19 @@ public enum DanmakuPreparationRejectionReason: Sendable, Equatable {
     case cancelled
 }
 
+/// 一次安装的结果：是否上屏，以及为腾出纹理字节而被移除的弹幕。
+public struct DanmakuInstallResult: Sendable, Equatable {
+    public static let notInstalled = DanmakuInstallResult(isInstalled: false, evictedEventIDs: [])
+
+    public let isInstalled: Bool
+    public let evictedEventIDs: [String]
+
+    public init(isInstalled: Bool, evictedEventIDs: [String]) {
+        self.isInstalled = isInstalled
+        self.evictedEventIDs = evictedEventIDs
+    }
+}
+
 /// 纹理准备的结果：就绪时带纹理尺寸，否则带拒绝原因。
 public enum DanmakuPreparationResult: Sendable, Equatable {
     case ready(DanmakuTextMetrics)
@@ -105,16 +118,19 @@ public protocol DanmakuRenderingBackend: AnyObject {
     )
 
     /// 用已准备好的纹理按 placement 安装一条弹幕；动画在 placement 的媒体时间开始，安装时已过了开始
-    /// 时间的直接出现在中途应在的位置。
+    /// 时间的直接出现在中途应在的位置。同一事件 ID 已在屏时原位换上新纹理与 placement。
     ///
-    /// 返回 false 表示没有上屏：同一事件 ID 已在屏、纹理字节超限、画面尺寸为 0、准备已失效或被淘汰，
-    /// 或 CGImage 创建失败。返回前 renderer 已消费或丢弃这条准备记录。
+    /// `position` 是此刻的媒体时间，纹理字节超限时据此决定腾出谁：先移除已走完的，已进场的弹幕再挤掉
+    /// 还没进场的前瞻弹幕；被移除的 ID 在结果里交回，调用方据此更新记录。没有上屏的原因：纹理字节仍然
+    /// 超限、画面尺寸为 0、准备已失效或被淘汰，或 CGImage 创建失败；返回前 renderer 已消费或丢弃这条准备
+    /// 记录。
     @discardableResult
     func install(
         _ placement: DanmakuLanePlacement,
         preparationID: UInt64,
-        generation: UInt64
-    ) -> Bool
+        generation: UInt64,
+        at position: Double
+    ) -> DanmakuInstallResult
     /// 已在屏的弹幕换成新的 placement（重新布局后车道或时长变了），复用原纹理；不在屏、或纹理是按旧的
     /// backing scale 栅格化的（窗口换到另一块屏幕）时返回 false，调用方移除后重新准备。
     @discardableResult

@@ -114,6 +114,44 @@ struct DanmakuMaterializerTests {
         #expect(backend.installed == before)
     }
 
+    /// 窗口换到另一块屏幕：已在屏的弹幕不先移除，新纹理全部就绪后一次原位替换。
+    @Test
+    func backingScaleChangeReplacesTexturesInPlaceInOneCall() {
+        let table = layoutTable([1: denseEvents(segment: 1, count: 300, seed: 81)])
+        let backend = RecordingRenderingBackend()
+        let materializer = DanmakuMaterializer(backend: backend)
+        materializer.reconcile(table: table, position: 150, staged: true)
+        let before = backend.installed
+        #expect(!before.isEmpty)
+
+        backend.delaysPreparation = true
+        materializer.setBackingScale(3)
+        materializer.reconcile(table: table, position: 150, staged: true)
+        #expect(backend.pendingPreparationCount == before.count)
+        backend.completePreparations(before.count - 1)
+        #expect(backend.installed == before)
+        #expect(backend.replacedHistory.isEmpty)
+
+        backend.completePreparations()
+        #expect(backend.installed == before)
+        #expect(Set(backend.replacedHistory) == Set(before.keys))
+        #expect(backend.removedHistory.isEmpty)
+    }
+
+    /// 暂存提交按 (时间, ID) 顺序挂上，与纹理完成的先后无关。
+    @Test
+    func stagedCommitInstallsInTimeOrder() {
+        let table = layoutTable([1: denseEvents(segment: 1, count: 300, seed: 91)])
+        let backend = RecordingRenderingBackend()
+        backend.delaysPreparation = true
+        let materializer = DanmakuMaterializer(backend: backend)
+        materializer.reconcile(table: table, position: 150, staged: true)
+
+        backend.completePreparations(reversed: true)
+        let expected = DanmakuMaterializer.desiredPlacements(in: table, at: 150)
+        #expect(backend.installedHistory == expected.map(\.request.event.id))
+    }
+
     private func placementsByID(
         _ placements: [DanmakuLanePlacement]
     ) -> [String: DanmakuLanePlacement] {

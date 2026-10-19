@@ -39,10 +39,13 @@ public final class CoreAnimationDanmakuRenderer:
         let backingScale: Double
     }
 
-    /// 已上屏 layer 的纹理字节总上限；超出时新弹幕不上屏。
+    /// 已上屏 layer（含已挂上、还没进场的前瞻弹幕）的纹理字节总上限；超出时按 `makeRoom` 的顺序腾地方，
+    /// 腾不出来的新弹幕不上屏。
     ///
     /// 只作内存安全阀：同屏数量由布局阶段的 `hardMaximumActiveCount` 决定，这里拒绝的弹幕不归还车道，
-    /// 车道布局因此不受它影响。调大允许更多长文本同屏，调小则高峰期更早缺席。
+    /// 车道布局因此不受它影响。按全部 layer 计算而不是只算已进场的：前瞻弹幕也占着同样的内存；但已进场的
+    /// 弹幕可以挤掉前瞻弹幕，效果上与只算已进场弹幕时一样优先保证屏上可见的。调大允许更多长文本同屏，
+    /// 调小则高峰期更早缺席。
     static let maximumActiveTextureByteCost = 64 * 1_024 * 1_024
     /// 每个弹幕 layer 上唯一的位移／显隐动画的 key。
     static let animationKey = "danmaku"
@@ -137,11 +140,11 @@ public final class CoreAnimationDanmakuRenderer:
     public func install(
         _ placement: DanmakuLanePlacement,
         preparationID: UInt64,
-        generation: UInt64
-    ) -> Bool {
+        generation: UInt64,
+        at position: Double
+    ) -> DanmakuInstallResult {
         let event = placement.request.event
-        guard entries[event.id] == nil,
-            surfaceSize.width > 0,
+        guard surfaceSize.width > 0,
             surfaceSize.height > 0,
             let key = DanmakuTextureRasterizer.key(
                 event: event,
@@ -151,30 +154,37 @@ public final class CoreAnimationDanmakuRenderer:
                 preparationID: preparationID,
                 generation: generation,
                 expectedKey: key
-            )
-        else {
-            preparationOwner.discard(preparationID: preparationID)
-            return false
-        }
-        let remainingTextureBytes = max(
-            Self.maximumActiveTextureByteCost - activeTextureByteCost,
-            0
-        )
-        guard payload.byteCost <= remainingTextureBytes,
+            ),
             let image = Self.makeImage(payload)
         else {
-            return false
+            preparationOwner.discard(preparationID: preparationID)
+            return .notInstalled
+        }
+        let replacedCost = entries[event.id]?.textureByteCost ?? 0
+        let evicted = makeRoom(
+            for: payload.byteCost - replacedCost,
+            admitting: placement,
+            at: position
+        )
+        let remainingTextureBytes =
+            Self.maximumActiveTextureByteCost - activeTextureByteCost + replacedCost
+        guard payload.byteCost <= remainingTextureBytes else {
+            return DanmakuInstallResult(isInstalled: false, evictedEventIDs: evicted)
         }
 
-        let layer = CALayer()
+        // 已在屏（窗口换到另一块屏幕后纹理要按新 scale 重建）时原位换纹理，不先移除，画面不缺这一条。
+        let layer = entries[event.id]?.layer ?? CALayer()
         layer.contents = image
         layer.contentsScale = CGFloat(backingScale)
-        layer.contentsGravity = .resize
-        layer.magnificationFilter = .linear
-        layer.minificationFilter = .linear
-        layer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
-        layer.shadowOpacity = 0
-        layer.actions = Self.disabledActions
+        if entries[event.id] == nil {
+            layer.contentsGravity = .resize
+            layer.magnificationFilter = .linear
+            layer.minificationFilter = .linear
+            layer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+            layer.shadowOpacity = 0
+            layer.actions = Self.disabledActions
+            rootLayer.addSublayer(layer)
+        }
         configure(layer, for: placement)
         entries[event.id] = Entry(
             layer: layer,
@@ -182,10 +192,54 @@ public final class CoreAnimationDanmakuRenderer:
             textureByteCost: payload.byteCost,
             backingScale: backingScale
         )
-        activeTextureByteCost += payload.byteCost
-        rootLayer.addSublayer(layer)
+        activeTextureByteCost += payload.byteCost - replacedCost
         hasChangesSinceRecomposite = true
-        return true
+        return DanmakuInstallResult(isInstalled: true, evictedEventIDs: evicted)
+    }
+
+    /// 纹理字节不够装下 `placement` 时腾出空间，返回被移除的弹幕 ID。
+    ///
+    /// 先移除已经走完的（`position` 时已过期、只是还没等到下一次 reconcile），再移除还没进场的前瞻弹幕
+    /// （进场最晚的先移除）；只有已进场的弹幕才能挤掉前瞻弹幕，前瞻弹幕之间不互相挤占。已进场、还在走的
+    /// 弹幕从不移除，所以已进场的弹幕先挂上的优先，超出时被拒绝的总是前瞻弹幕或更晚的那条。
+    private func makeRoom(
+        for additionalBytes: Int,
+        admitting placement: DanmakuLanePlacement,
+        at position: Double
+    ) -> [String] {
+        var evicted: [String] = []
+        guard additionalBytes > Self.maximumActiveTextureByteCost - activeTextureByteCost else {
+            return evicted
+        }
+        let admittingID = placement.request.event.id
+        let others = entries.values.map(\.placement).filter {
+            $0.request.event.id != admittingID
+        }
+        let finished = others.filter { $0.expiresAtSeconds <= position }
+            .sorted { $0.request.event.id < $1.request.event.id }
+        var lookahead: [DanmakuLanePlacement] = []
+        if placement.admittedAtSeconds <= position {
+            lookahead = others.filter { $0.admittedAtSeconds > position }
+            lookahead.sort(by: Self.entersLater)
+        }
+        for candidate in finished + lookahead
+        where additionalBytes > Self.maximumActiveTextureByteCost - activeTextureByteCost {
+            let eventID = candidate.request.event.id
+            remove(eventID: eventID)
+            evicted.append(eventID)
+        }
+        return evicted
+    }
+
+    /// 进场更晚的排在前面；同时进场的按 ID 倒序，顺序与字典遍历无关。
+    private static func entersLater(
+        _ left: DanmakuLanePlacement,
+        _ right: DanmakuLanePlacement
+    ) -> Bool {
+        if left.admittedAtSeconds != right.admittedAtSeconds {
+            return left.admittedAtSeconds > right.admittedAtSeconds
+        }
+        return left.request.event.id > right.request.event.id
     }
 
     @discardableResult

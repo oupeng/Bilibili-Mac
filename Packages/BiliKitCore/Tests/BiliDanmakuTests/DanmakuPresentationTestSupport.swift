@@ -73,8 +73,12 @@ func layoutTable(
 final class RecordingRenderingBackend: DanmakuRenderingBackend {
     /// 此刻在屏的弹幕与它们的 placement。
     private(set) var installed: [String: DanmakuLanePlacement] = [:]
-    /// 每次安装的事件 ID，按顺序。
+    /// 每次新挂上的事件 ID，按顺序。
     private(set) var installedHistory: [String] = []
+    /// 每次原位替换（同一 ID 已在屏时再次安装）的事件 ID，按顺序。
+    private(set) var replacedHistory: [String] = []
+    /// 每次移除的事件 ID，按顺序。
+    private(set) var removedHistory: [String] = []
     private(set) var isStill = false
     private(set) var clearCount = 0
     private(set) var stopCount = 0
@@ -110,27 +114,32 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
         }
     }
 
-    /// 按发起顺序完成前 `count` 个延迟的准备（默认全部）。
-    func completePreparations(_ count: Int? = nil) {
+    /// 按发起顺序完成前 `count` 个延迟的准备（默认全部）；`reversed` 时倒序完成它们。
+    func completePreparations(_ count: Int? = nil, reversed: Bool = false) {
         let completing = Array(delayedCompletions.prefix(count ?? delayedCompletions.count))
         delayedCompletions.removeFirst(completing.count)
-        for item in completing {
+        for item in reversed ? completing.reversed() : completing {
             item.completion(.ready(DanmakuTextMetrics(width: 120, height: 24)))
         }
     }
 
+    /// 不限纹理字节；已在屏的同一 ID 视为原位替换，记入 `replacedHistory`。
     @discardableResult
     func install(
         _ placement: DanmakuLanePlacement,
         preparationID: UInt64,
-        generation: UInt64
-    ) -> Bool {
+        generation: UInt64,
+        at position: Double
+    ) -> DanmakuInstallResult {
         let eventID = placement.request.event.id
-        guard installed[eventID] == nil else { return false }
+        if installed[eventID] != nil {
+            replacedHistory.append(eventID)
+        } else {
+            installedHistory.append(eventID)
+        }
         installed[eventID] = placement
-        installedHistory.append(eventID)
         notifyWaiters()
-        return true
+        return DanmakuInstallResult(isInstalled: true, evictedEventIDs: [])
     }
 
     @discardableResult
@@ -149,6 +158,7 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
     }
 
     func remove(eventID: String) {
+        removedHistory.append(eventID)
         installed[eventID] = nil
         notifyWaiters()
     }

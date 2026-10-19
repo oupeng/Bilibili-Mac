@@ -35,6 +35,8 @@ final class DanmakuMaterializer {
 
     /// backend 上每条在屏弹幕当前使用的 placement。
     private(set) var installed: [String: DanmakuLanePlacement] = [:]
+    /// 每条在屏弹幕的纹理按哪个 backing scale 栅格化；与当前 scale 不同的要重新准备、原位换纹理。
+    private var installedScales: [String: Double] = [:]
     /// 已发起、尚未完成的纹理准备。
     private var pending: [String: Preparation] = [:]
     /// 暂存提交期间已就绪、等提交时一起挂上的纹理。
@@ -112,6 +114,7 @@ final class DanmakuMaterializer {
         backend.cancelPendingPreparations()
         backend.clearAll()
         installed.removeAll(keepingCapacity: false)
+        installedScales.removeAll(keepingCapacity: false)
         pending.removeAll(keepingCapacity: false)
         parked.removeAll(keepingCapacity: false)
         awaitedByCommit = nil
@@ -121,6 +124,8 @@ final class DanmakuMaterializer {
     }
 
     /// 纹理按 backing scale 栅格化；scale 变化时作废在途与暂存的纹理，有暂存提交时按最近的表与时间重新开始。
+    ///
+    /// 已在屏的弹幕不移除，之后的 reconcile 为它们按新 scale 准备纹理并原位替换。
     func setBackingScale(_ scale: Double) {
         let normalized = DanmakuTextureRasterizer.normalizedBackingScale(scale)
         guard normalized != backingScale else { return }
@@ -142,7 +147,7 @@ final class DanmakuMaterializer {
         discardPreparations(notIn: desiredByID)
         for placement in desired {
             let eventID = placement.request.event.id
-            if installed[eventID] == nil, pending[eventID] == nil, parked[eventID] == nil {
+            if needsTexture(eventID), pending[eventID] == nil, parked[eventID] == nil {
                 requestPreparation(for: placement)
             }
         }
@@ -161,12 +166,13 @@ final class DanmakuMaterializer {
         let ready = parked
         parked.removeAll(keepingCapacity: false)
         removeInstalled(notIn: desiredByID)
-        for (eventID, preparation) in ready {
-            guard let placement = desiredByID[eventID] else {
-                backend.discardPreparation(preparationID: preparation.preparationID)
-                continue
-            }
+        // 按 (时间, ID) 顺序挂上：纹理字节吃紧时先进场的优先，结果与纹理完成的先后无关。
+        for placement in desired {
+            guard let preparation = ready[placement.request.event.id] else { continue }
             installPrepared(placement, preparationID: preparation.preparationID)
+        }
+        for (eventID, preparation) in ready where desiredByID[eventID] == nil {
+            backend.discardPreparation(preparationID: preparation.preparationID)
         }
         reconcileNow()
         backend.recompositeIfStill()
@@ -178,7 +184,7 @@ final class DanmakuMaterializer {
         let desiredByID = Self.byEventID(desired)
         removeInstalled(notIn: desiredByID)
         discardPreparations(notIn: desiredByID)
-        for placement in desired where installed[placement.request.event.id] == nil {
+        for placement in desired where needsTexture(placement.request.event.id) {
             if pending[placement.request.event.id] == nil {
                 requestPreparation(for: placement)
             }
@@ -186,23 +192,30 @@ final class DanmakuMaterializer {
     }
 
     /// 移除不再需要的 layer；仍需要但 placement 变了的（重新布局）就地换成新 placement。
+    ///
+    /// 纹理按旧 scale 栅格化的不在这里换：它们已在准备新纹理，挂上时连同新 placement 原位替换。
     private func removeInstalled(notIn desiredByID: [String: DanmakuLanePlacement]) {
         for (eventID, placement) in installed {
             guard let desired = desiredByID[eventID] else {
                 backend.remove(eventID: eventID)
                 installed[eventID] = nil
+                installedScales[eventID] = nil
                 continue
             }
-            if desired != placement {
-                if backend.update(desired) {
-                    installed[eventID] = desired
-                } else {
-                    // 纹理不能复用：移除，之后的普通 reconcile 按新 placement 重新准备。
-                    backend.remove(eventID: eventID)
-                    installed[eventID] = nil
-                }
+            guard desired != placement, !needsTexture(eventID) else { continue }
+            if backend.update(desired) {
+                installed[eventID] = desired
+            } else {
+                backend.remove(eventID: eventID)
+                installed[eventID] = nil
+                installedScales[eventID] = nil
             }
         }
+    }
+
+    /// 这条弹幕要不要准备纹理：还没挂上，或挂着的纹理是按旧 backing scale 栅格化的。
+    private func needsTexture(_ eventID: String) -> Bool {
+        installedScales[eventID] != backingScale
     }
 
     /// 丢弃不再需要的在途与暂存准备；仍需要的换上最新的 placement。
@@ -294,13 +307,21 @@ final class DanmakuMaterializer {
         backend.recompositeIfStill()
     }
 
+    /// 挂上或原位替换一条弹幕；为腾纹理字节被 backend 移除的弹幕从记录里删掉，之后的 reconcile 再请求。
     private func installPrepared(_ placement: DanmakuLanePlacement, preparationID: UInt64) {
-        if backend.install(
+        let result = backend.install(
             placement,
             preparationID: preparationID,
-            generation: preparationGeneration
-        ) {
+            generation: preparationGeneration,
+            at: position
+        )
+        for eventID in result.evictedEventIDs {
+            installed[eventID] = nil
+            installedScales[eventID] = nil
+        }
+        if result.isInstalled {
             installed[placement.request.event.id] = placement
+            installedScales[placement.request.event.id] = backingScale
         }
     }
 }

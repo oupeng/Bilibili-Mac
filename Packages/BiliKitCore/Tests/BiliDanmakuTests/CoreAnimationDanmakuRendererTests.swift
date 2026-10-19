@@ -343,6 +343,62 @@ struct CoreAnimationDanmakuRendererTests {
         )
     }
 
+    /// 纹理字节超限时：前瞻弹幕不能再挂上，也不挤掉别人；已进场的弹幕挤掉进场最晚的前瞻弹幕后挂上。
+    @Test
+    func textureBudgetFavoursEnteredDanmakuOverLookahead() async throws {
+        let renderer = makeRenderer()
+        let text = String(repeating: "W", count: 100)
+        var nextPreparationID: UInt64 = 0
+        func install(_ id: String, admittedAt: Double) async -> DanmakuInstallResult {
+            let event = DanmakuEvent(
+                id: id,
+                timeSeconds: admittedAt,
+                mode: .scrolling,
+                text: text,
+                fontSize: 36,
+                colorRGB: 0xFFFFFF,
+                colorStyle: .solid,
+                weight: 1
+            )
+            nextPreparationID += 1
+            guard
+                case .ready(let metrics) = await prepare(
+                    renderer: renderer,
+                    event: event,
+                    preparationID: nextPreparationID
+                )
+            else {
+                return .notInstalled
+            }
+            return renderer.install(
+                placement(event: event, metrics: metrics, originY: 0, admittedAt: admittedAt),
+                preparationID: nextPreparationID,
+                generation: 0,
+                at: 5
+            )
+        }
+
+        var lookaheadIDs: [String] = []
+        while lookaheadIDs.count < 200 {
+            let id = String(format: "lookahead-%03d", lookaheadIDs.count)
+            let result = await install(id, admittedAt: 6)
+            #expect(result.evictedEventIDs.isEmpty)
+            guard result.isInstalled else { break }
+            lookaheadIDs.append(id)
+        }
+        #expect(!lookaheadIDs.isEmpty && lookaheadIDs.count < 200)
+        let installedBefore = renderer.rootLayer.sublayers?.count
+
+        let entered = await install("entered", admittedAt: 4)
+        #expect(entered.isInstalled)
+        #expect(entered.evictedEventIDs == [try #require(lookaheadIDs.last)])
+        #expect(renderer.rootLayer.sublayers?.count == installedBefore)
+        #expect(
+            renderer.activeTextureByteCost
+                <= CoreAnimationDanmakuRenderer.maximumActiveTextureByteCost
+        )
+    }
+
     /// 静止时上屏与清屏都算这批的改动：整批结束后请求一次下一帧重新合成。
     @Test
     func stillRenderAndClearRequestOneRecompositePerBatch() async throws {
@@ -423,12 +479,13 @@ struct CoreAnimationDanmakuRendererTests {
             Issue.record("texture preparation was rejected")
             return DanmakuTextMetrics(width: 0, height: 0)
         }
-        let didInstall = renderer.install(
+        let installation = renderer.install(
             placement(event: event, metrics: metrics, originY: originY, admittedAt: admittedAt),
             preparationID: preparationID,
-            generation: generation
+            generation: generation,
+            at: admittedAt
         )
-        #expect(didInstall)
+        #expect(installation.isInstalled)
         return metrics
     }
 
