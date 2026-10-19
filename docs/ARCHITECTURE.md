@@ -163,9 +163,9 @@ discontinuity generation。消费者不自建 wall-clock timer，也不接触 `A
 - `discontinuityGeneration` 由 engine 的 seek 收尾与 `AVPlayerItem` 的 time-jump 通知推进，观看进度、
   Now Playing 与弹幕使用；原生拖动的每一步都会推进它。一次 seek 的落点记录在播放位置仍在落点附近时吞掉
   落在它附近的重复跳变（例如暂停中 seek 后开播时系统再报一次），播放离开落点、新 seek、外部跳变、换项或
-  clear 之后不再吞；这样同一次 seek 只推进一次，Now Playing 依赖它。起播前暂停、缓冲恢复时系统也可能报
-  一次原地的时间跳变，它会推进一次不连续代号；弹幕因此多做一次内容相同的整屏对齐，画面不变。周期回调的
-  位置照常写入。
+  clear 之后不再吞；这样同一次 seek 只推进一次，Now Playing 依赖它。每次从暂停恢复播放，系统都会报一次
+  原地的时间跳变（刚在原处 seek 过、落点还在吞的除外），它推进一次不连续代号；弹幕因此多做一次内容相同的
+  暂存提交，画面不变。周期回调的位置照常写入。
 - progressive 单文件（充电试看、没有 DASH 的较早视频）没有 playlist，不续播，一律从头播放。
 
 ### 弹幕

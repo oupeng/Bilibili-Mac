@@ -69,7 +69,8 @@ extension DanmakuLaneConfiguration {
 /// 不连续：`discontinuityGeneration` 变化（seek、换项、续播起点、系统时间跳变）时先结束进行中的淡化，
 /// 再按快照位置暂存提交一次，否则按推进步长普通对齐。弹幕不隐藏也不清屏，屏上的 layer 一直跟随媒体时间。原生拖动每一步都
 /// 推进不连续代号，每步都发起一次暂存提交并作废上一步还没完成的纹理准备（排队中的栅格化随之取消），
-/// 最后一步之后自然提交到落点。误报的跳变（起播前暂停、缓冲恢复）只多做一次内容相同的提交，画面不变。
+/// 最后一步之后自然提交到落点。从暂停恢复播放时系统报的原地跳变也推进代号，只多做一次内容相同的
+/// 提交，画面不变。
 @MainActor
 public final class DanmakuPresentationController: DanmakuPresentationSink {
     /// 播放中两次普通 reconcile 之间至少推进的媒体时长。

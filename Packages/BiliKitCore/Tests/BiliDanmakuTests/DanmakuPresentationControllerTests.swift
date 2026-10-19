@@ -72,7 +72,7 @@ struct DanmakuPresentationControllerTests {
         #expect(backend.installedEventIDs.allSatisfy { $0.hasPrefix("far-") })
     }
 
-    /// 起播前暂停、缓冲恢复时的原地跳变也推进不连续代号：多做一次内容相同的对齐，画面不变、不清屏。
+    /// 从暂停恢复播放时的原地跳变也推进不连续代号：多做一次内容相同的对齐，画面不变、不清屏。
     @Test
     func timeJumpInPlaceKeepsTheScreen() async {
         let (controller, backend) = await laidOutController(at: 30)
