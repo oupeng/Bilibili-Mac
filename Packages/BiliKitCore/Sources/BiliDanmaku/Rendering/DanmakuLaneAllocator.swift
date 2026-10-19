@@ -5,7 +5,8 @@ import Foundation
 ///
 /// 高于一个 lane 基元的文本会占用连续 lane，避免大字号重叠；小字号仍只占一个基元。
 ///
-/// allocator 只使用媒体时间计算占用/过期；renderer completion 通过 `remove` 回收相同事件。
+/// allocator 只使用媒体时间计算占用与过期，输入顺序与宽高确定时结果就确定；车道布局按弹幕自己的时间点
+/// 逐条准入，复制一份就是某一时刻的车道占用。
 public struct DanmakuLaneAllocator: Sendable {
     private struct ActivePlacement: Sendable {
         let placement: DanmakuLanePlacement

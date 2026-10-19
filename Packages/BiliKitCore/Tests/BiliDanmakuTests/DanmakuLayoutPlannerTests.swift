@@ -202,7 +202,7 @@ func denseEvents(segment: Int, count: Int, seed: UInt64) -> [DanmakuEvent] {
         state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
         return state >> 33
     }
-    let start = Double(segment - 1) * 360
+    let start = Double(segment - 1) * DanmakuSegmentCache.segmentDurationSeconds
     return (0..<count).map { offset in
         let time = start + Double(next() % 3_600) / 10
         let mode: DanmakuPresentationMode =

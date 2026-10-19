@@ -16,7 +16,7 @@ import BiliDanmaku
 /// item 的时间线上错位。同步只在 layer 进入渲染上下文后才启动，overlay 在窗口里即可。
 ///
 /// 这是 layer-backed 视图加自定义 layer（先 `wantsLayer` 再设 `layer`），不是 layer-hosting；视图本身
-/// 从不绘制，AppKit 不会主动重绘它。暂停时视频不出新帧、弹幕 `rootLayer.speed` 为 0，窗口可能停在一次
+/// 从不绘制，AppKit 不会主动重绘它。暂停时视频不出新帧、同步 layer 的速率为 0，窗口可能停在一次
 /// 没有完整合成的画面上，所以它作为 `DanmakuFrameScheduling` 为 renderer 提供下一显示帧：有请求时用
 /// `displayLink(target:selector:)` 建一个 display link，回调一次即失效，不常驻。owner 是本视图；不可见
 /// （不在窗口里、隐藏、窗口最小化或被完全遮挡）时不接受请求；停止点是离开窗口、变为不可见与交还

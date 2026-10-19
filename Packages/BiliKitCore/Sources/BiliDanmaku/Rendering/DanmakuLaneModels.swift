@@ -3,16 +3,16 @@ import BiliModels
 import Foundation
 
 /// 车道分配的几何与容量参数，由 `DanmakuPresentationController` 按画面尺寸、
-/// 显示区域与密度重建后交给 `DanmakuLaneAllocator`。
+/// 显示区域与密度重建，经车道布局交给 `DanmakuLaneAllocator`。
 ///
-/// 只影响之后的准入，已活动的 placement 保留入场时的几何；`isValid` 不成立时 allocator
-/// 把全部请求按 `invalidRequest` 拒绝。
+/// 任一参数变化，布局表都按新参数整张重排；`isValid` 不成立时 allocator 把全部请求按
+/// `invalidRequest` 拒绝，画面尚未布局时也就不布局。
 public struct DanmakuLaneConfiguration: Sendable, Equatable {
-    /// 同时活动弹幕数的硬上限，也约束 renderer 的活动 layer 数、呈现控制器排队的准备数与纹理准备
-    /// owner 的未完成请求数。
+    /// 同屏弹幕数的硬上限：车道布局在任一媒体时刻最多准入这么多条，超出的按 (时间, ID) 顺序丢弃；
+    /// 也是纹理准备 owner 的未完成请求上限。
     ///
     /// 它限定的是 Core Animation 合成与纹理内存的最坏情况：调大让高密度时段同屏更多，
-    /// 但合成与内存开销随之上升；调小则高峰期更早以容量不足丢弃。
+    /// 但合成与内存开销随之上升；调小则高峰期更早丢弃。
     public static let hardMaximumActiveCount = 640
 
     /// 产品的车道基元高度（point），与最大字号同为 36；更高的纹理占用连续多条车道。
@@ -125,8 +125,8 @@ public struct DanmakuLaneRequest: Sendable, Equatable {
 
 /// allocator 准入后的车道位置与占用时段，交给 renderer 安装 layer。
 ///
-/// 时间都是媒体时间：`admittedAtSeconds` 是准入时刻（补位时早于当前位置），到 `expiresAtSeconds`
-/// 时车道被回收。`originY` 自画面顶边向下计算。`surfaceWidthAtAdmission` 记录入场时的画面宽度，
+/// 时间都是媒体时间：`admittedAtSeconds` 是准入时刻，车道布局里就是弹幕自己的时间点，也是动画的开始
+/// 时间；到 `expiresAtSeconds` 时车道被回收、layer 走完。`originY` 自画面顶边向下计算。`surfaceWidthAtAdmission` 记录入场时的画面宽度，
 /// resize 之后判断追尾仍按这条弹幕实际的速度计算。
 public struct DanmakuLanePlacement: Sendable, Equatable {
     public let request: DanmakuLaneRequest

@@ -5,7 +5,7 @@ import Testing
 
 @testable import BiliDanmaku
 
-/// 弹幕会话测试的时间线快照：时长固定 30 分钟，足够覆盖补位窗口跨进上一分段的位置；`generation`
+/// 弹幕会话测试的时间线快照：时长固定 30 分钟，足够覆盖需要上一分段的分段开头位置；`generation`
 /// 同时作为不连续代号与落地代号。
 func snapshot(
     identity: PlaybackItemIdentity,

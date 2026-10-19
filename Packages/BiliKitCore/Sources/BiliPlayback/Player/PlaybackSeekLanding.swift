@@ -57,7 +57,7 @@ final class PlaybackSeekLandingTimer {
     /// 拖动进度条时 seek 跳变一个接一个、间隔远小于它，拖动期间因此一直是 seeking，停稳后只落地一次；
     /// 暂停中 seek 时有效速率一直为 0，播放中拖动时每步之间速率又会恢复，都不能以速率恢复判定落地，
     /// 只能看静默时长。只有 seek 跳变（`PlaybackTimebaseJump.isSeek`）重新计时，音频时钟重新锚定的
-    /// 跳变不算。代价是单次 seek（键盘、评论时间戳）最多晚这么久补位，而缓冲通常比它更长。
+    /// 跳变不算。代价是单次 seek（键盘、评论时间戳）后弹幕最多隐藏这么久，而缓冲通常比它更长。
     /// 调大会让停下后更晚出现弹幕，调小则慢速拖动时更容易在中途落地。
     static let quietInterval = Duration.milliseconds(150)
 
