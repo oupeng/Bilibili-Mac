@@ -93,7 +93,9 @@ public struct DanmakuScheduler: Sendable {
     private var nextEventIndexBySegment: [Int: Int] = [:]
     /// 已投递的事件 ID，按分段记录；补位与迟到分段据此去重。
     private var deliveredIDsBySegment: [Int: Set<String>] = [:]
-    /// 上一个快照的位置，同一落地代号内只增不减；它与本次位置之间出现的事件是这次要投递的。
+    /// 上一个快照的位置；它与本次位置之间出现的事件是这次要投递的，分段缓存也按它裁剪。
+    ///
+    /// settled 时同一落地代号内只增不减；seeking 期间跟随每次跳变的位置。
     private var previousPositionSeconds: Double?
     /// 最近一次见到的落地代号；快照带来的值不同时清屏并补位。
     private var landingGeneration: UInt64?
@@ -217,6 +219,9 @@ public struct DanmakuScheduler: Sendable {
                 restartDelivery(at: snapshot.positionSeconds)
                 clearsExisting = true
             }
+            // 拖动中位置随每次跳变更新；分段缓存按它裁剪，否则 seeking 期间到达的落点分段会因离
+            // 进入 seek 时的位置太远被立刻淘汰。seeking 期间它不参与投递与去重，落地时被重新设定。
+            previousPositionSeconds = snapshot.positionSeconds
             return clearsExisting ? batch(identity, snapshot, clearsExisting: true) : nil
         }
         isSeeking = false

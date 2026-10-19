@@ -88,7 +88,7 @@ struct DanmakuSchedulerTests {
     }
 
     @Test
-    func discontinuityClearsWithoutBackfillAndBackwardSeekCanReemit() throws {
+    func landingClearsWithoutBackfillAndBackwardLandingCanReemit() throws {
         var scheduler = DanmakuScheduler()
         scheduler.begin(for: identity)
         scheduler.store(

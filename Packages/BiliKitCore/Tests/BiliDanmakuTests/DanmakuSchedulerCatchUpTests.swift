@@ -47,6 +47,15 @@ struct DanmakuSchedulerCatchUpTests {
         #expect(landed.clearsExisting)
         #expect(landed.catchesUp)
         #expect(landed.events.map(\.id) == ["in-window", "at-landing"])
+
+        // 播放中落地之后，下一个播放快照只投递 (落点, 新位置] 之间的弹幕。
+        if state == .playing {
+            let nextValue = scheduler.consume(at: 100.6, generation: 2)
+            let next = try #require(nextValue)
+            #expect(!next.clearsExisting)
+            #expect(!next.catchesUp)
+            #expect(next.events.map(\.id) == ["after"])
+        }
     }
 
     /// 暂停中落地补位后开播：同一位置不重补，之后只投递新出现的弹幕。
@@ -103,6 +112,30 @@ struct DanmakuSchedulerCatchUpTests {
         #expect(!canCatchUpWhileSeeking)
         #expect(landed.clearsExisting)
         #expect(landed.events.map(\.id) == ["late"])
+    }
+
+    /// 缓存已满时拖到远处：seeking 期间到达的落点分段按拖动中的位置留在缓存里，落地补位不为空。
+    @Test
+    func segmentArrivingWhileDraggingFarAwayStaysCached() throws {
+        var scheduler = DanmakuScheduler()
+        scheduler.begin(for: identity)
+        scheduler.setCatchUpWindow(window)
+        for index in 2...4 {
+            scheduler.store(DanmakuSegment(index: index, events: []), for: identity)
+        }
+        _ = scheduler.consume(at: 721, generation: 1)
+        _ = scheduler.consume(at: 721, generation: 1, seekPhase: .seeking)
+        _ = scheduler.consume(at: 2_000, generation: 1, seekPhase: .seeking)
+
+        scheduler.store(
+            DanmakuSegment(index: 6, events: [timedEvent(id: "at-drop", time: 1_995)]),
+            for: identity
+        )
+        let landedValue = scheduler.consume(at: 2_000, generation: 2, state: .paused)
+        let landed = try #require(landedValue)
+
+        #expect(scheduler.containsSegment(index: 6))
+        #expect(landed.events.map(\.id) == ["at-drop"])
     }
 
     /// 补位之后才到的分段只追加窗口内的弹幕：不清屏，已补过的按 ID 去重；暂停与播放中相同。
