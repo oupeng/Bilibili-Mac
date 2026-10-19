@@ -39,6 +39,27 @@ public struct DanmakuLaneAllocator: Sendable {
 
     public var activeCount: Int { active.count }
 
+    /// 两份占用对之后的准入是否完全等价：活动 placement 相同，且每个滚动槽位最后进入的是同一条。
+    ///
+    /// 车道布局用它判断上一段重新布局后末尾的占用是否变了：不变时下一段的布局原样有效，变了才需要
+    /// 从新的种子重排。顶部／底部槽位与车道计数都由活动 placement 决定，不必另比；滚动槽位的尾巴不行，
+    /// 尾巴到期移除后，同槽位更早进入、仍在走的那条不会补回尾巴。
+    func hasSameOccupancy(as other: Self) -> Bool {
+        guard active.count == other.active.count,
+            scrollingLaneTails.count == other.scrollingLaneTails.count
+        else {
+            return false
+        }
+        let sameActive = active.allSatisfy { eventID, value in
+            other.active[eventID]?.placement == value.placement
+        }
+        return sameActive
+            && scrollingLaneTails.allSatisfy { slotKey, tail in
+                other.scrollingLaneTails[slotKey]?.placement.request.event.id
+                    == tail.placement.request.event.id
+            }
+    }
+
     /// 更新后续准入使用的 surface；已活动 placement 保留入场时的 geometry 与过期时间。
     public mutating func updateConfiguration(
         _ configuration: DanmakuLaneConfiguration

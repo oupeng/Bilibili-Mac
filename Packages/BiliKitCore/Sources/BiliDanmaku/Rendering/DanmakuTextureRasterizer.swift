@@ -85,23 +85,16 @@ enum DanmakuTextureRasterizer {
         event: DanmakuEvent,
         backingScale: Double
     ) -> DanmakuTextureCacheKey? {
-        guard !event.text.isEmpty,
-            event.text.utf16.count <= maximumTextUTF16Length,
-            event.fontSize.isFinite,
-            backingScale.isFinite,
-            backingScale >= 1,
-            backingScale <= maximumBackingScale
-        else {
+        guard let measureKey = measureKey(event: event, backingScale: backingScale) else {
             return nil
         }
-        let fontSize = DanmakuEvent.normalizedFontSize(event.fontSize)
         return DanmakuTextureCacheKey(
-            text: event.text,
-            fontSize: fontSize,
+            text: measureKey.text,
+            fontSize: measureKey.fontSize,
             colorRGB: event.colorStyle == .vipGradient
                 ? vipGradientFillRGB : event.colorRGB & 0x00FF_FFFF,
             colorStyle: event.colorStyle,
-            backingScale: backingScale
+            backingScale: measureKey.backingScale
         )
     }
 
@@ -112,10 +105,6 @@ enum DanmakuTextureRasterizer {
         let colorSpace =
             CGColorSpace(name: CGColorSpace.sRGB)
             ?? CGColorSpaceCreateDeviceRGB()
-        let font = NSFont.systemFont(
-            ofSize: CGFloat(key.fontSize),
-            weight: fontWeight
-        )
         let components = rgbComponents(key.colorRGB)
         let foreground = CGColor(
             srgbRed: components.red,
@@ -123,50 +112,26 @@ enum DanmakuTextureRasterizer {
             blue: components.blue,
             alpha: 1
         )
-        let attributed = NSAttributedString(
-            string: key.text,
-            attributes: [
-                NSAttributedString.Key(kCTFontAttributeName as String): font,
-                NSAttributedString.Key(kCTForegroundColorAttributeName as String):
-                    foreground
-            ]
-        )
-        let line = CTLineCreateWithAttributedString(attributed)
-        var ascent: CGFloat = 0
-        var descent: CGFloat = 0
-        var leading: CGFloat = 0
-        let width = CGFloat(
-            CTLineGetTypographicBounds(line, &ascent, &descent, &leading)
-        )
-        let height = ascent + descent + leading
-        guard width.isFinite, height.isFinite, width > 0, height > 0 else {
-            return nil
-        }
-
-        let outlineRadiusPixels = outlineWidthPoints * key.backingScale
-        let shadowRadiusPixels =
-            shadowRadiusPoints > 0
-            ? max(
-                1,
-                Int((shadowRadiusPoints * key.backingScale).rounded())
-            ) : 0
-        // 四周留白要容纳描边与阴影的扩散，至少 4 像素。
-        let paddingPixels = max(
-            4,
-            Int(ceil(outlineRadiusPixels)) + shadowRadiusPixels + 2
-        )
-        let widthPixels = Int(ceil(width * scale)) + paddingPixels * 2
-        let heightPixels = Int(ceil(height * scale)) + paddingPixels * 2
-        let bytesPerRow = widthPixels * 4
-        guard widthPixels > 0,
-            heightPixels > 0,
-            widthPixels <= maximumWidthPixels,
-            heightPixels <= maximumHeightPixels,
-            bytesPerRow <= Int.max / heightPixels,
-            bytesPerRow * heightPixels <= maximumTextureByteCost
+        guard
+            let layout = lineLayout(
+                DanmakuTextMeasureKey(
+                    text: key.text,
+                    fontSize: key.fontSize,
+                    backingScale: key.backingScale
+                ),
+                foreground: foreground
+            )
         else {
             return nil
         }
+        let widthPixels = layout.widthPixels
+        let heightPixels = layout.heightPixels
+        let bytesPerRow = layout.bytesPerRow
+        let paddingPixels = layout.paddingPixels
+        let outlineRadiusPixels = layout.outlineRadiusPixels
+        let shadowRadiusPixels = layout.shadowRadiusPixels
+        let line = layout.line
+        let descent = layout.descent
 
         var fill = [UInt8](repeating: 0, count: bytesPerRow * heightPixels)
         let drewLine = fill.withUnsafeMutableBytes { buffer -> Bool in
