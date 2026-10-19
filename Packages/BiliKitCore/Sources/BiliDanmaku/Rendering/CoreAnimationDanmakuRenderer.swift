@@ -109,9 +109,6 @@ public final class CoreAnimationDanmakuRenderer:
         rootLayer.actions = Self.disabledActions
     }
 
-    /// 当前在屏的弹幕 ID。
-    var installedEventIDs: Set<String> { Set(entries.keys) }
-
     public func prepare(
         _ event: DanmakuEvent,
         preparationID: UInt64,

@@ -86,7 +86,7 @@ struct PlayerHostViewIdentityTests {
 
         firstWindow.contentView?.addSubview(overlay)
         overlay.layoutSubtreeIfNeeded()
-        #expect(renderer.rootLayer.superlayer === overlay.synchronizedLayer)
+        #expect(renderer.rootLayer.superlayer is AVSynchronizedLayer)
 
         let identity = PlaybackItemIdentity(bvid: "fixture", cid: 1)
         let beforeReparent = danmakuEvent(at: 1, id: "before-reparent", mode: .scrolling)
@@ -97,7 +97,7 @@ struct PlayerHostViewIdentityTests {
 
         overlay.removeFromSuperview()
         #expect(overlay.window == nil)
-        #expect(renderer.rootLayer.superlayer === overlay.synchronizedLayer)
+        #expect(renderer.rootLayer.superlayer is AVSynchronizedLayer)
         #expect(renderer.rootLayer.sublayers?.first === firstLayer)
         #expect((renderer.rootLayer.sublayers?.count ?? 0) == 1)
 
@@ -112,7 +112,7 @@ struct PlayerHostViewIdentityTests {
         overlay.frame = secondWindow.contentView?.bounds ?? .zero
         secondWindow.contentView?.addSubview(overlay)
         overlay.layoutSubtreeIfNeeded()
-        #expect(renderer.rootLayer.superlayer === overlay.synchronizedLayer)
+        #expect(renderer.rootLayer.superlayer is AVSynchronizedLayer)
         #expect(renderer.rootLayer.sublayers?.first === firstLayer)
         #expect((renderer.rootLayer.sublayers?.count ?? 0) == 2)
 
@@ -151,7 +151,7 @@ struct PlayerHostViewIdentityTests {
         let player = AVPlayer(playerItem: first)
         view.player = player
         view.startObservingPlayerItemChanges()
-        #expect(view.danmakuOverlay.synchronizedLayer.playerItem === first)
+        #expect((renderer.rootLayer.superlayer as? AVSynchronizedLayer)?.playerItem === first)
 
         let identity = PlaybackItemIdentity(bvid: "item-fixture", cid: 1)
         controller.apply(pausedSnapshot(identity: identity, position: 1))
@@ -162,9 +162,13 @@ struct PlayerHostViewIdentityTests {
         #expect(await waitUntil { (renderer.rootLayer.sublayers?.count ?? 0) == 1 })
 
         player.replaceCurrentItem(with: second)
-        #expect(await waitUntil { view.danmakuOverlay.synchronizedLayer.playerItem === second })
+        #expect(
+            await waitUntil {
+                (renderer.rootLayer.superlayer as? AVSynchronizedLayer)?.playerItem === second
+            }
+        )
         #expect(renderer.rootLayer.sublayers?.isEmpty ?? true)
-        #expect(renderer.rootLayer.superlayer === view.danmakuOverlay.synchronizedLayer)
+        #expect(renderer.rootLayer.superlayer is AVSynchronizedLayer)
         view.stopObservingPlayerItemChanges()
     }
 

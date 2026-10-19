@@ -247,10 +247,12 @@ struct CoreAnimationDanmakuRendererTests {
         #expect(topAnimation.fromValue as? Double == 1)
     }
 
-    /// 在模拟同步 layer 的父层下，layer 的局部时间就是父层给出的媒体时间：暂停时冻结、seek 时跳到
-    /// 新位置、倍速时按倍率推进，弹幕位置按媒体时间计算，与 renderer 自身无关。
+    /// 在模拟同步 layer 的父层下，弹幕 layer 的局部时间就是父层给出的媒体时间。
+    ///
+    /// 暂停时冻结、seek 时跳到新时间、倍速时按倍率推进。renderer 不改 `rootLayer` 的时间属性，动画开始于
+    /// 弹幕的媒体时间，所以位置只取决于父层给出的媒体时间；插值本身由 Core Animation 完成，这里不重算。
     @Test
-    func positionFollowsTheSynchronizedParentsMediaTime() async throws {
+    func layerTimeFollowsTheSynchronizedParentsMediaTime() async throws {
         let renderer = makeRenderer()
         let clock = CALayer()
         clock.addSublayer(renderer.rootLayer)
@@ -266,45 +268,33 @@ struct CoreAnimationDanmakuRendererTests {
             layer.animation(forKey: CoreAnimationDanmakuRenderer.animationKey)
                 as? CABasicAnimation
         )
-        // 按 layer 局部时间插值的滚动弹幕中心 x；动画区间外回到模型值。
-        func presentedX(atHostTime hostTime: CFTimeInterval) -> Double {
-            let local = layer.convertTime(hostTime, from: nil)
-            let progress = (local - animation.beginTime) / animation.duration
-            guard progress >= 0, progress < 1 else { return layer.position.x }
-            let from = animation.fromValue as? Double ?? .nan
-            let to = animation.toValue as? Double ?? .nan
-            return from + (to - from) * progress
-        }
-        // 从头连续播放到媒体时间 `mediaTime` 时应在的中心 x。
-        func expectedX(atMediaTime mediaTime: Double) -> Double {
-            let travel = (800 + metrics.width) * (mediaTime - 10) / 4
-            return 800 + metrics.width / 2 - travel
+        func localTime(atHostTime hostTime: CFTimeInterval) -> Double {
+            layer.convertTime(hostTime, from: nil)
         }
 
-        // 暂停在 11 秒：速率为 0，局部时间冻结在 11。
+        #expect(animation.beginTime == 10)
+        #expect(animation.fromValue as? Double == 800 + metrics.width / 2)
+        #expect(animation.toValue as? Double == -metrics.width / 2)
+        #expect(abs(layer.position.x + metrics.width / 2) < 0.001)
+        #expect(renderer.rootLayer.speed == 1)
+        #expect(renderer.rootLayer.timeOffset == 0)
+
+        // 暂停在 11 秒：局部时间冻结在 11。
         let now = CACurrentMediaTime()
         clock.speed = 0
         clock.timeOffset = 11
-        #expect(abs(presentedX(atHostTime: now) - expectedX(atMediaTime: 11)) < 0.001)
-        #expect(abs(presentedX(atHostTime: now + 30) - expectedX(atMediaTime: 11)) < 0.001)
+        #expect(abs(localTime(atHostTime: now) - 11) < 0.001)
+        #expect(abs(localTime(atHostTime: now + 30) - 11) < 0.001)
 
-        // 暂停中 seek 到 13 秒：立即落到新位置，与从头播到 13 秒一致。
+        // 暂停中 seek 到 13 秒：立即是 13。
         clock.timeOffset = 13
-        #expect(abs(presentedX(atHostTime: now) - expectedX(atMediaTime: 13)) < 0.001)
+        #expect(abs(localTime(atHostTime: now) - 13) < 0.001)
 
         // 以 2 倍速从 12 秒起播：半秒主机时间推进一秒媒体时间。
         clock.beginTime = now
         clock.timeOffset = 12
         clock.speed = 2
-        #expect(abs(presentedX(atHostTime: now + 0.5) - expectedX(atMediaTime: 13)) < 0.001)
-
-        // seek 到动画区间之外：回到不可见的模型值。
-        clock.speed = 0
-        clock.beginTime = 0
-        clock.timeOffset = 20
-        #expect(presentedX(atHostTime: now) == -metrics.width / 2)
-        clock.timeOffset = 5
-        #expect(presentedX(atHostTime: now) == -metrics.width / 2)
+        #expect(abs(localTime(atHostTime: now + 0.5) - 13) < 0.001)
     }
 
     /// 重新布局后就地换成新的车道，复用纹理，不重新准备；backing scale 变了则不复用。

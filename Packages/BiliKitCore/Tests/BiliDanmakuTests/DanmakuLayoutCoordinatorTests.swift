@@ -26,17 +26,22 @@ struct DanmakuLayoutCoordinatorTests {
         #expect(placements.allSatisfy { $0.surfaceWidthAtAdmission == 1_200 })
     }
 
+    /// 已有布局表时连改两次设置：第一次的任务在途时 generation 已经变了，它的结果被丢弃，表只换成最后
+    /// 一次的设置。
     @Test
     func resultsForOutdatedSettingsAreDropped() async throws {
         let coordinator = DanmakuLayoutCoordinator()
         let changes = TableChangeRecorder(coordinator)
         coordinator.setSegments([1: denseEvents(segment: 1, count: 120, seed: 2)])
         coordinator.setParameters(parameters(width: 800), debounced: false)
-        coordinator.setParameters(parameters(width: 640), debounced: false)
         try await changes.wait(until: 1)
 
+        coordinator.setParameters(parameters(width: 960), debounced: false)
+        coordinator.setParameters(parameters(width: 640), debounced: false)
+        try await changes.wait(until: 2)
+
         #expect(coordinator.layoutParameters == parameters(width: 640))
-        #expect(changes.parameters == [parameters(width: 640)])
+        #expect(changes.parameters == [parameters(width: 800), parameters(width: 640)])
     }
 
     /// 任务进行中某段换了内容：这次的结果不收这一段，随后按新内容重排。

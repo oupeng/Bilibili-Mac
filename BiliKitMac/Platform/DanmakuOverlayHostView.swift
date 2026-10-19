@@ -29,7 +29,7 @@ final class DanmakuOverlayView: NSView, DanmakuFrameScheduling {
     private let renderer: CoreAnimationDanmakuRenderer
     private let controller: DanmakuPresentationController
     /// 按播放 item 时间运行的父层；renderer 的 `rootLayer` 在 surface 接管期间挂在它下面。
-    let synchronizedLayer = AVSynchronizedLayer()
+    private let synchronizedLayer = AVSynchronizedLayer()
     private let ownerID = UUID()
     private var previousSize: CGSize?
     private var previousBackingScale: CGFloat?

@@ -124,7 +124,7 @@ struct DanmakuLayoutPlannerTests {
                 weight: 1
             )
         }
-        let result = try #require(layouts([1: events.shuffled()], configuration: capped))
+        let result = try #require(layouts([1: events.reversed()], configuration: capped))
 
         #expect(
             result[1]?.placements.map(\.request.event.id)

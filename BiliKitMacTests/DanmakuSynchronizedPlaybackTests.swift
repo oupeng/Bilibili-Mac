@@ -10,8 +10,16 @@ import Testing
 
 /// 固定弹幕时间来自真实播放器的契约。
 ///
-/// 弹幕层的局部时间等于播放 item 的时间，暂停中 seek、开播与倍速后都一致；暂停中 seek 之后开播不清屏、
-/// 不隐藏。用带音轨的本地媒体，开播与改速率时系统会按音频时钟重新锚定 timebase。
+/// 证明的范围：弹幕 layer 挂在宿主的 `AVSynchronizedLayer` 下，局部时间等于播放 item 的时间，暂停中
+/// seek、开播与两倍速之后都一致；媒体时间 0 的弹幕用 `AVCoreAnimationBeginTimeAtZero` 开始，在真实同步层
+/// 下处于可见区间；暂停中 seek 之后开播，屏上仍是同一组 layer（呈现控制器没有清屏重建）。
+///
+/// 依赖：窗口真的进入渲染上下文（同步只在 layer 进入渲染上下文后才启动），测试宿主能连上窗口服务；用带
+/// 音轨的本地静音媒体，开播与改速率时系统会按音频时钟重新锚定 timebase。时间线快照是手工喂给控制器的，
+/// 不经过 `AVPlayerTimelineAdapter`。
+///
+/// 不能证明：渲染服务器实际画出来的像素与位置、肉眼是否闪烁、真实 B 站 HLS 与码率切换、PiP 与 detached
+/// 全屏下的同步。
 @Suite(.serialized, .timeLimit(.minutes(1)))
 @MainActor
 struct DanmakuSynchronizedPlaybackTests {
@@ -60,8 +68,7 @@ struct DanmakuSynchronizedPlaybackTests {
         view.startObservingPlayerItemChanges()
         view.layoutSubtreeIfNeeded()
         #expect(await waitUntil(timeout: .seconds(10)) { item.status == .readyToPlay })
-        let sync = view.danmakuOverlay.synchronizedLayer
-        #expect(sync.playerItem === item)
+        #expect((renderer.rootLayer.superlayer as? AVSynchronizedLayer)?.playerItem === item)
 
         // 暂停中 seek 到 2 秒，弹幕按 2 秒整屏挂上。
         player.pause()
@@ -71,6 +78,7 @@ struct DanmakuSynchronizedPlaybackTests {
         controller.setSegments(
             [
                 1: [
+                    Self.event(id: "zero", time: 0, mode: .top),
                     Self.event(id: "scroll", time: 1.5),
                     Self.event(id: "top", time: 1.8, mode: .top)
                 ]
@@ -79,11 +87,22 @@ struct DanmakuSynchronizedPlaybackTests {
         )
         #expect(
             await waitUntil(timeout: .seconds(5)) {
-                (renderer.rootLayer.sublayers?.count ?? 0) == 2
+                (renderer.rootLayer.sublayers?.count ?? 0) == 3
             }
         )
         let layers = renderer.rootLayer.sublayers ?? []
         expectLocalTime(of: renderer.rootLayer, matches: item)
+
+        // 媒体时间 0 的弹幕：开始时间是同步层约定的常量，此刻（2 秒）仍在它 4 秒的可见区间里。
+        let animations = layers.flatMap { layer in
+            (layer.animationKeys() ?? []).compactMap { layer.animation(forKey: $0) }
+        }
+        let zeroAnimation = try #require(
+            animations.first { $0.beginTime == AVCoreAnimationBeginTimeAtZero }
+        )
+        let zeroLocal = renderer.rootLayer.convertTime(CACurrentMediaTime(), from: nil)
+        #expect(zeroLocal >= zeroAnimation.beginTime)
+        #expect(zeroLocal < zeroAnimation.beginTime + zeroAnimation.duration)
 
         // 开播：同一组 layer 继续走，不清屏。
         player.play()
