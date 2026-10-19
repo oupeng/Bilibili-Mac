@@ -115,7 +115,8 @@ public protocol DanmakuRenderingBackend: AnyObject {
         preparationID: UInt64,
         generation: UInt64
     ) -> Bool
-    /// 已在屏的弹幕换成新的 placement（重新布局后车道或时长变了），复用原纹理；不在屏时返回 false。
+    /// 已在屏的弹幕换成新的 placement（重新布局后车道或时长变了），复用原纹理；不在屏、或纹理是按旧的
+    /// backing scale 栅格化的（窗口换到另一块屏幕）时返回 false，调用方移除后重新准备。
     @discardableResult
     func update(_ placement: DanmakuLanePlacement) -> Bool
     /// 丢弃一条没有上屏的准备记录；对未知 ID 是空操作。

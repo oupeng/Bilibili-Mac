@@ -79,6 +79,29 @@ struct DanmakuLayoutPlannerTests {
         #expect(unchanged[2]?.placements == existing[2]?.placements)
     }
 
+    /// 相邻分段重复给出的弹幕只在前一段显示，同一段里重复的 ID 只显示一次；前一段晚到时也一样。
+    @Test
+    func repeatedIDsAppearOnce() throws {
+        let first = [
+            scrollingEvent(id: "repeated", time: 100, width: 200),
+            scrollingEvent(id: "boundary", time: 359.9, width: 200)
+        ]
+        let second = [
+            scrollingEvent(id: "repeated", time: 400, width: 200),
+            scrollingEvent(id: "boundary", time: 360.1, width: 200),
+            scrollingEvent(id: "twice", time: 370, width: 200),
+            scrollingEvent(id: "twice", time: 380, width: 200)
+        ]
+        let alone = try #require(layouts([2: second]))
+        let both = try #require(layouts([1: first, 2: second], reusing: alone))
+        let ids = ((both[1]?.placements ?? []) + (both[2]?.placements ?? [])).map {
+            "\($0.request.event.id)@\($0.admittedAtSeconds)"
+        }
+
+        #expect(ids.sorted() == ["boundary@359.9", "repeated@100.0", "twice@370.0"])
+        #expect(both[2]?.placements == layouts([1: first, 2: second])?[2]?.placements)
+    }
+
     @Test
     func capacityDropsTheSameLaterEventsEveryTime() throws {
         let capped = DanmakuLaneConfiguration(

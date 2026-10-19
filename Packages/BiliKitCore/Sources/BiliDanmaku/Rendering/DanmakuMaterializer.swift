@@ -83,6 +83,13 @@ final class DanmakuMaterializer {
         return desired
     }
 
+    /// 按事件 ID 索引；ID 重复（远端数据不可信）时取时间在前的一条，不崩溃。
+    private static func byEventID(
+        _ placements: [DanmakuLanePlacement]
+    ) -> [String: DanmakuLanePlacement] {
+        Dictionary(placements.map { ($0.request.event.id, $0) }) { first, _ in first }
+    }
+
     /// 按布局表与媒体时间对齐 backend；`staged` 见类型说明。
     func reconcile(
         table: [Int: DanmakuSegmentLayout],
@@ -133,9 +140,7 @@ final class DanmakuMaterializer {
         // 新的暂存提交取代旧的：旧的已就绪纹理仍可用，并入这一次。
         awaitedByCommit = []
         let desired = Self.desiredPlacements(in: table, at: position)
-        let desiredByID = Dictionary(
-            uniqueKeysWithValues: desired.map { ($0.request.event.id, $0) }
-        )
+        let desiredByID = Self.byEventID(desired)
         discardPreparations(notIn: desiredByID)
         for placement in desired {
             let eventID = placement.request.event.id
@@ -154,9 +159,7 @@ final class DanmakuMaterializer {
         awaitedByCommit = nil
         reconcilesAfterCommit = false
         let desired = Self.desiredPlacements(in: table, at: position)
-        let desiredByID = Dictionary(
-            uniqueKeysWithValues: desired.map { ($0.request.event.id, $0) }
-        )
+        let desiredByID = Self.byEventID(desired)
         let ready = parked
         parked.removeAll(keepingCapacity: false)
         removeInstalled(notIn: desiredByID)
@@ -175,9 +178,7 @@ final class DanmakuMaterializer {
     /// 普通 reconcile：立即移除与替换，缺纹理的发起准备。
     private func reconcileNow() {
         let desired = Self.desiredPlacements(in: table, at: position)
-        let desiredByID = Dictionary(
-            uniqueKeysWithValues: desired.map { ($0.request.event.id, $0) }
-        )
+        let desiredByID = Self.byEventID(desired)
         removeInstalled(notIn: desiredByID)
         discardPreparations(notIn: desiredByID)
         for placement in desired where installed[placement.request.event.id] == nil {
@@ -199,6 +200,8 @@ final class DanmakuMaterializer {
                 if backend.update(desired) {
                     installed[eventID] = desired
                 } else {
+                    // 纹理不能复用：移除，之后的普通 reconcile 按新 placement 重新准备。
+                    backend.remove(eventID: eventID)
                     installed[eventID] = nil
                 }
             }

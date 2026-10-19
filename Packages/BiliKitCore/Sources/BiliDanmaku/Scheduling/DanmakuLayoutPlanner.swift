@@ -55,7 +55,7 @@ struct DanmakuSegmentLayout: Sendable {
 /// allocator 只用媒体时间，输入顺序与宽高确定时结果就确定。同屏上限（`maximumActiveCount`）也在这里
 /// 按同一规则丢弃，纹理字节上限不参与。
 ///
-/// 分段边界接着上一段末尾的车道占用继续排，边界处不重叠。上一段晚到（seek 到远处时常见）时，先排上一段，
+/// 分段边界接着上一段末尾的车道占用继续排，边界处不重叠；上一段已有的 ID 不在本段重复显示。上一段晚到（seek 到远处时常见）时，先排上一段，
 /// 再以它末尾的占用为种子重排本段，结果与从头连续排完全一致。本段与旧布局只在开头、两份占用收敛之前
 /// 不同（实测多在一两条弹幕的最长时长之内），之后逐条相同，所以屏上只有少数弹幕可能换一次车道。末尾
 /// 占用变了才继续重排下一段。上一段缺席时从空占用开始排。
@@ -91,6 +91,7 @@ enum DanmakuLayoutPlanner {
                     index: index,
                     events: segments[index] ?? [],
                     seed: seed,
+                    excludingIDs: Set(segments[index - 1]?.map(\.id) ?? []),
                     parameters: parameters,
                     measure: measure
                 )
@@ -108,17 +109,23 @@ enum DanmakuLayoutPlanner {
     }
 
     /// 从 `seed` 的车道占用开始排一个分段。
+    ///
+    /// 相邻分段可能重复给出同一条弹幕（同一 ID，时间也可能略有不同）：`excludingIDs` 是上一段的全部 ID，
+    /// 这些弹幕只在上一段显示；同一段里重复的 ID 只取 (时间, ID) 顺序上的第一条。
     static func layout(
         index: Int,
         events: [DanmakuEvent],
         seed: DanmakuLaneAllocator,
+        excludingIDs: Set<String>,
         parameters: DanmakuLayoutParameters,
         measure: (DanmakuEvent) -> DanmakuTextMetrics?
     ) -> DanmakuSegmentLayout? {
+        var seenIDs = excludingIDs
         let ordered = events.filter(parameters.filter.allows).sorted {
             $0.timeSeconds == $1.timeSeconds
                 ? $0.id < $1.id : $0.timeSeconds < $1.timeSeconds
         }
+        .filter { seenIDs.insert($0.id).inserted }
         var allocator = seed
         var placements: [DanmakuLanePlacement] = []
         var maximumDuration = 0.0
