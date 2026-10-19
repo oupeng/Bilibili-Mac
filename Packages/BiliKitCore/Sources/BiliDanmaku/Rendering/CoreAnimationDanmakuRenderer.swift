@@ -4,7 +4,7 @@ import BiliModels
 import Foundation
 import QuartzCore
 
-/// Core Animation 弹幕 backend：纹理准备、按媒体时间安装的弹幕 layer 与静止时的重新合成。
+/// Core Animation 弹幕 backend：纹理准备与按媒体时间安装的弹幕 layer。
 ///
 /// Core Text shaping、整行 union mask、vImage 阴影与 RGBA 合成都由有界 preparation owner
 /// 在后台完成。MainActor 只消费不可变像素并安装一个普通 `CALayer`；用户透明度统一落在
@@ -19,15 +19,7 @@ import QuartzCore
 /// 区间之内由动画撑起。layer 何时移除由 `DanmakuMaterializer` 按媒体时间决定，renderer 不监听动画结束。
 ///
 /// 拥有 `rootLayer`、活动 layer 与纹理准备 owner；`rootLayer` 挂到哪里由 App 的 overlay 决定，内存压力
-/// 监听由 App 窗口 adapter 持有。
-///
-/// 静止时的重新合成：暂停、缓冲时视频不出新帧，同步 layer 的速率为 0，渲染服务器不再主动出帧；提交后
-/// 屏上那块区域若没有完整重新合成，旧画面会一直留着，表现为错开几 pt 的两份弹幕，直到别的界面事件触发
-/// 重绘。`recompositeIfStill` 在静止（`setStill`）且有改动时，经宿主的 `frameScheduler`（App overlay
-/// 按需建立的 display link）在下一帧对 `rootLayer` 做一次无视觉变化的属性写入。请求挂
-/// `frameRequestTimeout` 兜底，到点没回调就放弃并让宿主释放 display link；`stop` 取消在途请求。
-/// 目前呈现端不再主动调用它，只剩 overlay 恢复可见时的一处；这套机制留待实机确认静止时没有残影后
-/// 整体删除。
+/// 监听由 App 窗口 adapter 持有。暂停时增删 layer 由系统照常合成，renderer 不需要主动请求重新合成。
 @MainActor
 public final class CoreAnimationDanmakuRenderer:
     DanmakuRenderingBackend
@@ -48,11 +40,6 @@ public final class CoreAnimationDanmakuRenderer:
     static let maximumActiveTextureByteCost = 64 * 1_024 * 1_024
     /// 每个弹幕 layer 上唯一的位移／显隐动画的 key。
     static let animationKey = "danmaku"
-    /// 下一帧请求的兜底时限：到点还没回调就放弃这次重新合成，并让宿主释放 display link。
-    ///
-    /// 60～120Hz 下下一帧在 17ms 内到达；显示器休眠等情况下 display link 可能一直不回调，没有时限请求会
-    /// 永远挂着。调小会在卡顿时提前放弃，调大则 display link 在不出帧时多占一会儿。
-    static let frameRequestTimeout = Duration.milliseconds(100)
     /// 弹幕 layer 与 `rootLayer` 上禁用的隐式动画：上屏、移除、子层与几何变化都不带过渡。
     ///
     /// 用 `actions` 逐个 layer 关掉，而不是给改动另包显式事务：顶层显式事务在 commit 时就单独提交，会把
@@ -63,26 +50,9 @@ public final class CoreAnimationDanmakuRenderer:
     ]
 
     public let rootLayer: CALayer
-    /// 提供下一显示帧回调的宿主。
-    ///
-    /// 由 App 的弹幕 overlay 在接管 surface 时设置、交还时清空；弱引用，overlay 持有 renderer。
-    public weak var frameScheduler: (any DanmakuFrameScheduling)?
 
     /// 媒体时间 0 对应的动画 `beginTime`，由宿主按同步 layer 的约定注入。
     private let beginTimeAtZero: CFTimeInterval
-    /// 画面此刻是否静止（暂停、缓冲、未播放）；由呈现控制器按时间线快照设置，还没有快照时按走动处理。
-    private var isStill = false
-    /// 是否有还没重新合成的改动（上屏、更新、移除或清屏）。
-    ///
-    /// 请求被宿主接受时清除；被拒绝（不可见）、以 false 回调（没出帧就停了）或超时放弃时恢复，宿主恢复
-    /// 可见后再调用 `recompositeIfStill` 补上。走动中直接清除：渲染服务器本来就在出帧。
-    private var hasChangesSinceRecomposite = false
-    /// 是否有已被宿主接受、尚未回调的帧请求；同一时刻最多一个，期间的改动合并进它。
-    private var isFrameRequested = false
-    /// 每次请求帧与取消时递增；回调与兜底带上请求时的值，不等就丢弃。
-    private var frameRequestGeneration: UInt64 = 0
-    /// 重新合成时在两个值之间切换的标记，保证每次都是一次真实的属性变化。
-    private var recompositeMarker = false
 
     /// 当前 surface 的 backing scale，已归一到 1...`maximumBackingScale`；变化时取消在途准备，
     /// 因为纹理按 scale 栅格化。
@@ -178,7 +148,6 @@ public final class CoreAnimationDanmakuRenderer:
             textureByteCost: payload.byteCost
         )
         activeTextureByteCost += payload.byteCost - replacedCost
-        hasChangesSinceRecomposite = true
         return DanmakuInstallResult(isInstalled: true, evictedEventIDs: evicted)
     }
 
@@ -225,7 +194,6 @@ public final class CoreAnimationDanmakuRenderer:
         entry.placement = placement
         entries[eventID] = entry
         configure(entry.layer, for: placement)
-        hasChangesSinceRecomposite = true
         return true
     }
 
@@ -251,7 +219,6 @@ public final class CoreAnimationDanmakuRenderer:
             return
         }
         activeTextureByteCost -= entry.textureByteCost
-        hasChangesSinceRecomposite = true
         entry.layer.removeAllAnimations()
         entry.layer.removeFromSuperlayer()
     }
@@ -259,68 +226,6 @@ public final class CoreAnimationDanmakuRenderer:
     public func clearAll() {
         preparationOwner.cancelAllPreparations()
         removeAllEntries()
-    }
-
-    /// 只记下状态，不算一次改动：停下与走动改变的是同步 layer 的速率，弹幕 layer 树本身没变。
-    public func setStill(_ still: Bool) {
-        isStill = still
-    }
-
-    /// 一整批改动结束后由呈现端调用一次；静止且这批改动了 layer 树时请求下一帧重新合成。
-    ///
-    /// 同一轮或下一帧之前的多次调用合并为一次请求；不静止或没有可用的显示帧时不请求。
-    /// 宿主从不可见恢复可见时也调用它，补上不可见期间没能完成的重新合成。
-    public func recompositeIfStill() {
-        guard hasChangesSinceRecomposite else { return }
-        guard isStill, !isFrameRequested else {
-            // 走动中不需要；已有请求在途时这批改动随它一起合成。
-            hasChangesSinceRecomposite = false
-            return
-        }
-        guard let frameScheduler else { return }
-        frameRequestGeneration &+= 1
-        let generation = frameRequestGeneration
-        isFrameRequested = frameScheduler.requestNextFrame { [weak self] didDisplay in
-            self?.frameDidArrive(didDisplay: didDisplay, generation: generation)
-        }
-        guard isFrameRequested else { return }
-        hasChangesSinceRecomposite = false
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: Self.frameRequestTimeout)
-            self?.frameRequestTimedOut(generation: generation)
-        }
-    }
-
-    /// 下一帧到了：仍静止时在显式事务里切换一次透明背景（nil 与透明色之间），让窗口重新合成这块区域。
-    ///
-    /// 不用 `setNeedsDisplay`：`rootLayer` 没有 delegate，`display` 会为整个 surface 建一块空白 backing
-    /// store，既占内存又多一层全幅混合。不调用 `flush`：这次写入随 display link 回调所在的这一轮提交。
-    private func frameDidArrive(didDisplay: Bool, generation: UInt64) {
-        guard generation == frameRequestGeneration, isFrameRequested else { return }
-        isFrameRequested = false
-        guard isStill else { return }
-        guard didDisplay else {
-            hasChangesSinceRecomposite = true
-            return
-        }
-        recompositeMarker.toggle()
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        rootLayer.backgroundColor = recompositeMarker ? CGColor.clear : nil
-        CATransaction.commit()
-    }
-
-    private func frameRequestTimedOut(generation: UInt64) {
-        guard generation == frameRequestGeneration, isFrameRequested else { return }
-        cancelFrameRequests()
-        hasChangesSinceRecomposite = true
-    }
-
-    /// 放弃在途的帧请求并让宿主停止 display link；宿主以 `false` 回调时因 generation 不等而被丢弃。
-    private func cancelFrameRequests() {
-        frameRequestGeneration &+= 1
-        isFrameRequested = false
-        frameScheduler?.cancelNextFrameRequests()
     }
 
     public func setOpacity(_ opacity: DanmakuOpacity) {
@@ -356,13 +261,10 @@ public final class CoreAnimationDanmakuRenderer:
         CATransaction.commit()
     }
 
-    /// 会话结束：清屏，并取消在途的帧请求，display link 随之停止。
+    /// 会话结束：取消在途准备并清屏。
     public func stop() {
         preparationOwner.cancelAllPreparations()
         removeAllEntries()
-        isStill = false
-        hasChangesSinceRecomposite = false
-        cancelFrameRequests()
     }
 
     /// 媒体时间换算成同步 layer 下的动画开始时间；0 写成 `beginTimeAtZero`，否则会被当作「现在」。
@@ -422,9 +324,6 @@ public final class CoreAnimationDanmakuRenderer:
         let oldEntries = entries
         entries.removeAll(keepingCapacity: false)
         activeTextureByteCost = 0
-        if !oldEntries.isEmpty {
-            hasChangesSinceRecomposite = true
-        }
         for entry in oldEntries.values {
             entry.layer.removeAllAnimations()
             entry.layer.removeFromSuperlayer()

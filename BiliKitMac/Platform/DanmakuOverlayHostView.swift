@@ -16,16 +16,9 @@ import BiliDanmaku
 /// item 的时间线上错位。同步只在 layer 进入渲染上下文后才启动，overlay 在窗口里即可。
 ///
 /// 这是 layer-backed 视图加自定义 layer（先 `wantsLayer` 再设 `layer`），不是 layer-hosting；视图本身
-/// 从不绘制，AppKit 不会主动重绘它。暂停时视频不出新帧、同步 layer 的速率为 0，窗口可能停在一次
-/// 没有完整合成的画面上，所以它作为 `DanmakuFrameScheduling` 为 renderer 提供下一显示帧：有请求时用
-/// `displayLink(target:selector:)` 建一个 display link，回调一次即失效，不常驻。owner 是本视图；不可见
-/// （不在窗口里、隐藏、窗口最小化或被完全遮挡）时不接受请求；停止点是离开窗口、变为不可见与交还
-/// surface，停止时未回调的请求以 false 回调；恢复可见（取消隐藏、取消最小化、遮挡解除）时请 renderer
-/// 再走一次 `recompositeIfStill`，补上不可见期间没完成的重新合成。renderer 另有时限兜底，到点会取消。
-/// display link 持有
-/// target，在途期间本视图不会释放，最多到下一帧、停止或 renderer 的时限为止。
+/// 从不绘制。暂停时增删弹幕 layer 由系统照常合成，不需要主动请求重新合成。
 @MainActor
-final class DanmakuOverlayView: NSView, DanmakuFrameScheduling {
+final class DanmakuOverlayView: NSView {
     private let renderer: CoreAnimationDanmakuRenderer
     private let controller: DanmakuPresentationController
     /// 按播放 item 时间运行的父层；renderer 的 `rootLayer` 在 surface 接管期间挂在它下面。
@@ -34,11 +27,6 @@ final class DanmakuOverlayView: NSView, DanmakuFrameScheduling {
     private var previousSize: CGSize?
     private var previousBackingScale: CGFloat?
     private var isSurfaceAttached = false
-    /// 只在有帧请求时存在的 display link；回调或停止时失效并置 nil。
-    private var frameLink: CADisplayLink?
-    private var frameHandlers: [@MainActor (Bool) -> Void] = []
-    /// 正在监听可见性变化（遮挡、最小化）的窗口；换窗口或离开窗口时退订。
-    private weak var observedWindow: NSWindow?
 
     init(
         renderer: CoreAnimationDanmakuRenderer,
@@ -63,22 +51,9 @@ final class DanmakuOverlayView: NSView, DanmakuFrameScheduling {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        observeVisibility(of: window)
         if window != nil {
             attachSurfaceIfNeeded()
-        } else {
-            cancelNextFrameRequests()
         }
-    }
-
-    override func viewDidHide() {
-        super.viewDidHide()
-        cancelNextFrameRequests()
-    }
-
-    override func viewDidUnhide() {
-        super.viewDidUnhide()
-        recompositeIfDisplaying()
     }
 
     override func layout() {
@@ -136,10 +111,6 @@ final class DanmakuOverlayView: NSView, DanmakuFrameScheduling {
     func detachSurface() {
         guard isSurfaceAttached else { return }
         isSurfaceAttached = false
-        cancelNextFrameRequests()
-        if renderer.frameScheduler === self {
-            renderer.frameScheduler = nil
-        }
         if controller.detachSurface(ownerID: ownerID),
             renderer.rootLayer.superlayer === synchronizedLayer
         {
@@ -147,91 +118,10 @@ final class DanmakuOverlayView: NSView, DanmakuFrameScheduling {
         }
     }
 
-    func requestNextFrame(_ handler: @escaping @MainActor (Bool) -> Void) -> Bool {
-        guard isSurfaceAttached, isDisplayingFrames else { return false }
-        frameHandlers.append(handler)
-        if frameLink == nil {
-            let link = displayLink(target: self, selector: #selector(displayFrame(_:)))
-            link.add(to: .main, forMode: .common)
-            frameLink = link
-        }
-        return true
-    }
-
-    func cancelNextFrameRequests() {
-        finishFrameRequests(didDisplay: false)
-    }
-
-    /// 视图此刻能否出帧：在窗口里、没有被隐藏、窗口没有最小化且没有被完全遮挡。
-    private var isDisplayingFrames: Bool {
-        guard let window, !isHiddenOrHasHiddenAncestor, !window.isMiniaturized else {
-            return false
-        }
-        return window.occlusionState.contains(.visible)
-    }
-
-    @objc private func displayFrame(_ link: CADisplayLink) {
-        finishFrameRequests(didDisplay: true)
-    }
-
-    /// 先让 display link 失效、取走请求再回调：回调里可能再次请求下一帧，那会建一个新的。
-    private func finishFrameRequests(didDisplay: Bool) {
-        frameLink?.invalidate()
-        frameLink = nil
-        let handlers = frameHandlers
-        frameHandlers.removeAll()
-        for handler in handlers {
-            handler(didDisplay)
-        }
-    }
-
-    /// 只监听当前所在窗口的遮挡与最小化；变为不可见时像离开窗口一样停止 display link。
-    private func observeVisibility(of window: NSWindow?) {
-        guard observedWindow !== window else { return }
-        let center = NotificationCenter.default
-        if let observedWindow {
-            for name in Self.windowVisibilityNotifications {
-                center.removeObserver(self, name: name, object: observedWindow)
-            }
-        }
-        observedWindow = window
-        guard let window else { return }
-        for name in Self.windowVisibilityNotifications {
-            center.addObserver(
-                self,
-                selector: #selector(windowVisibilityDidChange(_:)),
-                name: name,
-                object: window
-            )
-        }
-    }
-
-    /// 影响窗口能否出帧的通知：遮挡状态变化、最小化与取消最小化。
-    private static let windowVisibilityNotifications: [Notification.Name] = [
-        NSWindow.didChangeOcclusionStateNotification,
-        NSWindow.didMiniaturizeNotification,
-        NSWindow.didDeminiaturizeNotification
-    ]
-
-    @objc private func windowVisibilityDidChange(_ notification: Notification) {
-        if isDisplayingFrames {
-            recompositeIfDisplaying()
-        } else {
-            cancelNextFrameRequests()
-        }
-    }
-
-    /// 可见时请 renderer 补上没完成的重新合成；它只在静止且有未合成的改动时才请求下一帧。
-    private func recompositeIfDisplaying() {
-        guard isSurfaceAttached, isDisplayingFrames else { return }
-        renderer.recompositeIfStill()
-    }
-
     private func attachSurfaceIfNeeded() {
         guard !isSurfaceAttached else { return }
         isSurfaceAttached = true
         controller.attachSurface(ownerID: ownerID)
-        renderer.frameScheduler = self
         synchronizedLayer.addSublayer(renderer.rootLayer)
         previousSize = nil
         previousBackingScale = nil

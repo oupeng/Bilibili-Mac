@@ -218,12 +218,8 @@ discontinuity generation。消费者不自建 wall-clock timer，也不接触 `A
 - 纹理字节上限（64 MiB）只作内存安全阀，按全部 layer（含前瞻弹幕）计：超限时先移除已走完、还没等到
   对齐的，再由已进场的弹幕挤掉进场最晚的前瞻弹幕；前瞻弹幕之间不互相挤，超限即被拒。被拒的弹幕缺席，
   但不影响车道布局。
-- 静止时不再主动请求重新合成：呈现端的对齐、暂存提交与清屏之后都不调用 renderer 的
-  `recompositeIfStill`。这套机制（renderer 的 `recompositeIfStill`、`DanmakuFrameScheduling` 与 overlay
-  按需的 display link、可见性监听）暂时保留，只剩 overlay 恢复可见时调用一次；它原本用来补暂停时视频不出
-  新帧、提交后那块区域没有完整重新合成（错开几 pt 的两份弹幕）。实机确认暂停、暂停中 seek、暂停时改设置、
-  开关弹幕、分段晚到与换屏之后都没有残影，就整体删除。弹幕 layer 与 `rootLayer` 用
-  `actions` 禁用上屏、移除、子层、显隐与几何变化的隐式动画，增删不另包显式事务（顶层显式事务会单独提交，
+- 弹幕由同步 layer 驱动，暂停时增删 layer 由系统照常合成，不需要主动请求重新合成。弹幕 layer 与 `rootLayer`
+  用 `actions` 禁用上屏、移除、子层与几何变化的隐式动画，增删不另包显式事务（顶层显式事务会单独提交，
   把同一次对齐拆进不同的提交）。
 - 大会员彩色弹幕：元素字段 24 `colorful` 为 60001 时映射为 `DanmakuColorStyle.vipGradient`，其余类型按普通
   弹幕显示。外观按官方贴图的结论内置：白色填充、0.5pt 描边从文字左缘到右缘按采样色标做横向渐变、阴影

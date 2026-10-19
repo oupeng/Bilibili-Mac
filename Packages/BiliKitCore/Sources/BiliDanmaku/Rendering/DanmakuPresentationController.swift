@@ -56,8 +56,7 @@ extension DanmakuLaneConfiguration {
 ///
 /// 同一组已缓存分段与设置下，画面是媒体时间的纯函数：布局表（`DanmakuLayoutCoordinator`）给出每条
 /// 弹幕的车道与时长，`DanmakuMaterializer` 让 backend 上的 layer 等于此刻应有的集合，layer 的运动由
-/// 宿主的同步 layer 按播放 item 的时间驱动。暂停、倍速与缓冲都不需要这里处理；时间线快照只用来决定何时 reconcile、
-/// 画面是否静止。
+/// 宿主的同步 layer 按播放 item 的时间驱动。暂停、倍速与缓冲都不需要这里处理；时间线快照只用来决定何时 reconcile。
 ///
 /// 拥有布局 coordinator、materializer、布局设置（画面尺寸、速度、显示区域、密度、过滤）与 surface owner；
 /// 不拥有 layer 与纹理（backend），也不拥有时间线与分段加载（`DanmakuSession`）。surface owner ID 防止
@@ -122,7 +121,6 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
             resetTimelineState()
         }
         latestSnapshot = snapshot
-        backend.setStill(snapshot.state != .playing || snapshot.rate == 0)
 
         let isDiscontinuous = discontinuityGeneration != snapshot.discontinuityGeneration
         discontinuityGeneration = snapshot.discontinuityGeneration

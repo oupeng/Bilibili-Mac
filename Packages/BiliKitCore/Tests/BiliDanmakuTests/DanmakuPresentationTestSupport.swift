@@ -54,7 +54,7 @@ func layoutTable(
 
 /// 呈现测试唯一的渲染后端替身，不创建任何 layer。
 ///
-/// 记录在屏弹幕的 placement、静止、清屏与画面尺寸，可延迟纹理准备由测试逐个完成；在屏集合
+/// 记录在屏弹幕的 placement、清屏与画面尺寸，可延迟纹理准备由测试逐个完成；在屏集合
 /// 每次变化时检查等待条件。
 @MainActor
 final class RecordingRenderingBackend: DanmakuRenderingBackend {
@@ -66,7 +66,6 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
     private(set) var replacedHistory: [String] = []
     /// 每次移除的事件 ID，按顺序。
     private(set) var removedHistory: [String] = []
-    private(set) var isStill = false
     private(set) var clearCount = 0
     private(set) var stopCount = 0
     /// 每次 `updateSurfaceSize` 收到的宽高，按顺序。
@@ -152,12 +151,6 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
         installed.removeAll()
         notifyWaiters()
     }
-
-    func setStill(_ still: Bool) {
-        isStill = still
-    }
-
-    func recompositeIfStill() {}
 
     func setOpacity(_ opacity: DanmakuOpacity) {}
 

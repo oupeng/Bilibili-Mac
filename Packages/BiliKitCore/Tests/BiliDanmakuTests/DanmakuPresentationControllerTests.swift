@@ -21,7 +21,6 @@ struct DanmakuPresentationControllerTests {
 
         await backend.waitUntil { !backend.installed.isEmpty }
         #expect(backend.installedEventIDs == expectedIDs(at: 30, in: controller))
-        #expect(backend.isStill)
     }
 
     /// 拖动的每一步都推进不连续代号，每步都按那一刻整屏对齐，不清屏。

@@ -434,38 +434,6 @@ struct CoreAnimationDanmakuRendererTests {
         )
     }
 
-    /// 静止时上屏与清屏都算这批的改动：整批结束后请求一次下一帧重新合成。
-    @Test
-    func stillRenderAndClearRequestOneRecompositePerBatch() async throws {
-        let renderer = makeRenderer()
-        let scheduler = ManualFrameScheduler()
-        renderer.frameScheduler = scheduler
-        renderer.setStill(true)
-
-        _ = try await prepareAndInstall(
-            renderer: renderer,
-            event: fixtureEvent(id: "still-a", mode: .top),
-            preparationID: 1,
-            originY: 20
-        )
-        _ = try await prepareAndInstall(
-            renderer: renderer,
-            event: fixtureEvent(id: "still-b", mode: .top),
-            preparationID: 2,
-            originY: 60
-        )
-        #expect(scheduler.pendingRequestCount == 0)
-        renderer.recompositeIfStill()
-        #expect(scheduler.pendingRequestCount == 1)
-        scheduler.fire()
-
-        renderer.clearAll()
-        renderer.recompositeIfStill()
-        #expect(scheduler.pendingRequestCount == 1)
-        scheduler.fire()
-        #expect(scheduler.requestCount == 2)
-    }
-
     /// 上屏、移除、子层与几何变化不带隐式过渡：弹幕 layer 与 rootLayer 都禁用这些动作。
     @Test
     func renderedLayersAndRootDisableImplicitOrderingActions() async throws {
