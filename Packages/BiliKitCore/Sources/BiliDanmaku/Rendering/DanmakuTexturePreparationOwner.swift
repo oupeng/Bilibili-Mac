@@ -6,8 +6,8 @@ import Foundation
 /// 不拥有 layer 与上屏（交给 `CoreAnimationDanmakuRenderer`），也不自己监听系统内存压力：监听由
 /// App 的窗口 adapter（`WindowAdapters.live`）持有，经 renderer 转到 `handleMemoryPressure()`。
 /// 状态只在 MainActor 上读写；栅格化在后台队列执行，结果经 `Task { @MainActor }` 交回，同一 key
-/// 的并发请求共用一个 operation。请求带调用方的准备 generation，`consume` 时比对，
-/// 不等就不交出纹理。释放时只取消队列中的 operation，不等待后台栅格化结束。
+/// 的并发请求共用一个 operation。作废的准备由调用方按准备 ID 丢弃（准备 ID 单调递增、不复用），
+/// owner 不另做 generation 校验。释放时只取消队列中的 operation，不等待后台栅格化结束。
 @MainActor
 final class DanmakuTexturePreparationOwner {
     typealias Rasterize =
@@ -37,13 +37,11 @@ final class DanmakuTexturePreparationOwner {
         ) -> Void
 
     private struct Request {
-        let generation: UInt64
         let key: DanmakuTextureCacheKey
         let completion: Completion
     }
 
     private struct Prepared {
-        let generation: UInt64
         let key: DanmakuTextureCacheKey
     }
 
@@ -96,7 +94,6 @@ final class DanmakuTexturePreparationOwner {
         event: DanmakuEvent,
         backingScale: Double,
         preparationID: UInt64,
-        generation: UInt64,
         completion: @escaping Completion
     ) {
         guard requests[preparationID] == nil,
@@ -118,7 +115,6 @@ final class DanmakuTexturePreparationOwner {
         }
         if let payload = cache.value(for: key) {
             prepared[preparationID] = Prepared(
-                generation: generation,
                 key: key
             )
             completion(.ready(payload.metrics))
@@ -126,7 +122,6 @@ final class DanmakuTexturePreparationOwner {
         }
 
         requests[preparationID] = Request(
-            generation: generation,
             key: key,
             completion: completion
         )
@@ -159,15 +154,13 @@ final class DanmakuTexturePreparationOwner {
         queue.addOperation(operation)
     }
 
-    /// 取走已就绪的纹理；generation 或 key 与发起时不一致、或纹理已被缓存淘汰时返回 nil，
+    /// 取走已就绪的纹理；key 与发起时不一致、或纹理已被缓存淘汰时返回 nil，
     /// 准备记录都会被移除。
     func consume(
         preparationID: UInt64,
-        generation: UInt64,
         expectedKey: DanmakuTextureCacheKey
     ) -> DanmakuTexturePayload? {
         guard let value = prepared.removeValue(forKey: preparationID),
-            value.generation == generation,
             value.key == expectedKey
         else {
             return nil
@@ -224,7 +217,6 @@ final class DanmakuTexturePreparationOwner {
                 continue
             }
             prepared[preparationID] = Prepared(
-                generation: request.generation,
                 key: request.key
             )
             request.completion(.ready(acceptedPayload.metrics))

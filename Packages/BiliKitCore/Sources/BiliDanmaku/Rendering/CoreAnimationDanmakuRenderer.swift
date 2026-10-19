@@ -110,7 +110,6 @@ public final class CoreAnimationDanmakuRenderer:
     public func prepare(
         _ event: DanmakuEvent,
         preparationID: UInt64,
-        generation: UInt64,
         completion:
             @escaping @MainActor @Sendable (
                 DanmakuPreparationResult
@@ -120,7 +119,6 @@ public final class CoreAnimationDanmakuRenderer:
             event: event,
             backingScale: backingScale,
             preparationID: preparationID,
-            generation: generation,
             completion: completion
         )
     }
@@ -129,7 +127,6 @@ public final class CoreAnimationDanmakuRenderer:
     public func install(
         _ placement: DanmakuLanePlacement,
         preparationID: UInt64,
-        generation: UInt64,
         at position: Double
     ) -> DanmakuInstallResult {
         let event = placement.request.event
@@ -141,7 +138,6 @@ public final class CoreAnimationDanmakuRenderer:
             ),
             let payload = preparationOwner.consume(
                 preparationID: preparationID,
-                generation: generation,
                 expectedKey: key
             ),
             let image = Self.makeImage(payload)

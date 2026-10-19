@@ -172,7 +172,7 @@ func installLayer(in renderer: CoreAnimationDanmakuRenderer) async {
     renderer.updateSurfaceSize(width: 800, height: 240, backingScale: 2)
     let event = fixtureEvent(id: "change", mode: .top)
     let result = await withCheckedContinuation { continuation in
-        renderer.prepare(event, preparationID: 1, generation: 0) { result in
+        renderer.prepare(event, preparationID: 1) { result in
             continuation.resume(returning: result)
         }
     }
@@ -193,7 +193,7 @@ func installLayer(in renderer: CoreAnimationDanmakuRenderer) async {
         admittedAtSeconds: 1,
         expiresAtSeconds: 5
     )
-    #expect(renderer.install(placement, preparationID: 1, generation: 0, at: 1).isInstalled)
+    #expect(renderer.install(placement, preparationID: 1, at: 1).isInstalled)
 }
 
 /// 本 target 唯一的「下一显示帧」宿主替身：由测试逐帧触发，可设为不可见；记录请求与取消次数，

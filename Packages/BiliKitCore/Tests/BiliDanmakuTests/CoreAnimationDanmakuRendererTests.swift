@@ -63,13 +63,13 @@ struct CoreAnimationDanmakuRendererTests {
         )
 
         #expect(await prepare(owner: owner, event: fixture, preparationID: 1) == ready)
-        #expect(owner.consume(preparationID: 1, generation: 0, expectedKey: key) != nil)
+        #expect(owner.consume(preparationID: 1, expectedKey: key) != nil)
         #expect(await prepare(owner: owner, event: fixture, preparationID: 2) == ready)
         #expect(counter.count == 1)
 
         owner.handleMemoryPressure()
         #expect(owner.outstandingRequestCount == 0)
-        #expect(owner.consume(preparationID: 2, generation: 0, expectedKey: key) == nil)
+        #expect(owner.consume(preparationID: 2, expectedKey: key) == nil)
         #expect(await prepare(owner: owner, event: fixture, preparationID: 3) == ready)
         #expect(counter.count == 2)
     }
@@ -83,8 +83,7 @@ struct CoreAnimationDanmakuRendererTests {
         let rejected = await withCheckedContinuation { continuation in
             renderer.prepare(
                 fixture,
-                preparationID: 1,
-                generation: 0
+                preparationID: 1
             ) { result in
                 continuation.resume(returning: result)
             }
@@ -118,8 +117,7 @@ struct CoreAnimationDanmakuRendererTests {
             owner.prepare(
                 event: textEvent(text),
                 backingScale: 2,
-                preparationID: id,
-                generation: 0
+                preparationID: id
             ) { _ in }
         }
 
@@ -135,8 +133,7 @@ struct CoreAnimationDanmakuRendererTests {
             owner.prepare(
                 event: textEvent("fresh"),
                 backingScale: 2,
-                preparationID: 4,
-                generation: 0
+                preparationID: 4
             ) { result in
                 continuation.resume(returning: result)
             }
@@ -174,14 +171,12 @@ struct CoreAnimationDanmakuRendererTests {
         owner.prepare(
             event: fixtureEvent(id: "bounded-first", mode: .scrolling),
             backingScale: 2,
-            preparationID: 1,
-            generation: 0
+            preparationID: 1
         ) { _ in }
         owner.prepare(
             event: fixtureEvent(id: "bounded-second", mode: .scrolling),
             backingScale: 2,
-            preparationID: 2,
-            generation: 0
+            preparationID: 2
         ) { result in
             secondResult = result
         }
@@ -414,7 +409,6 @@ struct CoreAnimationDanmakuRendererTests {
             return renderer.install(
                 placement(event: event, metrics: metrics, originY: 0, admittedAt: admittedAt),
                 preparationID: nextPreparationID,
-                generation: 0,
                 at: 5
             )
         }
@@ -504,15 +498,13 @@ struct CoreAnimationDanmakuRendererTests {
         renderer: CoreAnimationDanmakuRenderer,
         event: DanmakuEvent,
         preparationID: UInt64,
-        generation: UInt64 = 0,
         originY: Double,
         admittedAt: Double = 1
     ) async throws -> DanmakuTextMetrics {
         let result = await prepare(
             renderer: renderer,
             event: event,
-            preparationID: preparationID,
-            generation: generation
+            preparationID: preparationID
         )
         guard case .ready(let metrics) = result else {
             Issue.record("texture preparation was rejected")
@@ -521,7 +513,6 @@ struct CoreAnimationDanmakuRendererTests {
         let installation = renderer.install(
             placement(event: event, metrics: metrics, originY: originY, admittedAt: admittedAt),
             preparationID: preparationID,
-            generation: generation,
             at: admittedAt
         )
         #expect(installation.isInstalled)
@@ -531,14 +522,12 @@ struct CoreAnimationDanmakuRendererTests {
     private func prepare(
         renderer: CoreAnimationDanmakuRenderer,
         event: DanmakuEvent,
-        preparationID: UInt64,
-        generation: UInt64 = 0
+        preparationID: UInt64
     ) async -> DanmakuPreparationResult {
         await withCheckedContinuation { continuation in
             renderer.prepare(
                 event,
-                preparationID: preparationID,
-                generation: generation
+                preparationID: preparationID
             ) { result in
                 continuation.resume(returning: result)
             }
@@ -554,8 +543,7 @@ struct CoreAnimationDanmakuRendererTests {
             owner.prepare(
                 event: event,
                 backingScale: 2,
-                preparationID: preparationID,
-                generation: 0
+                preparationID: preparationID
             ) { result in
                 continuation.resume(returning: result)
             }

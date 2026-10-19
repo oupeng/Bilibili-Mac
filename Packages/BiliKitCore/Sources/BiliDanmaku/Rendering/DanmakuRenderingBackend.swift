@@ -102,12 +102,11 @@ enum DanmakuMotionPolicy {
 public protocol DanmakuRenderingBackend: AnyObject {
     /// 按 renderer 当前的 backing scale 准备纹理；完成回调必须返回 MainActor。
     ///
-    /// 缓存命中与立即拒绝会在调用内同步回调，调用方必须先登记请求再调用。`generation`
-    /// 随准备记录保存，`install` 时复核。
+    /// 缓存命中与立即拒绝会在调用内同步回调，调用方必须先登记请求再调用。准备 ID 由调用方
+    /// 单调分配、不复用，作废的准备按 ID 丢弃；generation 只由调用方校验。
     func prepare(
         _ event: DanmakuEvent,
         preparationID: UInt64,
-        generation: UInt64,
 
         completion:
             @escaping @MainActor @Sendable (
@@ -126,7 +125,6 @@ public protocol DanmakuRenderingBackend: AnyObject {
     func install(
         _ placement: DanmakuLanePlacement,
         preparationID: UInt64,
-        generation: UInt64,
         at position: Double
     ) -> DanmakuInstallResult
     /// 已在屏的弹幕换成新的 placement（重新布局后车道或时长变了），复用原纹理；不在屏时返回 false。

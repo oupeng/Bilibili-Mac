@@ -241,8 +241,7 @@ final class DanmakuMaterializer {
         defer { requestDepth -= 1 }
         backend.prepare(
             event,
-            preparationID: preparationID,
-            generation: generation
+            preparationID: preparationID
         ) { [weak self] result in
             self?.completePreparation(
                 eventID: event.id,
@@ -306,7 +305,6 @@ final class DanmakuMaterializer {
         let result = backend.install(
             placement,
             preparationID: preparationID,
-            generation: preparationGeneration,
             at: position
         )
         for eventID in result.evictedEventIDs {

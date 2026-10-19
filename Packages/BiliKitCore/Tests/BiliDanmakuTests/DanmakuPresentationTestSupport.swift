@@ -86,7 +86,6 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
     func prepare(
         _ event: DanmakuEvent,
         preparationID: UInt64,
-        generation: UInt64,
         completion:
             @escaping @MainActor @Sendable (
                 DanmakuPreparationResult
@@ -113,7 +112,6 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
     func install(
         _ placement: DanmakuLanePlacement,
         preparationID: UInt64,
-        generation: UInt64,
         at position: Double
     ) -> DanmakuInstallResult {
         let eventID = placement.request.event.id
