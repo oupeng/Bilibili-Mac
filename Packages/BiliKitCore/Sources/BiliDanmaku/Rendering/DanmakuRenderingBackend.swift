@@ -6,11 +6,6 @@ import Foundation
 public struct DanmakuTextMetrics: Sendable, Equatable {
     public let width: Double
     public let height: Double
-
-    public init(width: Double, height: Double) {
-        self.width = width
-        self.height = height
-    }
 }
 
 /// 纹理准备被拒绝的原因。
@@ -25,15 +20,10 @@ public enum DanmakuPreparationRejectionReason: Sendable, Equatable {
 
 /// 一次安装的结果：是否上屏，以及为腾出纹理字节而被移除的弹幕。
 public struct DanmakuInstallResult: Sendable, Equatable {
-    public static let notInstalled = DanmakuInstallResult(isInstalled: false, evictedEventIDs: [])
+    static let notInstalled = DanmakuInstallResult(isInstalled: false, evictedEventIDs: [])
 
     public let isInstalled: Bool
     public let evictedEventIDs: [String]
-
-    public init(isInstalled: Bool, evictedEventIDs: [String]) {
-        self.isInstalled = isInstalled
-        self.evictedEventIDs = evictedEventIDs
-    }
 }
 
 /// 纹理准备的结果：就绪时带纹理尺寸，否则带拒绝原因。

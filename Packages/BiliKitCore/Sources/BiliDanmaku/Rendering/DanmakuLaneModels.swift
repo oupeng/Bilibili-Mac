@@ -7,18 +7,18 @@ import Foundation
 ///
 /// 车道高度与同屏上限是产品常量，不随设置变化。任一参数变化，布局表都按新参数整张重排；`isValid`
 /// 不成立时 allocator 拒绝全部请求，画面尚未布局时也就不布局。
-public struct DanmakuLaneConfiguration: Sendable, Equatable {
+struct DanmakuLaneConfiguration: Sendable, Equatable {
     /// 同屏弹幕数的硬上限：车道布局在任一媒体时刻最多准入这么多条，超出的按 (时间, ID) 顺序丢弃；
     /// 也是纹理准备 owner 的未完成请求上限。
     ///
     /// 它限定的是 Core Animation 合成与纹理内存的最坏情况：调大让高密度时段同屏更多，
     /// 但合成与内存开销随之上升；调小则高峰期更早丢弃。
-    public static let hardMaximumActiveCount = 640
+    static let hardMaximumActiveCount = 640
 
     /// 车道基元高度（point），与最大字号同为 36；更高的纹理占用连续多条车道。
     ///
     /// 调大同屏行数变少，调小则更多弹幕跨多条车道。
-    public static let laneHeight = 36.0
+    static let laneHeight = 36.0
 
     /// 车道数的上限，只防止极端画面高度换算成 `Int` 时溢出。
     ///
@@ -26,15 +26,15 @@ public struct DanmakuLaneConfiguration: Sendable, Equatable {
     /// 不复用 `hardMaximumActiveCount`。
     static let maximumLaneCount = 4_096
 
-    public let surfaceWidth: Double
-    public let surfaceHeight: Double
+    let surfaceWidth: Double
+    let surfaceHeight: Double
     /// 同一车道前后两条滚动弹幕之间的最小水平间距（point），由密度决定。
-    public let minimumHorizontalGap: Double
+    let minimumHorizontalGap: Double
     /// 可放弹幕的画面高度比例（0...1），车道数按画面高度乘以它计算；滚动与顶部弹幕从顶边往下排，
     /// 底部弹幕从底边往上排。
-    public let displayAreaFraction: Double
+    let displayAreaFraction: Double
     /// 同一车道允许叠放的层数；1 表示不叠放，大于 1 时没有完全空闲的车道才按层叠放。
-    public let maximumOverlapDepth: Int
+    let maximumOverlapDepth: Int
 
     init(
         surfaceWidth: Double,
@@ -73,7 +73,7 @@ public struct DanmakuLaneRequest: Sendable, Equatable {
     public let height: Double
     public let durationSeconds: Double
 
-    public init(
+    init(
         event: DanmakuEvent,
         width: Double,
         height: Double,
@@ -98,6 +98,8 @@ public struct DanmakuLaneRequest: Sendable, Equatable {
 
 /// allocator 准入后的车道位置与占用时段，交给 renderer 安装 layer。
 ///
+/// 公开只因为 `DanmakuRenderingBackend` 的签名用到它；只在本模块构造。
+///
 /// 时间都是媒体时间：`admittedAtSeconds` 是准入时刻，车道布局里就是弹幕自己的时间点，也是动画的开始
 /// 时间；到 `expiresAtSeconds` 时车道被回收、layer 走完。`originY` 自画面顶边向下计算。
 /// `surfaceWidthAtAdmission` 是布局时的画面宽度：滚动弹幕从这里入场，renderer 按它设定运动起点；
@@ -111,7 +113,7 @@ public struct DanmakuLanePlacement: Sendable, Equatable {
     public let expiresAtSeconds: Double
     public let overlapDepth: Int
 
-    public init(
+    init(
         request: DanmakuLaneRequest,
         laneIndex: Int,
         originY: Double,

@@ -7,7 +7,7 @@ import Foundation
 ///
 /// allocator 只使用媒体时间计算占用与过期，输入顺序与宽高确定时结果就确定；车道布局按弹幕自己的时间点
 /// 逐条准入，复制一份就是某一时刻的车道占用。
-public struct DanmakuLaneAllocator: Sendable {
+struct DanmakuLaneAllocator: Sendable {
     private struct ActivePlacement: Sendable {
         let placement: DanmakuLanePlacement
         let laneKeys: [LaneKey]
@@ -34,7 +34,7 @@ public struct DanmakuLaneAllocator: Sendable {
     /// 每条车道跨所有层的活动数；顶部与底部弹幕先找计数为 0 的车道。
     private var activeLaneCounts: [LaneKey: Int] = [:]
 
-    public init(configuration: DanmakuLaneConfiguration) {
+    init(configuration: DanmakuLaneConfiguration) {
         self.configuration = configuration
     }
 
@@ -98,7 +98,7 @@ public struct DanmakuLaneAllocator: Sendable {
     /// 先找完全不叠放也不会追尾的车道；配置允许叠放时，才逐层寻找可用的槽位。放不下的原因：配置或请求
     /// 无效、同一事件 ID 仍在活动中、准入时间不是有限值、活动数已达上限，或没有可用车道（显示区域放不下，
     /// 滚动弹幕在每个可用槽位都会追尾，顶部与底部弹幕的槽位都被占用）。
-    public mutating func admit(
+    mutating func admit(
         _ request: DanmakuLaneRequest,
         at playbackTime: Double
     ) -> DanmakuLanePlacement? {
