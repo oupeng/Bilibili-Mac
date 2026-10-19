@@ -149,7 +149,11 @@ public protocol DanmakuRenderingBackend: AnyObject {
     func cancelPendingPreparations()
     func remove(eventID: String)
     func clearAll()
+    /// 立即按此刻切换动画速率，保持局部时间连续。
     func setPlaybackRate(_ rate: Double)
+    /// 一整批改动（一次 `apply`、一组补位上屏或一次清屏）结束后调用一次：静止且这批改动了画面时，
+    /// 在下一显示帧强制窗口重新合成，暂停时不留残影。
+    func recompositeIfStill()
     func setOpacity(_ opacity: DanmakuOpacity)
     func updateSurfaceSize(
         width: Double,

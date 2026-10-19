@@ -72,7 +72,7 @@ func timedEvent(
     )
 }
 
-/// 呈现控制器测试唯一的渲染后端替身：记录准备、上屏、移除、清屏、速率与停止，
+/// 呈现控制器测试唯一的渲染后端替身：记录准备、上屏、移除、清屏、速率、重新合成请求与停止，
 /// 可延迟纹理准备由测试逐个完成，也可让上屏失败；不创建任何 layer。
 @MainActor
 final class RecordingRenderingBackend: DanmakuRenderingBackend {
@@ -85,6 +85,8 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
     private(set) var renderedPlacements: [DanmakuLanePlacement] = []
     private(set) var renderedElapsedSeconds: [Double] = []
     private(set) var rates: [Double] = []
+    /// 每次请求静止重新合成时已发生的清屏与上屏次数，用来断言它在一整批改动之后才被调用。
+    private(set) var recomposites: [(clearCount: Int, renderCount: Int)] = []
     private(set) var clearCount = 0
     private(set) var stopCount = 0
     private(set) var measureCount = 0
@@ -155,6 +157,10 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
 
     func setPlaybackRate(_ rate: Double) {
         rates.append(rate)
+    }
+
+    func recompositeIfStill() {
+        recomposites.append((clearCount, renderedEventIDs.count))
     }
 
     func setOpacity(_ opacity: DanmakuOpacity) {}

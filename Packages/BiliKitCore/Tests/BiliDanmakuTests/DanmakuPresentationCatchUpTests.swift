@@ -181,9 +181,10 @@ struct DanmakuPresentationCatchUpTests {
         #expect(!backend.renderedEventIDs.contains("candidate-1"))
     }
 
-    /// 同一批先清屏再按同一快照补位；暂停时速率为 0，补位弹幕停在已走过的位置。
+    /// 同一批先清屏再按同一快照补位；暂停时速率为 0，补位弹幕停在已走过的位置；整批结束后才请求
+    /// 静止重新合成。
     @Test
-    func clearAndCatchUpInOneBatchRenderWhilePaused() {
+    func clearAndCatchUpInOneBatchRenderWhilePaused() throws {
         let backend = RecordingRenderingBackend()
         let controller = DanmakuPresentationController(
             backend: backend,
@@ -217,6 +218,9 @@ struct DanmakuPresentationCatchUpTests {
         #expect(backend.activeEventIDs == ["mid-way"])
         #expect(backend.renderedElapsedSeconds.last == 3)
         #expect(backend.rates.last == 0)
+        let lastRecomposite = try #require(backend.recomposites.last)
+        #expect(lastRecomposite.clearCount == backend.clearCount)
+        #expect(lastRecomposite.renderCount == backend.renderedEventIDs.count)
     }
 
     /// 连续落地：每次清屏都取消上一组补位并归还车道，只有最后一组上屏，车道从头分配。

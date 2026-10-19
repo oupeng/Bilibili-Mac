@@ -127,7 +127,11 @@ public final class DanmakuPresentationController:
     }
 
     /// 只呈现与快照 identity 和落地代号完全匹配的 batch。
+    ///
+    /// 结束时（含提前返回）请 backend 在静止时重新合成一次：清屏、速率归零与同步命中缓存的补位上屏
+    /// 都在这一批里，必须等它们全部完成后再请求。
     public func apply(_ update: DanmakuPresentationUpdate) {
+        defer { backend.recompositeIfStill() }
         guard let updateIdentity = update.snapshot.identity else {
             stopPresentation()
             return
@@ -211,6 +215,7 @@ public final class DanmakuPresentationController:
 
     public func clearPresentation() {
         clearBackendAndAllocator()
+        backend.recompositeIfStill()
     }
 
     public func setSpeedLevel(_ speedLevel: DanmakuSpeedLevel) {
@@ -369,6 +374,8 @@ public final class DanmakuPresentationController:
         }
         completedPreparations[preparationID] = result
         drainCompletedPreparations()
+        // 整组补位可能刚一起上屏；静止时让 backend 重新合成一次。
+        backend.recompositeIfStill()
     }
 
     private func drainCompletedPreparations() {
