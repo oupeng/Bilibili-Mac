@@ -141,6 +141,7 @@ final class DanmakuLayoutCoordinator {
             self?.finish(
                 result,
                 parameters: parameters,
+                segments: segments,
                 cache: cache,
                 generation: jobGeneration
             )
@@ -148,6 +149,10 @@ final class DanmakuLayoutCoordinator {
     }
 
     /// 后台排车道；被取消时结果为 nil，测量缓存照样交回。
+    ///
+    /// `@concurrent` 明确要求离开主线程：测量最坏要几百毫秒，即使将来启用
+    /// `NonisolatedNonsendingByDefault`，也不能继承调用方的 MainActor。
+    @concurrent
     private nonisolated static func computeLayouts(
         segments: [Int: [DanmakuEvent]],
         existing: [Int: DanmakuSegmentLayout],
@@ -168,14 +173,17 @@ final class DanmakuLayoutCoordinator {
     private func finish(
         _ result: [Int: DanmakuSegmentLayout]?,
         parameters: DanmakuLayoutParameters,
+        segments jobSegments: [Int: [DanmakuEvent]],
         cache: DanmakuTextMeasurementCache,
         generation jobGeneration: UInt64
     ) {
         job = nil
         measurementCache = cache
         if let result, jobGeneration == generation {
-            // 任务期间被淘汰的分段不进布局表。
-            layouts = result.filter { segments[$0.key] != nil }
+            // 任务期间被淘汰或换了内容的分段不进布局表；换了内容的随后由下一个任务重排。
+            layouts = result.filter { index, _ in
+                segments[index].map { $0 == jobSegments[index] } ?? false
+            }
             layoutParameters = parameters
             tableDidChange?()
         }

@@ -63,6 +63,10 @@ struct DanmakuSegmentLayout: Sendable {
 /// 纯逻辑，可在后台调用；测量由调用方注入。检查 `Task.isCancelled`，被取消时返回 nil。
 enum DanmakuLayoutPlanner {
     /// 每排这么多条弹幕检查一次取消。
+    ///
+    /// 一条弹幕的测量（未命中缓存时）约 10～20µs，准入更快，256 条对应约几毫秒：设置变化或换视频后，
+    /// 作废的任务最多再跑这么久就停下。调小取消更及时，但每条都查 `Task.isCancelled` 的开销会显出来；
+    /// 调大则作废的任务多占后台更久、新任务更晚开始。
     private static let cancellationCheckInterval = 256
 
     /// 为 `segments` 里每个分段给出布局；`existing` 是同一组设置下已有的布局，仍有效的原样沿用。

@@ -39,6 +39,34 @@ struct DanmakuLayoutCoordinatorTests {
         #expect(changes.parameters == [parameters(width: 640)])
     }
 
+    /// 任务进行中某段换了内容：这次的结果不收这一段，随后按新内容重排。
+    @Test
+    func segmentReplacedDuringAJobIsLaidOutAgain() async throws {
+        let coordinator = DanmakuLayoutCoordinator()
+        let changes = TableChangeRecorder(coordinator)
+        let original = denseEvents(segment: 1, count: 120, seed: 6)
+        let replacement = original.map {
+            DanmakuEvent(
+                id: "replacement-" + $0.id,
+                timeSeconds: $0.timeSeconds,
+                mode: $0.mode,
+                text: $0.text,
+                fontSize: $0.fontSize,
+                colorRGB: $0.colorRGB,
+                colorStyle: $0.colorStyle,
+                weight: $0.weight
+            )
+        }
+        coordinator.setParameters(parameters(width: 800), debounced: false)
+        coordinator.setSegments([1: original])
+        coordinator.setSegments([1: replacement])
+        try await changes.wait(until: 2)
+
+        let ids = try #require(coordinator.layouts[1]?.placements.map(\.request.event.id))
+        #expect(!ids.isEmpty)
+        #expect(ids.allSatisfy { $0.hasPrefix("replacement-") })
+    }
+
     @Test
     func liveResizeRelayoutsOnceWithTheLastSize() async throws {
         let coordinator = DanmakuLayoutCoordinator()
