@@ -151,7 +151,7 @@ enum DanmakuLayoutPlanner {
                 height: metrics.height,
                 durationSeconds: duration
             )
-            for placement in allocator.admit([request], at: event.timeSeconds).admitted {
+            if let placement = allocator.admit(request, at: event.timeSeconds) {
                 placements.append(placement)
                 maximumDuration = max(maximumDuration, duration)
             }

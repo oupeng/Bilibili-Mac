@@ -188,7 +188,7 @@ extension WindowAdapters {
     }
 }
 
-/// 一个窗口的弹幕实现：Core Animation renderer、呈现控制器、按媒体时间调度的会话，以及系统内存压力监听。
+/// 一个窗口的弹幕实现：Core Animation renderer、呈现控制器、加载分段并转发时间线的会话，以及系统内存压力监听。
 ///
 /// 内存压力时清空 renderer 的纹理缓存与在途准备；监听由窗口 adapter 的 `close` 先取消。
 @MainActor

@@ -38,8 +38,6 @@ public struct DanmakuLaneAllocator: Sendable {
         self.configuration = configuration
     }
 
-    public var activeCount: Int { active.count }
-
     /// 两份占用对之后的准入是否完全等价：活动 placement 相同，且每个滚动槽位最后进入的是同一条。
     ///
     /// 车道布局用它判断上一段重新布局后末尾的占用是否变了：不变时下一段的布局原样有效，变了才需要
@@ -61,28 +59,10 @@ public struct DanmakuLaneAllocator: Sendable {
             }
     }
 
-    /// 更新后续准入使用的 surface；已活动 placement 保留入场时的 geometry 与过期时间。
-    public mutating func updateConfiguration(
-        _ configuration: DanmakuLaneConfiguration
-    ) {
-        self.configuration = configuration
-    }
-
-    public mutating func clear() -> [DanmakuLanePlacement] {
-        let drained = orderedPlacements(active.values.map(\.placement))
-        active.removeAll(keepingCapacity: false)
-        fixedLaneOccupants.removeAll(keepingCapacity: false)
-        scrollingLaneTails.removeAll(keepingCapacity: false)
-        activeLaneCounts.removeAll(keepingCapacity: false)
-        return drained
-    }
-
-    @discardableResult
-    public mutating func remove(
-        eventID: String
-    ) -> DanmakuLanePlacement? {
+    /// 回收一条到期的 placement 占用的槽位与车道计数。
+    private mutating func remove(eventID: String) {
         guard let removed = active.removeValue(forKey: eventID) else {
-            return nil
+            return
         }
         let placement = removed.placement
         let laneKeys = removed.laneKeys
@@ -111,38 +91,27 @@ public struct DanmakuLaneAllocator: Sendable {
                 activeLaneCounts[laneKey] = nil
             }
         }
-        return placement
     }
 
-    /// 在 `playbackTime` 先回收到期的 placement，再按顺序逐条准入。
+    /// 在 `playbackTime` 先回收到期的 placement，再准入一条；放不下时返回 nil，不排队。
     ///
-    /// 先找完全不叠放也不会追尾的车道；配置允许叠放时，才逐层寻找可用的槽位。
+    /// 先找完全不叠放也不会追尾的车道；配置允许叠放时，才逐层寻找可用的槽位。放不下的原因：配置或请求
+    /// 无效、同一事件 ID 仍在活动中、准入时间不是有限值、活动数已达上限，或没有可用车道（显示区域放不下，
+    /// 滚动弹幕在每个可用槽位都会追尾，顶部与底部弹幕的槽位都被占用）。
     public mutating func admit(
-        _ requests: [DanmakuLaneRequest],
-        at playbackTime: Double
-    ) -> DanmakuLaneAdmission {
-        guard playbackTime.isFinite else {
-            return DanmakuLaneAdmission(expired: [], admitted: [])
-        }
-        let expired = expire(at: playbackTime)
-        let admitted = requests.compactMap { request in
-            try? admit(request, at: playbackTime).get()
-        }
-        return DanmakuLaneAdmission(expired: expired, admitted: admitted)
-    }
-
-    private mutating func admit(
         _ request: DanmakuLaneRequest,
         at playbackTime: Double
-    ) -> Result<DanmakuLanePlacement, DanmakuLaneDropReason> {
+    ) -> DanmakuLanePlacement? {
+        guard playbackTime.isFinite else { return nil }
+        expire(at: playbackTime)
         guard configuration.isValid,
             request.isValid,
             active[request.event.id] == nil
         else {
-            return .failure(.invalidRequest)
+            return nil
         }
         guard active.count < configuration.maximumActiveCount else {
-            return .failure(.capacity)
+            return nil
         }
         let displayHeight =
             configuration.surfaceHeight * configuration.displayAreaFraction
@@ -158,7 +127,7 @@ public struct DanmakuLaneAllocator: Sendable {
         guard laneCount > 0,
             request.height <= displayHeight
         else {
-            return .failure(.noLane)
+            return nil
         }
         let uncappedLaneSpan = ceil(
             request.height / configuration.laneHeight
@@ -167,7 +136,7 @@ public struct DanmakuLaneAllocator: Sendable {
             uncappedLaneSpan > 0,
             uncappedLaneSpan <= Double(laneCount)
         else {
-            return .failure(.noLane)
+            return nil
         }
         let laneSpan = Int(uncappedLaneSpan)
         let candidateLanes = 0...(laneCount - laneSpan)
@@ -179,18 +148,16 @@ public struct DanmakuLaneAllocator: Sendable {
                 at: playbackTime
             )
         }) {
-            return .success(
-                place(
-                    request,
-                    laneIndex: safeLane,
-                    laneSpan: laneSpan,
-                    overlapDepth: 0,
-                    at: playbackTime
-                )
+            return place(
+                request,
+                laneIndex: safeLane,
+                laneSpan: laneSpan,
+                overlapDepth: 0,
+                at: playbackTime
             )
         }
         guard configuration.maximumOverlapDepth > 1 else {
-            return .failure(.noLane)
+            return nil
         }
         for overlapDepth in 0..<configuration.maximumOverlapDepth {
             if let availableLane = candidateLanes.first(where: {
@@ -202,18 +169,16 @@ public struct DanmakuLaneAllocator: Sendable {
                     at: playbackTime
                 )
             }) {
-                return .success(
-                    place(
-                        request,
-                        laneIndex: availableLane,
-                        laneSpan: laneSpan,
-                        overlapDepth: overlapDepth,
-                        at: playbackTime
-                    )
+                return place(
+                    request,
+                    laneIndex: availableLane,
+                    laneSpan: laneSpan,
+                    overlapDepth: overlapDepth,
+                    at: playbackTime
                 )
             }
         }
-        return .failure(.noLane)
+        return nil
     }
 
     private mutating func place(
@@ -374,28 +339,14 @@ public struct DanmakuLaneAllocator: Sendable {
         return catchUpTime >= previousRemainingTime
     }
 
-    private mutating func expire(
-        at playbackTime: Double
-    ) -> [DanmakuLanePlacement] {
+    private mutating func expire(at playbackTime: Double) {
         let expiredIDs = active.compactMap { eventID, activePlacement in
             activePlacement.placement.expiresAtSeconds <= playbackTime
                 ? eventID
                 : nil
         }
-        let expired = expiredIDs.compactMap { eventID in
+        for eventID in expiredIDs {
             remove(eventID: eventID)
-        }
-        return orderedPlacements(expired)
-    }
-
-    private func orderedPlacements(
-        _ placements: [DanmakuLanePlacement]
-    ) -> [DanmakuLanePlacement] {
-        placements.sorted {
-            if $0.admittedAtSeconds != $1.admittedAtSeconds {
-                return $0.admittedAtSeconds < $1.admittedAtSeconds
-            }
-            return $0.request.event.id < $1.request.event.id
         }
     }
 }

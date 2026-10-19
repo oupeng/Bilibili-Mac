@@ -280,7 +280,7 @@ final class AVPlayerTimelineAdapter {
     ///
     /// 由 `installObservers` 安装的通知回调切回主线程后调用，`jump` 是通知线程上当场读到的值。音频
     /// 时钟重新锚定的跳变（速率大于 0，见 `PlaybackTimebaseJump`）不进入 seeking，也不刷新落地计时，
-    /// 否则每次继续播放、改速率都会让弹幕清屏重补。加载中的跳变（续播起点就位）不算 seek，起点由
+    /// 否则每次继续播放、改速率都会让弹幕多做一次整屏对齐。加载中的跳变（续播起点就位）不算 seek，起点由
     /// `markReady` 落地。
     func observeTimebaseJump(_ jump: PlaybackTimebaseJump, on timebase: CMTimebase) {
         guard jump.isSeek, let token, store.currentSnapshot.state != .loading else { return }

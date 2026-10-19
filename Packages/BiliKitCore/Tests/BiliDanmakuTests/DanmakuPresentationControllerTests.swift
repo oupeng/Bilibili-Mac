@@ -131,7 +131,7 @@ struct DanmakuPresentationControllerTests {
         let before = backend.installed
         let clearCount = backend.clearCount
 
-        #expect(!controller.playerItemWillChange(ownerID: UUID()))
+        controller.playerItemWillChange(ownerID: UUID())
         #expect(backend.installed == before)
         #expect(backend.clearCount == clearCount)
     }
@@ -144,7 +144,7 @@ struct DanmakuPresentationControllerTests {
         let (controller, backend) = await laidOutController(at: 30, surfaceOwner: owner)
         let before = backend.installed
 
-        #expect(controller.playerItemWillChange(ownerID: owner))
+        controller.playerItemWillChange(ownerID: owner)
         #expect(backend.installed.isEmpty)
 
         controller.apply(snapshot(identity: identity, position: 30, generation: 1, state: .paused))
@@ -159,7 +159,9 @@ struct DanmakuPresentationControllerTests {
         controller.attachSurface(ownerID: first)
         controller.attachSurface(ownerID: second)
 
-        #expect(!controller.updateSurface(width: 10, height: 10, ownerID: first))
+        let sizesBefore = backend.surfaceSizes.count
+        controller.updateSurface(width: 10, height: 10, backingScale: 2, ownerID: first)
+        #expect(backend.surfaceSizes.count == sizesBefore)
         #expect(!controller.detachSurface(ownerID: first))
         #expect(controller.detachSurface(ownerID: second))
         #expect(backend.stopCount == 0)

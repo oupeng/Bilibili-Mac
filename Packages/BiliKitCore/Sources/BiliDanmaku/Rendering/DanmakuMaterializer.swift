@@ -45,7 +45,7 @@ final class DanmakuMaterializer {
     private var awaitedByCommit: Set<String>?
     /// 暂存期间来了普通 reconcile，提交之后补做一次。
     private var reconcilesAfterCommit = false
-    /// 准备因容量或 scale 不一致被拒绝过；下一次准备完成时重新 reconcile，补上它们。
+    /// 准备因容量被拒绝过；下一次准备完成时重新 reconcile，补上它们。
     private var hasRetryableRejections = false
     /// 纹理无法生成的弹幕（文本无效、超出尺寸），`clear` 之前不再请求。
     private var unpreparable: Set<String> = []
@@ -247,8 +247,7 @@ final class DanmakuMaterializer {
         backend.prepare(
             event,
             preparationID: preparationID,
-            generation: generation,
-            backingScale: backingScale
+            generation: generation
         ) { [weak self] result in
             self?.completePreparation(
                 eventID: event.id,
@@ -286,7 +285,7 @@ final class DanmakuMaterializer {
             } else {
                 backend.discardPreparation(preparationID: preparationID)
             }
-        case .rejected(.capacity), .rejected(.cancelled):
+        case .rejected(.capacity):
             hasRetryableRejections = true
         case .rejected(.invalidInput), .rejected(.oversized):
             unpreparable.insert(eventID)

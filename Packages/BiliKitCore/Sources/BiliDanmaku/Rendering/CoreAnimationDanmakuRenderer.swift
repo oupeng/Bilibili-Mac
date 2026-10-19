@@ -113,20 +113,14 @@ public final class CoreAnimationDanmakuRenderer:
         _ event: DanmakuEvent,
         preparationID: UInt64,
         generation: UInt64,
-        backingScale: Double,
         completion:
             @escaping @MainActor @Sendable (
                 DanmakuPreparationResult
             ) -> Void
     ) {
-        let normalizedScale = DanmakuTextureRasterizer.normalizedBackingScale(backingScale)
-        guard normalizedScale == self.backingScale else {
-            completion(.rejected(.cancelled))
-            return
-        }
         preparationOwner.prepare(
             event: event,
-            backingScale: normalizedScale,
+            backingScale: backingScale,
             preparationID: preparationID,
             generation: generation,
             completion: completion

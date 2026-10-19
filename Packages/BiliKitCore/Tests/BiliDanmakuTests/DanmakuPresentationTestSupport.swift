@@ -67,7 +67,7 @@ func layoutTable(
 
 /// 呈现测试唯一的渲染后端替身，不创建任何 layer。
 ///
-/// 记录在屏弹幕的 placement、静止、清屏与重新合成请求，可延迟纹理准备由测试逐个完成；在屏集合
+/// 记录在屏弹幕的 placement、静止、清屏与画面尺寸，可延迟纹理准备由测试逐个完成；在屏集合
 /// 每次变化时检查等待条件。
 @MainActor
 final class RecordingRenderingBackend: DanmakuRenderingBackend {
@@ -82,8 +82,8 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
     private(set) var isStill = false
     private(set) var clearCount = 0
     private(set) var stopCount = 0
-    private(set) var recompositeCount = 0
-    private(set) var preparedEventIDs: [String] = []
+    /// 每次 `updateSurfaceSize` 收到的宽高，按顺序。
+    private(set) var surfaceSizes: [(width: Double, height: Double)] = []
     /// 为 true 时准备不立即完成，等测试调用 `completePreparations`。
     var delaysPreparation = false
     private var delayedCompletions:
@@ -100,13 +100,11 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
         _ event: DanmakuEvent,
         preparationID: UInt64,
         generation: UInt64,
-        backingScale: Double,
         completion:
             @escaping @MainActor @Sendable (
                 DanmakuPreparationResult
             ) -> Void
     ) {
-        preparedEventIDs.append(event.id)
         if delaysPreparation {
             delayedCompletions.append((event.id, completion))
         } else {
@@ -174,9 +172,7 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
         isStill = still
     }
 
-    func recompositeIfStill() {
-        recompositeCount += 1
-    }
+    func recompositeIfStill() {}
 
     func setOpacity(_ opacity: DanmakuOpacity) {}
 
@@ -184,7 +180,9 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
         width: Double,
         height: Double,
         backingScale: Double
-    ) {}
+    ) {
+        surfaceSizes.append((width, height))
+    }
 
     func stop() {
         stopCount += 1

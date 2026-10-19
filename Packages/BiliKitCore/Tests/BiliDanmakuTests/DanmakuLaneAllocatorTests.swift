@@ -1,15 +1,20 @@
 import BiliApplication
-import BiliDanmaku
 import BiliModels
 import Foundation
 import Testing
 
+@testable import BiliDanmaku
+
+/// 固定车道准入的契约：三种模式共享显示区域、各占自己的车道；滚动弹幕不追尾，顶部底部独占槽位直到
+/// 到期；高文本占连续车道；允许叠放时先用不叠放的车道再逐层叠放；同屏上限按准入顺序拒绝；显示区域按比例
+/// 限制车道数；两份占用是否等价只看活动 placement 与滚动槽位的尾巴。
 @Suite
 struct DanmakuLaneAllocatorTests {
     @Test
-    func threeModesShareDisplayRegionAndPreserveSchedulerOrder() {
+    func threeModesShareDisplayRegionInAdmissionOrder() {
         var allocator = DanmakuLaneAllocator(configuration: configuration())
-        let admission = allocator.admit(
+        let admission = admit(
+            &allocator,
             [
                 request(id: "top", time: 1, mode: .top),
                 request(id: "bottom", time: 2, mode: .bottom),
@@ -19,10 +24,10 @@ struct DanmakuLaneAllocatorTests {
         )
 
         #expect(
-            admission.admitted.map(\.request.event.id)
+            admission.map(\.request.event.id)
                 == ["top", "bottom", "scroll"]
         )
-        #expect(admission.admitted.map(\.originY) == [0, 40, 0])
+        #expect(admission.map(\.originY) == [0, 40, 0])
     }
 
     @Test
@@ -30,7 +35,8 @@ struct DanmakuLaneAllocatorTests {
         var allocator = DanmakuLaneAllocator(
             configuration: configuration(surfaceHeight: 20)
         )
-        let admission = allocator.admit(
+        let admission = admit(
+            &allocator,
             [
                 request(id: "top", mode: .top),
                 request(id: "scroll", mode: .scrolling),
@@ -42,24 +48,24 @@ struct DanmakuLaneAllocatorTests {
         )
 
         #expect(
-            admission.admitted.map(\.request.event.id)
+            admission.map(\.request.event.id)
                 == ["top", "scroll", "bottom"]
         )
-        #expect(admission.admitted.map(\.originY) == [0, 0, 0])
+        #expect(admission.map(\.originY) == [0, 0, 0])
     }
 
     @Test
     func scrollingReusesFirstSafeLaneBeforeOpeningAnotherVerticalLane() {
         var allocator = DanmakuLaneAllocator(configuration: configuration())
-        _ = allocator.admit([request(id: "first")], at: 0)
+        _ = admit(&allocator, [request(id: "first")], at: 0)
 
-        let second = allocator.admit([request(id: "second")], at: 4)
-        let third = allocator.admit([request(id: "third")], at: 4)
+        let second = admit(&allocator, [request(id: "second")], at: 4)
+        let third = admit(&allocator, [request(id: "third")], at: 4)
 
-        #expect(second.admitted.map(\.laneIndex) == [0])
-        #expect(third.admitted.map(\.laneIndex) == [1])
-        #expect(second.admitted.map(\.overlapDepth) == [0])
-        #expect(third.admitted.map(\.overlapDepth) == [0])
+        #expect(second.map(\.laneIndex) == [0])
+        #expect(third.map(\.laneIndex) == [1])
+        #expect(second.map(\.overlapDepth) == [0])
+        #expect(third.map(\.overlapDepth) == [0])
     }
 
     @Test
@@ -70,7 +76,8 @@ struct DanmakuLaneAllocatorTests {
                 maximumOverlapDepth: 3
             )
         )
-        let initial = allocator.admit(
+        let initial = admit(
+            &allocator,
             [
                 request(id: "lane-0"),
                 request(id: "lane-1"),
@@ -79,54 +86,13 @@ struct DanmakuLaneAllocatorTests {
             at: 0
         )
 
-        #expect(initial.admitted.map(\.laneIndex) == [0, 1, 0])
-        #expect(initial.admitted.map(\.overlapDepth) == [0, 0, 1])
+        #expect(initial.map(\.laneIndex) == [0, 1, 0])
+        #expect(initial.map(\.overlapDepth) == [0, 0, 1])
 
-        let next = allocator.admit([request(id: "next")], at: 4)
+        let next = admit(&allocator, [request(id: "next")], at: 4)
 
-        #expect(next.admitted.map(\.laneIndex) == [1])
-        #expect(next.admitted.map(\.overlapDepth) == [0])
-    }
-
-    @Test
-    func reducingOverlapDepthStillChecksEveryActiveScrollingTail() {
-        var allocator = DanmakuLaneAllocator(
-            configuration: configuration(
-                surfaceHeight: 20,
-                maximumOverlapDepth: 3
-            )
-        )
-        let overlapping = allocator.admit(
-            [
-                request(id: "fast", duration: 8),
-                request(id: "slow", duration: 20)
-            ],
-            at: 0
-        )
-
-        #expect(overlapping.admitted.map(\.overlapDepth) == [0, 1])
-
-        allocator.updateConfiguration(
-            configuration(surfaceHeight: 20, maximumOverlapDepth: 1)
-        )
-        let blockedByOldDepth = allocator.admit(
-            [request(id: "blocked", duration: 8)],
-            at: 4
-        )
-
-        #expect(blockedByOldDepth.admitted.isEmpty)
-
-        let recovered = allocator.admit(
-            [request(id: "recovered", duration: 8)],
-            at: 20
-        )
-
-        #expect(
-            recovered.expired.map(\.request.event.id).sorted()
-                == ["fast", "slow"]
-        )
-        #expect(recovered.admitted.map(\.request.event.id) == ["recovered"])
-        #expect(recovered.admitted.map(\.overlapDepth) == [0])
+        #expect(next.map(\.laneIndex) == [1])
+        #expect(next.map(\.overlapDepth) == [0])
     }
 
     @Test
@@ -134,29 +100,31 @@ struct DanmakuLaneAllocatorTests {
         var allocator = DanmakuLaneAllocator(
             configuration: configuration(maximumOverlapDepth: 3)
         )
-        let admission = allocator.admit(
+        let admission = admit(
+            &allocator,
             (0..<7).map {
                 request(id: "top-\($0)", mode: .top)
             },
             at: 0
         )
 
-        #expect(admission.admitted.map(\.laneIndex) == [0, 1, 2, 0, 1, 2, 0])
-        #expect(admission.admitted.map(\.overlapDepth) == [0, 0, 0, 1, 1, 1, 2])
+        #expect(admission.map(\.laneIndex) == [0, 1, 2, 0, 1, 2, 0])
+        #expect(admission.map(\.overlapDepth) == [0, 0, 0, 1, 1, 1, 2])
     }
 
     @Test
     func nonOverlappingDensityRejectsAfterAllFixedLanesAreOccupied() {
         var allocator = DanmakuLaneAllocator(configuration: configuration())
-        let admission = allocator.admit(
+        let admission = admit(
+            &allocator,
             (0..<4).map {
                 request(id: "top-\($0)", mode: .top)
             },
             at: 0
         )
 
-        #expect(admission.admitted.map(\.laneIndex) == [0, 1, 2])
-        #expect(admission.admitted.map(\.overlapDepth) == [0, 0, 0])
+        #expect(admission.map(\.laneIndex) == [0, 1, 2])
+        #expect(admission.map(\.overlapDepth) == [0, 0, 0])
     }
 
     @Test
@@ -164,34 +132,41 @@ struct DanmakuLaneAllocatorTests {
         var allocator = DanmakuLaneAllocator(
             configuration: configuration(surfaceHeight: 20)
         )
-        let first = allocator.admit(
+        let first = admit(
+            &allocator,
             [request(id: "first", width: 400)],
             at: 0
         )
-        #expect(first.admitted.count == 1)
+        #expect(first.count == 1)
 
-        let tooEarly = allocator.admit(
+        let tooEarly = admit(
+            &allocator,
             [request(id: "early", width: 100)],
             at: 1
         )
-        #expect(tooEarly.admitted.isEmpty)
+        #expect(tooEarly.isEmpty)
 
-        _ = allocator.clear()
-        _ = allocator.admit(
+        allocator = DanmakuLaneAllocator(
+            configuration: configuration(surfaceHeight: 20)
+        )
+        _ = admit(
+            &allocator,
             [request(id: "slow", width: 100)],
             at: 0
         )
-        let catchesUp = allocator.admit(
+        let catchesUp = admit(
+            &allocator,
             [request(id: "fast", width: 600)],
             at: 2
         )
-        #expect(catchesUp.admitted.isEmpty)
+        #expect(catchesUp.isEmpty)
 
-        let safe = allocator.admit(
+        let safe = admit(
+            &allocator,
             [request(id: "safe", width: 100)],
             at: 4
         )
-        #expect(safe.admitted.map(\.request.event.id) == ["safe"])
+        #expect(safe.map(\.request.event.id) == ["safe"])
     }
 
     @Test
@@ -199,23 +174,25 @@ struct DanmakuLaneAllocatorTests {
         var allocator = DanmakuLaneAllocator(
             configuration: configuration(surfaceHeight: 20)
         )
-        _ = allocator.admit(
+        _ = admit(
+            &allocator,
             [request(id: "first", mode: .top, duration: 4)],
             at: 0
         )
 
-        let occupied = allocator.admit(
+        let occupied = admit(
+            &allocator,
             [request(id: "blocked", mode: .top, duration: 4)],
             at: 3.9
         )
-        #expect(occupied.admitted.isEmpty)
+        #expect(occupied.isEmpty)
 
-        let expired = allocator.admit(
+        let afterExpiry = admit(
+            &allocator,
             [request(id: "next", mode: .top, duration: 4)],
             at: 4
         )
-        #expect(expired.expired.map(\.request.event.id) == ["first"])
-        #expect(expired.admitted.map(\.request.event.id) == ["next"])
+        #expect(afterExpiry.map(\.request.event.id) == ["next"])
     }
 
     @Test
@@ -223,18 +200,19 @@ struct DanmakuLaneAllocatorTests {
         var allocator = DanmakuLaneAllocator(
             configuration: configuration(surfaceHeight: 20)
         )
-        _ = allocator.admit(
+        _ = admit(
+            &allocator,
             [request(id: "first", duration: 2)],
             at: 0
         )
 
-        let next = allocator.admit(
+        let next = admit(
+            &allocator,
             [request(id: "next", duration: 2)],
             at: 2
         )
 
-        #expect(next.expired.map(\.request.event.id) == ["first"])
-        #expect(next.admitted.map(\.request.event.id) == ["next"])
+        #expect(next.map(\.request.event.id) == ["next"])
     }
 
     @Test
@@ -242,7 +220,8 @@ struct DanmakuLaneAllocatorTests {
         var allocator = DanmakuLaneAllocator(
             configuration: configuration(maximumActiveCount: 2)
         )
-        let admission = allocator.admit(
+        let admission = admit(
+            &allocator,
             [
                 request(id: "a", time: 1, mode: .top),
                 request(id: "b", time: 2, mode: .scrolling),
@@ -252,14 +231,16 @@ struct DanmakuLaneAllocatorTests {
         )
 
         #expect(
-            admission.admitted.map(\.request.event.id) == ["a", "b"]
+            admission.map(\.request.event.id) == ["a", "b"]
         )
-        #expect(allocator.activeCount == 2)
 
-        let removed = allocator.remove(eventID: "a")
-        #expect(removed?.request.event.id == "a")
-        #expect(allocator.activeCount == 1)
-        #expect(allocator.remove(eventID: "missing") == nil)
+        // 到期回收之后才有空位。
+        let afterExpiry = admit(
+            &allocator,
+            [request(id: "d", time: 12, mode: .top)],
+            at: 12
+        )
+        #expect(afterExpiry.map(\.request.event.id) == ["d"])
     }
 
     @Test
@@ -280,10 +261,9 @@ struct DanmakuLaneAllocatorTests {
             request(id: "extreme-\($0)", mode: .top, height: 1)
         }
 
-        let admission = allocator.admit(requests, at: 0)
+        let admission = admit(&allocator, requests, at: 0)
 
-        #expect(admission.admitted.count == maximumActiveCount)
-        #expect(allocator.activeCount == maximumActiveCount)
+        #expect(admission.count == maximumActiveCount)
     }
 
     @Test
@@ -299,65 +279,13 @@ struct DanmakuLaneAllocatorTests {
             )
         )
 
-        let admission = allocator.admit(
+        let admission = admit(
+            &allocator,
             [request(id: "extreme-span", height: .greatestFiniteMagnitude)],
             at: 0
         )
 
-        #expect(admission.admitted.isEmpty)
-    }
-
-    @Test
-    func invalidGeometryHardLimitAndResizeStayBounded() {
-        var allocator = DanmakuLaneAllocator(configuration: configuration())
-        _ = allocator.admit([request(id: "active")], at: 0)
-        let tooTall = allocator.admit(
-            [request(id: "tall", height: 61)],
-            at: 0
-        )
-        #expect(tooTall.admitted.isEmpty)
-
-        allocator.updateConfiguration(
-            configuration(surfaceWidth: 0)
-        )
-        #expect(allocator.activeCount == 1)
-        let unavailable = allocator.admit(
-            [request(id: "unavailable")],
-            at: 1
-        )
-        #expect(unavailable.admitted.isEmpty)
-        #expect(allocator.activeCount == 1)
-
-        allocator.updateConfiguration(
-            configuration(
-                maximumActiveCount:
-                    DanmakuLaneConfiguration.hardMaximumActiveCount + 1
-            )
-        )
-        let overHardLimit = allocator.admit(
-            [request(id: "over-limit")],
-            at: 2
-        )
-        #expect(overHardLimit.admitted.isEmpty)
-        #expect(allocator.activeCount == 1)
-
-        allocator.updateConfiguration(
-            configuration(displayAreaFraction: 1.01)
-        )
-        let invalidCoverage = allocator.admit(
-            [request(id: "invalid-coverage")],
-            at: 3
-        )
-        #expect(invalidCoverage.admitted.isEmpty)
-        #expect(allocator.activeCount == 1)
-
-        allocator.updateConfiguration(configuration())
-        let recovered = allocator.admit(
-            [request(id: "recovered")],
-            at: 8
-        )
-        #expect(recovered.expired.map(\.request.event.id) == ["active"])
-        #expect(recovered.admitted.map(\.request.event.id) == ["recovered"])
+        #expect(admission.isEmpty)
     }
 
     @Test(arguments: [DanmakuPresentationMode.top, .scrolling])
@@ -365,7 +293,8 @@ struct DanmakuLaneAllocatorTests {
         mode: DanmakuPresentationMode
     ) {
         var allocator = DanmakuLaneAllocator(configuration: configuration())
-        let admission = allocator.admit(
+        let admission = admit(
+            &allocator,
             [
                 request(id: "large", mode: mode, height: 39),
                 request(id: "small", mode: mode, height: 18),
@@ -374,94 +303,45 @@ struct DanmakuLaneAllocatorTests {
             at: 0
         )
 
-        #expect(admission.admitted.map(\.request.event.id) == ["large", "small"])
-        #expect(admission.admitted.map(\.laneIndex) == [0, 2])
-        #expect(admission.admitted.map(\.originY) == [0, 40])
+        #expect(admission.map(\.request.event.id) == ["large", "small"])
+        #expect(admission.map(\.laneIndex) == [0, 2])
+        #expect(admission.map(\.originY) == [0, 40])
     }
 
-    @Test(
-        arguments: [DanmakuPresentationMode.top, .scrolling],
-        [LaneRelease.remove, .expire]
-    )
-    func releasingTallRequestFreesEveryOccupiedLane(
-        mode: DanmakuPresentationMode,
-        release: LaneRelease
-    ) {
+    @Test(arguments: [DanmakuPresentationMode.top, .scrolling])
+    func expiringTallRequestFreesEveryOccupiedLane(mode: DanmakuPresentationMode) {
         var allocator = DanmakuLaneAllocator(configuration: configuration())
-        _ = allocator.admit(
+        _ = admit(
+            &allocator,
             [
                 request(id: "large", mode: mode, height: 39, duration: 1),
                 request(id: "small", mode: mode, height: 18, duration: 10)
             ],
             at: 0
         )
-        let reuseTime: Double
-        switch release {
-        case .remove:
-            #expect(allocator.remove(eventID: "large") != nil)
-            reuseTime = 0.1
-        case .expire:
-            reuseTime = 1
-        }
-
-        let reused = allocator.admit(
+        let reused = admit(
+            &allocator,
             [request(id: "large-next", mode: mode, height: 39)],
-            at: reuseTime
+            at: 1
         )
 
-        #expect(
-            reused.expired.map(\.request.event.id)
-                == (release == .expire ? ["large"] : [])
-        )
-        #expect(reused.admitted.map(\.request.event.id) == ["large-next"])
-        #expect(reused.admitted.first?.laneIndex == 0)
+        #expect(reused.map(\.request.event.id) == ["large-next"])
+        #expect(reused.first?.laneIndex == 0)
     }
 
     @Test
     func tallBottomRequestUsesItsMeasuredHeightFromSurfaceEdge() throws {
         var allocator = DanmakuLaneAllocator(configuration: configuration())
-        let admission = allocator.admit(
+        let admission = admit(
+            &allocator,
             [request(id: "large-bottom", mode: .bottom, height: 39)],
             at: 0
         )
 
-        let placement = try #require(admission.admitted.first)
+        let placement = try #require(admission.first)
         #expect(placement.laneIndex == 0)
         #expect(placement.originY == 21)
         #expect(placement.originY + placement.request.height == 60)
-    }
-
-    @Test
-    func resizePreservesActiveAndUsesEachAdmissionWidthForCollision() throws {
-        var allocator = DanmakuLaneAllocator(
-            configuration: configuration(
-                surfaceWidth: 800,
-                surfaceHeight: 20
-            )
-        )
-        let first = allocator.admit(
-            [request(id: "old-surface", duration: 10)],
-            at: 0
-        )
-        #expect(first.admitted.count == 1)
-        #expect(first.admitted.first?.surfaceWidthAtAdmission == 800)
-
-        allocator.updateConfiguration(
-            configuration(
-                surfaceWidth: 1_200,
-                surfaceHeight: 20
-            )
-        )
-        #expect(allocator.activeCount == 1)
-
-        let following = allocator.admit(
-            [request(id: "new-surface", duration: 20)],
-            at: 0.2
-        )
-        let placement = try #require(following.admitted.first)
-        #expect(placement.surfaceWidthAtAdmission == 1_200)
-        #expect(placement.laneIndex == first.admitted.first?.laneIndex)
-        #expect(allocator.activeCount == 2)
     }
 
     @Test(
@@ -482,19 +362,21 @@ struct DanmakuLaneAllocatorTests {
                 displayAreaFraction: fraction
             )
         )
-        let top = allocator.admit(
+        let top = admit(
+            &allocator,
             expectedTop.indices.map { request(id: "top-\($0)", mode: .top) },
             at: 0
         )
-        let bottom = allocator.admit(
+        let bottom = admit(
+            &allocator,
             expectedBottom.indices.map {
                 request(id: "bottom-\($0)", mode: .bottom)
             },
             at: 0
         )
 
-        #expect(top.admitted.map(\.originY) == expectedTop)
-        #expect(bottom.admitted.map(\.originY) == expectedBottom)
+        #expect(top.map(\.originY) == expectedTop)
+        #expect(bottom.map(\.originY) == expectedBottom)
     }
 
     @Test(arguments: DanmakuDisplayArea.allCases)
@@ -505,17 +387,40 @@ struct DanmakuLaneAllocatorTests {
                 displayAreaFraction: area.fraction
             )
         )
-        let admission = allocator.admit(
+        let admission = admit(
+            &allocator,
             (0..<20).map { request(id: "\(area.rawValue)-\($0)", mode: .top) },
             at: 0
         )
 
-        #expect(admission.admitted.count == area.rawValue / 5)
+        #expect(admission.count == area.rawValue / 5)
     }
 
-    enum LaneRelease: Sendable {
-        case remove
-        case expire
+    /// 两份占用等价：同样的活动 placement 与滚动尾巴；任一条到期时间不同就不等价，到期之后又等价。
+    @Test
+    func sameOccupancyComparesActivePlacementsAndScrollingTails() {
+        var first = DanmakuLaneAllocator(configuration: configuration())
+        var second = DanmakuLaneAllocator(configuration: configuration())
+        _ = admit(&first, [request(id: "a"), request(id: "b", mode: .top)], at: 0)
+        _ = admit(&second, [request(id: "a"), request(id: "b", mode: .top)], at: 0)
+        #expect(first.hasSameOccupancy(as: second))
+
+        var longer = DanmakuLaneAllocator(configuration: configuration())
+        _ = admit(&longer, [request(id: "a", duration: 9), request(id: "b", mode: .top)], at: 0)
+        #expect(!first.hasSameOccupancy(as: longer))
+
+        _ = admit(&first, [request(id: "c", mode: .bottom)], at: 10)
+        _ = admit(&longer, [request(id: "c", mode: .bottom)], at: 10)
+        #expect(first.hasSameOccupancy(as: longer))
+    }
+
+    /// 逐条准入，返回被准入的 placement。
+    private func admit(
+        _ allocator: inout DanmakuLaneAllocator,
+        _ requests: [DanmakuLaneRequest],
+        at time: Double
+    ) -> [DanmakuLanePlacement] {
+        requests.compactMap { allocator.admit($0, at: time) }
     }
 
     private func configuration(

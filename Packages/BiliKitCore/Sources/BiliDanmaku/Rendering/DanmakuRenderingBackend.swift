@@ -16,13 +16,11 @@ public struct DanmakuTextMetrics: Sendable, Equatable {
 /// 纹理准备被拒绝的原因。
 ///
 /// `capacity`：未完成请求已满、准备 ID 重复，或被内存压力清掉；`invalidInput`：文本为空或过长、
-/// 字号或 backing scale 无效；`oversized`：栅格化失败或纹理超出尺寸与字节上限；`cancelled`：请求的
-/// backing scale 与 renderer 当前的不一致。
+/// 字号或 backing scale 无效；`oversized`：栅格化失败或纹理超出尺寸与字节上限。
 public enum DanmakuPreparationRejectionReason: Sendable, Equatable {
     case capacity
     case invalidInput
     case oversized
-    case cancelled
 }
 
 /// 一次安装的结果：是否上屏，以及为腾出纹理字节而被移除的弹幕。
@@ -102,7 +100,7 @@ enum DanmakuMotionPolicy {
 /// 高度变化平移；backing scale 变化会取消在途准备。
 @MainActor
 public protocol DanmakuRenderingBackend: AnyObject {
-    /// 准备完成回调必须返回 MainActor。
+    /// 按 renderer 当前的 backing scale 准备纹理；完成回调必须返回 MainActor。
     ///
     /// 缓存命中与立即拒绝会在调用内同步回调，调用方必须先登记请求再调用。`generation`
     /// 随准备记录保存，`install` 时复核。
@@ -110,7 +108,7 @@ public protocol DanmakuRenderingBackend: AnyObject {
         _ event: DanmakuEvent,
         preparationID: UInt64,
         generation: UInt64,
-        backingScale: Double,
+
         completion:
             @escaping @MainActor @Sendable (
                 DanmakuPreparationResult

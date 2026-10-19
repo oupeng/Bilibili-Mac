@@ -14,10 +14,10 @@ public enum DanmakuColorStyle: Sendable, Hashable {
 }
 
 /// 一条弹幕，由 BiliAPI 的 `DanmakuPayloadDecoder` 从分段 protobuf 解码产生，`BiliDanmaku`
-/// 调度与渲染消费。
+/// 车道布局与渲染消费。
 ///
 /// 解码时限定 ID、时间与正文长度，正文去掉首尾空白且非空；字号只保留 18、25、36，其他按 25；
-/// `weight` 为负的弹幕由调度过滤，不显示。
+/// `weight` 为负的弹幕在车道布局前被过滤，不显示。
 public struct DanmakuEvent: Sendable, Hashable, Identifiable {
     /// B 站的三档字号（小、标准、大）。
     public static let supportedFontSizes: Set<Double> = [18, 25, 36]

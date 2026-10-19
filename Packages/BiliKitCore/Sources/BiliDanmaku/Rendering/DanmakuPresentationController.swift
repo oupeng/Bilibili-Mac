@@ -185,13 +185,11 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     }
 
     /// 新 overlay 接管 surface：记下 owner、清屏，再按当前时刻整屏挂上；同一 owner 重复调用是空操作。
-    @discardableResult
-    public func attachSurface(ownerID: UUID) -> Bool {
-        guard surfaceOwnerID != ownerID else { return true }
+    public func attachSurface(ownerID: UUID) {
+        guard surfaceOwnerID != ownerID else { return }
         surfaceOwnerID = ownerID
         materializer.clear()
         reconcile(staged: true)
-        return true
     }
 
     /// 只有当前 owner 能交还 surface，交还时清屏；返回是否生效。
@@ -203,30 +201,27 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         return true
     }
 
-    /// 宿主的同步 layer 即将换绑到另一个播放 item：先清屏，再由宿主换绑；只接受当前 owner，返回是否生效。
+    /// 宿主的同步 layer 即将换绑到另一个播放 item：先清屏，再由宿主换绑；只接受当前 owner。
     ///
     /// 同步 layer 换绑后时间立刻按新 item 走，旧 layer 留着会在新时间线上错位，所以必须先清。布局表保留
     /// （同一视频换线路或清晰度时仍然有效），下一个落地快照按新 item 的时刻整屏挂上。
-    @discardableResult
-    public func playerItemWillChange(ownerID: UUID) -> Bool {
-        guard surfaceOwnerID == ownerID else { return false }
+    public func playerItemWillChange(ownerID: UUID) {
+        guard surfaceOwnerID == ownerID else { return }
         materializer.clear()
         landingGeneration = nil
         backend.recompositeIfStill()
-        return true
     }
 
-    /// 只接受当前 owner 的尺寸更新；返回是否生效。
+    /// 只接受当前 owner 的尺寸更新。
     ///
     /// 已有布局表时按新尺寸重新布局要去抖（live resize），期间屏上沿用旧布局。
-    @discardableResult
     public func updateSurface(
         width: Double,
         height: Double,
-        backingScale: Double = 2,
+        backingScale: Double,
         ownerID: UUID
-    ) -> Bool {
-        guard surfaceOwnerID == ownerID else { return false }
+    ) {
+        guard surfaceOwnerID == ownerID else { return }
         let normalizedScale = DanmakuTextureRasterizer.normalizedBackingScale(backingScale)
         self.backingScale = normalizedScale
         backend.updateSurfaceSize(width: width, height: height, backingScale: normalizedScale)
@@ -241,7 +236,6 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
             maximumOverlapDepth: configuration.maximumOverlapDepth
         )
         updateLayoutParameters(debounced: true)
-        return true
     }
 
     /// 布局表在 `latestSnapshot` 时刻应有的弹幕挂到 backend 上；弹幕关闭或还没有快照时什么都不做。

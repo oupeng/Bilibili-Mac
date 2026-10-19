@@ -84,8 +84,7 @@ struct CoreAnimationDanmakuRendererTests {
             renderer.prepare(
                 fixture,
                 preparationID: 1,
-                generation: 0,
-                backingScale: 2
+                generation: 0
             ) { result in
                 continuation.resume(returning: result)
             }
@@ -489,8 +488,7 @@ struct CoreAnimationDanmakuRendererTests {
             renderer.prepare(
                 event,
                 preparationID: preparationID,
-                generation: generation,
-                backingScale: 2
+                generation: generation
             ) { result in
                 continuation.resume(returning: result)
             }

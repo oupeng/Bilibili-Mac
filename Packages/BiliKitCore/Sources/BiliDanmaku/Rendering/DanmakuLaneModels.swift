@@ -126,8 +126,9 @@ public struct DanmakuLaneRequest: Sendable, Equatable {
 /// allocator 准入后的车道位置与占用时段，交给 renderer 安装 layer。
 ///
 /// 时间都是媒体时间：`admittedAtSeconds` 是准入时刻，车道布局里就是弹幕自己的时间点，也是动画的开始
-/// 时间；到 `expiresAtSeconds` 时车道被回收、layer 走完。`originY` 自画面顶边向下计算。`surfaceWidthAtAdmission` 记录入场时的画面宽度，
-/// resize 之后判断追尾仍按这条弹幕实际的速度计算。
+/// 时间；到 `expiresAtSeconds` 时车道被回收、layer 走完。`originY` 自画面顶边向下计算。
+/// `surfaceWidthAtAdmission` 是布局时的画面宽度：滚动弹幕从这里入场，renderer 按它设定运动起点；
+/// 画面尺寸变了、按新尺寸重新布局之前，屏上仍按旧布局运动。
 public struct DanmakuLanePlacement: Sendable, Equatable {
     public let request: DanmakuLaneRequest
     public let laneIndex: Int
@@ -154,23 +155,4 @@ public struct DanmakuLanePlacement: Sendable, Equatable {
         self.expiresAtSeconds = expiresAtSeconds
         self.overlapDepth = overlapDepth
     }
-}
-
-/// allocator 拒绝一条请求的原因。
-///
-/// `capacity`：活动数已达 `maximumActiveCount`；`noLane`：显示区域放不下，或没有可用车道
-/// （滚动弹幕在每个可用槽位都会追尾，顶部与底部弹幕的槽位都被占用）；
-/// `invalidRequest`：配置或请求无效、同一事件 ID 已在活动中，或准入时间不是有限值。
-public enum DanmakuLaneDropReason: Error, Sendable, Equatable {
-    case capacity
-    case noLane
-    case invalidRequest
-}
-
-/// 一次 `admit` 的结果：本次到期回收的 placement 与新准入的 placement；没准入的请求直接丢弃，不排队。
-///
-/// `expired` 已从 allocator 移除，调用方负责移除对应的 layer。
-public struct DanmakuLaneAdmission: Sendable, Equatable {
-    public let expired: [DanmakuLanePlacement]
-    public let admitted: [DanmakuLanePlacement]
 }
