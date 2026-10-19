@@ -201,10 +201,7 @@ private struct LiveDanmaku {
     init(repository: any DanmakuSegmentRepository, timeline: AVPlayerEngine) {
         // 弹幕 layer 挂在播放器宿主的同步 layer 下，媒体时间 0 按 AVFoundation 的约定写成这个常量。
         let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
-        let controller = DanmakuPresentationController(
-            backend: renderer,
-            configuration: .production(surfaceWidth: 0, surfaceHeight: 0)
-        )
+        let controller = DanmakuPresentationController(backend: renderer)
         self.renderer = renderer
         self.controller = controller
         // 主队列投递，处理在 MainActor 上清空 renderer 的纹理缓存与在途准备。

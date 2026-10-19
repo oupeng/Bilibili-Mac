@@ -4,15 +4,16 @@ import Foundation
 
 /// 弹幕密度到车道准入参数的映射：同车道滚动弹幕的最小水平间距（point）与可叠放层数。
 ///
-/// 只有显示区域为全屏时才采用用户选的密度，其余显示区域按普通密度（见 `updateLaneConfiguration`）。
+/// 只有显示区域为全屏时才采用用户选的密度，其余显示区域按普通密度（见
+/// `DanmakuLaneConfiguration.init(surfaceWidth:surfaceHeight:displayArea:density:)`）。
 /// 间距越小、层数越多，同屏弹幕越多，也越容易互相遮挡。
 struct DanmakuDensityAdmissionPolicy: Sendable, Equatable {
     /// 普通密度：同车道前后两条滚动弹幕至少隔 64pt。
     private static let normalGap = 64.0
     /// 增加密度：间距减半为 32pt，仍不叠放。
     private static let increasedGap = 32.0
-    /// 允许叠放：不留间距，没有完全空闲的车道时同一车道最多叠 3 层。
-    private static let overlappingDepth = 3
+    /// 允许叠放：不留间距，没有完全空闲的车道时同一车道最多叠 3 层；也是车道配置校验的层数上限。
+    static let overlappingDepth = 3
 
     let minimumHorizontalGap: Double
     let maximumOverlapDepth: Int
@@ -29,6 +30,25 @@ struct DanmakuDensityAdmissionPolicy: Sendable, Equatable {
             minimumHorizontalGap = 0
             maximumOverlapDepth = Self.overlappingDepth
         }
+    }
+}
+
+extension DanmakuLaneConfiguration {
+    /// 由画面尺寸、显示区域与密度推导车道配置；呈现控制器每次设置或尺寸变化都经它重建。
+    init(
+        surfaceWidth: Double,
+        surfaceHeight: Double,
+        displayArea: DanmakuDisplayArea,
+        density: DanmakuDensity
+    ) {
+        let policy = DanmakuDensityAdmissionPolicy(displayArea == .full ? density : .normal)
+        self.init(
+            surfaceWidth: surfaceWidth,
+            surfaceHeight: surfaceHeight,
+            minimumHorizontalGap: policy.minimumHorizontalGap,
+            displayAreaFraction: displayArea.fraction,
+            maximumOverlapDepth: policy.maximumOverlapDepth
+        )
     }
 }
 
@@ -59,7 +79,9 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     private let backend: any DanmakuRenderingBackend
     private let coordinator = DanmakuLayoutCoordinator()
     private let materializer: DanmakuMaterializer
-    private var configuration: DanmakuLaneConfiguration
+    /// 当前 surface 的尺寸（point）；尚未布局时为 0，这时不布局。
+    private var surfaceWidth = 0.0
+    private var surfaceHeight = 0.0
     private var speedLevel = DanmakuSpeedLevel.default
     private var displayArea = DanmakuDisplayArea.default
     private var density = DanmakuDensity.default
@@ -78,22 +100,13 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     /// 最近一次见到的落地代号；变化时按新位置暂存 reconcile。
     private var landingGeneration: UInt64?
 
-    public init(
-        backend: any DanmakuRenderingBackend,
-        configuration: DanmakuLaneConfiguration
-    ) {
+    /// 画面尺寸由接管 surface 的宿主经 `updateSurface` 给出，之前不布局。
+    public init(backend: any DanmakuRenderingBackend) {
         self.backend = backend
-        self.configuration = configuration
         materializer = DanmakuMaterializer(backend: backend)
-        backend.updateSurfaceSize(
-            width: configuration.surfaceWidth,
-            height: configuration.surfaceHeight,
-            backingScale: backingScale
-        )
         coordinator.tableDidChange = { [weak self] in
             self?.reconcile(staged: true)
         }
-        updateLayoutParameters(debounced: false)
     }
 
     /// 当前布局表；reconcile 按它挂上弹幕。
@@ -164,14 +177,12 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     public func setDisplayArea(_ displayArea: DanmakuDisplayArea) {
         guard self.displayArea != displayArea else { return }
         self.displayArea = displayArea
-        updateLaneConfiguration()
         updateLayoutParameters(debounced: false)
     }
 
     public func setDensity(_ density: DanmakuDensity) {
         guard self.density != density else { return }
         self.density = density
-        updateLaneConfiguration()
         updateLayoutParameters(debounced: false)
     }
 
@@ -223,15 +234,8 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         self.backingScale = normalizedScale
         backend.updateSurfaceSize(width: width, height: height, backingScale: normalizedScale)
         materializer.setBackingScale(normalizedScale)
-        configuration = DanmakuLaneConfiguration(
-            surfaceWidth: width,
-            surfaceHeight: height,
-            laneHeight: configuration.laneHeight,
-            minimumHorizontalGap: configuration.minimumHorizontalGap,
-            maximumActiveCount: configuration.maximumActiveCount,
-            displayAreaFraction: configuration.displayAreaFraction,
-            maximumOverlapDepth: configuration.maximumOverlapDepth
-        )
+        surfaceWidth = width
+        surfaceHeight = height
         updateLayoutParameters(debounced: true)
     }
 
@@ -258,24 +262,14 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         backend.recompositeIfStill()
     }
 
-    /// 按显示区域与密度重建车道配置；画面尺寸不变。
-    private func updateLaneConfiguration() {
-        let effectiveDensity: DanmakuDensity =
-            displayArea == .full ? density : .normal
-        let policy = DanmakuDensityAdmissionPolicy(effectiveDensity)
-        configuration = DanmakuLaneConfiguration(
-            surfaceWidth: configuration.surfaceWidth,
-            surfaceHeight: configuration.surfaceHeight,
-            laneHeight: configuration.laneHeight,
-            minimumHorizontalGap: policy.minimumHorizontalGap,
-            maximumActiveCount: configuration.maximumActiveCount,
-            displayAreaFraction: displayArea.fraction,
-            maximumOverlapDepth: policy.maximumOverlapDepth
-        )
-    }
-
     /// 把当前设置交给布局 coordinator；画面尚未布局（尺寸为 0）时不布局。
     private func updateLayoutParameters(debounced: Bool) {
+        let configuration = DanmakuLaneConfiguration(
+            surfaceWidth: surfaceWidth,
+            surfaceHeight: surfaceHeight,
+            displayArea: displayArea,
+            density: density
+        )
         let parameters =
             configuration.isValid
             ? DanmakuLayoutParameters(

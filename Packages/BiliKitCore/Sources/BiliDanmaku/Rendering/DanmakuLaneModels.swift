@@ -2,11 +2,11 @@ import BiliApplication
 import BiliModels
 import Foundation
 
-/// 车道分配的几何与容量参数，由 `DanmakuPresentationController` 按画面尺寸、
-/// 显示区域与密度重建，经车道布局交给 `DanmakuLaneAllocator`。
+/// 车道分配的几何参数，由 `DanmakuPresentationController` 按画面尺寸、显示区域与密度推导
+/// （`init(surfaceWidth:surfaceHeight:displayArea:density:)`），经车道布局交给 `DanmakuLaneAllocator`。
 ///
-/// 任一参数变化，布局表都按新参数整张重排；`isValid` 不成立时 allocator 把全部请求按
-/// `invalidRequest` 拒绝，画面尚未布局时也就不布局。
+/// 车道高度与同屏上限是产品常量，不随设置变化。任一参数变化，布局表都按新参数整张重排；`isValid`
+/// 不成立时 allocator 拒绝全部请求，画面尚未布局时也就不布局。
 public struct DanmakuLaneConfiguration: Sendable, Equatable {
     /// 同屏弹幕数的硬上限：车道布局在任一媒体时刻最多准入这么多条，超出的按 (时间, ID) 顺序丢弃；
     /// 也是纹理准备 owner 的未完成请求上限。
@@ -15,77 +15,50 @@ public struct DanmakuLaneConfiguration: Sendable, Equatable {
     /// 但合成与内存开销随之上升；调小则高峰期更早丢弃。
     public static let hardMaximumActiveCount = 640
 
-    /// 产品的车道基元高度（point），与最大字号同为 36；更高的纹理占用连续多条车道。
+    /// 车道基元高度（point），与最大字号同为 36；更高的纹理占用连续多条车道。
     ///
     /// 调大同屏行数变少，调小则更多弹幕跨多条车道。
-    public static let productionLaneHeight = 36.0
+    public static let laneHeight = 36.0
 
-    /// 产品默认配置：`productionLaneHeight` 车道基元、普通密度的水平间距、不叠放、整个画面都是显示区域。
+    /// 车道数的上限，只防止极端画面高度换算成 `Int` 时溢出。
     ///
-    /// 初始尺寸可以为 0，surface 布局后由呈现控制器更新；显示区域与密度由用户偏好经呈现控制器覆盖。
-    public static func production(
-        surfaceWidth: Double,
-        surfaceHeight: Double
-    ) -> Self {
-        Self(
-            surfaceWidth: surfaceWidth,
-            surfaceHeight: surfaceHeight,
-            laneHeight: productionLaneHeight,
-            minimumHorizontalGap: DanmakuDensityAdmissionPolicy(.default).minimumHorizontalGap,
-            maximumActiveCount: hardMaximumActiveCount,
-            displayAreaFraction: 1
-        )
-    }
+    /// 8K 竖屏也只有约 120 条车道，这个值远在任何真实画面之上，不影响布局；它与同屏上限无关，
+    /// 不复用 `hardMaximumActiveCount`。
+    static let maximumLaneCount = 4_096
 
     public let surfaceWidth: Double
     public let surfaceHeight: Double
-    /// 车道基元高度（point）；纹理高于它的弹幕占用连续多条车道。
-    public let laneHeight: Double
     /// 同一车道前后两条滚动弹幕之间的最小水平间距（point），由密度决定。
     public let minimumHorizontalGap: Double
-    /// 活动弹幕数上限，不得超过 `hardMaximumActiveCount`。
-    public let maximumActiveCount: Int
     /// 可放弹幕的画面高度比例（0...1），车道数按画面高度乘以它计算；滚动与顶部弹幕从顶边往下排，
     /// 底部弹幕从底边往上排。
     public let displayAreaFraction: Double
     /// 同一车道允许叠放的层数；1 表示不叠放，大于 1 时没有完全空闲的车道才按层叠放。
     public let maximumOverlapDepth: Int
 
-    public init(
+    init(
         surfaceWidth: Double,
         surfaceHeight: Double,
-        laneHeight: Double,
         minimumHorizontalGap: Double,
-        maximumActiveCount: Int,
         displayAreaFraction: Double,
         maximumOverlapDepth: Int = 1
     ) {
         self.surfaceWidth = surfaceWidth
         self.surfaceHeight = surfaceHeight
-        self.laneHeight = laneHeight
         self.minimumHorizontalGap = minimumHorizontalGap
-        self.maximumActiveCount = maximumActiveCount
         self.displayAreaFraction = displayAreaFraction
         self.maximumOverlapDepth = maximumOverlapDepth
     }
 
+    /// 叠放层数只来自密度策略，校验上限取策略允许的最大层数。
     var isValid: Bool {
-        let values = [
-            surfaceWidth,
-            surfaceHeight,
-            laneHeight,
-            minimumHorizontalGap,
-            displayAreaFraction
-        ]
+        let values = [surfaceWidth, surfaceHeight, minimumHorizontalGap, displayAreaFraction]
         guard values.allSatisfy(\.isFinite),
             surfaceWidth > 0,
             surfaceHeight > 0,
-            laneHeight > 0,
             minimumHorizontalGap >= 0,
-            maximumActiveCount > 0,
-            maximumActiveCount <= Self.hardMaximumActiveCount,
             maximumOverlapDepth > 0,
-            maximumOverlapDepth <= Self.hardMaximumActiveCount
+            maximumOverlapDepth <= DanmakuDensityAdmissionPolicy.overlappingDepth
         else {
             return false
         }

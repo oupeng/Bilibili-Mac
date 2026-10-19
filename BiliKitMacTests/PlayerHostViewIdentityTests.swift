@@ -14,10 +14,7 @@ struct PlayerHostViewIdentityTests {
     @MainActor
     func nativePlayerViewLeavesNowPlayingOwnershipToProcessController() {
         let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
-        let controller = DanmakuPresentationController(
-            backend: renderer,
-            configuration: Self.emptyDanmakuConfiguration
-        )
+        let controller = DanmakuPresentationController(backend: renderer)
         let view = DanmakuPlayerView(
             renderer: renderer,
             controller: controller,
@@ -32,10 +29,7 @@ struct PlayerHostViewIdentityTests {
     @MainActor
     func playbackPreparationBlocksNativePlayerInputAndAccessibility() {
         let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
-        let controller = DanmakuPresentationController(
-            backend: renderer,
-            configuration: Self.emptyDanmakuConfiguration
-        )
+        let controller = DanmakuPresentationController(backend: renderer)
         let view = DanmakuPlayerView(
             renderer: renderer,
             controller: controller,
@@ -62,10 +56,7 @@ struct PlayerHostViewIdentityTests {
     @MainActor
     func danmakuSurfaceSurvivesTemporaryWindowReparenting() async throws {
         let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
-        let controller = DanmakuPresentationController(
-            backend: renderer,
-            configuration: Self.emptyDanmakuConfiguration
-        )
+        let controller = DanmakuPresentationController(backend: renderer)
         let overlay = DanmakuOverlayView(
             renderer: renderer,
             controller: controller
@@ -127,10 +118,7 @@ struct PlayerHostViewIdentityTests {
     @MainActor
     func danmakuClockFollowsTheCurrentItemAndClearsOnReplacement() async throws {
         let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
-        let controller = DanmakuPresentationController(
-            backend: renderer,
-            configuration: Self.emptyDanmakuConfiguration
-        )
+        let controller = DanmakuPresentationController(backend: renderer)
         let view = DanmakuPlayerView(
             renderer: renderer,
             controller: controller,
@@ -203,13 +191,4 @@ struct PlayerHostViewIdentityTests {
             landingGeneration: 1
         )
     }
-
-    private static let emptyDanmakuConfiguration = DanmakuLaneConfiguration(
-        surfaceWidth: 0,
-        surfaceHeight: 0,
-        laneHeight: 36,
-        minimumHorizontalGap: 12,
-        maximumActiveCount: DanmakuLaneConfiguration.hardMaximumActiveCount,
-        displayAreaFraction: 1
-    )
 }

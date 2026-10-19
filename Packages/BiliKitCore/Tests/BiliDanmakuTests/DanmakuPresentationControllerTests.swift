@@ -167,12 +167,13 @@ struct DanmakuPresentationControllerTests {
         #expect(backend.stopCount == 0)
     }
 
+    /// 由一个宿主接管、画面 800 × 360pt 的控制器。
     private func makeController() -> (DanmakuPresentationController, RecordingRenderingBackend) {
         let backend = RecordingRenderingBackend()
-        let controller = DanmakuPresentationController(
-            backend: backend,
-            configuration: configuration()
-        )
+        let controller = DanmakuPresentationController(backend: backend)
+        let owner = UUID()
+        controller.attachSurface(ownerID: owner)
+        controller.updateSurface(width: 800, height: 360, backingScale: 2, ownerID: owner)
         return (controller, backend)
     }
 

@@ -110,18 +110,18 @@ public struct DanmakuLaneAllocator: Sendable {
         else {
             return nil
         }
-        guard active.count < configuration.maximumActiveCount else {
+        guard active.count < DanmakuLaneConfiguration.hardMaximumActiveCount else {
             return nil
         }
         let displayHeight =
             configuration.surfaceHeight * configuration.displayAreaFraction
         let uncappedLaneCount = floor(
-            displayHeight / configuration.laneHeight
+            displayHeight / DanmakuLaneConfiguration.laneHeight
         )
         let laneCount = Int(
             min(
                 uncappedLaneCount,
-                Double(DanmakuLaneConfiguration.hardMaximumActiveCount)
+                Double(DanmakuLaneConfiguration.maximumLaneCount)
             )
         )
         guard laneCount > 0,
@@ -130,7 +130,7 @@ public struct DanmakuLaneAllocator: Sendable {
             return nil
         }
         let uncappedLaneSpan = ceil(
-            request.height / configuration.laneHeight
+            request.height / DanmakuLaneConfiguration.laneHeight
         )
         guard uncappedLaneSpan.isFinite,
             uncappedLaneSpan > 0,
@@ -236,10 +236,10 @@ public struct DanmakuLaneAllocator: Sendable {
     ) -> Double {
         switch mode {
         case .scrolling, .top:
-            Double(laneIndex) * configuration.laneHeight
+            Double(laneIndex) * DanmakuLaneConfiguration.laneHeight
         case .bottom:
             configuration.surfaceHeight
-                - Double(laneIndex) * configuration.laneHeight
+                - Double(laneIndex) * DanmakuLaneConfiguration.laneHeight
                 - requestHeight
         }
     }

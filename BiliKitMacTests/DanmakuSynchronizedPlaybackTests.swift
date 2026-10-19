@@ -37,10 +37,7 @@ struct DanmakuSynchronizedPlaybackTests {
         let renderer = CoreAnimationDanmakuRenderer(
             beginTimeAtZero: AVCoreAnimationBeginTimeAtZero
         )
-        let controller = DanmakuPresentationController(
-            backend: renderer,
-            configuration: .production(surfaceWidth: 0, surfaceHeight: 0)
-        )
+        let controller = DanmakuPresentationController(backend: renderer)
         let view = DanmakuPlayerView(
             renderer: renderer,
             controller: controller,

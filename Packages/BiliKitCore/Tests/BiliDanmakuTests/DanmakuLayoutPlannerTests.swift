@@ -102,19 +102,20 @@ struct DanmakuLayoutPlannerTests {
         #expect(both[2]?.placements == layouts([1: first, 2: second])?[2]?.placements)
     }
 
+    /// 同屏上限按 (时间, ID) 顺序丢弃：同一时刻比上限多一条时，ID 最大的那条不显示，输入顺序无关。
     @Test
     func capacityDropsTheSameLaterEventsEveryTime() throws {
-        let capped = DanmakuLaneConfiguration(
+        let lanes = DanmakuLaneConfiguration(
             surfaceWidth: 800,
-            surfaceHeight: 600,
-            laneHeight: 30,
+            surfaceHeight: DanmakuLaneConfiguration.laneHeight * 1_000,
             minimumHorizontalGap: 12,
-            maximumActiveCount: 5,
             displayAreaFraction: 1
         )
-        let events = (0..<20).map {
+        let count = DanmakuLaneConfiguration.hardMaximumActiveCount + 1
+        let ids = (0..<count).map { String(format: "event-%04d", $0) }
+        let events = ids.map {
             DanmakuEvent(
-                id: String(format: "event-%02d", $0),
+                id: $0,
                 timeSeconds: 10,
                 mode: .top,
                 text: "x",
@@ -124,12 +125,9 @@ struct DanmakuLayoutPlannerTests {
                 weight: 1
             )
         }
-        let result = try #require(layouts([1: events.reversed()], configuration: capped))
+        let result = try #require(layouts([1: events.reversed()], configuration: lanes))
 
-        #expect(
-            result[1]?.placements.map(\.request.event.id)
-                == (0..<5).map { String(format: "event-%02d", $0) }
-        )
+        #expect(result[1]?.placements.map(\.request.event.id) == Array(ids.dropLast()))
     }
 
     @Test
@@ -169,14 +167,7 @@ struct DanmakuLayoutPlannerTests {
         }
     }
 
-    static let configuration = DanmakuLaneConfiguration(
-        surfaceWidth: 800,
-        surfaceHeight: 300,
-        laneHeight: 30,
-        minimumHorizontalGap: 12,
-        maximumActiveCount: DanmakuLaneConfiguration.hardMaximumActiveCount,
-        displayAreaFraction: 1
-    )
+    static let configuration = BiliDanmakuTests.configuration()
 
     private func layouts(
         _ segments: [Int: [DanmakuEvent]],
@@ -263,7 +254,9 @@ func expectNoOverlap(
         rightEdge(placement, at: time) - placement.request.width
     }
     func lanes(_ placement: DanmakuLanePlacement) -> Range<Int> {
-        let span = Int((placement.request.height / configuration.laneHeight).rounded(.up))
+        let span = Int(
+            (placement.request.height / DanmakuLaneConfiguration.laneHeight).rounded(.up)
+        )
         return placement.laneIndex..<(placement.laneIndex + span)
     }
     let ordered = placements.sorted { $0.admittedAtSeconds < $1.admittedAtSeconds }

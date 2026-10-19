@@ -112,14 +112,7 @@ struct DanmakuLayoutCoordinatorTests {
 
     private func parameters(width: Double) -> DanmakuLayoutParameters {
         DanmakuLayoutParameters(
-            configuration: DanmakuLaneConfiguration(
-                surfaceWidth: width,
-                surfaceHeight: 300,
-                laneHeight: 30,
-                minimumHorizontalGap: 12,
-                maximumActiveCount: DanmakuLaneConfiguration.hardMaximumActiveCount,
-                displayAreaFraction: 1
-            ),
+            configuration: configuration(surfaceWidth: width),
             speedLevel: .default,
             backingScale: 2,
             filter: DanmakuFilter()

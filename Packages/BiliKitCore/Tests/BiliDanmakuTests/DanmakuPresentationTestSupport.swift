@@ -5,17 +5,12 @@ import Testing
 
 @testable import BiliDanmaku
 
-/// 呈现测试的车道配置：800pt 宽、30pt 车道、全屏显示区域，只变化容量与高度。
-func configuration(
-    maximumActiveCount: Int = DanmakuLaneConfiguration.hardMaximumActiveCount,
-    surfaceHeight: Double = 300
-) -> DanmakuLaneConfiguration {
+/// 呈现测试的车道配置：800 × 360pt（10 条车道）、12pt 间距、全屏显示区域，只变化宽度。
+func configuration(surfaceWidth: Double = 800) -> DanmakuLaneConfiguration {
     DanmakuLaneConfiguration(
-        surfaceWidth: 800,
-        surfaceHeight: surfaceHeight,
-        laneHeight: 30,
+        surfaceWidth: surfaceWidth,
+        surfaceHeight: 360,
         minimumHorizontalGap: 12,
-        maximumActiveCount: maximumActiveCount,
         displayAreaFraction: 1
     )
 }
@@ -43,15 +38,7 @@ func layoutTable(
     _ segments: [Int: [DanmakuEvent]],
     surfaceWidth: Double = 800
 ) -> [Int: DanmakuSegmentLayout] {
-    let base = configuration()
-    let lanes = DanmakuLaneConfiguration(
-        surfaceWidth: surfaceWidth,
-        surfaceHeight: base.surfaceHeight,
-        laneHeight: base.laneHeight,
-        minimumHorizontalGap: base.minimumHorizontalGap,
-        maximumActiveCount: base.maximumActiveCount,
-        displayAreaFraction: base.displayAreaFraction
-    )
+    let lanes = configuration(surfaceWidth: surfaceWidth)
     return DanmakuLayoutPlanner.layouts(
         for: segments,
         reusing: [:],

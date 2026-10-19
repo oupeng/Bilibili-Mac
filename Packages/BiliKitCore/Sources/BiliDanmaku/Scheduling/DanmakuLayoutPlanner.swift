@@ -52,7 +52,7 @@ struct DanmakuSegmentLayout: Sendable {
 /// 把已缓存的分段排成确定的布局：同一组已缓存分段、同一组设置总得到同样的车道。
 ///
 /// 每段把通过过滤的事件按 (时间, ID) 排序，逐条在弹幕自己的时间点交给 `DanmakuLaneAllocator` 准入；
-/// allocator 只用媒体时间，输入顺序与宽高确定时结果就确定。同屏上限（`maximumActiveCount`）也在这里
+/// allocator 只用媒体时间，输入顺序与宽高确定时结果就确定。同屏上限（`hardMaximumActiveCount`）也在这里
 /// 按同一规则丢弃，纹理字节上限不参与。
 ///
 /// 分段边界接着上一段末尾的车道占用继续排，边界处不重叠；上一段已有的 ID 不在本段重复显示。上一段不在
