@@ -5,7 +5,7 @@ import Foundation
 ///
 /// 对给定时刻 t，应在 backend 上的是布局表里 `admittedAt ≤ t + lookahead` 且 `expiresAt > t` 的
 /// placement：已经进场、还没走完的，加上不久就要进场、提前以将来的开始时间挂上的。layer 按媒体时间
-/// 运动，所以 seek 到 t 之后 reconcile 一次与从头连续推进到 t 得到同一组 layer，画面只由媒体时间决定；
+/// 运动，所以同一张布局表下，seek 到 t 之后 reconcile 一次与连续推进到 t 得到同一组 layer；
 /// 不需要补位、去重或投递游标。纹理迟到时挂上去也直接出现在中途应在的位置。
 ///
 /// 拥有在屏 placement 的记录、在途纹理准备与「暂存提交」；不拥有布局表（`DanmakuLayoutCoordinator`）
