@@ -211,7 +211,8 @@ public final class CoreAnimationDanmakuRenderer:
         var lookahead: [DanmakuLanePlacement] = []
         if placement.admittedAtSeconds <= position {
             lookahead = others.filter { $0.admittedAtSeconds > position }
-            lookahead.sort(by: Self.entersLater)
+            // 进场更晚的先挤掉。
+            lookahead.sort { DanmakuLanePlacement.precedes($1, $0) }
         }
         for candidate in finished + lookahead
         where additionalBytes > Self.maximumActiveTextureByteCost - activeTextureByteCost {
@@ -220,17 +221,6 @@ public final class CoreAnimationDanmakuRenderer:
             evicted.append(eventID)
         }
         return evicted
-    }
-
-    /// 进场更晚的排在前面；同时进场的按 ID 倒序，顺序与字典遍历无关。
-    private static func entersLater(
-        _ left: DanmakuLanePlacement,
-        _ right: DanmakuLanePlacement
-    ) -> Bool {
-        if left.admittedAtSeconds != right.admittedAtSeconds {
-            return left.admittedAtSeconds > right.admittedAtSeconds
-        }
-        return left.request.event.id > right.request.event.id
     }
 
     @discardableResult

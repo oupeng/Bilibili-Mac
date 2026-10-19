@@ -126,11 +126,9 @@ enum DanmakuLayoutPlanner {
         measure: (DanmakuEvent) -> DanmakuTextMetrics?
     ) -> DanmakuSegmentLayout? {
         var seenIDs = excludingIDs
-        let ordered = events.filter(parameters.filter.allows).sorted {
-            $0.timeSeconds == $1.timeSeconds
-                ? $0.id < $1.id : $0.timeSeconds < $1.timeSeconds
-        }
-        .filter { seenIDs.insert($0.id).inserted }
+        let ordered = events.filter(parameters.filter.allows)
+            .sorted(by: DanmakuEvent.precedes)
+            .filter { seenIDs.insert($0.id).inserted }
         var allocator = seed
         var placements: [DanmakuLanePlacement] = []
         var maximumDuration = 0.0

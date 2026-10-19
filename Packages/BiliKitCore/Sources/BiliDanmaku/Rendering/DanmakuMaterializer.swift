@@ -74,12 +74,7 @@ final class DanmakuMaterializer {
             let candidates = layout.placements(at: position, lookahead: lookaheadSeconds)
             desired.append(contentsOf: candidates.filter { $0.expiresAtSeconds > position })
         }
-        desired.sort { left, right in
-            if left.admittedAtSeconds != right.admittedAtSeconds {
-                return left.admittedAtSeconds < right.admittedAtSeconds
-            }
-            return left.request.event.id < right.request.event.id
-        }
+        desired.sort(by: DanmakuLanePlacement.precedes)
         return desired
     }
 

@@ -129,3 +129,35 @@ public struct DanmakuLanePlacement: Sendable, Equatable {
         self.overlapDepth = overlapDepth
     }
 }
+
+/// 弹幕的唯一顺序：按媒体时间，同一时间按 ID。
+///
+/// 车道布局按它逐条准入，materializer 按它挂 layer，renderer 按它的倒序挤掉前瞻弹幕；同一份顺序保证
+/// 布局与挂上的先后一致、与输入和字典遍历的顺序无关。
+private func precedesInMediaTime(
+    _ leftTime: Double,
+    _ leftID: String,
+    _ rightTime: Double,
+    _ rightID: String
+) -> Bool {
+    leftTime == rightTime ? leftID < rightID : leftTime < rightTime
+}
+
+extension DanmakuEvent {
+    /// 按 (时间, ID) 排序；见 `precedesInMediaTime`。
+    static func precedes(_ left: DanmakuEvent, _ right: DanmakuEvent) -> Bool {
+        precedesInMediaTime(left.timeSeconds, left.id, right.timeSeconds, right.id)
+    }
+}
+
+extension DanmakuLanePlacement {
+    /// 按 (进场时间, ID) 排序；车道布局里进场时间就是弹幕自己的时间，与 `DanmakuEvent.precedes` 一致。
+    static func precedes(_ left: DanmakuLanePlacement, _ right: DanmakuLanePlacement) -> Bool {
+        precedesInMediaTime(
+            left.admittedAtSeconds,
+            left.request.event.id,
+            right.admittedAtSeconds,
+            right.request.event.id
+        )
+    }
+}
