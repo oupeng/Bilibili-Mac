@@ -21,10 +21,7 @@ final class DanmakuLayoutCoordinator {
     static let resizeRelayoutDelay = Duration.milliseconds(200)
 
     /// 布局表被替换后在主线程调用；调用时 `layouts` 已是新表。
-    ///
-    /// 参数为 true 表示这是设置变化（画面尺寸、速度、显示区域、密度、过滤、scale）引起的整张重排，且之前
-    /// 已有布局表：屏上的弹幕会整屏换位。分段到达、上一段晚到、换视频后的第一张表都是 false。
-    var tableDidChange: (@MainActor (Bool) -> Void)?
+    var tableDidChange: (@MainActor () -> Void)?
     /// 当前布局表：按分段号，只含已缓存的分段，全部按 `layoutParameters` 计算。
     private(set) var layouts: [Int: DanmakuSegmentLayout] = [:]
     /// `layouts` 对应的设置；还没有布局表时为 nil。
@@ -114,7 +111,7 @@ final class DanmakuLayoutCoordinator {
         if parameters == nil, layoutParameters != nil {
             layouts.removeAll(keepingCapacity: false)
             layoutParameters = nil
-            tableDidChange?(false)
+            tableDidChange?()
         }
         startIfNeeded()
     }
@@ -130,7 +127,6 @@ final class DanmakuLayoutCoordinator {
             return
         }
         let existing = needsFullRelayout ? [:] : layouts
-        let isSettingsRelayout = needsFullRelayout && layoutParameters != nil
         needsFullRelayout = false
         measurementCache = nil
         let jobGeneration = generation
@@ -147,8 +143,7 @@ final class DanmakuLayoutCoordinator {
                 parameters: parameters,
                 segments: segments,
                 cache: cache,
-                generation: jobGeneration,
-                isSettingsRelayout: isSettingsRelayout
+                generation: jobGeneration
             )
         }
     }
@@ -180,8 +175,7 @@ final class DanmakuLayoutCoordinator {
         parameters: DanmakuLayoutParameters,
         segments jobSegments: [Int: [DanmakuEvent]],
         cache: DanmakuTextMeasurementCache,
-        generation jobGeneration: UInt64,
-        isSettingsRelayout: Bool
+        generation jobGeneration: UInt64
     ) {
         job = nil
         measurementCache = cache
@@ -191,7 +185,7 @@ final class DanmakuLayoutCoordinator {
                 segments[index].map { $0 == jobSegments[index] } ?? false
             }
             layoutParameters = parameters
-            tableDidChange?(isSettingsRelayout)
+            tableDidChange?()
         }
         startIfNeeded()
     }

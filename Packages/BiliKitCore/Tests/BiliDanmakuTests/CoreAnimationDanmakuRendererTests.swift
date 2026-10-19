@@ -456,8 +456,7 @@ struct CoreAnimationDanmakuRendererTests {
 
     private func makeRenderer() -> CoreAnimationDanmakuRenderer {
         let renderer = CoreAnimationDanmakuRenderer(
-            beginTimeAtZero: AVCoreAnimationBeginTimeAtZero,
-            crossfadeClock: ContinuousClock()
+            beginTimeAtZero: AVCoreAnimationBeginTimeAtZero
         )
         renderer.updateSurfaceSize(width: 800, height: 240, backingScale: 2)
         return renderer

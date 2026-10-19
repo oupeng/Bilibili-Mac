@@ -18,9 +18,8 @@ import QuartzCore
 /// 呈现回到模型值，所以模型值本身不可见（滚动弹幕停在画面左外侧，顶部底部弹幕不透明度为 0），
 /// 区间之内由动画撑起。layer 何时移除由 `DanmakuMaterializer` 按媒体时间决定，renderer 不监听动画结束。
 ///
-/// 拥有 `rootLayer`、活动 layer、纹理准备 owner 与整屏重排时的交叉淡化（`DanmakuCrossfade`）。宿主
-/// 把 `containerLayer` 挂进视图，再经 `mount(clockLayer:)` 把同步 layer 交给淡化容器，`rootLayer` 挂在
-/// 同步 layer 下；内存压力监听由 App 窗口 adapter 持有。暂停时增删 layer 由系统照常合成，renderer 不需要主动请求重新合成。
+/// 拥有 `rootLayer`、活动 layer 与纹理准备 owner；`rootLayer` 挂到哪里由 App 的 overlay 决定，内存压力
+/// 监听由 App 窗口 adapter 持有。暂停时增删 layer 由系统照常合成，renderer 不需要主动请求重新合成。
 @MainActor
 public final class CoreAnimationDanmakuRenderer:
     DanmakuRenderingBackend
@@ -29,8 +28,6 @@ public final class CoreAnimationDanmakuRenderer:
         let layer: CALayer
         var placement: DanmakuLanePlacement
         let textureByteCost: Int
-        let textureKey: DanmakuTextureCacheKey
-        let image: CGImage
     }
 
     /// 已上屏 layer（含已挂上、还没进场的前瞻弹幕）的纹理字节总上限；超出时按 `makeRoom` 的顺序腾地方，
@@ -53,9 +50,6 @@ public final class CoreAnimationDanmakuRenderer:
     ]
 
     public let rootLayer: CALayer
-    /// 宿主挂进视图 layer 树的最外层容器；淡化在它下面、同步 layer 之外进行。
-    public var containerLayer: CALayer { crossfade.containerLayer }
-    private let crossfade: DanmakuCrossfade
 
     /// 媒体时间 0 对应的动画 `beginTime`，由宿主按同步 layer 的约定注入。
     private let beginTimeAtZero: CFTimeInterval
@@ -69,16 +63,11 @@ public final class CoreAnimationDanmakuRenderer:
     /// 已上屏 layer 的纹理字节合计，对照 `maximumActiveTextureByteCost`。
     private(set) var activeTextureByteCost = 0
 
-    /// `beginTimeAtZero` 是媒体时间 0 对应的动画开始时间（App 传 `AVCoreAnimationBeginTimeAtZero`）；
-    /// `crossfadeClock` 给交叉淡化计时收尾（App 传 `ContinuousClock`）。
+    /// `beginTimeAtZero` 是媒体时间 0 对应的动画开始时间（App 传 `AVCoreAnimationBeginTimeAtZero`）。
     ///
     /// 初始 backing scale 取默认值；宿主挂上 surface 后经 `updateSurfaceSize` 换成窗口的实际值。
-    public init(
-        beginTimeAtZero: CFTimeInterval,
-        crossfadeClock: any Clock<Duration>
-    ) {
+    public init(beginTimeAtZero: CFTimeInterval) {
         self.beginTimeAtZero = beginTimeAtZero
-        crossfade = DanmakuCrossfade(clock: crossfadeClock, disabledActions: Self.disabledActions)
         backingScale = DanmakuTextureRasterizer.defaultBackingScale
         preparationOwner = DanmakuTexturePreparationOwner()
         rootLayer = CALayer()
@@ -87,11 +76,6 @@ public final class CoreAnimationDanmakuRenderer:
         rootLayer.isGeometryFlipped = true
         rootLayer.masksToBounds = true
         rootLayer.actions = Self.disabledActions
-    }
-
-    /// 把宿主的同步 layer 挂进淡入容器，`rootLayer` 挂在同步 layer 下；宿主接管 surface 时调用。
-    public func mount(clockLayer: CALayer) {
-        crossfade.mount(clockLayer: clockLayer, contentLayer: rootLayer)
     }
 
     public func prepare(
@@ -127,8 +111,7 @@ public final class CoreAnimationDanmakuRenderer:
                 preparationID: preparationID,
                 expectedKey: key
             ),
-            let image = crossfade.reusableImage(for: event.id, key: key)
-                ?? Self.makeImage(payload)
+            let image = Self.makeImage(payload)
         else {
             preparationOwner.discard(preparationID: preparationID)
             return .notInstalled
@@ -162,9 +145,7 @@ public final class CoreAnimationDanmakuRenderer:
         entries[event.id] = Entry(
             layer: layer,
             placement: placement,
-            textureByteCost: payload.byteCost,
-            textureKey: key,
-            image: image
+            textureByteCost: payload.byteCost
         )
         activeTextureByteCost += payload.byteCost - replacedCost
         return DanmakuInstallResult(isInstalled: true, evictedEventIDs: evicted)
@@ -244,25 +225,7 @@ public final class CoreAnimationDanmakuRenderer:
 
     public func clearAll() {
         preparationOwner.cancelAllPreparations()
-        crossfade.finish()
         removeAllEntries()
-    }
-
-    public func beginCrossfade(at mediaTime: Double, rate: Double) {
-        let layers = entries.map { eventID, entry in
-            (eventID: eventID, layer: entry.layer, key: entry.textureKey, image: entry.image)
-        }
-        entries.removeAll(keepingCapacity: false)
-        activeTextureByteCost = 0
-        crossfade.begin(layers: layers, template: rootLayer, mediaTime: mediaTime, rate: rate)
-    }
-
-    public func startCrossfade() {
-        crossfade.start()
-    }
-
-    public func finishCrossfade() {
-        crossfade.finish()
     }
 
     public func setOpacity(_ opacity: DanmakuOpacity) {
@@ -288,7 +251,6 @@ public final class CoreAnimationDanmakuRenderer:
         )
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        crossfade.setFrame(CGRect(origin: .zero, size: surfaceSize))
         rootLayer.frame = CGRect(origin: .zero, size: surfaceSize)
         for entry in entries.values {
             updateFixedGeometry(
@@ -302,7 +264,6 @@ public final class CoreAnimationDanmakuRenderer:
     /// 会话结束：取消在途准备并清屏。
     public func stop() {
         preparationOwner.cancelAllPreparations()
-        crossfade.finish()
         removeAllEntries()
     }
 
@@ -343,7 +304,7 @@ public final class CoreAnimationDanmakuRenderer:
 
     /// 顶部与底部弹幕随新宽度重新居中，底部弹幕随高度变化平移以贴住底边；滚动弹幕保持布局时的运动。
     ///
-    /// 只在尺寸变化到按新尺寸重新布局（去抖之后交叉淡化成新布局）之间起作用。
+    /// 只在尺寸变化到按新尺寸重新布局之间起作用，重新布局后整屏换成新布局。
     private func updateFixedGeometry(
         for entry: Entry,
         heightDelta: CGFloat

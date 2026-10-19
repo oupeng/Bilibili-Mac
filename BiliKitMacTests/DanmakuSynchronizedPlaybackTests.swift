@@ -35,8 +35,7 @@ struct DanmakuSynchronizedPlaybackTests {
         let mediaURL = try Self.writeSilentAudio(seconds: 8, in: directory)
 
         let renderer = CoreAnimationDanmakuRenderer(
-            beginTimeAtZero: AVCoreAnimationBeginTimeAtZero,
-            crossfadeClock: ContinuousClock()
+            beginTimeAtZero: AVCoreAnimationBeginTimeAtZero
         )
         let controller = DanmakuPresentationController(backend: renderer)
         let view = DanmakuPlayerView(

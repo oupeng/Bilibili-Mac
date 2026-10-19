@@ -6,9 +6,8 @@ import Testing
 @testable import BiliDanmaku
 
 /// 固定呈现控制器的契约：画面在分段布局完成后按当前时刻整屏出现；每次时间不连续（含拖动的每一步）都按
-/// 那一刻整屏对齐、作废之前没完成的准备（落点分段未到时不留旧画面），原地跳变画面不变；关闭弹幕清屏、
-/// 打开恢复；设置或画面尺寸变化交叉淡化成新布局（seek 不淡化，淡化中 seek、再次重排与换 item 都立即
-/// 结束淡化）；换视频清屏；换 item 只接受当前 owner，清屏后按原布局表挂回；旧 surface owner 的操作无效。
+/// 那一刻整屏对齐、作废之前没完成的准备（落点分段未到时不留旧画面），原地跳变画面不变；关闭弹幕清屏、打开恢复；设置变化整屏换成
+/// 新布局；换视频清屏；换 item 只接受当前 owner，清屏后按原布局表挂回；旧 surface owner 的操作无效。
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct DanmakuPresentationControllerTests {
@@ -97,69 +96,19 @@ struct DanmakuPresentationControllerTests {
         #expect(backend.installedEventIDs == expectedIDs(at: 45, in: controller))
     }
 
-    /// 改设置：旧组整组交给 backend 淡出，新布局整屏挂上后开始淡化；暂停时旧组以速率 0 淡出。
     @Test
-    func settingsChangeCrossfadesToTheNewLayout() async {
+    func settingsChangeReplacesTheScreenWithTheNewLayout() async {
         let (controller, backend) = await laidOutController(at: 30)
         let before = backend.installed
 
         controller.setSpeedLevel(.one)
-        await backend.waitUntil { backend.crossfadeBeginCount == 1 && !backend.installed.isEmpty }
-
-        #expect(backend.outgoing == before)
-        #expect(backend.crossfadeStartCount == 1)
-        #expect(backend.crossfadeRates == [0])
-        let expected = DanmakuMaterializer.desiredPlacements(in: controller.layoutTable, at: 30)
-        #expect(backend.installed.count == expected.count)
+        await backend.waitUntil { backend.installed != before }
+        let expected = DanmakuMaterializer.desiredPlacements(
+            in: controller.layoutTable,
+            at: 30
+        )
         #expect(expected.allSatisfy { backend.installed[$0.request.event.id] == $0 })
-    }
-
-    /// 画面尺寸变化（全屏、缩放）去抖后同样交叉淡化。
-    @Test
-    func surfaceResizeCrossfadesAfterTheDebounce() async {
-        let owner = UUID()
-        let (controller, backend) = await laidOutController(at: 30, surfaceOwner: owner)
-
-        controller.updateSurface(width: 1_200, height: 600, backingScale: 2, ownerID: owner)
-        await backend.waitUntil { backend.crossfadeStartCount == 1 }
-
-        #expect(backend.crossfadeBeginCount == 1)
-        #expect(backend.installed.values.allSatisfy { $0.surfaceWidthAtAdmission == 1_200 })
-    }
-
-    /// seek 落地瞬时替换，不淡化；淡化中 seek 立即结束淡化。
-    @Test
-    func seeksNeverCrossfadeAndEndARunningOne() async {
-        let (controller, backend) = await laidOutController(at: 30)
-        controller.apply(snapshot(identity: identity, position: 200, generation: 2))
-        #expect(backend.crossfadeBeginCount == 0)
-
-        controller.setSpeedLevel(.one)
-        await backend.waitUntil { backend.crossfadeStartCount == 1 }
-        #expect(!backend.outgoing.isEmpty)
-        controller.apply(snapshot(identity: identity, position: 100, generation: 3))
-
-        #expect(backend.outgoing.isEmpty)
-        #expect(backend.crossfadeBeginCount == 1)
-        #expect(backend.installedEventIDs == expectedIDs(at: 100, in: controller))
-    }
-
-    /// 淡化中再次重排：以当前画面为新的旧组重新开始；淡化中换 item：立即清屏、结束淡化。
-    @Test
-    func relayoutOrItemChangeDuringAFadeEndsIt() async {
-        let owner = UUID()
-        let (controller, backend) = await laidOutController(at: 30, surfaceOwner: owner)
-        controller.setSpeedLevel(.one)
-        await backend.waitUntil { backend.crossfadeStartCount == 1 }
-        let firstNewGroup = backend.installed
-
-        controller.setSpeedLevel(.five)
-        await backend.waitUntil { backend.crossfadeStartCount == 2 }
-        #expect(backend.outgoing == firstNewGroup)
-
-        controller.playerItemWillChange(ownerID: owner)
-        #expect(backend.outgoing.isEmpty)
-        #expect(backend.installed.isEmpty)
+        #expect(backend.installed.count == expected.count)
     }
 
     @Test

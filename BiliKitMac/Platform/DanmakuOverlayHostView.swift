@@ -11,9 +11,7 @@ import BiliDanmaku
 ///
 /// 弹幕的时间来自 `synchronizedLayer`（`AVSynchronizedLayer`）：它的子树按绑定的播放 item 的时间运行，
 /// AVFoundation 在主线程上随 item timebase 的速率变化与时间跳变调整它，暂停、倍速、seek、缓冲停顿与
-/// 播放结束都由它处理，renderer 的 `rootLayer` 挂在它下面。接管 surface 时把 renderer 的
-/// `containerLayer` 挂进本视图，再把同步 layer 交给 renderer 挂进淡化容器（`mount(clockLayer:)`）：
-/// 整屏重排的交叉淡化在同步 layer 之外，暂停时也按挂钟走完。它不会跟随 `replaceCurrentItem` 自动换绑：
+/// 播放结束都由它处理，renderer 的 `rootLayer` 挂在它下面。它不会跟随 `replaceCurrentItem` 自动换绑：
 /// 播放器宿主在 `currentItem` 变化时调用 `bind(to:)`，先让呈现控制器清屏，再换绑，否则旧弹幕会在新
 /// item 的时间线上错位。同步只在 layer 进入渲染上下文后才启动，overlay 在窗口里即可。
 ///
@@ -43,6 +41,7 @@ final class DanmakuOverlayView: NSView {
         // 尺寸随视图变化时不带隐式过渡。
         synchronizedLayer.actions = ["bounds": NSNull(), "position": NSNull()]
         synchronizedLayer.anchorPoint = .zero
+        layer?.addSublayer(synchronizedLayer)
     }
 
     @available(*, unavailable)
@@ -83,7 +82,7 @@ final class DanmakuOverlayView: NSView {
         nil
     }
 
-    /// 仅由当前 surface owner 发布布局尺寸；呈现控制器去抖后按新尺寸整张重排，交叉淡化成新布局。
+    /// 仅由当前 surface owner 发布布局尺寸；呈现控制器去抖后按新尺寸整张重排，并在一次提交里瞬时替换整屏。
     func updateSurfaceIfNeeded() {
         guard bounds.width > 0, bounds.height > 0 else { return }
         let backingScale =
@@ -113,9 +112,8 @@ final class DanmakuOverlayView: NSView {
         guard isSurfaceAttached else { return }
         isSurfaceAttached = false
         if controller.detachSurface(ownerID: ownerID),
-            renderer.containerLayer.superlayer === layer
+            renderer.rootLayer.superlayer === synchronizedLayer
         {
-            renderer.containerLayer.removeFromSuperlayer()
             renderer.rootLayer.removeFromSuperlayer()
         }
     }
@@ -124,8 +122,7 @@ final class DanmakuOverlayView: NSView {
         guard !isSurfaceAttached else { return }
         isSurfaceAttached = true
         controller.attachSurface(ownerID: ownerID)
-        layer?.addSublayer(renderer.containerLayer)
-        renderer.mount(clockLayer: synchronizedLayer)
+        synchronizedLayer.addSublayer(renderer.rootLayer)
         previousSize = nil
         previousBackingScale = nil
         updateSurfaceIfNeeded()

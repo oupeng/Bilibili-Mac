@@ -24,8 +24,6 @@ struct DanmakuLayoutCoordinatorTests {
         let placements = try #require(coordinator.layouts[1]?.placements)
         #expect(!placements.isEmpty)
         #expect(placements.allSatisfy { $0.surfaceWidthAtAdmission == 1_200 })
-        // 第一张表不算重排，之后的设置变化才算。
-        #expect(changes.settingsRelayouts == [false, true])
     }
 
     /// 已有布局表时连改两次设置：第一次的任务在途时 generation 已经变了，它的结果被丢弃，表只换成最后
@@ -108,7 +106,6 @@ struct DanmakuLayoutCoordinatorTests {
         continuous.setSegments([1: first, 2: second])
         try await continuousChanges.wait(until: 1)
 
-        #expect(lateChanges.settingsRelayouts == [false, false])
         #expect(late.layouts[1]?.placements == continuous.layouts[1]?.placements)
         #expect(late.layouts[2]?.placements == continuous.layouts[2]?.placements)
     }
@@ -127,14 +124,11 @@ struct DanmakuLayoutCoordinatorTests {
 @MainActor
 final class TableChangeRecorder {
     private(set) var parameters: [DanmakuLayoutParameters?] = []
-    /// 每次替换是否是设置变化引起的整张重排。
-    private(set) var settingsRelayouts: [Bool] = []
     private let counter = TestEventCounter()
 
     init(_ coordinator: DanmakuLayoutCoordinator) {
-        coordinator.tableDidChange = { [weak self, weak coordinator] isSettingsRelayout in
+        coordinator.tableDidChange = { [weak self, weak coordinator] in
             self?.parameters.append(coordinator?.layoutParameters)
-            self?.settingsRelayouts.append(isSettingsRelayout)
             Task { await self?.counter.signal() }
         }
     }
