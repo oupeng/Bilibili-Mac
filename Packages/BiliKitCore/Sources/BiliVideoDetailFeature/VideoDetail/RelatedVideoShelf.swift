@@ -176,30 +176,32 @@ struct RelatedVideoShelfFrame<Content: View>: View {
     }
 }
 
-/// 横排加载中的占位行：四张卡片形状的骨架，与已加载的横排同高；不需要取图。
+/// 横排加载中的占位行：与真实横排同一几何的卡片骨架（无头像，与横排卡片一致），张数按可见宽度铺满
+/// （`NativeVideoShelfGeometry.placeholderCount`），与已加载的横排同高；不需要取图。
+///
+/// 首卡起点是安全区前缘加内容边距，与真实横排一致；骨架只在安全区内铺开并裁掉超出部分。
 struct RelatedVideoShelfLoadingRow: View {
     private typealias Shelf = VideoCardShelfGeometry
 
     var body: some View {
-        HStack(alignment: .top, spacing: Shelf.spacing) {
-            ForEach(0..<4, id: \.self) { _ in
-                VStack(alignment: .leading, spacing: 10) {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(.quaternary)
-                        .aspectRatio(16.0 / 9.0, contentMode: .fit)
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(.quaternary)
-                        .frame(height: 18)
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(.quinary)
-                        .frame(width: 110, height: 14)
+        GeometryReader { geometry in
+            HStack(alignment: .top, spacing: Shelf.spacing) {
+                ForEach(
+                    0..<NativeVideoShelfGeometry.placeholderCount(
+                        viewportWidth: geometry.size.width
+                    ),
+                    id: \.self
+                ) { _ in
+                    VideoCardSkeleton(
+                        size: CGSize(width: Shelf.cardWidth, height: Shelf.cardHeight),
+                        showsAvatar: false
+                    )
                 }
-                .frame(width: Shelf.cardWidth)
             }
+            .padding(.horizontal, Shelf.contentInset)
+            .frame(width: geometry.size.width, alignment: .leading)
+            .clipped()
         }
-        .padding(.horizontal, Shelf.contentInset)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .clipped()
         .frame(height: Shelf.viewportHeight, alignment: .topLeading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(VideoDetailFeatureStrings.localized("正在加载相关推荐"))

@@ -15,6 +15,7 @@ extension LibraryVideoListModel where Item == WatchLaterItem, Cursor == WatchLat
     public convenience init(useCase: WatchLaterUseCase) {
         self.init(
             stallPolicy: .stop,
+            pageSize: WatchLaterUseCase.pageSize,
             firstPageCursor: Self.defaultFirstPage,
             bvid: \.bvid
         ) { request in

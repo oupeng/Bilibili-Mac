@@ -8,7 +8,8 @@ import Testing
 /// 收藏夹页面：选夹、换夹、换排序、提交或清空关键词与翻页都从请求的页整体替换并丢弃旧在途结果，换夹清空关键词、
 /// 保留排序；每次替换成功刷新代次前进；刷新原地重读当前页、失败保留内容；收藏夹不存在时重读列表并回落到默认收藏夹；
 /// 不在本页时只改选择、取消在途请求、不读取；本页没有条目时刷新完整重读，没有选择时刷新重读列表；凭据失败请求复核，离开
-/// 再回来重新读取；账户变化丢弃选择，仍在本页时选新账户的默认收藏夹。
+/// 再回来重新读取；账户变化丢弃选择，仍在本页时选新账户的默认收藏夹；加载骨架的本页条数取侧栏列表里该夹的总数，
+/// 有关键词或没有该夹的元数据时不知道。
 @Suite(.timeLimit(.minutes(1)))
 @MainActor
 struct FavoriteFolderViewModelTests {
@@ -298,6 +299,41 @@ struct FavoriteFolderViewModelTests {
 
         #expect(model.selectedFolderID == 10)
         #expect(await repository.requests.last == FavoriteFolderRequest(folderID: 10))
+    }
+
+    @Test
+    func loadingSkeletonCountFollowsTheFolderTotalAndPage() async {
+        let (model, _, _) = await makeModels()
+
+        // 默认收藏夹共 90 条，每页 40 条：第 1、2 页满页，最后一页剩 10 条。
+        model.selectFolder(10)
+        #expect(model.expectedPageItemCount == 40)
+        await model.waitForCurrentTask()
+        model.showPage(2)
+        #expect(model.expectedPageItemCount == 40)
+        await model.waitForCurrentTask()
+        model.showPage(3)
+        #expect(model.expectedPageItemCount == 10)
+        await model.waitForCurrentTask()
+
+        // 换夹后按新夹的总数，换排序不改变总数。
+        model.selectFolder(30)
+        #expect(model.expectedPageItemCount == 3)
+        await model.waitForCurrentTask()
+        model.selectOrder(.mostPlayed)
+        #expect(model.expectedPageItemCount == 3)
+        await model.waitForCurrentTask()
+
+        // 关键词过滤后的条数不是夹的总数。
+        model.searchDraft = "猫"
+        model.submitSearch()
+        #expect(model.expectedPageItemCount == nil)
+        await model.waitForCurrentTask()
+
+        // 侧栏列表里没有这个夹的元数据。
+        model.selectFolder(99)
+        #expect(model.expectedPageItemCount == nil)
+        await model.waitForCurrentTask()
     }
 
     @Test

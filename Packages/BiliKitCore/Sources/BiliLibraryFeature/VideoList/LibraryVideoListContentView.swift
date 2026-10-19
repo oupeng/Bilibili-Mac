@@ -100,7 +100,10 @@ struct LibraryVideoListContentView<Item: Sendable & Equatable, Cursor: Equatable
     private var content: some View {
         switch model.state {
         case .idle, .loading:
-            VideoCardGridSkeleton(loadingLabel: text.loading)
+            VideoCardGridSkeleton(
+                loadingLabel: text.loading,
+                expectedItemCount: model.expectedLoadingItemCount
+            )
         case .loaded(let items, let continuation, let loadMoreError) where items.isEmpty:
             emptyList(
                 canLoadMore: continuation != nil,

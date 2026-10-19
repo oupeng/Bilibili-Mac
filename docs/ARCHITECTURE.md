@@ -190,11 +190,20 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   正文使用可选择、不可编辑的 `NSTextView`；diffable identity 为 subject + root `CommentID`；
   高度缓存按 identity、宽度桶、内容 revision 做有界 LRU，resize 分批精测并恢复语义 anchor。
   `PlaybackCommentsViewModel` 仍唯一拥有 subject、排序、分页、并发上限与 generation。
+  评论状态行与页脚的加载是固定行高的系统转圈（状态行大号、页脚小号）：加载中的状态行与说明行
+  （idle／empty／closed）同高，加载中的页脚与“加载更多”行同高；转圈只在加载中转动，复用即停，不单独读屏。
 - **浏览网格与 shelf**：首页推荐、热门、搜索、观看历史、稍后再看、收藏夹的网格和相关推荐 shelf 使用
   `NSCollectionView` + 复用的原生卡片；卡片与网格在 `BiliVideoCollectionUI`，各来源的网格包装在拥有它的
   Feature，shelf 在 `BiliVideoDetailFeature`。热门 50 卡 A/B 表明 SwiftUI `LazyVGrid`/AttributeGraph 是主要滚动成本；卡片 overlay
   与文字改为持久 `CALayer`／`CATextLayer` 后，同样约 20 秒滚动 cycles 下降约 39%，0 hitch。来源的
   loading／empty／failure 等状态与网格在同一个 Feature 视图里渲染，网格只是已加载状态的呈现。
+  网格加载中的骨架（BiliUI `VideoCardGridSkeleton`）与相关推荐横排的骨架共用卡片骨架 `VideoCardSkeleton`
+  （横排不带头像），张数由可见尺寸与真实网格或横排的同一几何算出（`VideoCardGridGeometry.placeholderCount`、
+  `NativeVideoShelfGeometry.placeholderCount`）并向上取整，露出一部分的行或卡片也画，任何窗口都铺满可见区域。
+  网格骨架的张数取“可见区域能放下的张数”与“来源已知的本页条数”中的较小者，来源不知道条数时铺满，内容少的
+  来源加载完不会突然少掉一大片：收藏夹按侧栏列表里该夹的 `media_count` 与页码算本页条数（有关键词或没有该夹
+  的元数据时不知道）；稍后再看取同一条件上次成功加载的总数、封顶为一页（首次进入与条件变化后不知道）；首页、
+  热门、搜索与观看历史不知道。只用已拿到的数，不另发请求、不缓存。
 - 网格提前准备：AppKit 默认只为视野内创建卡片，封面要等卡片露出来才开始加载。网格的集合视图把准备区域
   设为视野上下各一屏（`prepareContent(in:)`），并在滚动、布局与内容更新时检查余量，不足半屏就主动刷新，
   同时存在的卡片约为三屏；离开准备区域的卡片照常复用并取消封面等待。键盘选择的起点与滚动锚点只取与
@@ -240,6 +249,7 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
 - **UP 主空间列表**：头部（返回、头像、名字、三段排序）与投稿行是同一个 `NSCollectionView` 的原生
   item，随列表滚到工具栏下由系统做边缘模糊。行高固定，不需要测量缓存；加载、空、失败与登录提示
   由 SwiftUI 叠在头部下方，返回按钮始终可点。加载用转圈而不是骨架：投稿数因人而异，占位行会误导数量。
+  评论区同理，首次、重新加载与追加都用转圈：评论长短、图片与楼中楼各不相同，骨架会误导条数与长度。
   列表不接收键盘焦点，方向键、空格留给播放器快捷键。
   悬停由 `NativeVideoHoverTracker` 统一管理（网格卡片与投稿行都实现 `NativeHoverableCollectionItem`）；
   “返回顶部”玻璃按钮与评论区共用 `NativeScrollToTopScrollView`。

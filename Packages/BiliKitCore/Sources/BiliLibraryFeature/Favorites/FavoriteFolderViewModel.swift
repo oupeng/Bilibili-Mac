@@ -70,6 +70,19 @@ public final class FavoriteFolderViewModel: AccountRevalidationParticipant {
         paging.totalCount
     }
 
+    /// 加载中的骨架应画的本页条数。
+    ///
+    /// 取侧栏收藏夹列表里该夹的 `media_count`，按当前页码与每页条数算出本页条数，不另发请求；换夹、翻页时跟着变，
+    /// 排序不改变总数。有关键词时为 nil：`media_count` 是未过滤的总数。列表还没到或已不含该夹时为 nil，骨架铺满。
+    package var expectedPageItemCount: Int? {
+        guard appliedKeyword.isEmpty, let selectedFolder else { return nil }
+        return PageNumbering.itemCount(
+            onPage: paging.currentPage,
+            totalCount: selectedFolder.mediaCount,
+            pageSize: FavoritesUseCase.pageSize
+        )
+    }
+
     /// 有关键词在起作用；结果为空时界面据此给出“清除搜索”。
     public var narrowsResults: Bool {
         !appliedKeyword.isEmpty

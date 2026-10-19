@@ -78,6 +78,11 @@ public protocol FavoritesRepository: Sendable {
 
 /// 读取收藏夹列表与夹内的一页，并校验结果。
 public struct FavoritesUseCase: Sendable {
+    /// 收藏夹内每页条数；adapter 请求的 `ps`、总页数的推算与加载骨架的本页条数共用这个值。
+    ///
+    /// 接口接受 1–40，取与网页端相同的上限 40：页数最少，越界与空页也最少。
+    public static let pageSize = 40
+
     private let repository: any FavoritesRepository
 
     public init(repository: any FavoritesRepository) {

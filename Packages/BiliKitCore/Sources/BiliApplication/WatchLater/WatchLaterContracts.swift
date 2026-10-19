@@ -29,6 +29,12 @@ public protocol WatchLaterRepository: Sendable {
 
 /// 读取稍后再看的一页，并校验响应属于所请求的页。
 public struct WatchLaterUseCase: Sendable {
+    /// 稍后再看每页条数；adapter 请求的 `ps`、“是否还有下一页”的推算与加载骨架的本页条数共用这个值。
+    ///
+    /// 与网页端相同取 20。接口允许的上限未经确认：调大前先核对接口仍按请求的条数返回，否则按总条数推出的
+    /// 下一页会与实际错位。
+    public static let pageSize = 20
+
     private let repository: any WatchLaterRepository
 
     public init(repository: any WatchLaterRepository) {
