@@ -71,7 +71,7 @@ struct DanmakuSynchronizedPlaybackTests {
         player.pause()
         await player.seek(to: CMTime(seconds: 2, preferredTimescale: 600))
         let identity = PlaybackItemIdentity(bvid: "sync-fixture", cid: 1)
-        controller.apply(snapshot(identity, position: 2, rate: 0, state: .paused, landing: 2))
+        controller.apply(snapshot(identity, position: 2, rate: 0, state: .paused, discontinuity: 2))
         controller.setSegments(
             [
                 1: [
@@ -103,7 +103,9 @@ struct DanmakuSynchronizedPlaybackTests {
 
         // 开播：同一组 layer 继续走，不清屏。
         player.play()
-        controller.apply(snapshot(identity, position: 2, rate: 1, state: .playing, landing: 2))
+        controller.apply(
+            snapshot(identity, position: 2, rate: 1, state: .playing, discontinuity: 2)
+        )
         #expect(await waitUntil(timeout: .seconds(5)) { item.currentTime().seconds > 2.4 })
         expectLocalTime(of: renderer.rootLayer, matches: item)
         #expect(renderer.rootLayer.sublayers?.elementsEqual(layers, by: ===) == true)
@@ -138,7 +140,7 @@ struct DanmakuSynchronizedPlaybackTests {
         position: Double,
         rate: Double,
         state: PlaybackTimelineState,
-        landing: UInt64
+        discontinuity: UInt64
     ) -> PlaybackTimelineSnapshot {
         PlaybackTimelineSnapshot(
             identity: identity,
@@ -146,8 +148,7 @@ struct DanmakuSynchronizedPlaybackTests {
             durationSeconds: 8,
             rate: rate,
             state: state,
-            discontinuityGeneration: landing,
-            landingGeneration: landing
+            discontinuityGeneration: discontinuity
         )
     }
 

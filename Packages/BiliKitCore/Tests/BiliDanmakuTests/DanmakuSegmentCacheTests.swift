@@ -49,7 +49,7 @@ struct DanmakuSegmentCacheTests {
 
         // 拖动到第 6 段附近：落点分段到达时不因离起拖位置远而被淘汰。
         cache.observe(
-            snapshot(identity: identity, position: 1_900, generation: 1, seekPhase: .seeking)
+            snapshot(identity: identity, position: 1_900, generation: 2)
         )
         cache.store(
             DanmakuSegment(index: 6, events: [timedEvent(id: "far", time: 1_900)]),

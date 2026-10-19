@@ -187,8 +187,7 @@ struct PlayerHostViewIdentityTests {
             durationSeconds: 100,
             rate: 0,
             state: .paused,
-            discontinuityGeneration: 1,
-            landingGeneration: 1
+            discontinuityGeneration: 1
         )
     }
 }

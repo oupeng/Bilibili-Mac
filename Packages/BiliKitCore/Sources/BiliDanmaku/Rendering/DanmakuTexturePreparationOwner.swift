@@ -17,7 +17,7 @@ final class DanmakuTexturePreparationOwner {
     struct Configuration: Sendable, Equatable {
         /// 栅格化最多 2 个并发；未完成请求（排队中加已就绪未取走）的上限与活动弹幕硬上限同为 640。
         ///
-        /// 并发越高 seek 落地或整屏替换时缺的纹理准备得越快，但同时占用的 CPU 与像素缓冲越多；
+        /// 并发越高 seek 或整屏替换时缺的纹理准备得越快，但同时占用的 CPU 与像素缓冲越多；
         /// 请求上限低于活动上限会让高峰期在准备阶段就以容量不足丢弃。
         static let production = Configuration(
             maximumConcurrentOperations: 2,

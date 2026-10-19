@@ -22,7 +22,7 @@ struct DanmakuSegmentCache: Sendable {
     private(set) var identity: PlaybackItemIdentity?
     /// 按分段号缓存的事件，保持分段里的原始顺序；排序由车道布局负责。
     private(set) var segments: [Int: [DanmakuEvent]] = [:]
-    /// 最近一个快照的位置，淘汰分段时以它为中心；seeking 期间随拖动更新。
+    /// 最近一个快照的位置，淘汰分段时以它为中心；拖动中随每一步更新。
     private var positionSeconds: Double?
 
     mutating func begin(for identity: PlaybackItemIdentity) {

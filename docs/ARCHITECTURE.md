@@ -148,8 +148,8 @@ session path，提供内存中生成的 master／media playlist，并把 AVPlaye
 ### 媒体时间轴
 
 `BiliApplication.PlaybackTimelineProviding` 是弹幕、Now Playing 与观看进度的唯一时间来源，由
-`BiliPlayback` 用 AVPlayer observation 与 item timebase 通知实现，表达 item identity、位置、速率、状态、
-discontinuity generation，以及 seek 阶段与落地代号。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CMTime`／KVO；各自 timer 无法正确
+`BiliPlayback` 用 AVPlayer observation 与 item 通知实现，表达 item identity、位置、速率、状态与
+discontinuity generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CMTime`／KVO；各自 timer 无法正确
 表达卡顿、暂停、倍速和 seek。唯一的例外是弹幕动画本身：弹幕 layer 挂在播放器宿主的
 `AVSynchronizedLayer` 下，由 AVFoundation 按 item timebase 驱动（见「弹幕」）；哪些弹幕在屏上、何时请求
 分段仍按时间线快照决定，`BiliDanmaku` 不接触 AVFoundation。字幕作为原生 subtitle rendition 进入同一 `AVPlayerItem`，由系统字幕
@@ -160,22 +160,12 @@ discontinuity generation，以及 seek 阶段与落地代号。消费者不自�
   time-jump 来源的竞态。`beginPlayback` 只按就绪位置报告续播或从头开始；“从头播放”仍是 seek 到 0。
 - 时间轴与交互记录器在 item 开始时得知起播位置：就绪时据此标记一次 discontinuity，弹幕从起播位置
   排起；落在起播位置的系统 time-jump 不算用户操作，否则会拒绝自动开播。
-- seek 有两套互不影响的事实。`discontinuityGeneration` 由 engine 的 seek 收尾与 `AVPlayerItem` 的
-  time-jump 通知推进，观看进度与 Now Playing 使用；一次 seek 的落点记录在播放位置仍在落点附近时吞掉落在
-  它附近的重复跳变（例如暂停中 seek 后开播时系统再报一次），播放离开落点、新 seek、外部跳变、换项或 clear
-  之后不再吞。`seekPhase` 与 `landingGeneration` 只来自 item timebase 的
-  `kCMTimebaseNotification_TimeJumped`，弹幕只用它们决定拖动期间不对齐、落地后按新时刻整屏对齐。只有跳变发出时 timebase 速率为 0 的才是 seek：seek
-  （含拖动的每一步）与播放到结尾时，系统先把速率设为 0 再设定时间；带音轨的媒体在开播、继续播放与改速率
-  （含临时倍速）时按音频时钟重新锚定，也发跳变（时间往回几十毫秒），但此刻速率已大于 0，播放中 seek 时
-  还会在 seek 跳变约 20ms 后再报一次这样的重新锚定。速率在通知线程上当场读取，切回主线程时可能已经恢复。
-  这是在 macOS 27 上用本地 HLS 与 mp4（含音轨）实测的系统行为，AirPlay、码率切换等场景没有验证。收到 seek
-  跳变即进入 `seeking`，位置写为跳变时的 timebase 时间，期间不写周期回调的读数；最后一次 seek 跳变之后
-  静默 150ms 才落地：读 timebase 时间为落点、递增 `landingGeneration`、回到 `settled`。拖动时跳变间隔远
-  小于 150ms，一次拖动只落地一次；暂停中 seek 时有效速率一直为 0、播放中拖动时每步之间速率又会恢复，所以
-  不以速率恢复判定落地，单次 seek 后弹幕因此最多晚 150ms 整屏对齐。起播前暂停、缓冲恢复时系统也会发速率
-  为 0 的跳变，时间线同样把它当作一次 seek；弹幕落地后对齐的结果与原画面相同，不会闪。换项、续播起点就绪与 clear 各算一次落地，失败时
-  回到 `settled`；加载中的跳变不算 seek。通知在 CoreMedia 后台线程到达，切回主线程后核对 item 与 token；
-  observer 随 item 的观察集合在换项、失败与 clear 时移除，落地计时同时取消，计时用注入的 `Clock`。
+- `discontinuityGeneration` 由 engine 的 seek 收尾与 `AVPlayerItem` 的 time-jump 通知推进，观看进度、
+  Now Playing 与弹幕使用；原生拖动的每一步都会推进它。一次 seek 的落点记录在播放位置仍在落点附近时吞掉
+  落在它附近的重复跳变（例如暂停中 seek 后开播时系统再报一次），播放离开落点、新 seek、外部跳变、换项或
+  clear 之后不再吞；这样同一次 seek 只推进一次，Now Playing 依赖它。起播前暂停、缓冲恢复时系统也可能报
+  一次原地的时间跳变，它会推进一次不连续代号；弹幕因此多做一次内容相同的整屏对齐，画面不变。周期回调的
+  位置照常写入。
 - progressive 单文件（充电试看、没有 DASH 的较早视频）没有 playlist，不续播，一律从头播放。
 
 ### 弹幕
@@ -205,7 +195,7 @@ discontinuity generation，以及 seek 阶段与落地代号。消费者不自�
     去抖 200ms，期间沿用旧布局。画面尚未布局（尺寸为 0）时不布局。
   - materializer（`DanmakuMaterializer`）：时刻 t 在屏的 layer 是布局表里已进场未走完、或 2 秒内要进场的
     弹幕；纹理提前准备，以将来的开始时间挂上，迟到的纹理挂上后直接出现在中途应在的位置。播放中时间每推进
-    1 秒对齐一次；布局表替换、落地、打开弹幕、接管 surface 时暂存提交：缺的纹理全部有结果后，在一次调用里
+    1 秒对齐一次；布局表替换、时间不连续、打开弹幕、接管 surface 时暂存提交：缺的纹理全部有结果后，在一次调用里
     按此刻完成整屏的移除、换车道与挂上，挂上按 (时间, ID) 顺序。窗口换到 backing scale 不同的屏幕时，已在屏
     的弹幕也当作缺纹理重新准备，提交时原位换纹理，不先移除。
   - 渲染：`rootLayer` 挂在播放器宿主（`DanmakuOverlayView`）的 `AVSynchronizedLayer` 下，子树的局部时间
@@ -216,12 +206,12 @@ discontinuity generation，以及 seek 阶段与落地代号。消费者不自�
     renderer 没有时钟；主线程卡顿时渲染服务器按原速率继续插值，之后精确跳回。同步 layer 不随
     `replaceCurrentItem` 自动换绑：宿主在 `currentItem` 变化时先让呈现控制器清屏（只接受当前 surface
     owner，布局表保留），再换绑。以上是在 macOS 27 上用本地 HLS 与 mp4 实测的系统行为。
-- seek 不隐藏也不清屏，拖动期间屏上的 layer 完全跟随媒体时间：拖到远处时它们都落在动画区间之外，画面
-  自然为空；原地跳变（起播前暂停、缓冲恢复的误判）画面不变；在附近小范围拖动时，已在屏上的弹幕跟着移动，
-  位置正确但缺少新窗口里还没挂上的。`seeking` 期间不对齐（拖动每约 50ms 跳一次，逐步对齐只会反复发起又
-  作废纹理准备），落地后按新时刻暂存提交一次。seek 信号只用在这里。落点分段未到时落地即对齐为空，分段
-  到达后整屏挂上。清屏只在换 item、换视频、关闭弹幕与交接 surface 时出现；关闭弹幕保留布局表，打开时按
-  当前时刻整屏挂上。
+- seek 不隐藏也不清屏，屏上的 layer 一直跟随媒体时间：拖到远处时它们都落在动画区间之外，画面自然为空；
+  原地跳变画面不变。`discontinuityGeneration` 变化时按快照位置暂存提交一次，否则播放中每推进 1 秒普通
+  对齐。拖动的每一步都推进不连续代号，每步都发起一次暂存提交并作废上一步还没完成的纹理准备（排队中的
+  栅格化随之取消，不拖慢下一步），最后一步之后自然提交到落点；误报的跳变只多做一次内容相同的提交。落点
+  分段未到时对齐为空，分段到达后整屏挂上。清屏只在换 item、换视频、关闭弹幕与交接 surface 时出现；关闭
+  弹幕保留布局表，打开时按当前时刻整屏挂上。
 - 分段缓存（`DanmakuSegmentCache`）最多三段，淘汰离最近快照位置（拖动中随拖动更新）最远的；位置在分段
   开头 60 秒（滚动弹幕的最长时长）内时一并请求上一段，未到结尾时请求下一段。暂停、缓冲时没有新快照，
   一个分段加载完腾出名额后，会话按最近处理过的快照继续请求。

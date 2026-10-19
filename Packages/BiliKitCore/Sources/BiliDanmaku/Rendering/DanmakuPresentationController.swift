@@ -64,10 +64,10 @@ extension DanmakuLaneConfiguration {
 /// 旧 `AVPlayerView` 的迟到 resize/detach 操作清空新宿主。换 identity、`stopPresentation`、接管或交还
 /// surface 时清屏；关闭弹幕时清屏但保留布局表，打开时按当前时刻整屏挂上。
 ///
-/// seek：拖动期间弹幕完全跟随媒体时间，不隐藏也不清屏。拖到远处时屏上旧 layer 都落在动画区间之外，
-/// 画面自然为空；原地跳变时画面不变；在附近小范围拖动时，已在屏上的弹幕跟着移动（位置正确，但缺少
-/// 新窗口里还没挂上的）。`seeking` 期间不 reconcile：拖动每 50ms 跳一次，逐步对齐只会反复发起又作废
-/// 纹理准备；落地（`landingGeneration` 变化）后按新时刻暂存提交一次。这是唯一用到 seek 信号的地方。
+/// 不连续：`discontinuityGeneration` 变化（seek、换项、续播起点、系统时间跳变）时按快照位置暂存提交
+/// 一次，否则按推进步长普通对齐。弹幕不隐藏也不清屏，屏上的 layer 一直跟随媒体时间。原生拖动每一步都
+/// 推进不连续代号，每步都发起一次暂存提交并作废上一步还没完成的纹理准备（排队中的栅格化随之取消），
+/// 最后一步之后自然提交到落点。误报的跳变（起播前暂停、缓冲恢复）只多做一次内容相同的提交，画面不变。
 @MainActor
 public final class DanmakuPresentationController: DanmakuPresentationSink {
     /// 播放中两次普通 reconcile 之间至少推进的媒体时长。
@@ -97,8 +97,8 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     private var latestSnapshot: PlaybackTimelineSnapshot?
     /// 最近一次 reconcile 时的位置；播放中推进超过 `reconcileStride` 才再 reconcile。
     private var reconciledPosition: Double?
-    /// 最近一次见到的落地代号；变化时按新位置暂存 reconcile。
-    private var landingGeneration: UInt64?
+    /// 最近一次见到的不连续代号；变化时按新位置暂存 reconcile。
+    private var discontinuityGeneration: UInt64?
 
     /// 画面尺寸由接管 surface 的宿主经 `updateSurface` 给出，之前不布局。
     public init(backend: any DanmakuRenderingBackend) {
@@ -124,13 +124,9 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         latestSnapshot = snapshot
         backend.setStill(snapshot.state != .playing || snapshot.rate == 0)
 
-        guard snapshot.seekPhase == .settled else {
-            // 拖动期间不 reconcile：屏上的 layer 已随同步 layer 跟着媒体时间走，落地时再整屏对齐。
-            return
-        }
-        let landed = landingGeneration != snapshot.landingGeneration
-        landingGeneration = snapshot.landingGeneration
-        if landed {
+        let isDiscontinuous = discontinuityGeneration != snapshot.discontinuityGeneration
+        discontinuityGeneration = snapshot.discontinuityGeneration
+        if isDiscontinuous {
             reconcile(staged: true)
         } else if reconciledPosition.map({
             abs(snapshot.positionSeconds - $0) >= Self.reconcileStride
@@ -211,11 +207,11 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     /// 宿主的同步 layer 即将换绑到另一个播放 item：先清屏，再由宿主换绑；只接受当前 owner。
     ///
     /// 同步 layer 换绑后时间立刻按新 item 走，旧 layer 留着会在新时间线上错位，所以必须先清。布局表保留
-    /// （同一视频换线路或清晰度时仍然有效），下一个落地快照按新 item 的时刻整屏挂上。
+    /// （同一视频换线路或清晰度时仍然有效），下一个快照按新 item 的时刻整屏挂上。
     public func playerItemWillChange(ownerID: UUID) {
         guard surfaceOwnerID == ownerID else { return }
         materializer.clear()
-        landingGeneration = nil
+        discontinuityGeneration = nil
     }
 
     /// 只接受当前 owner 的尺寸更新。
@@ -256,7 +252,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         materializer.clear()
         latestSnapshot = nil
         reconciledPosition = nil
-        landingGeneration = nil
+        discontinuityGeneration = nil
     }
 
     /// 把当前设置交给布局 coordinator；画面尚未布局（尺寸为 0）时不布局。

@@ -6,14 +6,13 @@ import Testing
 @testable import BiliDanmaku
 
 /// 弹幕会话测试的时间线快照：时长固定 30 分钟，足够覆盖需要上一分段的分段开头位置；`generation`
-/// 同时作为不连续代号与落地代号。
+/// 是不连续代号。
 func snapshot(
     identity: PlaybackItemIdentity,
     position: Double,
     generation: UInt64,
     rate: Double = 1,
-    state: PlaybackTimelineState = .playing,
-    seekPhase: PlaybackSeekPhase = .settled
+    state: PlaybackTimelineState = .playing
 ) -> PlaybackTimelineSnapshot {
     PlaybackTimelineSnapshot(
         identity: identity,
@@ -21,9 +20,7 @@ func snapshot(
         durationSeconds: 1_800,
         rate: rate,
         state: state,
-        discontinuityGeneration: generation,
-        seekPhase: seekPhase,
-        landingGeneration: generation
+        discontinuityGeneration: generation
     )
 }
 
