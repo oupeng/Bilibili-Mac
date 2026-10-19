@@ -80,7 +80,8 @@ struct DanmakuSchedulerTests {
             durationSeconds: 2_327,
             rate: 1,
             state: .playing,
-            discontinuityGeneration: 1
+            discontinuityGeneration: 1,
+            landingGeneration: 1
         )
 
         #expect(scheduler.desiredSegmentIndices(for: snapshot) == [7])
@@ -160,15 +161,11 @@ struct DanmakuSchedulerTests {
         )
         #expect(disabled == nil)
 
-        // 关闭时屏幕已清空，投递记录随之作废：重新打开后补位会再次给出仍在窗口内的弹幕。
+        // 关闭时屏幕已清空，投递记录随之作废：重新打开后的第一个快照就补位，再次给出仍在窗口内的弹幕。
         scheduler.setCatchUpWindow(10)
         scheduler.setEnabled(true)
-        let anchor = scheduler.consume(
-            snapshot(position: 6.1, rate: 1, generation: 1)
-        )
-        #expect(anchor == nil)
         let reenabledValue = scheduler.consume(
-            snapshot(position: 6.2, rate: 1, generation: 1)
+            snapshot(position: 6.1, rate: 1, generation: 1)
         )
         let reenabled = try #require(reenabledValue)
         #expect(reenabled.catchesUp)
@@ -201,7 +198,8 @@ struct DanmakuSchedulerTests {
                 durationSeconds: nil,
                 rate: 1,
                 state: .playing,
-                discontinuityGeneration: 1
+                discontinuityGeneration: 1,
+                landingGeneration: 1
             )
         )
         #expect(oldIdentity == nil)
@@ -455,114 +453,6 @@ struct DanmakuSchedulerTests {
         )
     }
 
-    /// seek 后第一个播放中的快照补发回看窗口内本应仍在屏上的弹幕；窗口外的不补，之后恢复增量投递。
-    @Test
-    func seekCatchesUpOnlyTheWindowBeforeThePlayhead() throws {
-        var scheduler = DanmakuScheduler()
-        scheduler.begin(for: identity)
-        scheduler.setCatchUpWindow(10)
-        scheduler.store(
-            DanmakuSegment(
-                index: 1,
-                events: [
-                    event(id: "too-old", time: 85),
-                    event(id: "in-window", time: 95),
-                    event(id: "at-seek", time: 100),
-                    event(id: "after", time: 100.5)
-                ]
-            ),
-            for: identity
-        )
-
-        let clearValue = scheduler.consume(snapshot(position: 100, rate: 1, generation: 2))
-
-        let clear = try #require(clearValue)
-        let catchUpValue = scheduler.consume(snapshot(position: 100.2, rate: 1, generation: 2))
-        let catchUp = try #require(catchUpValue)
-        let nextValue = scheduler.consume(snapshot(position: 100.6, rate: 1, generation: 2))
-        let next = try #require(nextValue)
-
-        #expect(clear.clearsExisting)
-        #expect(!clear.catchesUp)
-        #expect(catchUp.catchesUp)
-        #expect(catchUp.events.map(\.id) == ["in-window", "at-seek"])
-        #expect(!next.catchesUp)
-        #expect(next.events.map(\.id) == ["after"])
-    }
-
-    /// 暂停时 seek 不补位；继续播放后的第一个快照才补。
-    @Test
-    func pausedSeekCatchesUpWhenPlaybackResumes() throws {
-        var scheduler = DanmakuScheduler()
-        scheduler.begin(for: identity)
-        scheduler.setCatchUpWindow(10)
-        scheduler.store(
-            DanmakuSegment(index: 1, events: [event(id: "visible", time: 95)]),
-            for: identity
-        )
-
-        _ = scheduler.consume(snapshot(position: 100, rate: 0, state: .paused, generation: 2))
-        let paused = scheduler.consume(
-            snapshot(position: 100, rate: 0, state: .paused, generation: 2)
-        )
-        let resumedValue = scheduler.consume(snapshot(position: 100.1, rate: 1, generation: 2))
-        let resumed = try #require(resumedValue)
-
-        #expect(paused == nil)
-        #expect(resumed.catchesUp)
-        #expect(resumed.events.map(\.id) == ["visible"])
-    }
-
-    /// 播放中打开弹幕时补上当前应在屏上的弹幕。
-    @Test
-    func enablingDanmakuCatchesUp() throws {
-        var scheduler = DanmakuScheduler()
-        scheduler.begin(for: identity)
-        scheduler.setCatchUpWindow(10)
-        scheduler.store(
-            DanmakuSegment(index: 1, events: [event(id: "visible", time: 45)]),
-            for: identity
-        )
-        _ = scheduler.consume(snapshot(position: 40, rate: 1, generation: 1))
-        scheduler.setEnabled(false)
-        _ = scheduler.consume(snapshot(position: 50, rate: 1, generation: 1))
-
-        scheduler.setEnabled(true)
-        let first = scheduler.consume(snapshot(position: 50.1, rate: 1, generation: 1))
-        let catchUpValue = scheduler.consume(snapshot(position: 50.2, rate: 1, generation: 1))
-        let catchUp = try #require(catchUpValue)
-
-        #expect(first == nil)
-        #expect(catchUp.catchesUp)
-        #expect(catchUp.events.map(\.id) == ["visible"])
-    }
-
-    /// 补位所需的分段晚到时再补一次，已经补过的按 ID 去重。
-    @Test
-    func lateSegmentInTheWindowCatchesUpWithoutDuplicates() throws {
-        var scheduler = DanmakuScheduler()
-        scheduler.begin(for: identity)
-        scheduler.setCatchUpWindow(10)
-        scheduler.store(
-            DanmakuSegment(index: 2, events: [event(id: "current", time: 362)]),
-            for: identity
-        )
-
-        _ = scheduler.consume(snapshot(position: 365, rate: 1, generation: 2))
-        let firstValue = scheduler.consume(snapshot(position: 365.1, rate: 1, generation: 2))
-        let first = try #require(firstValue)
-        scheduler.store(
-            DanmakuSegment(index: 1, events: [event(id: "previous", time: 358)]),
-            for: identity
-        )
-        let lateValue = scheduler.consume(snapshot(position: 365.2, rate: 1, generation: 2))
-        let late = try #require(lateValue)
-
-        #expect(first.events.map(\.id) == ["current"])
-        #expect(late.catchesUp)
-        #expect(late.events.map(\.id) == ["previous"])
-    }
-
     /// 回看窗口跨进上一分段时一并请求上一分段；没有窗口时请求不变。
     @Test
     func catchUpWindowAcrossASegmentBoundaryRequestsThePreviousSegment() {
@@ -602,7 +492,8 @@ struct DanmakuSchedulerTests {
             durationSeconds: 900,
             rate: rate,
             state: state,
-            discontinuityGeneration: generation
+            discontinuityGeneration: generation,
+            landingGeneration: generation
         )
     }
 

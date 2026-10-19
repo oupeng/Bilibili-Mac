@@ -11,6 +11,10 @@ import Foundation
 /// 拥有时间线订阅 Task 与各分段的加载 Task，取消点是 `stop`（换视频时由 `start` 先调用）与
 /// `deinit`；`stop` 先停止 presentation，再递增 generation、取消任务、清空 scheduler。只弱引用
 /// presentation sink：呈现控制器由 App 的窗口组装持有。
+///
+/// 补位由快照驱动；暂停、缓冲时没有后续快照，分段迟到、打开弹幕或呈现端的补位窗口变为可用（画面
+/// 完成布局）后由会话用最近处理过的快照再处理一次，补位弹幕因此不必等到继续播放。会话不自建计时器：
+/// seek 何时落地由时间线的 `landingGeneration` 给出。
 @MainActor
 public final class DanmakuSession: DanmakuPresentationControlling {
     /// 同时在途的分段请求上限。
@@ -39,6 +43,11 @@ public final class DanmakuSession: DanmakuPresentationControlling {
     private var failedSegmentIndices: Set<Int> = []
     /// 同一会话只报告一次需要复核账户，`stop` 时重置。
     private var authenticationInvalidationReported = false
+    /// 最近处理过的当前 identity 快照，供暂停时补位再处理；`stop` 时清空。
+    ///
+    /// 用它而不是时间线的最新快照：订阅流里可能还有没处理的快照，越过它们先处理更新的，会让调度器
+    /// 跳过其间的落地或投递区间。
+    private var lastSnapshot: PlaybackTimelineSnapshot?
 
     public init(
         useCase: DanmakuSegmentUseCase,
@@ -48,6 +57,10 @@ public final class DanmakuSession: DanmakuPresentationControlling {
         self.useCase = useCase
         self.timeline = timeline
         self.presentationSink = presentationSink
+        // 弱引用 self：呈现端持有这个闭包，会话只弱引用呈现端，不形成循环。
+        presentationSink?.catchUpWindowAvailabilityHandler = { [weak self] in
+            self?.catchUpWithoutWaitingForPlayback()
+        }
     }
 
     deinit {
@@ -82,7 +95,9 @@ public final class DanmakuSession: DanmakuPresentationControlling {
         guard presentationEnabled != enabled else { return }
         presentationEnabled = enabled
         scheduler.setEnabled(enabled)
-        if !enabled {
+        if enabled {
+            catchUpWithoutWaitingForPlayback()
+        } else {
             presentationSink?.clearPresentation()
         }
     }
@@ -132,11 +147,13 @@ public final class DanmakuSession: DanmakuPresentationControlling {
         failedSegmentIndices.removeAll(keepingCapacity: false)
         authenticationInvalidationReported = false
         identity = nil
+        lastSnapshot = nil
         scheduler.reset()
     }
 
     private func handle(_ snapshot: PlaybackTimelineSnapshot) {
         guard let identity, snapshot.identity == identity else { return }
+        lastSnapshot = snapshot
         if let presentationSink {
             scheduler.setCatchUpWindow(presentationSink.catchUpWindowSeconds)
         }
@@ -156,6 +173,14 @@ public final class DanmakuSession: DanmakuPresentationControlling {
         }
     }
 
+    /// 暂停、缓冲时立即用最近处理过的快照补位；播放中下一个快照很快就到，由它补，不重复处理。
+    private func catchUpWithoutWaitingForPlayback() {
+        guard let lastSnapshot,
+            lastSnapshot.state != .playing || lastSnapshot.rate == 0
+        else { return }
+        handle(lastSnapshot)
+    }
+
     private func load(
         index: Int,
         identity: PlaybackItemIdentity,
@@ -169,8 +194,11 @@ public final class DanmakuSession: DanmakuPresentationControlling {
                     self.generation == requestGeneration,
                     self.identity == identity
                 else { return }
-                self.scheduler.store(segment, for: identity)
+                let needsCatchUp = self.scheduler.store(segment, for: identity)
                 self.loadTasks[index] = nil
+                if needsCatchUp {
+                    self.catchUpWithoutWaitingForPlayback()
+                }
             } catch is CancellationError {
                 guard let self,
                     self.generation == requestGeneration

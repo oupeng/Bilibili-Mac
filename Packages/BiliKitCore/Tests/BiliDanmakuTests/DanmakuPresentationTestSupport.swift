@@ -20,7 +20,8 @@ func configuration(
     )
 }
 
-/// 呈现控制器测试的一次时间线更新：有弹幕时附带同 identity、同 generation、不清屏的批次。
+/// 呈现控制器测试的一次时间线更新：有弹幕或要求清屏时附带同 identity、同落地代号的批次；
+/// `generation` 同时作为不连续代号与落地代号。
 func update(
     identity: PlaybackItemIdentity,
     position: Double,
@@ -28,7 +29,8 @@ func update(
     state: PlaybackTimelineState = .playing,
     rate: Double = 1,
     events: [DanmakuEvent] = [],
-    catchesUp: Bool = false
+    catchesUp: Bool = false,
+    clearsExisting: Bool = false
 ) -> DanmakuPresentationUpdate {
     let snapshot = PlaybackTimelineSnapshot(
         identity: identity,
@@ -36,16 +38,17 @@ func update(
         durationSeconds: 100,
         rate: rate,
         state: state,
-        discontinuityGeneration: generation
+        discontinuityGeneration: generation,
+        landingGeneration: generation
     )
     let batch =
-        events.isEmpty
+        events.isEmpty && !clearsExisting
         ? nil
         : DanmakuBatch(
             identity: identity,
-            discontinuityGeneration: generation,
+            landingGeneration: generation,
             events: events,
-            clearsExisting: false,
+            clearsExisting: clearsExisting,
             catchesUp: catchesUp
         )
     return DanmakuPresentationUpdate(snapshot: snapshot, batch: batch)

@@ -35,7 +35,9 @@ struct DanmakuDensityAdmissionPolicy: Sendable, Equatable {
 /// 在调度 batch 与具体 renderer 之间执行 identity/generation 检查、lane 分配与容量治理。
 ///
 /// surface owner ID 防止旧 `AVPlayerView` 的迟到 resize/detach 操作清空新宿主；换 surface owner、
-/// 换 identity、discontinuity generation 变化或显式清屏都会同步清空 allocator 与 backend。
+/// 换 identity、落地代号变化、batch 要求清屏或显式清屏都会同步清空 allocator 与 backend，并取消在途
+/// 准备与等待上屏的补位批次（归还车道），连续落地时只有最后一组补位会上屏。batch 同时带清屏与补位时，
+/// 清屏与同步命中缓存的补位上屏在同一次调用里完成，落在同一次 Core Animation 提交里。
 ///
 /// 拥有 lane allocator、待准备队列与补位批次；不拥有纹理与 layer（交给 backend），
 /// 也不拥有时间线与分段（交给 `DanmakuSession`）。准备结果按入队顺序处理，先完成的等前面的完成，
@@ -49,7 +51,7 @@ public final class DanmakuPresentationController:
         let event: DanmakuEvent
         let speedLevel: DanmakuSpeedLevel
         let identity: PlaybackItemIdentity
-        let discontinuityGeneration: UInt64
+        let landingGeneration: UInt64
         let preparationGeneration: UInt64
         /// 补位批次的编号：补位弹幕按自己的时间点进场，同一批全部准备好后一起上屏。
         let catchUpGroup: UInt64?
@@ -71,10 +73,10 @@ public final class DanmakuPresentationController:
     private var speedLevel = DanmakuSpeedLevel.default
     private var displayArea = DanmakuDisplayArea.default
     private var density = DanmakuDensity.default
-    /// 当前呈现的播放 identity 与 discontinuity generation；任一变化先清屏，
+    /// 当前呈现的播放 identity 与落地代号；任一变化先清屏，
     /// 准备完成时与发起时不一致的结果被丢弃。
     private var identity: PlaybackItemIdentity?
-    private var discontinuityGeneration: UInt64?
+    private var landingGeneration: UInt64?
     /// 当前持有 surface 的 overlay；只有它的尺寸更新与 detach 生效。
     private var surfaceOwnerID: UUID?
     /// 当前 surface 的 backing scale；变化时取消在途准备，因为纹理按 scale 栅格化。
@@ -111,14 +113,20 @@ public final class DanmakuPresentationController:
         )
     }
 
-    public var catchUpWindowSeconds: Double {
-        DanmakuMotionPolicy.catchUpWindow(
+    /// 由 `DanmakuSession` 设置；画面尺寸从 0 变为可用时调用一次。
+    public var catchUpWindowAvailabilityHandler: (@MainActor () -> Void)?
+
+    /// 画面尺寸为 0（尚未布局）时为 nil：这时滚动弹幕时长无效、顶部底部弹幕也无法准入，补位只会白白
+    /// 栅格化纹理并让调度器把它们记为已投递。
+    public var catchUpWindowSeconds: Double? {
+        guard configuration.surfaceWidth > 0, configuration.surfaceHeight > 0 else { return nil }
+        return DanmakuMotionPolicy.catchUpWindow(
             surfaceWidth: configuration.surfaceWidth,
             speedLevel: speedLevel
         )
     }
 
-    /// 只呈现与快照 identity 和 discontinuity generation 完全匹配的 batch。
+    /// 只呈现与快照 identity 和落地代号完全匹配的 batch。
     public func apply(_ update: DanmakuPresentationUpdate) {
         guard let updateIdentity = update.snapshot.identity else {
             stopPresentation()
@@ -126,16 +134,16 @@ public final class DanmakuPresentationController:
         }
         let matchingBatch = update.batch.flatMap { batch in
             batch.identity == updateIdentity
-                && batch.discontinuityGeneration
-                    == update.snapshot.discontinuityGeneration
+                && batch.landingGeneration
+                    == update.snapshot.landingGeneration
                 ? batch
                 : nil
         }
 
         let changesIdentity = identity != updateIdentity
         let changesGeneration =
-            discontinuityGeneration
-            != update.snapshot.discontinuityGeneration
+            landingGeneration
+            != update.snapshot.landingGeneration
         if changesIdentity
             || changesGeneration
             || matchingBatch?.clearsExisting == true
@@ -143,19 +151,19 @@ public final class DanmakuPresentationController:
             clearBackendAndAllocator()
         }
         identity = updateIdentity
-        discontinuityGeneration =
-            update.snapshot.discontinuityGeneration
+        landingGeneration =
+            update.snapshot.landingGeneration
         latestSnapshot = update.snapshot
 
+        // 非播放状态速率为 0：暂停、缓冲时上屏的补位弹幕停在已走过的位置，继续播放后从原位接着走。
         let effectiveRate =
             update.snapshot.state == .playing
             ? update.snapshot.rate
             : 0
         backend.setPlaybackRate(effectiveRate)
 
-        guard let batch = matchingBatch,
-            !batch.clearsExisting
-        else {
+        // 清屏已在上面完成；同一 batch 带着的补位弹幕按这个快照的位置继续准备。
+        guard let batch = matchingBatch, !batch.events.isEmpty else {
             return
         }
 
@@ -168,7 +176,7 @@ public final class DanmakuPresentationController:
         let attemptedEvents: ArraySlice<DanmakuEvent>
         if batch.catchesUp {
             // 补位：只准备当前窗口内的，按时间先后准备与准入；超出上限时保留最新的。
-            let windowStart = update.snapshot.positionSeconds - catchUpWindowSeconds
+            let windowStart = update.snapshot.positionSeconds - (catchUpWindowSeconds ?? 0)
             candidates = batch.events.filter { $0.timeSeconds > windowStart }
             attemptedEvents = candidates.suffix(
                 min(availablePreparationSlots, catchUpCandidateLimit)
@@ -185,7 +193,7 @@ public final class DanmakuPresentationController:
         enqueuePreparations(
             Array(attemptedEvents),
             identity: updateIdentity,
-            discontinuityGeneration: update.snapshot.discontinuityGeneration,
+            landingGeneration: update.snapshot.landingGeneration,
             catchUpGroup: catchUpGroup
         )
     }
@@ -228,7 +236,7 @@ public final class DanmakuPresentationController:
         _ = allocator.clear()
         backend.stop()
         identity = nil
-        discontinuityGeneration = nil
+        landingGeneration = nil
         latestSnapshot = nil
     }
 
@@ -242,6 +250,7 @@ public final class DanmakuPresentationController:
             self.backingScale = normalizedScale
             cancelPendingPreparations()
         }
+        let wasCatchUpWindowAvailable = catchUpWindowSeconds != nil
         configuration = DanmakuLaneConfiguration(
             surfaceWidth: width,
             surfaceHeight: height,
@@ -257,6 +266,9 @@ public final class DanmakuPresentationController:
             height: height,
             backingScale: normalizedScale
         )
+        if !wasCatchUpWindowAvailable, catchUpWindowSeconds != nil {
+            catchUpWindowAvailabilityHandler?()
+        }
     }
 
     /// 新 overlay 接管 surface：记下 owner 并清屏；同一 owner 重复调用是空操作。
@@ -308,7 +320,7 @@ public final class DanmakuPresentationController:
     private func enqueuePreparations(
         _ events: [DanmakuEvent],
         identity: PlaybackItemIdentity,
-        discontinuityGeneration: UInt64,
+        landingGeneration: UInt64,
         catchUpGroup: UInt64?
     ) {
         let generation = preparationGeneration
@@ -320,7 +332,7 @@ public final class DanmakuPresentationController:
                 event: event,
                 speedLevel: speedLevel,
                 identity: identity,
-                discontinuityGeneration: discontinuityGeneration,
+                landingGeneration: landingGeneration,
                 preparationGeneration: generation,
                 catchUpGroup: catchUpGroup
             )
@@ -419,11 +431,11 @@ public final class DanmakuPresentationController:
     ) {
         guard pending.preparationGeneration == preparationGeneration,
             identity == pending.identity,
-            discontinuityGeneration == pending.discontinuityGeneration,
+            landingGeneration == pending.landingGeneration,
             let snapshot = latestSnapshot,
             snapshot.identity == pending.identity,
-            snapshot.discontinuityGeneration
-                == pending.discontinuityGeneration
+            snapshot.landingGeneration
+                == pending.landingGeneration
         else {
             backend.discardPreparation(preparationID: preparationID)
             return

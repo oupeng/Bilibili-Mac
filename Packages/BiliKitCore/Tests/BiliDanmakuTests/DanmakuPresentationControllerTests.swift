@@ -170,7 +170,7 @@ struct DanmakuPresentationControllerTests {
         let clearCount = backend.clearCount
         let staleClear = DanmakuBatch(
             identity: identity,
-            discontinuityGeneration: 7,
+            landingGeneration: 7,
             events: [],
             clearsExisting: true,
             catchesUp: false
@@ -184,7 +184,8 @@ struct DanmakuPresentationControllerTests {
                     durationSeconds: 100,
                     rate: 1,
                     state: .playing,
-                    discontinuityGeneration: 8
+                    discontinuityGeneration: 8,
+                    landingGeneration: 8
                 ),
                 batch: staleClear
             )
