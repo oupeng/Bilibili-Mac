@@ -343,25 +343,6 @@ struct CoreAnimationDanmakuRendererTests {
         )
     }
 
-    /// 隐藏整个弹幕层不移除 layer。
-    @Test
-    func hidingKeepsTheInstalledLayers() async throws {
-        let renderer = makeRenderer()
-        _ = try await prepareAndInstall(
-            renderer: renderer,
-            event: fixtureEvent(id: "hidden", mode: .top),
-            preparationID: 1,
-            originY: 20,
-            admittedAt: 1
-        )
-
-        renderer.setHidden(true)
-        #expect(renderer.rootLayer.isHidden)
-        #expect(renderer.rootLayer.sublayers?.count == 1)
-        renderer.setHidden(false)
-        #expect(!renderer.rootLayer.isHidden)
-    }
-
     /// 静止时上屏与清屏都算这批的改动：整批结束后请求一次下一帧重新合成。
     @Test
     func stillRenderAndClearRequestOneRecompositePerBatch() async throws {
@@ -396,7 +377,7 @@ struct CoreAnimationDanmakuRendererTests {
         #expect(scheduler.requestCount == 3)
     }
 
-    /// 上屏、移除、子层、显隐与几何变化不带隐式过渡：弹幕 layer 与 rootLayer 都禁用这些动作。
+    /// 上屏、移除、子层与几何变化不带隐式过渡：弹幕 layer 与 rootLayer 都禁用这些动作。
     @Test
     func renderedLayersAndRootDisableImplicitOrderingActions() async throws {
         let renderer = makeRenderer()
@@ -409,7 +390,7 @@ struct CoreAnimationDanmakuRendererTests {
         let layer = try #require(renderer.rootLayer.sublayers?.first)
 
         for key in [
-            "onOrderIn", "onOrderOut", "sublayers", "hidden", "position", "bounds", "opacity"
+            "onOrderIn", "onOrderOut", "sublayers", "position", "bounds", "opacity"
         ] {
             #expect(layer.actions?[key] is NSNull)
             #expect(renderer.rootLayer.actions?[key] is NSNull)

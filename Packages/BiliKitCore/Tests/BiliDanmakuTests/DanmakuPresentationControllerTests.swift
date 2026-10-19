@@ -5,8 +5,8 @@ import Testing
 
 @testable import BiliDanmaku
 
-/// 固定呈现控制器的契约：画面在分段布局完成后按当前时刻整屏出现；拖动进度条期间隐藏、落地后按新时刻
-/// 显示（落点分段未到时不留旧画面），位置几乎不变的误判跳变不隐藏；关闭弹幕清屏、打开恢复；设置变化整屏换成新布局；换视频清屏；
+/// 固定呈现控制器的契约：画面在分段布局完成后按当前时刻整屏出现；拖动期间不清屏、不对齐，落地后按新
+/// 时刻整屏对齐（落点分段未到时不留旧画面），原地跳变画面不变；关闭弹幕清屏、打开恢复；设置变化整屏换成新布局；换视频清屏；
 /// 旧 surface owner 的操作无效。
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
@@ -24,22 +24,24 @@ struct DanmakuPresentationControllerTests {
         #expect(backend.isStill)
     }
 
+    /// 拖动期间不清屏也不对齐，屏上的 layer 原样随媒体时间走；落地后整屏换成新时刻应有的。
     @Test
-    func draggingHidesAndTheLandingShowsTheNewTime() async {
+    func draggingKeepsTheLayersAndTheLandingAlignsTheNewTime() async {
         let (controller, backend) = await laidOutController(at: 30)
+        let before = backend.installed
+        let clearCount = backend.clearCount
 
         controller.apply(
             snapshot(identity: identity, position: 120, generation: 1, seekPhase: .seeking)
         )
-        #expect(backend.isHidden)
         controller.apply(
             snapshot(identity: identity, position: 200, generation: 1, seekPhase: .seeking)
         )
-        #expect(backend.isHidden)
+        #expect(backend.installed == before)
 
         controller.apply(snapshot(identity: identity, position: 200, generation: 2))
-        #expect(!backend.isHidden)
         #expect(backend.installedEventIDs == expectedIDs(at: 200, in: controller))
+        #expect(backend.clearCount == clearCount)
     }
 
     /// 落点分段还没到：落地时按新时刻对齐（旧时刻的弹幕全部移走）后显示，分段到达后整屏挂上。
@@ -53,7 +55,6 @@ struct DanmakuPresentationControllerTests {
         controller.apply(
             snapshot(identity: identity, position: 1_000, generation: 2, state: .paused)
         )
-        #expect(!backend.isHidden)
         #expect(backend.installed.isEmpty)
 
         let far = (0..<200).map { timedEvent(id: "far-\($0)", time: 990 + Double($0) * 0.1) }
@@ -63,8 +64,9 @@ struct DanmakuPresentationControllerTests {
         #expect(backend.installedEventIDs.allSatisfy { $0.hasPrefix("far-") })
     }
 
+    /// 起播前暂停、缓冲恢复时的原地跳变也被当作一次 seek：落地后画面不变、不清屏。
     @Test
-    func timeJumpInPlaceDoesNotHide() async {
+    func timeJumpInPlaceKeepsTheScreen() async {
         let (controller, backend) = await laidOutController(at: 30)
         let before = backend.installed
         let clearCount = backend.clearCount
@@ -72,9 +74,7 @@ struct DanmakuPresentationControllerTests {
         controller.apply(
             snapshot(identity: identity, position: 30.05, generation: 1, seekPhase: .seeking)
         )
-        #expect(!backend.isHidden)
         controller.apply(snapshot(identity: identity, position: 30.05, generation: 2))
-        #expect(!backend.isHidden)
         #expect(backend.installed == before)
         #expect(backend.clearCount == clearCount)
     }

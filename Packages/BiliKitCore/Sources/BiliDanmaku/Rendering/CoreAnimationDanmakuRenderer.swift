@@ -51,13 +51,13 @@ public final class CoreAnimationDanmakuRenderer:
     /// 60～120Hz 下下一帧在 17ms 内到达；显示器休眠等情况下 display link 可能一直不回调，没有时限请求会
     /// 永远挂着。调小会在卡顿时提前放弃，调大则 display link 在不出帧时多占一会儿。
     static let frameRequestTimeout = Duration.milliseconds(100)
-    /// 弹幕 layer 与 `rootLayer` 上禁用的隐式动画：上屏、移除、子层、显隐与几何变化都不带过渡。
+    /// 弹幕 layer 与 `rootLayer` 上禁用的隐式动画：上屏、移除、子层与几何变化都不带过渡。
     ///
     /// 用 `actions` 逐个 layer 关掉，而不是给改动另包显式事务：顶层显式事务在 commit 时就单独提交，会把
     /// 同一次 reconcile 的增删拆进不同的提交；速率为 0 时移除的淡出过渡还会冻在第一帧。
     private static let disabledActions: [String: any CAAction] = [
         "onOrderIn": NSNull(), "onOrderOut": NSNull(), "sublayers": NSNull(),
-        "hidden": NSNull(), "position": NSNull(), "bounds": NSNull(), "opacity": NSNull()
+        "position": NSNull(), "bounds": NSNull(), "opacity": NSNull()
     ]
 
     public let rootLayer: CALayer
@@ -70,7 +70,7 @@ public final class CoreAnimationDanmakuRenderer:
     private let beginTimeAtZero: CFTimeInterval
     /// 画面此刻是否静止（暂停、缓冲、未播放）；由呈现控制器按时间线快照设置，还没有快照时按走动处理。
     private var isStill = false
-    /// 是否有还没重新合成的改动（上屏、更新、移除、清屏、显隐或静止状态变化）。
+    /// 是否有还没重新合成的改动（上屏、更新、移除、清屏或静止状态变化）。
     ///
     /// 请求被宿主接受时清除；被拒绝（不可见）、以 false 回调（没出帧就停了）或超时放弃时恢复，宿主恢复
     /// 可见后再调用 `recompositeIfStill` 补上。走动中直接清除：渲染服务器本来就在出帧。
@@ -234,12 +234,6 @@ public final class CoreAnimationDanmakuRenderer:
         removeAllEntries()
     }
 
-    public func setHidden(_ hidden: Bool) {
-        guard rootLayer.isHidden != hidden else { return }
-        rootLayer.isHidden = hidden
-        hasChangesSinceRecomposite = true
-    }
-
     public func setStill(_ still: Bool) {
         guard isStill != still else { return }
         isStill = still
@@ -338,11 +332,10 @@ public final class CoreAnimationDanmakuRenderer:
         CATransaction.commit()
     }
 
-    /// 会话结束：清屏、取消显隐，并取消在途的帧请求，display link 随之停止。
+    /// 会话结束：清屏，并取消在途的帧请求，display link 随之停止。
     public func stop() {
         preparationOwner.cancelAllPreparations()
         removeAllEntries()
-        rootLayer.isHidden = false
         isStill = false
         hasChangesSinceRecomposite = false
         cancelFrameRequests()

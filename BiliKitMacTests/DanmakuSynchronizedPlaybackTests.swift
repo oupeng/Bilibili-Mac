@@ -85,12 +85,11 @@ struct DanmakuSynchronizedPlaybackTests {
         let layers = renderer.rootLayer.sublayers ?? []
         expectLocalTime(of: renderer.rootLayer, matches: item)
 
-        // 开播：同一组 layer 继续走，不清屏、不隐藏。
+        // 开播：同一组 layer 继续走，不清屏。
         player.play()
         controller.apply(snapshot(identity, position: 2, rate: 1, state: .playing, landing: 2))
         #expect(await waitUntil(timeout: .seconds(5)) { item.currentTime().seconds > 2.4 })
         expectLocalTime(of: renderer.rootLayer, matches: item)
-        #expect(!renderer.rootLayer.isHidden)
         #expect(renderer.rootLayer.sublayers?.elementsEqual(layers, by: ===) == true)
 
         // 两倍速：局部时间按两倍推进。
@@ -102,7 +101,6 @@ struct DanmakuSynchronizedPlaybackTests {
             }
         )
         expectLocalTime(of: renderer.rootLayer, matches: item)
-        #expect(!renderer.rootLayer.isHidden)
     }
 
     private func expectLocalTime(

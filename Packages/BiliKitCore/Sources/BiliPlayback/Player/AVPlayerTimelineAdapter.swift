@@ -250,7 +250,7 @@ final class AVPlayerTimelineAdapter {
         }
 
         // AVPlayerItem 创建时就带只读 timebase，换 player 也不变；万一没有，就没有 seek 阶段与落地，
-        // 弹幕拖动时不再隐藏，只在换项时按新位置整屏对齐。
+        // 弹幕没有落地可等，seek 后由下一个快照按位置变化普通对齐。
         let timebaseJumpObserver = item.timebase.map { timebase in
             PlaybackTimebaseJumps.observe(timebase) { [weak self, weak item] jump in
                 Task { @MainActor in

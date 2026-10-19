@@ -67,7 +67,7 @@ func layoutTable(
 
 /// 呈现测试唯一的渲染后端替身，不创建任何 layer。
 ///
-/// 记录在屏弹幕的 placement、显隐、静止、清屏与重新合成请求，可延迟纹理准备由测试逐个完成；在屏集合
+/// 记录在屏弹幕的 placement、静止、清屏与重新合成请求，可延迟纹理准备由测试逐个完成；在屏集合
 /// 每次变化时检查等待条件。
 @MainActor
 final class RecordingRenderingBackend: DanmakuRenderingBackend {
@@ -75,7 +75,6 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
     private(set) var installed: [String: DanmakuLanePlacement] = [:]
     /// 每次安装的事件 ID，按顺序。
     private(set) var installedHistory: [String] = []
-    private(set) var isHidden = false
     private(set) var isStill = false
     private(set) var clearCount = 0
     private(set) var stopCount = 0
@@ -161,11 +160,6 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
         notifyWaiters()
     }
 
-    func setHidden(_ hidden: Bool) {
-        isHidden = hidden
-        notifyWaiters()
-    }
-
     func setStill(_ still: Bool) {
         isStill = still
     }
@@ -186,11 +180,10 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
         stopCount += 1
         delayedCompletions.removeAll()
         installed.removeAll()
-        isHidden = false
         notifyWaiters()
     }
 
-    /// 等到在屏状态满足 `isSatisfied`；每次在屏集合或显隐变化时检查。
+    /// 等到在屏状态满足 `isSatisfied`；每次在屏集合变化时检查。
     func waitUntil(_ isSatisfied: @escaping @MainActor () -> Bool) async {
         guard !isSatisfied() else { return }
         await withCheckedContinuation { continuation in

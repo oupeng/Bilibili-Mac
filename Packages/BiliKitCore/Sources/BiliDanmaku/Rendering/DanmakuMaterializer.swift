@@ -14,7 +14,7 @@ import Foundation
 /// - 暂存：先为应在屏而缺纹理的弹幕准备纹理，全部有结果（就绪或被拒）后才在一次调用里按此刻的媒体
 ///   时间移除、替换并挂上全部弹幕，落在同一次 Core Animation 提交里；缓存全部命中时当场完成。布局表
 ///   替换、落地、打开弹幕与接管 surface 时使用，整屏因此一次换成新的样子。暂存期间的普通 reconcile
-///   推迟到提交之后再做一次。完成时调用 `didCommit`。
+///   推迟到提交之后再做一次。
 ///
 /// `preparationGeneration` 在 `clear` 与 backing scale 变化时递增；准备请求带上发起时的值，完成时不等、
 /// 或这条弹幕已不在待准备记录里（不再需要或已换成新的请求），结果就被丢弃。
@@ -32,8 +32,6 @@ final class DanmakuMaterializer {
     }
 
     private let backend: any DanmakuRenderingBackend
-    /// 暂存提交完成后调用；呈现控制器据此在落地后重新显示弹幕。
-    var didCommit: (@MainActor () -> Void)?
 
     /// backend 上每条在屏弹幕当前使用的 placement。
     private(set) var installed: [String: DanmakuLanePlacement] = [:]
@@ -108,7 +106,7 @@ final class DanmakuMaterializer {
         }
     }
 
-    /// 移除全部 layer 并作废在途准备；暂存提交随之取消，不会调用 `didCommit`。
+    /// 移除全部 layer 并作废在途准备；暂存提交随之取消。
     func clear() {
         preparationGeneration &+= 1
         backend.cancelPendingPreparations()
@@ -172,7 +170,6 @@ final class DanmakuMaterializer {
         }
         reconcileNow()
         backend.recompositeIfStill()
-        didCommit?()
     }
 
     /// 普通 reconcile：立即移除与替换，缺纹理的发起准备。

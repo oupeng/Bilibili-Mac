@@ -84,7 +84,7 @@ enum DanmakuMotionPolicy {
 /// Renderer 的最小平台 port，由 `DanmakuMaterializer` 驱动。
 ///
 /// 弹幕 layer 按 placement 的媒体时间运动，port 不涉及时钟：暂停、倍速与 seek 由宿主的同步 layer
-/// 处理。`clearAll` 取消在途准备并移除全部 layer；`stop` 还取消显隐与静止重新合成的请求。尺寸变化只
+/// 处理。`clearAll` 取消在途准备并移除全部 layer；`stop` 还取消静止重新合成的请求。尺寸变化只
 /// 更新 surface geometry：已有滚动弹幕保持布局时的运动，顶部与底部弹幕随新宽度重新居中、底部弹幕随
 /// 高度变化平移；backing scale 变化会取消在途准备。
 @MainActor
@@ -125,8 +125,6 @@ public protocol DanmakuRenderingBackend: AnyObject {
     func cancelPendingPreparations()
     func remove(eventID: String)
     func clearAll()
-    /// 整体隐藏或显示弹幕，不移除 layer；拖动进度条期间用它保持空屏。
-    func setHidden(_ hidden: Bool)
     /// 画面是否静止（暂停、缓冲、未播放）；决定 `recompositeIfStill` 是否需要请求下一帧。
     func setStill(_ still: Bool)
     /// 一整批改动（一次 reconcile、一次布局替换或一次清屏）结束后调用一次：静止且这批改动了画面时，

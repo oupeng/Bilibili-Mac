@@ -37,16 +37,17 @@ struct DanmakuDensityAdmissionPolicy: Sendable, Equatable {
 /// 画面是媒体时间的纯函数：布局表（`DanmakuLayoutCoordinator`）给出每条弹幕的车道与时长，
 /// `DanmakuMaterializer` 让 backend 上的 layer 等于此刻应有的集合，layer 的运动由宿主的同步 layer
 /// 按播放 item 的时间驱动。暂停、倍速与缓冲都不需要这里处理；时间线快照只用来决定何时 reconcile、
-/// 画面是否静止，以及拖动进度条期间隐藏弹幕。
+/// 画面是否静止。
 ///
 /// 拥有布局 coordinator、materializer、布局设置（画面尺寸、速度、显示区域、密度、过滤）与 surface owner；
 /// 不拥有 layer 与纹理（backend），也不拥有时间线与分段加载（`DanmakuSession`）。surface owner ID 防止
 /// 旧 `AVPlayerView` 的迟到 resize/detach 操作清空新宿主。换 identity、`stopPresentation`、接管或交还
 /// surface 时清屏；关闭弹幕时清屏但保留布局表，打开时按当前时刻整屏挂上。
 ///
-/// seek：时间线进入 `seeking` 且位置离开最近的落地位置超过 `seekHidingTolerance` 时隐藏整个弹幕层，
-/// 不清 layer；落地（`landingGeneration` 变化或回到 `settled`）后按新时间暂存 reconcile，提交之后再显示。
-/// 这是唯一用到 seek 信号的地方。
+/// seek：拖动期间弹幕完全跟随媒体时间，不隐藏也不清屏。拖到远处时屏上旧 layer 都落在动画区间之外，
+/// 画面自然为空；原地跳变时画面不变；在附近小范围拖动时，已在屏上的弹幕跟着移动（位置正确，但缺少
+/// 新窗口里还没挂上的）。`seeking` 期间不 reconcile：拖动每 50ms 跳一次，逐步对齐只会反复发起又作废
+/// 纹理准备；落地（`landingGeneration` 变化）后按新时刻暂存提交一次。这是唯一用到 seek 信号的地方。
 @MainActor
 public final class DanmakuPresentationController: DanmakuPresentationSink {
     /// 播放中两次普通 reconcile 之间至少推进的媒体时长。
@@ -54,11 +55,6 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     /// 快照每秒约 30 个，不必每个都 reconcile；它必须短于 `DanmakuMaterializer.lookaheadSeconds`，
     /// 即将进场的弹幕才能提前准备纹理。调小增加主线程开销，调大则走完的 layer 留得更久。
     static let reconcileStride = 1.0
-    /// seek 期间隐藏弹幕的门槛：位置离开最近一次落地位置不到这么远时不隐藏。
-    ///
-    /// 起播前暂停、缓冲恢复时系统也会发速率为 0 的时间跳变，时间线把它当作一次 seek，但位置几乎不变；
-    /// 这时隐藏再显示只会让弹幕闪一下。调大会让小幅度的 seek 也不隐藏，调小则误判的跳变也会闪。
-    static let seekHidingTolerance = 0.5
 
     private let backend: any DanmakuRenderingBackend
     private let coordinator = DanmakuLayoutCoordinator()
@@ -81,10 +77,6 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     private var reconciledPosition: Double?
     /// 最近一次见到的落地代号；变化时按新位置暂存 reconcile。
     private var landingGeneration: UInt64?
-    /// 最近一个 `settled` 快照的位置；seek 位置离它不够远时不隐藏。
-    private var settledPosition: Double?
-    /// 是否因 seek 隐藏了弹幕层；落地后的暂存提交完成时取消。
-    private var isHiddenForSeek = false
 
     public init(
         backend: any DanmakuRenderingBackend,
@@ -100,9 +92,6 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         )
         coordinator.tableDidChange = { [weak self] in
             self?.reconcile(staged: true)
-        }
-        materializer.didCommit = { [weak self] in
-            self?.revealAfterLanding()
         }
         updateLayoutParameters(debounced: false)
     }
@@ -123,21 +112,13 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         backend.setStill(snapshot.state != .playing || snapshot.rate == 0)
 
         guard snapshot.seekPhase == .settled else {
-            // 拖动期间保持空屏：只隐藏，不清 layer，也不 reconcile。
-            let moved = settledPosition.map {
-                abs(snapshot.positionSeconds - $0) > Self.seekHidingTolerance
-            }
-            if !isHiddenForSeek, moved ?? true {
-                isHiddenForSeek = true
-                backend.setHidden(true)
-            }
+            // 拖动期间不 reconcile：屏上的 layer 已随同步 layer 跟着媒体时间走，落地时再整屏对齐。
             backend.recompositeIfStill()
             return
         }
-        settledPosition = snapshot.positionSeconds
         let landed = landingGeneration != snapshot.landingGeneration
         landingGeneration = snapshot.landingGeneration
-        if landed || isHiddenForSeek {
+        if landed {
             reconcile(staged: true)
         } else if reconciledPosition.map({
             abs(snapshot.positionSeconds - $0) >= Self.reconcileStride
@@ -265,9 +246,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
 
     /// 布局表在 `latestSnapshot` 时刻应有的弹幕挂到 backend 上；弹幕关闭或还没有快照时什么都不做。
     private func reconcile(staged: Bool) {
-        guard let snapshot = latestSnapshot, snapshot.identity == identity else { return }
-        guard isEnabled else {
-            revealAfterLanding()
+        guard let snapshot = latestSnapshot, snapshot.identity == identity, isEnabled else {
             return
         }
         reconciledPosition = snapshot.positionSeconds
@@ -278,14 +257,6 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         )
     }
 
-    /// 暂存提交完成：已经落地时重新显示弹幕层；仍在拖动时保持隐藏。
-    private func revealAfterLanding() {
-        guard isHiddenForSeek, latestSnapshot?.seekPhase == .settled else { return }
-        isHiddenForSeek = false
-        backend.setHidden(false)
-        backend.recompositeIfStill()
-    }
-
     /// 换 identity 或停止：丢弃布局表与时间线状态并清屏。
     private func resetTimelineState() {
         coordinator.reset()
@@ -293,11 +264,6 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         latestSnapshot = nil
         reconciledPosition = nil
         landingGeneration = nil
-        settledPosition = nil
-        if isHiddenForSeek {
-            isHiddenForSeek = false
-            backend.setHidden(false)
-        }
         backend.recompositeIfStill()
     }
 
