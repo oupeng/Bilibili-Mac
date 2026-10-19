@@ -175,9 +175,20 @@ final class DanmakuTexturePreparationOwner {
         return cache.value(for: expectedKey)
     }
 
+    /// 丢弃一次准备；它所在 key 的在途栅格化已没有任何请求在等时一并取消。
+    ///
+    /// 拖动进度条时每一步都会作废上一步的准备，不取消的话排队的 operation 仍会逐个栅格化作废的纹理，
+    /// 新的准备排在它们后面被拖慢。已在执行的 operation 收到取消后丢弃结果，不交回主线程。
     func discard(preparationID: UInt64) {
-        requests.removeValue(forKey: preparationID)
         prepared.removeValue(forKey: preparationID)
+        guard let request = requests.removeValue(forKey: preparationID),
+            let work = inflight[request.key],
+            !work.requestIDs.contains(where: { requests[$0] != nil })
+        else {
+            return
+        }
+        inflight[request.key] = nil
+        work.operation.cancel()
     }
 
     /// 取消全部请求、已就绪记录与在途 operation；被取消的请求不再回调，缓存保留。

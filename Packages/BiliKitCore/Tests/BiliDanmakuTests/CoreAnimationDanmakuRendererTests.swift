@@ -102,6 +102,64 @@ struct CoreAnimationDanmakuRendererTests {
         #expect(renderer.rootLayer.sublayers?.count == 1)
     }
 
+    /// 拖动时作废的准备：排队中的栅格化随之取消，不执行，新的准备不排在它们后面。
+    @Test
+    func discardedQueuedPreparationsAreNeverRasterized() async {
+        let gate = RasterizationGate()
+        let owner = DanmakuTexturePreparationOwner(
+            configuration: .init(
+                maximumConcurrentOperations: 1,
+                maximumOutstandingRequests: 16,
+                cacheLimits: .production
+            ),
+            rasterize: { gate.rasterize($0) }
+        )
+        func prepare(_ text: String, id: UInt64) {
+            owner.prepare(
+                event: textEvent(text),
+                backingScale: 2,
+                preparationID: id,
+                generation: 0
+            ) { _ in }
+        }
+
+        // 第一个栅格化占住唯一的并发名额，后面两个在队列里排着。
+        prepare("busy", id: 1)
+        await gate.waitUntilBlocked()
+        prepare("stale-a", id: 2)
+        prepare("stale-b", id: 3)
+        owner.discard(preparationID: 2)
+        owner.discard(preparationID: 3)
+
+        let fresh = await withCheckedContinuation { continuation in
+            owner.prepare(
+                event: textEvent("fresh"),
+                backingScale: 2,
+                preparationID: 4,
+                generation: 0
+            ) { result in
+                continuation.resume(returning: result)
+            }
+            gate.release()
+        }
+
+        #expect(fresh == .ready(DanmakuTextMetrics(width: 16, height: 1)))
+        #expect(gate.rasterizedTexts == ["busy", "fresh"])
+    }
+
+    private func textEvent(_ text: String) -> DanmakuEvent {
+        DanmakuEvent(
+            id: text,
+            timeSeconds: 1,
+            mode: .scrolling,
+            text: text,
+            fontSize: 25,
+            colorRGB: 0xFFFFFF,
+            colorStyle: .solid,
+            weight: 1
+        )
+    }
+
     @Test
     func preparationOwnerRejectsWorkBeyondItsHardOutstandingLimit() {
         let owner = DanmakuTexturePreparationOwner(
@@ -542,5 +600,35 @@ private final class RasterizationCounter: Sendable {
     func rasterize(_ key: DanmakuTextureCacheKey) -> DanmakuTexturePayload? {
         value.withLock { $0 += 1 }
         return fixtureTexturePayload(byteCost: 64)
+    }
+}
+
+/// 第一次栅格化阻塞到测试放行，用来占住准备队列；记录实际栅格化过的文字。
+private final class RasterizationGate: Sendable {
+    private let state = Mutex((texts: [String](), isBlocking: true))
+    private let released = DispatchSemaphore(value: 0)
+    private let blocked = AsyncStream<Void>.makeStream()
+
+    var rasterizedTexts: [String] { state.withLock { $0.texts } }
+
+    func rasterize(_ key: DanmakuTextureCacheKey) -> DanmakuTexturePayload? {
+        let blocks = state.withLock { value -> Bool in
+            value.texts.append(key.text)
+            defer { value.isBlocking = false }
+            return value.isBlocking
+        }
+        if blocks {
+            blocked.continuation.yield()
+            released.wait()
+        }
+        return fixtureTexturePayload(byteCost: 64)
+    }
+
+    func waitUntilBlocked() async {
+        for await _ in blocked.stream { return }
+    }
+
+    func release() {
+        released.signal()
     }
 }
