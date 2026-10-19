@@ -47,8 +47,10 @@ public final class CoreAnimationDanmakuRenderer:
     static let frameRequestTimeout = Duration.milliseconds(100)
     /// 弹幕 layer 与 `rootLayer` 上禁用的隐式动画：上屏、移除与子层变化都不带过渡。
     ///
-    /// 逐个 layer 设置而不包显式事务：清屏与同一轮的补位上屏要落在同一次隐式提交里；速率为 0 时
-    /// 移除的淡出过渡还会冻在第一帧。
+    /// 用 `actions` 逐个 layer 关掉，而不是给清屏与移除另包显式事务：顶层显式事务在 commit 时就单独
+    /// 提交，会把同一轮的清屏与补位上屏拆开；速率为 0 时移除的淡出过渡还会冻在第一帧。上屏的
+    /// `renderPrepared` 仍包一个只为关闭 position 等属性动作的显式事务：本轮已有隐式事务（例如清屏
+    /// 刚移除过 layer）时它嵌套其中、随本轮一起提交，屏上原本为空时它可能单独提交。
     private static let disabledActions: [String: any CAAction] = [
         "onOrderIn": NSNull(), "onOrderOut": NSNull(), "sublayers": NSNull()
     ]

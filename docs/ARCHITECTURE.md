@@ -159,16 +159,20 @@ discontinuity generation，以及 seek 阶段与落地代号。消费者不自�
 - 时间轴与交互记录器在 item 开始时得知起播位置：就绪时据此标记一次 discontinuity，弹幕从起播位置
   排起；落在起播位置的系统 time-jump 不算用户操作，否则会拒绝自动开播。
 - seek 有两套互不影响的事实。`discontinuityGeneration` 由 engine 的 seek 收尾与 `AVPlayerItem` 的
-  time-jump 通知推进，观看进度与 Now Playing 使用；一次 seek 的落点记录持续到被新 seek、外部跳变、换项或
-  clear 取代，落在它附近的重复跳变（例如暂停中 seek 后开播时系统再报一次）不再推进。`seekPhase` 与
-  `landingGeneration` 只来自 item timebase 的 `kCMTimebaseNotification_TimeJumped`，弹幕使用：timebase
-  只在时间被直接设定时发跳变（seek 与拖动的每一步，以及播放到结尾），播放、暂停、改速率与缓冲停顿只改
-  有效速率。收到跳变即进入 `seeking`，位置写为跳变后的 timebase 时间，期间不写周期回调的读数；最后一次
-  跳变之后静默 150ms 才落地：读 timebase 时间为落点、递增 `landingGeneration`、回到 `settled`。拖动时
-  跳变间隔远小于 150ms，一次拖动只落地一次；暂停中 seek 时有效速率一直为 0、播放中拖动时每步之间速率又会
-  恢复，所以不以速率恢复判定落地，单次 seek 因此最多晚 150ms 补位。换项、续播起点就绪与 clear 各算一次
-  落地；加载中的跳变不算 seek。通知在 CoreMedia 后台线程到达，切回主线程后核对 item 与 token；observer
-  随 item 的观察集合在换项、失败与 clear 时移除，落地计时同时取消，计时用注入的 `Clock`。
+  time-jump 通知推进，观看进度与 Now Playing 使用；一次 seek 的落点记录在播放位置仍在落点附近时吞掉落在
+  它附近的重复跳变（例如暂停中 seek 后开播时系统再报一次），播放离开落点、新 seek、外部跳变、换项或 clear
+  之后不再吞。`seekPhase` 与 `landingGeneration` 只来自 item timebase 的
+  `kCMTimebaseNotification_TimeJumped`，弹幕使用。只有跳变发出时 timebase 速率为 0 的才是 seek：seek
+  （含拖动的每一步）与播放到结尾时，系统先把速率设为 0 再设定时间；带音轨的媒体在开播、继续播放与改速率
+  （含临时倍速）时按音频时钟重新锚定，也发跳变（时间往回几十毫秒），但此刻速率已大于 0，播放中 seek 时
+  还会在 seek 跳变约 20ms 后再报一次这样的重新锚定。速率在通知线程上当场读取，切回主线程时可能已经恢复。
+  这是在 macOS 27 上用本地 HLS 与 mp4（含音轨）实测的系统行为，AirPlay、码率切换等场景没有验证。收到 seek
+  跳变即进入 `seeking`，位置写为跳变时的 timebase 时间，期间不写周期回调的读数；最后一次 seek 跳变之后
+  静默 150ms 才落地：读 timebase 时间为落点、递增 `landingGeneration`、回到 `settled`。拖动时跳变间隔远
+  小于 150ms，一次拖动只落地一次；暂停中 seek 时有效速率一直为 0、播放中拖动时每步之间速率又会恢复，所以
+  不以速率恢复判定落地，单次 seek 因此最多晚 150ms 补位。换项、续播起点就绪与 clear 各算一次落地，失败时
+  回到 `settled`；加载中的跳变不算 seek。通知在 CoreMedia 后台线程到达，切回主线程后核对 item 与 token；
+  observer 随 item 的观察集合在换项、失败与 clear 时移除，落地计时同时取消，计时用注入的 `Clock`。
 - progressive 单文件（充电试看、没有 DASH 的较早视频）没有 playlist，不续播，一律从头播放。
 
 ### 弹幕
@@ -185,8 +189,9 @@ discontinuity generation，以及 seek 阶段与落地代号。消费者不自�
 - 补位：调度器只消费时间线的 seek 事实，不从位置序列推断跳转。`seeking` 时清屏一次、之后不投递，拖动进度条
   期间因此保持空屏；`landingGeneration` 变化（落地、换项、续播起点、clear）时在同一 batch 里清屏并在落点补发
   回看窗口内本应仍在屏上的弹幕，不看播放状态。其余时候播放中的相邻快照只投递两者之间首次出现的弹幕；同一
-  落地代号内位置倒退是采样抖动，不清屏、不投递，上一位置也不倒退。暂停、缓冲时速率为 0，补位弹幕静止在应有
-  位置，继续播放后从原位接着走，不再重补。窗口由 `DanmakuMotionPolicy.catchUpWindow` 按画面宽度与速度给出：
+  落地代号内位置倒退是采样抖动（含继续播放时音频时钟重新锚定的几十毫秒回退），不清屏、不投递，上一位置也
+  不倒退。暂停、缓冲时速率为 0，补位弹幕静止在应有位置；继续播放、改速率与临时倍速不是 seek，弹幕从原位
+  接着走，不再重补。seeking 期间分段缓存按拖动中的位置裁剪，落点所在分段不会因离起拖位置远而被淘汰。窗口由 `DanmakuMotionPolicy.catchUpWindow` 按画面宽度与速度给出：
   顶部／底部 4 秒与“和画面等宽的滚动弹幕”跑完全程的时长取较大者。补位弹幕按自己的时间点做车道准入（准备按
   入队顺序完成，准入时间不倒退）；同批纹理全部准备好后一起上屏，已走过的时长按上屏时刻计算，renderer 把
   动画开始时间移到过去，从已走过的位置继续；等待期间已走完的丢弃，候选按车道数 × 重叠层数 × 4 取最新的。
@@ -203,7 +208,9 @@ discontinuity generation，以及 seek 阶段与落地代号。消费者不自�
   回调一次即停；视图不可见（隐藏、最小化、被完全遮挡、不在窗口里）时拒绝请求，变为不可见、交还 surface 或
   会话 stop 时取消，renderer 另挂 0.1 秒时限兜底。被拒绝、没出帧或超时的改动保留，overlay 恢复可见时再请求
   一次。速率切换按调用时刻立即生效。弹幕 layer 与 `rootLayer` 用 `actions` 禁用上屏、移除与子层变化的隐式
-  动画，不另包显式事务，同一 batch 的清屏与同步上屏的补位落在同一次提交里。
+  动画，清屏与移除不另包显式事务（顶层显式事务会单独提交，把清屏与补位上屏拆开）。上屏时 `renderPrepared`
+  仍包一个只为关闭属性动作的显式事务：本轮已有隐式事务（清屏刚移除过 layer）时它嵌套其中、随本轮一起提交，
+  屏上原本为空时它可能单独提交。
 - 大会员彩色弹幕：元素字段 24 `colorful` 为 60001 时映射为 `DanmakuColorStyle.vipGradient`，其余类型按普通
   弹幕显示。外观按官方贴图的结论内置：白色填充、0.5pt 描边从文字左缘到右缘按采样色标做横向渐变、阴影
   仍为深色；不下载分段回复 `colorfulSrc` 给的贴图，纹理同步绘制，官方更换贴图时不会跟随。
