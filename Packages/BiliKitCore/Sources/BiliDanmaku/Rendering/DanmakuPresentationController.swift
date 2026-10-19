@@ -63,8 +63,11 @@ extension DanmakuLaneConfiguration {
 /// 旧 `AVPlayerView` 的迟到 resize/detach 操作清空新宿主。换 identity、`stopPresentation`、接管或交还
 /// surface 时清屏；关闭弹幕时清屏但保留布局表，打开时按当前时刻整屏挂上。
 ///
-/// 不连续：`discontinuityGeneration` 变化（seek、换项、续播起点、系统时间跳变）时按快照位置暂存提交
-/// 一次，否则按推进步长普通对齐。弹幕不隐藏也不清屏，屏上的 layer 一直跟随媒体时间。原生拖动每一步都
+/// 设置（屏蔽、类型显隐、密度、速度、显示区域）或画面尺寸（全屏、缩放、live resize 去抖后）变化引起的
+/// 整张重排交叉淡化成新布局；分段到达、上一段晚到、打开弹幕、换 item 与 seek 都瞬时替换。
+///
+/// 不连续：`discontinuityGeneration` 变化（seek、换项、续播起点、系统时间跳变）时先结束进行中的淡化，
+/// 再按快照位置暂存提交一次，否则按推进步长普通对齐。弹幕不隐藏也不清屏，屏上的 layer 一直跟随媒体时间。原生拖动每一步都
 /// 推进不连续代号，每步都发起一次暂存提交并作废上一步还没完成的纹理准备（排队中的栅格化随之取消），
 /// 最后一步之后自然提交到落点。误报的跳变（起播前暂停、缓冲恢复）只多做一次内容相同的提交，画面不变。
 @MainActor
@@ -103,8 +106,12 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     public init(backend: any DanmakuRenderingBackend) {
         self.backend = backend
         materializer = DanmakuMaterializer(backend: backend)
-        coordinator.tableDidChange = { [weak self] in
-            self?.reconcile(staged: true)
+        coordinator.tableDidChange = { [weak self] isSettingsRelayout in
+            if isSettingsRelayout {
+                self?.reconcileWithCrossfade()
+            } else {
+                self?.reconcile(staged: true)
+            }
         }
     }
 
@@ -125,6 +132,8 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         let isDiscontinuous = discontinuityGeneration != snapshot.discontinuityGeneration
         discontinuityGeneration = snapshot.discontinuityGeneration
         if isDiscontinuous {
+            // seek、换项等不连续一律瞬时替换，进行中的交叉淡化立即结束。
+            materializer.finishCrossfade()
             reconcile(staged: true)
         } else if reconciledPosition.map({
             abs(snapshot.positionSeconds - $0) >= Self.reconcileStride
@@ -241,6 +250,25 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
             table: layoutTable,
             position: snapshot.positionSeconds,
             staged: staged
+        )
+    }
+
+    /// 设置或画面尺寸变化后的整屏重排：屏上已有弹幕时交叉淡化成新布局，否则直接暂存提交。
+    ///
+    /// 旧组淡出期间按快照的速率继续走（未在播放时为 0），淡化本身按挂钟走完，暂停时同样完成。
+    private func reconcileWithCrossfade() {
+        guard let snapshot = latestSnapshot, snapshot.identity == identity, isEnabled else {
+            return
+        }
+        guard materializer.hasInstalledLayers else {
+            reconcile(staged: true)
+            return
+        }
+        reconciledPosition = snapshot.positionSeconds
+        materializer.reconcileWithCrossfade(
+            table: layoutTable,
+            position: snapshot.positionSeconds,
+            rate: snapshot.state == .playing ? snapshot.rate : 0
         )
     }
 

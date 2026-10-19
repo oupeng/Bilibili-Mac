@@ -13,7 +13,10 @@ struct PlayerHostViewIdentityTests {
     @Test
     @MainActor
     func nativePlayerViewLeavesNowPlayingOwnershipToProcessController() {
-        let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
+        let renderer = CoreAnimationDanmakuRenderer(
+            beginTimeAtZero: AVCoreAnimationBeginTimeAtZero,
+            crossfadeClock: ContinuousClock()
+        )
         let controller = DanmakuPresentationController(backend: renderer)
         let view = DanmakuPlayerView(
             renderer: renderer,
@@ -28,7 +31,10 @@ struct PlayerHostViewIdentityTests {
     @Test
     @MainActor
     func playbackPreparationBlocksNativePlayerInputAndAccessibility() {
-        let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
+        let renderer = CoreAnimationDanmakuRenderer(
+            beginTimeAtZero: AVCoreAnimationBeginTimeAtZero,
+            crossfadeClock: ContinuousClock()
+        )
         let controller = DanmakuPresentationController(backend: renderer)
         let view = DanmakuPlayerView(
             renderer: renderer,
@@ -55,7 +61,10 @@ struct PlayerHostViewIdentityTests {
     @Test
     @MainActor
     func danmakuSurfaceSurvivesTemporaryWindowReparenting() async throws {
-        let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
+        let renderer = CoreAnimationDanmakuRenderer(
+            beginTimeAtZero: AVCoreAnimationBeginTimeAtZero,
+            crossfadeClock: ContinuousClock()
+        )
         let controller = DanmakuPresentationController(backend: renderer)
         let overlay = DanmakuOverlayView(
             renderer: renderer,
@@ -117,7 +126,10 @@ struct PlayerHostViewIdentityTests {
     @Test
     @MainActor
     func danmakuClockFollowsTheCurrentItemAndClearsOnReplacement() async throws {
-        let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
+        let renderer = CoreAnimationDanmakuRenderer(
+            beginTimeAtZero: AVCoreAnimationBeginTimeAtZero,
+            crossfadeClock: ContinuousClock()
+        )
         let controller = DanmakuPresentationController(backend: renderer)
         let view = DanmakuPlayerView(
             renderer: renderer,

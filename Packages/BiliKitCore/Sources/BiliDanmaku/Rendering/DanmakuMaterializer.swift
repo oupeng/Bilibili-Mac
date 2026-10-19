@@ -15,6 +15,8 @@ import Foundation
 ///   时间移除、替换并挂上全部弹幕，落在同一次 Core Animation 提交里；缓存全部命中时当场完成。布局表
 ///   替换、时间不连续（seek、换项）、打开弹幕与接管 surface 时使用，整屏因此一次换成新的样子。暂存期间的普通 reconcile
 ///   推迟到提交之后再做一次。
+/// - 交叉淡化：设置或画面尺寸变化引起的整张重排。旧的在屏 layer 整组交给 backend 淡出，记录清空后按
+///   新表暂存提交，提交时 backend 开始淡化；淡化本身由 backend 按挂钟走完。
 ///
 /// `preparationGeneration` 在 `clear` 与 backing scale 变化时递增；准备请求带上发起时的值，完成时不等、
 /// 或这条弹幕已不在待准备记录里（不再需要或已换成新的请求），结果就被丢弃。
@@ -44,6 +46,10 @@ final class DanmakuMaterializer {
     private var parked: [String: Preparation] = [:]
     /// 暂存提交还在等的弹幕；为 nil 表示没有暂存提交。
     private var awaitedByCommit: Set<String>?
+    /// 交叉淡化在等这次暂存提交，提交后让 backend 开始淡化。
+    ///
+    /// `finishCrossfade` 与 `clear` 时清除。
+    private var startsCrossfadeOnCommit = false
     /// 暂存期间来了普通 reconcile，提交之后补做一次。
     private var reconcilesAfterCommit = false
     /// 准备因容量被拒绝过；下一次准备完成时重新 reconcile，补上它们。
@@ -103,11 +109,41 @@ final class DanmakuMaterializer {
         }
     }
 
-    /// 移除全部 layer 并作废在途准备；暂存提交随之取消。
+    /// backend 上是否有在屏的弹幕。
+    var hasInstalledLayers: Bool { !installed.isEmpty }
+
+    /// 设置或画面尺寸变化后的整屏重排：旧组交给 backend 淡出，按新表从空开始暂存提交，提交时开始淡化。
+    ///
+    /// 进行中的淡化先立即结束，以当前画面为新的旧组。`rate` 是旧组淡出期间继续走的速率（暂停时为 0）。
+    func reconcileWithCrossfade(
+        table: [Int: DanmakuSegmentLayout],
+        position: Double,
+        rate: Double
+    ) {
+        finishCrossfade()
+        dropRecords()
+        backend.beginCrossfade(at: position, rate: rate)
+        startsCrossfadeOnCommit = true
+        reconcile(table: table, position: position, staged: true)
+    }
+
+    /// 立即结束交叉淡化（含还在等提交的）；seek 与其他瞬时替换之前调用。
+    func finishCrossfade() {
+        startsCrossfadeOnCommit = false
+        backend.finishCrossfade()
+    }
+
+    /// 移除全部 layer 并作废在途准备；暂存提交与交叉淡化随之取消。
     func clear() {
+        backend.clearAll()
+        startsCrossfadeOnCommit = false
+        dropRecords()
+    }
+
+    /// 作废在途准备并清空在屏、待准备与暂存记录；layer 本身由调用方处理（清屏或交给淡化）。
+    private func dropRecords() {
         preparationGeneration &+= 1
         backend.cancelPendingPreparations()
-        backend.clearAll()
         installed.removeAll(keepingCapacity: false)
         installedScales.removeAll(keepingCapacity: false)
         pending.removeAll(keepingCapacity: false)
@@ -169,6 +205,10 @@ final class DanmakuMaterializer {
             backend.discardPreparation(preparationID: preparation.preparationID)
         }
         reconcileNow()
+        if startsCrossfadeOnCommit {
+            startsCrossfadeOnCommit = false
+            backend.startCrossfade()
+        }
     }
 
     /// 普通 reconcile：立即移除与替换，缺纹理的发起准备。

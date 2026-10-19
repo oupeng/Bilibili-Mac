@@ -128,7 +128,15 @@ public protocol DanmakuRenderingBackend: AnyObject {
     /// 取消全部在途与已就绪未上屏的准备，被取消的请求不再回调。
     func cancelPendingPreparations()
     func remove(eventID: String)
+    /// 取消在途准备、立即结束交叉淡化，并移除全部 layer。
     func clearAll()
+    /// 整屏重排开始：把在屏的全部 layer 移出去，此刻仍完全显示，并按 `mediaTime` 与 `rate` 继续走；
+    /// 之后挂上的是新组。没有在屏 layer 时什么都不做。
+    func beginCrossfade(at mediaTime: Double, rate: Double)
+    /// 新组已挂好：旧组淡出、新组淡入，按挂钟走完，不受同步 layer 的速率影响。
+    func startCrossfade()
+    /// 立即结束交叉淡化：旧组移除，新组完全显示。
+    func finishCrossfade()
     func setOpacity(_ opacity: DanmakuOpacity)
     func updateSurfaceSize(
         width: Double,

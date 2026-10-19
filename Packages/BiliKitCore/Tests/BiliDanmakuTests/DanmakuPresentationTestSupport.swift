@@ -54,7 +54,7 @@ func layoutTable(
 
 /// 呈现测试唯一的渲染后端替身，不创建任何 layer。
 ///
-/// 记录在屏弹幕的 placement、清屏与画面尺寸，可延迟纹理准备由测试逐个完成；在屏集合
+/// 记录在屏弹幕的 placement、交叉淡化的旧组、清屏与画面尺寸，可延迟纹理准备由测试逐个完成；在屏集合
 /// 每次变化时检查等待条件。
 @MainActor
 final class RecordingRenderingBackend: DanmakuRenderingBackend {
@@ -68,6 +68,12 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
     private(set) var removedHistory: [String] = []
     private(set) var clearCount = 0
     private(set) var stopCount = 0
+    /// 交叉淡化中被移出、正在淡出的旧组；`finishCrossfade` 与清屏时清空。
+    private(set) var outgoing: [String: DanmakuLanePlacement] = [:]
+    private(set) var crossfadeBeginCount = 0
+    private(set) var crossfadeStartCount = 0
+    /// 每次开始交叉淡化时旧组继续走的速率。
+    private(set) var crossfadeRates: [Double] = []
     /// 每次 `updateSurfaceSize` 收到的宽高，按顺序。
     private(set) var surfaceSizes: [(width: Double, height: Double)] = []
     /// 为 true 时准备不立即完成，等测试调用 `completePreparations`。
@@ -145,8 +151,27 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
         notifyWaiters()
     }
 
+    func beginCrossfade(at mediaTime: Double, rate: Double) {
+        outgoing = installed
+        installed.removeAll()
+        crossfadeBeginCount += 1
+        crossfadeRates.append(rate)
+        notifyWaiters()
+    }
+
+    func startCrossfade() {
+        crossfadeStartCount += 1
+        notifyWaiters()
+    }
+
+    func finishCrossfade() {
+        outgoing.removeAll()
+        notifyWaiters()
+    }
+
     func clearAll() {
         clearCount += 1
+        outgoing.removeAll()
         delayedCompletions.removeAll()
         installed.removeAll()
         notifyWaiters()
@@ -169,7 +194,7 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
         notifyWaiters()
     }
 
-    /// 等到在屏状态满足 `isSatisfied`；每次在屏集合变化时检查。
+    /// 等到在屏状态满足 `isSatisfied`；每次在屏集合或交叉淡化状态变化时检查。
     func waitUntil(_ isSatisfied: @escaping @MainActor () -> Bool) async {
         guard !isSatisfied() else { return }
         await withCheckedContinuation { continuation in
