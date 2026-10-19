@@ -206,7 +206,8 @@ discontinuity generation，以及 seek 阶段与落地代号。消费者不自�
   - materializer（`DanmakuMaterializer`）：时刻 t 在屏的 layer 是布局表里已进场未走完、或 2 秒内要进场的
     弹幕；纹理提前准备，以将来的开始时间挂上，迟到的纹理挂上后直接出现在中途应在的位置。播放中时间每推进
     1 秒对齐一次；布局表替换、落地、打开弹幕、接管 surface 时暂存提交：缺的纹理全部有结果后，在一次调用里
-    按此刻完成整屏的移除、换车道与挂上。
+    按此刻完成整屏的移除、换车道与挂上，挂上按 (时间, ID) 顺序。窗口换到 backing scale 不同的屏幕时，已在屏
+    的弹幕也当作缺纹理重新准备，提交时原位换纹理，不先移除。
   - 渲染：`rootLayer` 挂在播放器宿主（`DanmakuOverlayView`）的 `AVSynchronizedLayer` 下，子树的局部时间
     就是播放 item 的时间。动画 `beginTime` 是弹幕的时间点（0 写成 `AVCoreAnimationBeginTimeAtZero`，由
     App 注入，`BiliDanmaku` 不 import AVFoundation），`removedOnCompletion` 为 false；fillMode 保持默认，
@@ -224,7 +225,9 @@ discontinuity generation，以及 seek 阶段与落地代号。消费者不自�
 - 分段缓存（`DanmakuSegmentCache`）最多三段，淘汰离最近快照位置（拖动中随拖动更新）最远的；位置在分段
   开头 60 秒（滚动弹幕的最长时长）内时一并请求上一段，未到结尾时请求下一段。暂停、缓冲时没有新快照，
   一个分段加载完腾出名额后，会话按最近处理过的快照继续请求。
-- 纹理字节上限（64 MiB）只作内存安全阀：被它拒绝的弹幕缺席，但不影响车道布局。
+- 纹理字节上限（64 MiB）只作内存安全阀，按全部 layer（含前瞻弹幕）计：超限时先移除已走完、还没等到
+  对齐的，再由已进场的弹幕挤掉进场最晚的前瞻弹幕；前瞻弹幕之间不互相挤，超限即被拒。被拒的弹幕缺席，
+  但不影响车道布局。
 - 静止时的重新合成：暂停与缓冲时视频不出新帧、同步 layer 速率为 0，渲染服务器不再主动出帧，提交后屏上
   那块区域可能没有完整重新合成（错开几 pt 的两份弹幕，直到别的界面事件触发重绘）。呈现端在一整批改动
   （一次对齐、一次暂存提交、一次清屏、显隐变化）结束后调用 renderer 的 `recompositeIfStill`：静止（由呈现
