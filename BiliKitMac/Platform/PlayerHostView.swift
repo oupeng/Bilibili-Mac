@@ -276,6 +276,10 @@ final class DanmakuPlayerView: AVPlayerView {
         // 系统 Now Playing 只由进程级 `SystemNowPlayingController` 发布，AVKit
         // 自动更新会与它争写同一份信息。
         updatesNowPlayingInfoCenter = false
+        // 暂停时 AVKit 的画面分析会在 `pause()` 内的 rate KVO 回调里于主线程读取 `currentTime`，
+        // 等播放器为音频暂停握手持有的锁；主线程被挡期间同步 layer 收不到暂停，弹幕多走一段后回退。
+        // 关掉它让暂停少挡约 20ms 主线程；弹幕层盖在画面上，暂停帧上的文字选取与查询本就用不上。
+        allowsVideoFrameAnalysis = false
         overlayHostingView.sizingOptions = []
         // 浮层与 content overlay 等大；不按窗口安全区缩进，否则播放器滚到工具栏下或全屏时提示位置
         // 与“从头播放”的点击区域会偏移。

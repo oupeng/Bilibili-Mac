@@ -202,7 +202,10 @@ discontinuity generation。消费者不自建 wall-clock timer，也不接触 `A
     App 注入，`BiliDanmaku` 不 import AVFoundation），`removedOnCompletion` 为 false；fillMode 保持默认，
     动画区间外呈现回到模型值，所以模型值本身不可见（滚动弹幕在画面左外侧，顶部底部弹幕不透明度为 0），
     可见区间由动画撑起。暂停、倍速、缓冲停顿、播放结束与暂停中 seek 都由 AVFoundation 调整同步 layer，
-    renderer 没有时钟；主线程卡顿时渲染服务器按原速率继续插值，之后精确跳回。同步 layer 不随
+    renderer 没有时钟；主线程卡顿时渲染服务器按原速率继续插值，之后精确跳回。暂停时播放器在持有内部锁的
+    状态下等待音频暂停握手约 30ms，期间主线程上任何读取 `currentTime` 的调用都会被挡住，所以暂停瞬间弹幕
+    仍会回退约 30ms 的位移：AVKit 控制条的读取无法避免；播放器宿主关闭 AVKit 的画面分析
+    （`allowsVideoFrameAnalysis`），去掉它在 `pause()` 内的 rate KVO 回调里额外造成的约 20ms 阻塞。同步 layer 不随
     `replaceCurrentItem` 自动换绑：宿主在 `currentItem` 变化时先让呈现控制器清屏（只接受当前 surface
     owner，布局表保留），再换绑。以上是在 macOS 27 上用本地 HLS 与 mp4 实测的系统行为。
 - 取景框：布局表按规划画布排一次，窗口尺寸不是布局输入，只决定露出表中的哪一部分。规划尺寸逐个维度取
