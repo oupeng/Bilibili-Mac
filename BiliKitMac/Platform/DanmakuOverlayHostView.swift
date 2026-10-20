@@ -9,7 +9,7 @@ import BiliDanmaku
 /// `NSView` 放进 `AVPlayerView` 的 content overlay，才能随 detached 全屏一起移动，见
 /// docs/ARCHITECTURE.md「播放页布局」。不接收鼠标事件。
 ///
-/// 弹幕的时间来自 `clock`（`DanmakuTimebaseClock`）：时钟层的本地时间就是绑定 item 的 timebase 时间，
+/// 弹幕的时间来自 `clock`（`DanmakuTimebaseClock`）：时钟层的本地时间跟随绑定 item 的 timebase 时间，
 /// 由 timebase 通知在后台队列上驱动，暂停、倍速、seek、缓冲停顿与播放结束都由它跟随，renderer 的
 /// `rootLayer` 挂在它下面。它不会跟随 `replaceCurrentItem` 自动换绑：播放器宿主在 `currentItem` 变化时
 /// 调用 `bind(to:)`，先让呈现控制器清屏，再换绑到新 item 的 timebase，否则旧弹幕会在新 item 的时间线上
@@ -29,7 +29,7 @@ final class DanmakuOverlayView: NSView {
     /// 按绑定 item 的 timebase 运行的时钟；renderer 的 `rootLayer` 在 surface 接管期间挂在它的时钟层下。
     private let clock = DanmakuTimebaseClock()
     /// 当前绑定的 timebase，只用来让同一 timebase 的重复绑定成为空操作。
-    private(set) var boundTimebase: CMTimebase?
+    private var boundTimebase: CMTimebase?
     private let ownerID = UUID()
     private var previousSize: CGSize?
     private var previousScreenSize: CGSize?
