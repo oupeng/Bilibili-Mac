@@ -6,9 +6,9 @@ import Testing
 @testable import BiliDanmaku
 
 /// 固定 materializer 的契约：任一时刻在屏的 layer 恰好是布局表在该时刻、该取景框里可见的弹幕加前瞻；
-/// seek 到任意时刻与从头连续推进到该时刻得到同一组 layer；重新对齐时缺纹理少就逐条补上、缺得多就等齐
-/// 一次替换；布局表替换在一次调用里整屏换掉；迟到的纹理补上原 placement；清屏之后整屏重新挂上；换取景框
-/// 的结果与一开始就用它相同。
+/// seek 到任意时刻与从头连续推进到该时刻得到同一组 layer；重新对齐时已进场缺纹理的不超过上限就逐条
+/// 补上、超过就等齐一次替换；布局表替换在一次调用里整屏换掉，替换还在等纹理时的重新对齐（含极小回跳）
+/// 也不拆开它；迟到的纹理补上原 placement；清屏之后整屏重新挂上；换取景框的结果与一开始就用它相同。
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct DanmakuMaterializerTests {
@@ -71,29 +71,31 @@ struct DanmakuMaterializerTests {
         #expect(seekingBackend.installed == continuousBackend.installed)
     }
 
-    /// 重新对齐时已进场而缺纹理的不多：不等齐，就绪一条挂上一条。
-    @Test
-    func realignWithFewMissingTexturesInstallsEachAsItArrives() throws {
-        let limit = DanmakuMaterializer.incrementalMissingTextureLimit
-        let events = (0..<limit).map { timedEvent(id: "few-\($0)", time: 97 + Double($0) * 0.3) }
+    @Test(arguments: [0, 1])
+    func realignStagesOnlyWhenMoreThanTheLimitAreMissing(beyondLimit: Int) throws {
+        let missing = DanmakuMaterializer.incrementalMissingTextureLimit + beyondLimit
+        let events = (0..<missing).map {
+            timedEvent(id: "missing-\($0)", time: 97 + Double($0) * 0.3)
+        }
         let table = layoutTable([1: events])
         let admitted = DanmakuMaterializer.desiredPlacements(
             in: table,
             at: 100,
             viewport: fullViewport
         ).filter { $0.admittedAtSeconds <= 100 }
-        try #require((1...limit).contains(admitted.count))
+        try #require(admitted.count == missing)
         let backend = RecordingRenderingBackend()
         backend.delaysPreparation = true
         let materializer = DanmakuMaterializer(backend: backend)
 
         materializer.reconcile(table: table, position: 100, viewport: fullViewport, mode: .realign)
-        #expect(!materializer.isCommitPending)
+        #expect(materializer.isCommitPending == (beyondLimit > 0))
         backend.completePreparations(1)
-        #expect(backend.installed.count == 1)
+        #expect(backend.installed.count == (beyondLimit > 0 ? 0 : 1))
+        backend.completePreparations()
+        #expect(backend.installed.count == missing)
     }
 
-    /// 单次跳到纹理大多没缓存的地方：旧画面原样保留，新纹理全部有结果后一次换成落点的样子。
     @Test
     func realignWithManyMissingTexturesReplacesTheScreenOnceReady() {
         let table = layoutTable([1: denseEvents(segment: 1, count: 900, seed: 121)])
@@ -145,6 +147,40 @@ struct DanmakuMaterializerTests {
         let expected = DanmakuMaterializer.desiredPlacements(
             in: wide,
             at: 120,
+            viewport: wideViewport
+        )
+        #expect(backend.installed == placementsByID(expected))
+        #expect(!materializer.isCommitPending)
+    }
+
+    @Test(arguments: [119.99, 125])
+    func realignKeepsAPendingTableReplacementWholeScreen(target: Double) {
+        let events = denseEvents(segment: 1, count: 400, seed: 131)
+        let narrow = layoutTable([1: events], surfaceWidth: 800)
+        let wide = layoutTable([1: events], surfaceWidth: 1_400)
+        let wideViewport = viewport(width: 1_400)
+        let backend = RecordingRenderingBackend()
+        let materializer = DanmakuMaterializer(backend: backend)
+        materializer.reconcile(table: narrow, position: 120, viewport: fullViewport, mode: .staged)
+        let before = backend.installed
+        #expect(!before.isEmpty)
+
+        backend.delaysPreparation = true
+        materializer.reconcile(table: wide, position: 120, viewport: wideViewport, mode: .staged)
+        #expect(materializer.isCommitPending)
+        materializer.reconcile(
+            table: wide,
+            position: target,
+            viewport: wideViewport,
+            mode: .realign
+        )
+        #expect(materializer.isCommitPending)
+        #expect(backend.installed == before)
+
+        backend.completePreparations()
+        let expected = DanmakuMaterializer.desiredPlacements(
+            in: wide,
+            at: target,
             viewport: wideViewport
         )
         #expect(backend.installed == placementsByID(expected))

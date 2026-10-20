@@ -17,11 +17,11 @@ import Foundation
 /// - 暂存：先为应在屏而缺纹理的弹幕准备纹理，全部有结果（就绪或被拒）后才在一次调用里按此刻的媒体
 ///   时间移除、替换并挂上全部弹幕，落在同一次 Core Animation 提交里；缓存全部命中时当场完成。布局表
 ///   替换、打开弹幕与接管 surface 时使用，整屏因此一次换成新的样子。暂存期间的普通 reconcile 只立即移除
-///   按自己的 placement 已不在取景框里的 layer（窗口缩小或时间推进），其余推迟到提交之后再做一次；提交按
-///   最新的取景框决定挂上哪些，窗口放大时新露出的部分要等到提交。
+///   按自己的 placement 已不在取景框里的 layer（窗口缩小或时间推进），其余等提交：提交总按最新的表、
+///   时间与取景框整屏对齐一次，窗口放大时新露出的部分要等到提交。
 /// - 重新对齐：时间跳变（seek、拖动、回跳、换项后的第一个快照）之后使用，只看此刻的状态在前两者之间
-///   选，见 `realign()`。新的对齐取代未完成的暂存提交时，新集合仍需要的在途与已就绪
-///   纹理都保留，只作废不再需要的。
+///   选，见 `realign()`。新的对齐取代未完成的暂存提交时，新集合仍需要的在途与已就绪纹理都保留，只作废
+///   不再需要的；正在等的是上面那类整屏暂存时，重新对齐不拆开它，只在新集合上继续整屏暂存。
 ///
 /// `preparationGeneration` 在 `clear` 与 backing scale 变化时递增；准备请求带上发起时的值，完成时不等、
 /// 或这条弹幕已不在待准备记录里（不再需要或已换成新的请求），结果就被丢弃。
@@ -30,7 +30,8 @@ final class DanmakuMaterializer {
     /// 提前挂上即将进场的弹幕的时长（媒体秒）。
     ///
     /// 普通 reconcile 每隔 `DanmakuPresentationController.reconcileStride` 做一次，前瞻必须比它长，
-    /// 纹理才有时间在进场前准备好。调大会同时挂着更多还没进场的 layer，调小则高密度时更容易迟到。
+    /// 纹理才有时间在进场前准备好；呈现控制器的覆盖区间由它减去准备余量得出，所以前瞻总覆盖整个区间。
+    /// 调大会同时挂着更多还没进场的 layer，调小则高密度时更容易迟到。
     static let lookaheadSeconds = 2.0
 
     /// 重新对齐时，已进场却还缺纹理的弹幕不超过这个数就走普通增量，超过才暂存等齐。
@@ -65,8 +66,11 @@ final class DanmakuMaterializer {
     private var parked: [String: Preparation] = [:]
     /// 暂存提交还在等的弹幕；为 nil 表示没有暂存提交。
     private var awaitedByCommit: Set<String>?
-    /// 暂存期间来了普通 reconcile，提交之后补做一次。
-    private var reconcilesAfterCommit = false
+    /// 正在等的暂存提交是否由 `.staged`（布局表替换、打开弹幕、接管 surface）发起。
+    ///
+    /// 只在 `awaitedByCommit` 非 nil 时有意义，`commit` 与 `clear` 时复位。为 true 时重新对齐只换等待
+    /// 集合，不走增量也不先挂上已就绪的部分，整屏仍在一次提交里换成新样子。
+    private var stagedCommitReplacesWholeScreen = false
     /// 准备因容量被拒绝过；下一次准备完成时重新 reconcile，补上它们。
     private var hasRetryableRejections = false
     /// 纹理无法生成的弹幕（文本无效、超出尺寸），`clear` 之前不再请求。
@@ -122,7 +126,7 @@ final class DanmakuMaterializer {
         self.viewport = viewport
         switch mode {
         case .staged:
-            beginStagedCommit()
+            beginStagedCommit(replacingWholeScreen: true)
         case .realign:
             realign()
         case .incremental where isCommitPending:
@@ -130,7 +134,6 @@ final class DanmakuMaterializer {
             // 新窗口移动，缩小时会露出 N 以外车道的弹幕。只移除、不换 placement，提交前屏上仍是旧表；
             // 新露出的部分等提交，提交按最新的表、时间与取景框挂上。
             removeInstalledOutsideViewport()
-            reconcilesAfterCommit = true
         case .incremental:
             reconcileNow()
         }
@@ -146,7 +149,7 @@ final class DanmakuMaterializer {
         pending.removeAll(keepingCapacity: false)
         parked.removeAll(keepingCapacity: false)
         awaitedByCommit = nil
-        reconcilesAfterCommit = false
+        stagedCommitReplacesWholeScreen = false
         hasRetryableRejections = false
         unpreparable.removeAll(keepingCapacity: false)
     }
@@ -162,12 +165,14 @@ final class DanmakuMaterializer {
         pending.removeAll(keepingCapacity: false)
         parked.removeAll(keepingCapacity: false)
         if isCommitPending {
-            beginStagedCommit()
+            beginStagedCommit(replacingWholeScreen: stagedCommitReplacesWholeScreen)
         }
     }
 
-    private func beginStagedCommit() {
+    /// 发起暂存提交；`replacingWholeScreen` 为 true 时之后的重新对齐不会把它拆成部分提交。
+    private func beginStagedCommit(replacingWholeScreen: Bool) {
         _ = requestStagedPreparations()
+        stagedCommitReplacesWholeScreen = replacingWholeScreen
         awaitPendingPreparations()
     }
 
@@ -181,7 +186,14 @@ final class DanmakuMaterializer {
     ///   停下之后剩下的在一次提交里补齐。不这样做的话每一步都换一个新的等待集合，提交永远等不齐，拖动
     ///   期间屏上只剩旧 layer 各自滑出动画区间。
     /// - 缺得多、没有取代暂存提交（单次跳到没缓存的地方）：整屏暂存，旧画面保留到新纹理齐了一次替换。
+    ///
+    /// 正在等的是 `.staged` 发起的整屏暂存（布局表替换等）时，不按上面三条选，只在新集合上继续整屏
+    /// 暂存：否则恢复播放时的微小回跳之类也会把一次整屏替换拆成部分挂上、露出新旧表混在一起的画面。
     private func realign() {
+        if isCommitPending, stagedCommitReplacesWholeScreen {
+            beginStagedCommit(replacingWholeScreen: true)
+            return
+        }
         let supersedesCommit = isCommitPending
         let desired = requestStagedPreparations()
         let missingAdmitted = desired.count(where: { placement in
@@ -227,13 +239,13 @@ final class DanmakuMaterializer {
         return desired
     }
 
-    /// 结束暂存：按此刻的表与时间一次完成移除、替换，挂上 `parked` 里已就绪的纹理，再补做推迟的普通
-    /// reconcile；还在途的准备之后各自就绪时挂上。
+    /// 结束暂存：按此刻的表与时间一次完成移除、替换，挂上 `parked` 里已就绪的纹理，再按最新状态补做
+    /// 一次普通 reconcile（暂存期间推迟的增删都在这里完成）；还在途的准备之后各自就绪时挂上。
     ///
     /// 暂存的纹理都有了结果时调用；重新对齐决定走增量，或先挂上已就绪的部分时也直接调用。
     private func commit() {
         awaitedByCommit = nil
-        reconcilesAfterCommit = false
+        stagedCommitReplacesWholeScreen = false
         let desired = Self.desiredPlacements(in: table, at: position, viewport: viewport)
         let desiredByID = Self.byEventID(desired)
         let ready = parked
