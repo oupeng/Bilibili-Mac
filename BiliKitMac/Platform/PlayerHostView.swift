@@ -215,8 +215,8 @@ enum PlayerPlaybackPreparationPolicy {
 /// controller（本地 key monitor）、浮层模型、player 的三个 KVO 观察、item
 /// 时间跳转观察与失焦通知观察；不拥有 player、弹幕 renderer 与弹幕 controller，它们由窗口组装持有。
 /// 拆除由 `AVPlayerContainerView.dismantleNSView` 按顺序进行：清除提示、撤销弹幕 surface、
-/// 解开弹幕同步 layer 与 item 的绑定、停止失焦与 player 观察、停止键盘监听、结束临时倍速，最后断开
-/// player。`currentItem` 变化时先让弹幕 overlay 换绑同步 layer（见 `DanmakuOverlayView.bind(to:)`）。
+/// 解开弹幕时钟与 item timebase 的绑定、停止失焦与 player 观察、停止键盘监听、结束临时倍速，最后断开
+/// player。`currentItem` 变化时先让弹幕 overlay 换绑时钟（见 `DanmakuOverlayView.bind(to:)`）。
 /// `momentaryRatePressID` 记录当前临时倍速对应的按压，结束回调按它比对，旧按压迟到的结束不影响新的
 /// 临时倍速。
 @MainActor
@@ -277,8 +277,8 @@ final class DanmakuPlayerView: AVPlayerView {
         // 自动更新会与它争写同一份信息。
         updatesNowPlayingInfoCenter = false
         // 暂停时 AVKit 的画面分析会在 `pause()` 内的 rate KVO 回调里于主线程读取 `currentTime`，
-        // 等播放器为音频暂停握手持有的锁；主线程被挡期间同步 layer 收不到暂停，弹幕多走一段后回退。
-        // 关掉它让暂停少挡约 20ms 主线程；弹幕层盖在画面上，暂停帧上的文字选取与查询本就用不上。
+        // 等播放器为音频暂停握手持有的锁，多挡主线程约 20ms。弹幕时钟不经过主线程，不受它影响；关掉它是为了
+        // 减少暂停时的主线程阻塞。弹幕层盖在画面上，暂停帧上的文字选取与查询本就用不上。
         allowsVideoFrameAnalysis = false
         overlayHostingView.sizingOptions = []
         // 浮层与 content overlay 等大；不按窗口安全区缩进，否则播放器滚到工具栏下或全屏时提示位置

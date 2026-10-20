@@ -2,18 +2,19 @@ import AVFoundation
 import AppKit
 import BiliDanmaku
 
-/// 将 renderer 的 layer 挂到当前 `AVPlayerView` overlay 的同步 layer 下，并独占其尺寸更新权。
+/// 将 renderer 的 layer 挂到弹幕时钟层下，放进当前 `AVPlayerView` 的 content overlay，并独占其尺寸更新权。
 ///
 /// `ownerID` 防止已拆除 host 的迟到 layout/detach 清空新 host；零尺寸只表示 surface 尚未完成布局，
 /// 不会扩大为另一个渲染会话。用 AppKit：弹幕由 Core Animation layer 树渲染，要作为 layer-backed
 /// `NSView` 放进 `AVPlayerView` 的 content overlay，才能随 detached 全屏一起移动，见
 /// docs/ARCHITECTURE.md「播放页布局」。不接收鼠标事件。
 ///
-/// 弹幕的时间来自 `synchronizedLayer`（`AVSynchronizedLayer`）：它的子树按绑定的播放 item 的时间运行，
-/// AVFoundation 在主线程上随 item timebase 的速率变化与时间跳变调整它，暂停、倍速、seek、缓冲停顿与
-/// 播放结束都由它处理，renderer 的 `rootLayer` 挂在它下面。它不会跟随 `replaceCurrentItem` 自动换绑：
-/// 播放器宿主在 `currentItem` 变化时调用 `bind(to:)`，先让呈现控制器清屏，再换绑，否则旧弹幕会在新
-/// item 的时间线上错位。同步只在 layer 进入渲染上下文后才启动，overlay 在窗口里即可。
+/// 弹幕的时间来自 `clock`（`DanmakuTimebaseClock`）：时钟层的本地时间就是绑定 item 的 timebase 时间，
+/// 由 timebase 通知在后台队列上驱动，暂停、倍速、seek、缓冲停顿与播放结束都由它跟随，renderer 的
+/// `rootLayer` 挂在它下面。它不会跟随 `replaceCurrentItem` 自动换绑：播放器宿主在 `currentItem` 变化时
+/// 调用 `bind(to:)`，先让呈现控制器清屏，再换绑到新 item 的 timebase，否则旧弹幕会在新 item 的时间线上
+/// 错位。本视图拥有时钟（释放时随之注销观察），并在主线程负责时钟层的 frame；时钟层的时间属性只由时钟
+/// 自己的队列写。
 ///
 /// 这是 layer-backed 视图加自定义 layer（先 `wantsLayer` 再设 `layer`），不是 layer-hosting；视图本身
 /// 从不绘制。暂停时增删弹幕 layer 由系统照常合成，不需要主动请求重新合成。
@@ -25,8 +26,10 @@ import BiliDanmaku
 final class DanmakuOverlayView: NSView {
     private let renderer: CoreAnimationDanmakuRenderer
     private let controller: DanmakuPresentationController
-    /// 按播放 item 时间运行的父层；renderer 的 `rootLayer` 在 surface 接管期间挂在它下面。
-    private let synchronizedLayer = AVSynchronizedLayer()
+    /// 按绑定 item 的 timebase 运行的时钟；renderer 的 `rootLayer` 在 surface 接管期间挂在它的时钟层下。
+    private let clock = DanmakuTimebaseClock()
+    /// 当前绑定的 timebase，只用来让同一 timebase 的重复绑定成为空操作。
+    private(set) var boundTimebase: CMTimebase?
     private let ownerID = UUID()
     private var previousSize: CGSize?
     private var previousScreenSize: CGSize?
@@ -46,9 +49,9 @@ final class DanmakuOverlayView: NSView {
         layer = CALayer()
         layer?.masksToBounds = true
         // 尺寸随视图变化时不带隐式过渡。
-        synchronizedLayer.actions = ["bounds": NSNull(), "position": NSNull()]
-        synchronizedLayer.anchorPoint = .zero
-        layer?.addSublayer(synchronizedLayer)
+        clock.layer.actions = ["bounds": NSNull(), "position": NSNull()]
+        clock.layer.anchorPoint = .zero
+        layer?.addSublayer(clock.layer)
     }
 
     @available(*, unavailable)
@@ -71,19 +74,22 @@ final class DanmakuOverlayView: NSView {
 
     override func layout() {
         super.layout()
-        synchronizedLayer.frame = bounds
+        clock.layer.frame = bounds
         updateSurfaceIfNeeded()
     }
 
-    /// 同步 layer 换绑到 `item`（nil 表示没有 item）；持有 surface 时先让呈现控制器清屏。
+    /// 时钟换绑到 `item` 的 timebase（nil 表示没有 item）；持有 surface 时先让呈现控制器清屏。
     ///
-    /// 由播放器宿主在 `currentItem` 变化与开始观察 player 时调用；同一 item 重复调用是空操作。
+    /// 由播放器宿主在 `currentItem` 变化、开始观察 player 与拆除时调用；同一 timebase 重复调用是空操作。
+    /// `AVPlayerItem` 创建后 `timebase` 就不是 nil，换 item 之后是另一个对象，所以按 timebase 判断换绑。
     func bind(to item: AVPlayerItem?) {
-        guard synchronizedLayer.playerItem !== item else { return }
+        let timebase = item?.timebase
+        guard boundTimebase !== timebase else { return }
         if isSurfaceAttached {
             controller.playerItemWillChange(ownerID: ownerID)
         }
-        synchronizedLayer.playerItem = item
+        boundTimebase = timebase
+        clock.bind(timebase)
     }
 
     override func viewDidChangeBackingProperties() {
@@ -130,7 +136,7 @@ final class DanmakuOverlayView: NSView {
         guard isSurfaceAttached else { return }
         isSurfaceAttached = false
         if controller.detachSurface(ownerID: ownerID),
-            renderer.rootLayer.superlayer === synchronizedLayer
+            renderer.rootLayer.superlayer === clock.layer
         {
             renderer.rootLayer.removeFromSuperlayer()
         }
@@ -179,7 +185,7 @@ final class DanmakuOverlayView: NSView {
         guard !isSurfaceAttached else { return }
         isSurfaceAttached = true
         controller.attachSurface(ownerID: ownerID)
-        synchronizedLayer.addSublayer(renderer.rootLayer)
+        clock.layer.addSublayer(renderer.rootLayer)
         previousSize = nil
         previousScreenSize = nil
         previousBackingScale = nil

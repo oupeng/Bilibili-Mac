@@ -151,8 +151,10 @@ EXTRA_ALLOWED = {
     "BiliKitMac/Composition/WatchProgressWindowConnection.swift": {"BiliVideoCollectionUI"},
     "BiliKitMac/Platform/AccountAvatarImage.swift": {"BiliVideoCollectionUI"},
     "BiliKitMac/Platform/AppUpdater.swift": {"Sparkle"},
-    # 弹幕 overlay 持有按播放 item 时间运行的 AVSynchronizedLayer，弹幕动画由它驱动。
+    # 弹幕 overlay 按播放 item 换绑时钟，并把 renderer 的 layer 挂在时钟层下；时钟层由 item timebase 的
+    # 通知在后台队列上驱动，弹幕动画随它运行。
     "BiliKitMac/Platform/DanmakuOverlayHostView.swift": {"AVFoundation", "BiliDanmaku"},
+    "BiliKitMac/Platform/DanmakuTimebaseClock.swift": {"CoreMedia", "QuartzCore"},
     "BiliKitMac/Platform/NativeVideoImageLoadingPorts.swift": {"BiliVideoCollectionUI"},
     "BiliKitMac/Platform/NativeVideoImagePipeline.swift": {"BiliNetworking"},
     "BiliKitMac/Platform/PlaybackPreferencesController.swift": {"AVFoundation"},
