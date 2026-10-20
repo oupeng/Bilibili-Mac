@@ -5,10 +5,12 @@ import Testing
 
 @testable import BiliDanmaku
 
-/// 固定呈现控制器的契约：画面在分段布局完成后按当前时刻整屏出现；每次时间不连续（含拖动的每一步）都按
-/// 那一刻整屏对齐、作废之前没完成的准备（落点分段未到时不留旧画面），原地跳变画面不变；关闭弹幕清屏、打开恢复；设置变化整屏换成
-/// 新布局；换视频清屏；换 item 只接受当前 owner，清屏后按原布局表挂回；旧 surface owner 的操作无效；
-/// 窗口尺寸变化不重排、立即按新取景框增删，屏幕尺寸变化整张重排。
+/// 固定呈现控制器的契约：画面在分段布局完成后按当前时刻整屏出现；何时对齐只看位置是否越出上次对齐的
+/// 覆盖区间（含回跳），与不连续代号无关，区间长于步长、不超过前瞻，区间内的跳变什么都不做；跳到纹理已
+/// 缓存的地方在一次调用里整屏换成那一刻的样子；连续拖动时已就绪的纹理每一步都挂上，拖进未缓存区域、
+/// 分段陆续到达时也一样，停下后补齐落点（落点分段未到时不留旧画面）；关闭弹幕清屏、打开恢复；设置变化
+/// 整屏换成新布局；换视频清屏；换 item 只接受当前 owner，清屏后直到新 item 的第一个快照才按原布局表
+/// 挂回；旧 surface owner 的操作无效；窗口尺寸变化不重排、立即按新取景框增删，屏幕尺寸变化整张重排。
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct DanmakuPresentationControllerTests {
@@ -24,38 +26,73 @@ struct DanmakuPresentationControllerTests {
         #expect(backend.installedEventIDs == expectedIDs(at: 30, in: controller))
     }
 
-    /// 拖动的每一步都推进不连续代号，每步都按那一刻整屏对齐，不清屏。
     @Test
-    func everyDragStepAlignsTheScreenToItsTime() async {
+    func everyJumpOutOfTheCoveredSpanAlignsTheScreenAtOnce() async {
         let (controller, backend) = await laidOutController(at: 30)
         let clearCount = backend.clearCount
 
-        for (step, position) in [120.0, 160, 200].enumerated() {
-            controller.apply(
-                snapshot(identity: identity, position: position, generation: 2 + UInt64(step))
-            )
+        for position in [120.0, 160, 200] {
+            controller.apply(snapshot(identity: identity, position: position, generation: 1))
             #expect(backend.installedEventIDs == expectedIDs(at: position, in: controller))
         }
         #expect(backend.clearCount == clearCount)
     }
 
-    /// 纹理没赶上的拖动：每一步作废上一步还没完成的准备，最后整屏只按落点挂上。
     @Test
-    func dragStepsDiscardEarlierPreparations() async {
+    func draggingKeepsInstallingReadyTextures() async {
         let (controller, backend) = await laidOutController(at: 30)
         backend.delaysPreparation = true
 
-        for (step, position) in [120.0, 160, 200].enumerated() {
-            controller.apply(
-                snapshot(identity: identity, position: position, generation: 2 + UInt64(step))
-            )
+        let steps = Array(stride(from: 120.0, to: 140, by: 1.6))
+        for (index, position) in steps.enumerated() {
+            controller.apply(snapshot(identity: identity, position: position, generation: 1))
+            let expected = expectedIDs(at: position, in: controller)
+            if index > 0 {
+                #expect(!backend.installed.isEmpty)
+                #expect(backend.installedEventIDs.isSubset(of: expected))
+            }
+            backend.completePreparations(backend.pendingPreparationCount / 2)
         }
         backend.completePreparations()
 
-        #expect(backend.installedEventIDs == expectedIDs(at: 200, in: controller))
+        let last = steps[steps.count - 1]
+        #expect(backend.installedEventIDs == expectedIDs(at: last, in: controller))
     }
 
     /// 落点分段还没到：按新时刻对齐（旧时刻的弹幕全部移走），分段到达后整屏挂上。
+    @Test
+    func draggingIntoUncachedSegmentsKeepsFollowing() async {
+        let (controller, backend) = await laidOutController(at: 30)
+        backend.delaysPreparation = true
+        let second = denseEvents(segment: 2, count: 900, seed: 151)
+        let third = denseEvents(segment: 3, count: 900, seed: 152)
+        func step(to position: Double) {
+            controller.apply(snapshot(identity: identity, position: position, generation: 1))
+            #expect(!backend.installed.isEmpty)
+            #expect(
+                backend.installedEventIDs.isSubset(of: expectedIDs(at: position, in: controller))
+            )
+            backend.completePreparations(backend.pendingPreparationCount / 2)
+        }
+
+        for (segments, start) in [
+            ([1: events(), 2: second], 400.0), ([1: events(), 2: second, 3: third], 730)
+        ] {
+            controller.apply(snapshot(identity: identity, position: start, generation: 1))
+            #expect(backend.installed.isEmpty)
+            let waiting = backend.pendingPreparationCount
+            controller.setSegments(segments, for: identity)
+            await backend.waitUntil { backend.pendingPreparationCount > waiting }
+            backend.completePreparations(backend.pendingPreparationCount / 2)
+            for offset in [1.6, 3.2, 4.8] {
+                step(to: start + offset)
+            }
+        }
+        backend.completePreparations()
+
+        #expect(backend.installedEventIDs == expectedIDs(at: 734.8, in: controller))
+    }
+
     @Test
     func farSeekShowsNothingStaleUntilItsSegmentArrives() async {
         let (controller, backend) = await laidOutController(at: 30)
@@ -72,16 +109,41 @@ struct DanmakuPresentationControllerTests {
         #expect(backend.installedEventIDs.allSatisfy { $0.hasPrefix("far-") })
     }
 
-    /// 从暂停恢复播放时的原地跳变也推进不连续代号：多做一次内容相同的对齐，画面不变、不清屏。
     @Test
-    func timeJumpInPlaceKeepsTheScreen() async {
+    func coveredSpanLiesBetweenTheStrideAndTheLookahead() {
+        #expect(
+            DanmakuPresentationController.reconcileStride
+                < DanmakuPresentationController.alignmentCoverageSeconds
+        )
+        #expect(
+            DanmakuPresentationController.alignmentCoverageSeconds
+                <= DanmakuMaterializer.lookaheadSeconds
+        )
+    }
+
+    @Test
+    func jumpInsideTheCoveredSpanDoesNothing() async {
         let (controller, backend) = await laidOutController(at: 30)
+        backend.delaysPreparation = true
         let before = backend.installed
+        let removed = backend.removedHistory.count
         let clearCount = backend.clearCount
 
-        controller.apply(snapshot(identity: identity, position: 30.05, generation: 2))
+        controller.apply(snapshot(identity: identity, position: 30.9, generation: 2))
         #expect(backend.installed == before)
+        #expect(backend.removedHistory.count == removed)
+        #expect(backend.pendingPreparationCount == 0)
         #expect(backend.clearCount == clearCount)
+    }
+
+    @Test
+    func jumpingBackRealignsEvenBySmallAmounts() async throws {
+        let (controller, backend) = await laidOutController(at: 30)
+        let target = 29.7
+        try #require(expectedIDs(at: target, in: controller) != backend.installedEventIDs)
+
+        controller.apply(snapshot(identity: identity, position: target, generation: 1))
+        #expect(backend.installedEventIDs == expectedIDs(at: target, in: controller))
     }
 
     @Test
@@ -142,8 +204,8 @@ struct DanmakuPresentationControllerTests {
         #expect(backend.clearCount == clearCount)
     }
 
-    /// 同一视频换线路或清晰度：换 item 时清屏、保留布局表，下一个 settled 快照（落地代号不变）按原布局表
-    /// 在当前时刻整屏挂回。
+    /// 同一视频换线路或清晰度：换 item 时清屏、保留布局表；新 item 的快照到来之前的 resize 不按旧位置
+    /// 挂回，下一个快照按原布局表在当前时刻整屏挂回。
     @Test
     func playerItemChangeClearsAndTheNextSnapshotRestoresTheSameLayout() async {
         let owner = UUID()
@@ -151,6 +213,9 @@ struct DanmakuPresentationControllerTests {
         let before = backend.installed
 
         controller.playerItemWillChange(ownerID: owner)
+        #expect(backend.installed.isEmpty)
+        let window = Size(width: 800, height: 360)
+        resize(controller, owner: owner, window: window, screen: window)
         #expect(backend.installed.isEmpty)
 
         controller.apply(snapshot(identity: identity, position: 30, generation: 1, state: .paused))
