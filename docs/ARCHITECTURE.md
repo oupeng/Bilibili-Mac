@@ -204,7 +204,9 @@ discontinuity generation。消费者不自建 wall-clock timer，也不接触 `A
     App 注入，`BiliDanmaku` 不 import AVFoundation），`removedOnCompletion` 为 false；fillMode 保持默认，
     动画区间外呈现回到模型值，所以模型值本身不可见（滚动弹幕在画面左外侧，顶部底部弹幕不透明度为 0），
     可见区间由动画撑起。暂停、倍速、缓冲停顿、播放结束与暂停中 seek 都由 AVFoundation 调整同步 layer，
-    renderer 没有时钟；主线程卡顿时渲染服务器按原速率继续插值，之后精确跳回。同步 layer 不随
+    renderer 没有时钟；主线程卡顿时渲染服务器按原速率继续插值，之后精确跳回，所以暂停路径不能挡住主线程：
+    播放器宿主关闭 AVKit 的画面分析（`allowsVideoFrameAnalysis`），它会在暂停的 rate KVO 回调里于主线程
+    等待播放器内部的锁约 40ms，使弹幕回退。同步 layer 不随
     `replaceCurrentItem` 自动换绑：宿主在 `currentItem` 变化时先让呈现控制器清屏（只接受当前 surface
     owner，布局表保留），再换绑。以上是在 macOS 27 上用本地 HLS 与 mp4 实测的系统行为。
 - seek 不隐藏也不清屏，屏上的 layer 一直跟随媒体时间：拖到远处时它们都落在动画区间之外，画面自然为空；
