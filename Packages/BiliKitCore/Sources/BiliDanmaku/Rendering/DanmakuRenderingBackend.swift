@@ -89,7 +89,7 @@ enum DanmakuMotionPolicy {
 
 /// Renderer 的最小平台 port，由 `DanmakuMaterializer` 驱动。
 ///
-/// 弹幕 layer 按 placement 的媒体时间运动，port 不涉及时钟：暂停、倍速与 seek 由宿主的同步 layer
+/// 弹幕 layer 按 placement 的媒体时间运动，port 不涉及时钟：暂停、倍速与 seek 由宿主的时钟层
 /// 处理。`clearAll` 取消在途准备并移除全部 layer；`stop` 同样取消准备并清屏。`updateSurfaceSize`
 /// 给的是窗口（取景框）尺寸：只移动滚动、顶部、底部弹幕各自的锚定边，不改任何弹幕的运动，哪些弹幕
 /// 该在屏由调用方随后对齐；backing scale 由调用方归一化后传入，变化时取消在途准备。

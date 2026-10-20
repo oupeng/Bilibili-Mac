@@ -307,7 +307,7 @@ struct CoreAnimationDanmakuRendererTests {
     /// 暂停时冻结、seek 时跳到新时间、倍速时按倍率推进。renderer 不改 `rootLayer` 的时间属性，动画开始于
     /// 弹幕的媒体时间，所以位置只取决于父层给出的媒体时间；插值本身由 Core Animation 完成，这里不重算。
     @Test
-    func layerTimeFollowsTheSynchronizedParentsMediaTime() async throws {
+    func layerTimeFollowsTheClockParentsMediaTime() async throws {
         let renderer = makeRenderer()
         let clock = CALayer()
         clock.addSublayer(renderer.rootLayer)
