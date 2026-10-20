@@ -255,7 +255,8 @@ public final class CoreAnimationDanmakuRenderer:
     /// 窗口尺寸变化只移动三个锚点，不碰任何弹幕 layer 与动画。
     ///
     /// 不另包显式事务：`rootLayer` 与锚点已用 `actions` 禁用隐式动画，几何变化与调用方随后按新窗口
-    /// 对齐可见集合的增删落在同一次隐式提交里，放大时露出的弹幕与锚点移动同帧出现。
+    /// 立即做的增删（纹理已就绪的挂上、取景框外的移除）落在同一次隐式提交里。缺纹理的弹幕就绪后才挂上；
+    /// 暂存提交未完成时新露出的部分要等提交（见 `DanmakuMaterializer`），这期间那块区域是空的。
     public func updateSurfaceSize(
         width: Double,
         height: Double,

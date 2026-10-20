@@ -24,6 +24,13 @@ struct DanmakuViewport: Sendable, Equatable {
         )
     }
 
+    /// 此刻是否应在屏：车道全部落在窗口里，且在 `position` 之后仍可见（含尚未进场的前瞻弹幕）。
+    ///
+    /// materializer 决定挂上、保留与迟到纹理是否挂上都只用这一个判断。
+    func shows(_ placement: DanmakuLanePlacement, at position: Double) -> Bool {
+        showsLanes(of: placement) && visibleUntil(placement) > position
+    }
+
     /// 占用的车道是否全部落在窗口里。
     func showsLanes(of placement: DanmakuLanePlacement) -> Bool {
         let span = placement.laneSpan

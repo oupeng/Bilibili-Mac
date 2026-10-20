@@ -215,6 +215,36 @@ struct DanmakuMaterializerTests {
         #expect(!backend.removedHistory.isEmpty)
     }
 
+    /// 暂存提交还在等纹理时缩小窗口：取景框外已挂上的弹幕立即移除，屏上不换成新 placement；提交后
+    /// 与一开始就用小窗口相同。
+    @Test
+    func shrinkingDuringAStagedCommitRemovesOutsideLayersAtOnce() {
+        let table = layoutTable(
+            [1: denseEvents(segment: 1, count: 900, seed: 111)],
+            surfaceWidth: 1_200,
+            surfaceHeight: 720
+        )
+        let large = viewport(width: 1_200, height: 720)
+        let small = viewport(width: 1_200, height: 200)
+        let backend = RecordingRenderingBackend()
+        let materializer = DanmakuMaterializer(backend: backend)
+        materializer.reconcile(table: table, position: 150, viewport: large, staged: true)
+        let before = backend.installed
+
+        backend.delaysPreparation = true
+        materializer.reconcile(table: table, position: 151, viewport: large, staged: true)
+        #expect(materializer.isCommitPending)
+        materializer.reconcile(table: table, position: 151, viewport: small, staged: false)
+
+        #expect(!backend.removedHistory.isEmpty)
+        #expect(backend.installed.values.allSatisfy { small.shows($0, at: 151) })
+        #expect(backend.installed.allSatisfy { before[$0.key] == $0.value })
+
+        backend.completePreparations()
+        let expected = DanmakuMaterializer.desiredPlacements(in: table, at: 151, viewport: small)
+        #expect(backend.installed == placementsByID(expected))
+    }
+
     private func placementsByID(
         _ placements: [DanmakuLanePlacement]
     ) -> [String: DanmakuLanePlacement] {

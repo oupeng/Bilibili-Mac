@@ -15,8 +15,9 @@ import Foundation
 /// - 普通：增删与布局替换立即生效，缺纹理的弹幕各自准备好时再挂上；时间推进时使用。
 /// - 暂存：先为应在屏而缺纹理的弹幕准备纹理，全部有结果（就绪或被拒）后才在一次调用里按此刻的媒体
 ///   时间移除、替换并挂上全部弹幕，落在同一次 Core Animation 提交里；缓存全部命中时当场完成。布局表
-///   替换、时间不连续（seek、换项）、打开弹幕与接管 surface 时使用，整屏因此一次换成新的样子。暂存期间的普通 reconcile
-///   推迟到提交之后再做一次。
+///   替换、时间不连续（seek、换项）、打开弹幕与接管 surface 时使用，整屏因此一次换成新的样子。暂存期间的
+///   普通 reconcile 只立即移除按自己的 placement 已不在取景框里的 layer（窗口缩小或时间推进），其余推迟到
+///   提交之后再做一次；提交按最新的取景框决定挂上哪些，窗口放大时新露出的部分要等到提交。
 ///
 /// `preparationGeneration` 在 `clear` 与 backing scale 变化时递增；准备请求带上发起时的值，完成时不等、
 /// 或这条弹幕已不在待准备记录里（不再需要或已换成新的请求），结果就被丢弃。
@@ -78,11 +79,7 @@ final class DanmakuMaterializer {
         var desired: [DanmakuLanePlacement] = []
         for layout in table.values {
             let candidates = layout.placements(at: position, lookahead: lookaheadSeconds)
-            desired.append(
-                contentsOf: candidates.filter {
-                    viewport.showsLanes(of: $0) && viewport.visibleUntil($0) > position
-                }
-            )
+            desired.append(contentsOf: candidates.filter { viewport.shows($0, at: position) })
         }
         desired.sort(by: DanmakuLanePlacement.precedes)
         return desired
@@ -108,6 +105,10 @@ final class DanmakuMaterializer {
         if staged {
             beginStagedCommit()
         } else if isCommitPending {
+            // 暂存提交未完成时窗口变了：取景框外已挂上的弹幕立即移除，否则锚点已按新窗口移动，缩小时
+            // 会露出 N 以外车道的弹幕。只移除、不换 placement，提交前屏上仍是旧表；新露出的部分等提交，
+            // 提交按最新的表、时间与取景框挂上。
+            removeInstalledOutsideViewport()
             reconcilesAfterCommit = true
         } else {
             reconcileNow()
@@ -217,6 +218,15 @@ final class DanmakuMaterializer {
         }
     }
 
+    /// 移除按自己的 placement 已不在取景框里的 layer；不看布局表，暂存提交期间也不会提前换上新表。
+    private func removeInstalledOutsideViewport() {
+        for (eventID, placement) in installed where !viewport.shows(placement, at: position) {
+            backend.remove(eventID: eventID)
+            installed[eventID] = nil
+            installedScales[eventID] = nil
+        }
+    }
+
     /// 这条弹幕要不要准备纹理：还没挂上，或挂着的纹理是按旧 backing scale 栅格化的。
     private func needsTexture(_ eventID: String) -> Bool {
         installedScales[eventID] != backingScale
@@ -261,7 +271,7 @@ final class DanmakuMaterializer {
         }
     }
 
-    /// 准备完成：暂存期间先放着，否则还在取景框里就立即挂上。
+    /// 准备完成：暂存期间先放着，否则此刻仍在取景框里（车道与时间都按当前取景框）就立即挂上。
     ///
     /// 在 `prepare` 内同步回调（缓存命中、立即拒绝）时只记下结果，由发起请求的调用收尾；异步回调时
     /// 自己推进暂存提交，或在有被拒绝的请求时重新 reconcile 一次补上它们。
@@ -283,7 +293,7 @@ final class DanmakuMaterializer {
         case .ready:
             if awaitedByCommit != nil {
                 parked[eventID] = preparation
-            } else if viewport.visibleUntil(preparation.placement) > position {
+            } else if viewport.shows(preparation.placement, at: position) {
                 installPrepared(preparation.placement, preparationID: preparationID)
             } else {
                 backend.discardPreparation(preparationID: preparationID)
