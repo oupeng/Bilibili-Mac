@@ -441,16 +441,14 @@ struct CoreAnimationDanmakuRendererTests {
     func resizingMovesOnlyTheAnchorEdges() async throws {
         let renderer = makeRenderer()
         var layers: [DanmakuPresentationMode: CALayer] = [:]
-        var heights: [DanmakuPresentationMode: Double] = [:]
         for (offset, mode) in [DanmakuPresentationMode.scrolling, .top, .bottom].enumerated() {
-            let metrics = try await prepareAndInstall(
+            _ = try await prepareAndInstall(
                 renderer: renderer,
                 event: fixtureEvent(id: "resize-\(offset)", mode: mode),
                 preparationID: UInt64(offset + 1),
                 lane: 1
             )
             layers[mode] = danmakuLayers(renderer).last
-            heights[mode] = metrics.height
         }
         // 每条弹幕的锚点局部位置与动画（关键路径、起止值、开始时间、时长）。
         func snapshot() -> [DanmakuPresentationMode: [String]] {
@@ -476,12 +474,18 @@ struct CoreAnimationDanmakuRendererTests {
         let scrolling = try #require(layers[.scrolling])
         let top = try #require(layers[.top])
         let bottom = try #require(layers[.bottom])
-        #expect(scrolling.superlayer?.position == CGPoint(x: 1_200, y: 0))
-        #expect(top.superlayer?.position == CGPoint(x: 600, y: 0))
-        #expect(bottom.superlayer?.position == CGPoint(x: 600, y: 480))
-        // 底部弹幕的下缘离底边一条车道（36pt），与窗口高度无关。
-        let bottomHeight = try #require(heights[.bottom])
-        #expect(abs(bottom.position.y + 36 + bottomHeight / 2) < 0.001)
+        // rootLayer 坐标（y 轴向下）里的位置：都离各自的边一条车道，与窗口尺寸无关。
+        let laneHeight = DanmakuLaneConfiguration.laneHeight
+        func frame(_ layer: CALayer) -> CGRect {
+            layer.convert(layer.bounds, to: renderer.rootLayer)
+        }
+        // 滚动弹幕的模型值停在规划画布（800pt）左外侧，从新的右边缘量起。
+        #expect(abs(frame(scrolling).maxX - (1_200 - 800)) < 0.001)
+        #expect(abs(frame(scrolling).minY - laneHeight) < 0.001)
+        #expect(abs(frame(top).midX - 600) < 0.001)
+        #expect(abs(frame(top).minY - laneHeight) < 0.001)
+        #expect(abs(frame(bottom).midX - 600) < 0.001)
+        #expect(abs(frame(bottom).maxY - (480 - laneHeight)) < 0.001)
     }
 
     /// 上屏、移除、子层与几何变化不带隐式过渡：弹幕 layer、锚点层与 rootLayer 都禁用这些动作。

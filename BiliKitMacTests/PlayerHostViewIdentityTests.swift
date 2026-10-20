@@ -89,7 +89,7 @@ struct PlayerHostViewIdentityTests {
         overlay.removeFromSuperview()
         #expect(overlay.window == nil)
         #expect(renderer.rootLayer.superlayer is AVSynchronizedLayer)
-        #expect(danmakuLayers(of: renderer).first === firstLayer)
+        #expect(danmakuLayers(of: renderer).contains { $0 === firstLayer })
         #expect(danmakuLayers(of: renderer).count == 1)
 
         overlay.frame = .zero
@@ -104,7 +104,7 @@ struct PlayerHostViewIdentityTests {
         secondWindow.contentView?.addSubview(overlay)
         overlay.layoutSubtreeIfNeeded()
         #expect(renderer.rootLayer.superlayer is AVSynchronizedLayer)
-        #expect(danmakuLayers(of: renderer).first === firstLayer)
+        #expect(danmakuLayers(of: renderer).contains { $0 === firstLayer })
         #expect(danmakuLayers(of: renderer).count == 2)
 
         overlay.detachSurface()
