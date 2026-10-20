@@ -23,7 +23,7 @@ struct DanmakuLayoutCoordinatorTests {
 
         let placements = try #require(coordinator.layouts[1]?.placements)
         #expect(!placements.isEmpty)
-        #expect(placements.allSatisfy { $0.surfaceWidthAtAdmission == 1_200 })
+        #expect(placements.allSatisfy { $0.planningWidth == 1_200 })
     }
 
     /// 已有布局表时连改两次设置：第一次的任务在途时 generation 已经变了，它的结果被丢弃，表只换成最后

@@ -115,30 +115,19 @@ struct DanmakuLaneAllocator: Sendable {
         }
         let displayHeight =
             configuration.surfaceHeight * configuration.displayAreaFraction
-        let uncappedLaneCount = floor(
-            displayHeight / DanmakuLaneConfiguration.laneHeight
-        )
-        let laneCount = Int(
-            min(
-                uncappedLaneCount,
-                Double(DanmakuLaneConfiguration.maximumLaneCount)
-            )
+        let laneCount = DanmakuLaneConfiguration.laneCount(
+            surfaceHeight: configuration.surfaceHeight,
+            displayAreaFraction: configuration.displayAreaFraction
         )
         guard laneCount > 0,
-            request.height <= displayHeight
+            request.height <= displayHeight,
+            let laneSpan = DanmakuLaneConfiguration.laneSpan(forHeight: request.height),
+            laneSpan <= laneCount
         else {
             return nil
         }
-        let uncappedLaneSpan = ceil(
-            request.height / DanmakuLaneConfiguration.laneHeight
-        )
-        guard uncappedLaneSpan.isFinite,
-            uncappedLaneSpan > 0,
-            uncappedLaneSpan <= Double(laneCount)
-        else {
-            return nil
-        }
-        let laneSpan = Int(uncappedLaneSpan)
+        // 第一轮从上往下取第一条安全车道，放不下时不占任何车道；所以前 N 条车道的准入只取决于前 N 条
+        // 车道的占用，与总车道数无关（取景框模型依赖这一点，例外见 docs/ARCHITECTURE.md「弹幕」）。
         let candidateLanes = 0...(laneCount - laneSpan)
         if let safeLane = candidateLanes.first(where: {
             laneIsSafeWithoutOverlap(
@@ -191,12 +180,7 @@ struct DanmakuLaneAllocator: Sendable {
         let placement = DanmakuLanePlacement(
             request: request,
             laneIndex: laneIndex,
-            originY: originY(
-                for: request.event.mode,
-                laneIndex: laneIndex,
-                requestHeight: request.height
-            ),
-            surfaceWidthAtAdmission: configuration.surfaceWidth,
+            planningWidth: configuration.surfaceWidth,
             admittedAtSeconds: playbackTime,
             expiresAtSeconds: playbackTime + request.durationSeconds,
             overlapDepth: overlapDepth
@@ -227,21 +211,6 @@ struct DanmakuLaneAllocator: Sendable {
             }
         }
         return placement
-    }
-
-    private func originY(
-        for mode: DanmakuPresentationMode,
-        laneIndex: Int,
-        requestHeight: Double
-    ) -> Double {
-        switch mode {
-        case .scrolling, .top:
-            Double(laneIndex) * DanmakuLaneConfiguration.laneHeight
-        case .bottom:
-            configuration.surfaceHeight
-                - Double(laneIndex) * DanmakuLaneConfiguration.laneHeight
-                - requestHeight
-        }
     }
 
     private func laneIsAvailable(
@@ -302,6 +271,9 @@ struct DanmakuLaneAllocator: Sendable {
 
     /// 新滚动弹幕能否跟在 `previous` 之后：入场时与前一条右缘的间距不小于最小间距，且新弹幕更快时，
     /// 间距缩小到最小间距之前前一条已经到期。
+    ///
+    /// 一份占用里的 placement 都按同一个配置排出（种子也来自同一组设置），所以两条都用配置的画布宽度。
+    /// 追尾按整张规划画布算，前一条在窗口外的那段也计入，窄窗口里因此偏保守。
     private func scrollingRequest(
         _ request: DanmakuLaneRequest,
         canFollow previous: DanmakuLanePlacement,
@@ -311,20 +283,14 @@ struct DanmakuLaneAllocator: Sendable {
         let elapsed = playbackTime - previous.admittedAtSeconds
         guard elapsed >= 0 else { return false }
         let surfaceWidth = configuration.surfaceWidth
-        let previousSurfaceWidth = previous.surfaceWidthAtAdmission
-        guard previousSurfaceWidth.isFinite,
-            previousSurfaceWidth > 0
-        else {
-            return false
-        }
         let previousSpeed =
-            (previousSurfaceWidth + previousRequest.width)
+            (surfaceWidth + previousRequest.width)
             / previousRequest.durationSeconds
         let newSpeed =
             (surfaceWidth + request.width)
             / request.durationSeconds
         let previousRightEdge =
-            previousSurfaceWidth - previousSpeed * elapsed
+            surfaceWidth - previousSpeed * elapsed
             + previousRequest.width
         let availableGap = surfaceWidth - previousRightEdge
         guard availableGap >= configuration.minimumHorizontalGap else {

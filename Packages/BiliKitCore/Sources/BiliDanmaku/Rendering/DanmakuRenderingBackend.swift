@@ -33,6 +33,11 @@ public enum DanmakuPreparationResult: Sendable, Equatable {
 }
 
 /// 弹幕运动时长的唯一策略来源；基准速度、长度加成与上下限都是产品固定值。
+///
+/// 速度只取决于档位与文字宽度、与画面宽度无关，时长 = (画布宽度 + 文字宽度) / 速度。取景框模型依赖这一点：
+/// 滚动弹幕相对右边缘的轨迹与窗口宽度无关，按规划画布排出的表裁成窄窗口，与直接按窄窗口排的运动一致。
+/// 上下限在屏幕级画布上不触发（最慢档、短文字要宽过约 5400pt 才碰到 60 秒上限）；改成随画面宽度变化的
+/// 速度会破坏取景框，见 docs/ARCHITECTURE.md「弹幕」。
 enum DanmakuMotionPolicy {
     static let basePointSpeed = 130.0
     static let lengthReferenceWidth = 960.0
@@ -85,9 +90,9 @@ enum DanmakuMotionPolicy {
 /// Renderer 的最小平台 port，由 `DanmakuMaterializer` 驱动。
 ///
 /// 弹幕 layer 按 placement 的媒体时间运动，port 不涉及时钟：暂停、倍速与 seek 由宿主的同步 layer
-/// 处理。`clearAll` 取消在途准备并移除全部 layer；`stop` 同样取消准备并清屏。尺寸变化只
-/// 更新 surface geometry：已有滚动弹幕保持布局时的运动，顶部与底部弹幕随新宽度重新居中、底部弹幕随
-/// 高度变化平移；backing scale 由调用方归一化后传入，变化时取消在途准备。
+/// 处理。`clearAll` 取消在途准备并移除全部 layer；`stop` 同样取消准备并清屏。`updateSurfaceSize`
+/// 给的是窗口（取景框）尺寸：只移动滚动、顶部、底部弹幕各自的锚定边，不改任何弹幕的运动，哪些弹幕
+/// 该在屏由调用方随后对齐；backing scale 由调用方归一化后传入，变化时取消在途准备。
 @MainActor
 public protocol DanmakuRenderingBackend: AnyObject {
     /// 按 renderer 当前的 backing scale 准备纹理；完成回调必须返回 MainActor。

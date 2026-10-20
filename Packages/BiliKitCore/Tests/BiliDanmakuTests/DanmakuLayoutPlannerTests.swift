@@ -246,8 +246,8 @@ func expectNoOverlap(
 ) {
     func rightEdge(_ placement: DanmakuLanePlacement, at time: Double) -> Double {
         let request = placement.request
-        let speed = (placement.surfaceWidthAtAdmission + request.width) / request.durationSeconds
-        return placement.surfaceWidthAtAdmission + request.width
+        let speed = (placement.planningWidth + request.width) / request.durationSeconds
+        return placement.planningWidth + request.width
             - speed * (time - placement.admittedAtSeconds)
     }
     func leftEdge(_ placement: DanmakuLanePlacement, at time: Double) -> Double {
