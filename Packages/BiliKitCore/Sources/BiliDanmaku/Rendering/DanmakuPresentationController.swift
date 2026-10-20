@@ -81,14 +81,22 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     /// 即将进场的弹幕才能提前准备纹理。调小增加主线程开销，调大则走完的 layer 留得更久。
     static let reconcileStride = 1.0
 
+    /// 覆盖区间末端到前瞻末端之间留给准备纹理的媒体时长。
+    ///
+    /// 调小则区间末端附近进场的弹幕准备时间更少、更容易迟到；调大则区间变短，更多正常推进被当作
+    /// 重新对齐。它必须让区间仍长于 `reconcileStride` 加相邻快照的间隔（见 `alignmentCoverageSeconds`）。
+    static let texturePreparationMarginSeconds = 0.5
+
     /// 上次对齐覆盖的媒体时长：位置在 [上次对齐位置, 上次对齐位置 + 它) 里时不必重新对齐。
     ///
-    /// 上次对齐挂上了进场时间不晚于「上次对齐位置 + 前瞻」的弹幕，区间比前瞻短 0.5 秒，留给之后才进场的
-    /// 弹幕准备纹理。它必须大于 `reconcileStride` 加单个快照的最大前进量（每秒约 30 个快照、最高 4 倍速时
-    /// 约 0.13 秒），否则正常播放会越过步长直接落到区间外；即使主线程卡顿跳出了区间，重新对齐时缺纹理的
-    /// 几乎只有前瞻弹幕，也走普通增量，画面不变。不能超过前瞻，否则向前跳到区间末尾时会缺已该进场的
-    /// 弹幕；调小则更多正常推进被当作重新对齐。
-    static let alignmentCoverageSeconds = 1.5
+    /// 上次对齐挂上了进场时间不晚于「上次对齐位置 + 前瞻」的弹幕，区间由前瞻减去准备余量得出，所以总在
+    /// 前瞻之内。它必须长于 `reconcileStride` 加相邻快照的间隔：周期观察器按 item 时间每 1/30 媒体秒触发
+    /// 一次，但弹幕会话经只保留最新值的 AsyncStream 收快照，主线程忙时快照会被合并，间隔可能远大于此。
+    /// 间隔大到越过步长、直接落到区间外时按重新对齐处理：
+    /// - 落点不超过「上次对齐位置 + 前瞻」：缺纹理的几乎只有前瞻弹幕，走普通增量，画面不变。
+    /// - 卡顿越过了前瞻：(上次对齐位置 + 前瞻, 落点] 里进场的弹幕从没请求过纹理，密集时会整屏暂存一次。
+    static let alignmentCoverageSeconds =
+        DanmakuMaterializer.lookaheadSeconds - texturePreparationMarginSeconds
 
     private let backend: any DanmakuRenderingBackend
     private let coordinator = DanmakuLayoutCoordinator()
@@ -234,11 +242,14 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     /// 宿主的同步 layer 即将换绑到另一个播放 item：先清屏，再由宿主换绑；只接受当前 owner。
     ///
     /// 同步 layer 换绑后时间立刻按新 item 走，旧 layer 留着会在新时间线上错位，所以必须先清。布局表保留
-    /// （同一视频换线路或清晰度时仍然有效）；上次对齐位置一并清掉，否则新 item 的位置还在覆盖区间里，
-    /// 清空的屏不会再挂上。下一个快照按新 item 的时刻重新对齐，纹理多半还在缓存里，一次整屏挂上。
+    /// （同一视频换线路或清晰度时仍然有效）。最近快照与上次对齐位置一并清掉：旧 item 的位置在新时间线上
+    /// 没有意义，留着的话新 item 第一个快照之前的 resize 或布局表替换会按它对齐，新位置又可能落在它的
+    /// 覆盖区间里，清空的屏就不再挂上。新 item 的第一个快照到来之前不对齐，到来时按它的时刻重新对齐，
+    /// 纹理多半还在缓存里，一次整屏挂上。
     public func playerItemWillChange(ownerID: UUID) {
         guard surfaceOwnerID == ownerID else { return }
         materializer.clear()
+        latestSnapshot = nil
         alignedPosition = nil
     }
 
