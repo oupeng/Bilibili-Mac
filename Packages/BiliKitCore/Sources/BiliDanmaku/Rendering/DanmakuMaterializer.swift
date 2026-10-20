@@ -11,13 +11,17 @@ import Foundation
 /// 掉的。
 ///
 /// 拥有在屏 placement 的记录、在途纹理准备与「暂存提交」；不拥有布局表（`DanmakuLayoutCoordinator`）
-/// 与 layer（backend）。两种 reconcile：
-/// - 普通：增删与布局替换立即生效，缺纹理的弹幕各自准备好时再挂上；时间推进时使用。
+/// 与 layer（backend），也不决定何时 reconcile（`DanmakuPresentationController`）。三种 reconcile
+/// （`Mode`）：
+/// - 普通：增删与布局替换立即生效，缺纹理的弹幕各自准备好时再挂上；按步长推进与窗口尺寸变化时使用。
 /// - 暂存：先为应在屏而缺纹理的弹幕准备纹理，全部有结果（就绪或被拒）后才在一次调用里按此刻的媒体
 ///   时间移除、替换并挂上全部弹幕，落在同一次 Core Animation 提交里；缓存全部命中时当场完成。布局表
-///   替换、时间不连续（seek、换项）、打开弹幕与接管 surface 时使用，整屏因此一次换成新的样子。暂存期间的
-///   普通 reconcile 只立即移除按自己的 placement 已不在取景框里的 layer（窗口缩小或时间推进），其余推迟到
-///   提交之后再做一次；提交按最新的取景框决定挂上哪些，窗口放大时新露出的部分要等到提交。
+///   替换、打开弹幕与接管 surface 时使用，整屏因此一次换成新的样子。暂存期间的普通 reconcile 只立即移除
+///   按自己的 placement 已不在取景框里的 layer（窗口缩小或时间推进），其余推迟到提交之后再做一次；提交按
+///   最新的取景框决定挂上哪些，窗口放大时新露出的部分要等到提交。
+/// - 重新对齐：时间跳变（seek、拖动、回跳、换项后的第一个快照）之后使用，只看此刻的状态在前两者之间
+///   选，见 `realign()`。新的对齐取代未完成的暂存提交时，新集合仍需要的在途与已就绪
+///   纹理都保留，只作废不再需要的。
 ///
 /// `preparationGeneration` 在 `clear` 与 backing scale 变化时递增；准备请求带上发起时的值，完成时不等、
 /// 或这条弹幕已不在待准备记录里（不再需要或已换成新的请求），结果就被丢弃。
@@ -28,6 +32,20 @@ final class DanmakuMaterializer {
     /// 普通 reconcile 每隔 `DanmakuPresentationController.reconcileStride` 做一次，前瞻必须比它长，
     /// 纹理才有时间在进场前准备好。调大会同时挂着更多还没进场的 layer，调小则高密度时更容易迟到。
     static let lookaheadSeconds = 2.0
+
+    /// 重新对齐时，已进场却还缺纹理的弹幕不超过这个数就走普通增量，超过才暂存等齐。
+    ///
+    /// 栅格化 2 个并发、单条通常是毫秒级，8 条大约一两帧内补齐：零星几条晚一两帧出现，不比整屏停在
+    /// 旧画面上等更显眼；缺得更多时逐条蹦出就看得出来，改为暂存。只数已进场的：前瞻弹幕在进场前就绪
+    /// 就不会晚出现，按步长推进时缺的几乎都是它们。调大则更多跳转逐条出现，调小则更多跳转要整屏等齐。
+    static let incrementalMissingTextureLimit = 8
+
+    /// reconcile 的方式，见类型说明。
+    enum Mode {
+        case incremental
+        case staged
+        case realign
+    }
 
     private struct Preparation {
         let preparationID: UInt64
@@ -92,25 +110,28 @@ final class DanmakuMaterializer {
         Dictionary(placements.map { ($0.request.event.id, $0) }) { first, _ in first }
     }
 
-    /// 按布局表、媒体时间与取景框对齐 backend；`staged` 见类型说明。
+    /// 按布局表、媒体时间与取景框对齐 backend；`mode` 见类型说明。
     func reconcile(
         table: [Int: DanmakuSegmentLayout],
         position: Double,
         viewport: DanmakuViewport,
-        staged: Bool
+        mode: Mode
     ) {
         self.table = table
         self.position = position
         self.viewport = viewport
-        if staged {
+        switch mode {
+        case .staged:
             beginStagedCommit()
-        } else if isCommitPending {
-            // 暂存提交未完成时窗口变了：取景框外已挂上的弹幕立即移除，否则锚点已按新窗口移动，缩小时
-            // 会露出 N 以外车道的弹幕。只移除、不换 placement，提交前屏上仍是旧表；新露出的部分等提交，
-            // 提交按最新的表、时间与取景框挂上。
+        case .realign:
+            realign()
+        case .incremental where isCommitPending:
+            // 暂存提交未完成时窗口变了或时间按步长推进：取景框外已挂上的弹幕立即移除，否则锚点已按
+            // 新窗口移动，缩小时会露出 N 以外车道的弹幕。只移除、不换 placement，提交前屏上仍是旧表；
+            // 新露出的部分等提交，提交按最新的表、时间与取景框挂上。
             removeInstalledOutsideViewport()
             reconcilesAfterCommit = true
-        } else {
+        case .incremental:
             reconcileNow()
         }
     }
@@ -146,24 +167,70 @@ final class DanmakuMaterializer {
     }
 
     private func beginStagedCommit() {
-        // 新的暂存提交取代旧的：旧的已就绪纹理仍可用，并入这一次。
-        awaitedByCommit = []
-        let desired = Self.desiredPlacements(in: table, at: position, viewport: viewport)
-        let desiredByID = Self.byEventID(desired)
-        discardPreparations(notIn: desiredByID)
-        for placement in desired {
+        _ = requestStagedPreparations()
+        awaitPendingPreparations()
+    }
+
+    /// 时间跳变之后的对齐：先按暂存的方式发起准备（缓存命中的同步结果放进 `parked`），再只看
+    /// 此刻的状态决定怎样上屏。
+    ///
+    /// - 已进场而缺纹理的不超过 `incrementalMissingTextureLimit`：当场提交，缺的各自就绪后出现。缓存
+    ///   全部命中的跳转因此仍是一次调用里的整屏替换。
+    /// - 缺得多、且这次对齐取代了还没完成的暂存提交：已就绪的当场挂上、取景框外的当场移除，其余仍暂存，
+    ///   齐了再一次挂上。连续拖动时每一步都取代上一步的暂存，于是每一步都把已就绪的挂上，画面跟着走；
+    ///   停下之后剩下的在一次提交里补齐。不这样做的话每一步都换一个新的等待集合，提交永远等不齐，拖动
+    ///   期间屏上只剩旧 layer 各自滑出动画区间。
+    /// - 缺得多、没有取代暂存提交（单次跳到没缓存的地方）：整屏暂存，旧画面保留到新纹理齐了一次替换。
+    private func realign() {
+        let supersedesCommit = isCommitPending
+        let desired = requestStagedPreparations()
+        let missingAdmitted = desired.count(where: { placement in
             let eventID = placement.request.event.id
-            if needsTexture(eventID), pending[eventID] == nil, parked[eventID] == nil {
-                requestPreparation(for: placement)
-            }
+            return placement.admittedAtSeconds <= position
+                && installed[eventID] == nil
+                && pending[eventID] != nil
+        })
+        if missingAdmitted <= Self.incrementalMissingTextureLimit {
+            commit()
+        } else if supersedesCommit {
+            commit()
+            awaitPendingPreparations()
+        } else {
+            awaitPendingPreparations()
         }
+    }
+
+    /// 让暂存提交从此刻开始等 `pending` 里的全部准备；没有要等的就当场提交。
+    ///
+    /// 新的等待集合取代旧的：之前已就绪、新集合仍需要的纹理留在 `parked`，并入这一次。
+    private func awaitPendingPreparations() {
         awaitedByCommit = Set(pending.keys)
         if awaitedByCommit?.isEmpty == true {
             commit()
         }
     }
 
-    /// 暂存的纹理都有了结果：按此刻的表与时间一次完成移除、替换与挂上，再补做推迟的普通 reconcile。
+    /// 为此刻应在屏而缺纹理的弹幕发起准备，返回此刻应有的集合。
+    ///
+    /// 先把 `awaitedByCommit` 置为非 nil，同步回调（缓存命中）的结果放进 `parked` 而不是立即挂上，调用方
+    /// 随后决定提交或继续等；新集合不再需要的在途与已就绪准备作废，仍需要的保留并换上新 placement。
+    private func requestStagedPreparations() -> [DanmakuLanePlacement] {
+        awaitedByCommit = []
+        let desired = Self.desiredPlacements(in: table, at: position, viewport: viewport)
+        discardPreparations(notIn: Self.byEventID(desired))
+        for placement in desired {
+            let eventID = placement.request.event.id
+            if needsTexture(eventID), pending[eventID] == nil, parked[eventID] == nil {
+                requestPreparation(for: placement)
+            }
+        }
+        return desired
+    }
+
+    /// 结束暂存：按此刻的表与时间一次完成移除、替换，挂上 `parked` 里已就绪的纹理，再补做推迟的普通
+    /// reconcile；还在途的准备之后各自就绪时挂上。
+    ///
+    /// 暂存的纹理都有了结果时调用；重新对齐决定走增量，或先挂上已就绪的部分时也直接调用。
     private func commit() {
         awaitedByCommit = nil
         reconcilesAfterCommit = false

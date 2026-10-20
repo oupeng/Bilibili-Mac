@@ -68,11 +68,11 @@ extension DanmakuLaneConfiguration {
 /// 旧 `AVPlayerView` 的迟到 resize/detach 操作清空新宿主。换 identity、`stopPresentation`、接管或交还
 /// surface 时清屏；关闭弹幕时清屏但保留布局表，打开时按当前时刻整屏挂上。
 ///
-/// 不连续：`discontinuityGeneration` 变化（seek、换项、续播起点、系统时间跳变）时按快照位置暂存提交
-/// 一次，否则按推进步长普通对齐。弹幕不隐藏也不清屏，屏上的 layer 一直跟随媒体时间。原生拖动每一步都
-/// 推进不连续代号，每步都发起一次暂存提交并作废上一步还没完成的纹理准备（排队中的栅格化随之取消），
-/// 最后一步之后自然提交到落点。从暂停恢复播放时系统报的原地跳变也推进代号，只多做一次内容相同的
-/// 提交，画面不变。
+/// 不连续：`discontinuityGeneration` 变化（seek、换项、续播起点、系统时间跳变）时按快照位置重新对齐
+/// 一次，暂存与否由 materializer 按缺纹理的情况决定（见 `DanmakuMaterializer.realign()`），否则按推进
+/// 步长普通对齐。弹幕不隐藏也不清屏，屏上的 layer 一直跟随媒体时间。原生拖动每一步都推进不连续代号，
+/// 每一步都重新对齐，已就绪的纹理随之挂上。从暂停恢复播放时系统报的原地跳变也推进代号，只多做一次
+/// 内容相同的对齐，画面不变。
 @MainActor
 public final class DanmakuPresentationController: DanmakuPresentationSink {
     /// 播放中两次普通 reconcile 之间至少推进的媒体时长。
@@ -105,7 +105,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     private var latestSnapshot: PlaybackTimelineSnapshot?
     /// 最近一次 reconcile 时的位置；播放中推进超过 `reconcileStride` 才再 reconcile。
     private var reconciledPosition: Double?
-    /// 最近一次见到的不连续代号；变化时按新位置暂存 reconcile。
+    /// 最近一次见到的不连续代号；变化时按新位置重新对齐。
     private var discontinuityGeneration: UInt64?
 
     /// 窗口与屏幕尺寸由接管 surface 的宿主经 `updateSurface` 给出，之前不布局。
@@ -113,7 +113,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         self.backend = backend
         materializer = DanmakuMaterializer(backend: backend)
         coordinator.tableDidChange = { [weak self] in
-            self?.reconcile(staged: true)
+            self?.reconcile(.staged)
         }
     }
 
@@ -143,11 +143,11 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         let isDiscontinuous = discontinuityGeneration != snapshot.discontinuityGeneration
         discontinuityGeneration = snapshot.discontinuityGeneration
         if isDiscontinuous {
-            reconcile(staged: true)
+            reconcile(.realign)
         } else if reconciledPosition.map({
             abs(snapshot.positionSeconds - $0) >= Self.reconcileStride
         }) ?? true {
-            reconcile(staged: false)
+            reconcile(.incremental)
         }
     }
 
@@ -163,7 +163,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         guard isEnabled != enabled else { return }
         isEnabled = enabled
         if enabled {
-            reconcile(staged: true)
+            reconcile(.staged)
         } else {
             materializer.clear()
         }
@@ -208,7 +208,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         guard surfaceOwnerID != ownerID else { return }
         surfaceOwnerID = ownerID
         materializer.clear()
-        reconcile(staged: true)
+        reconcile(.staged)
     }
 
     /// 只有当前 owner 能交还 surface，交还时清屏；返回是否生效。
@@ -255,7 +255,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         planningWidth = Self.planningExtent(window: width, screen: screenWidth)
         planningHeight = Self.planningExtent(window: height, screen: screenHeight)
         updateLayoutParameters()
-        reconcile(staged: false)
+        reconcile(.incremental)
     }
 
     /// 规划画布在一个维度上的长度：屏幕与窗口的较大者；无效值按 0 处理。
@@ -264,7 +264,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     }
 
     /// 布局表在 `latestSnapshot` 时刻应有的弹幕挂到 backend 上；弹幕关闭或还没有快照时什么都不做。
-    private func reconcile(staged: Bool) {
+    private func reconcile(_ mode: DanmakuMaterializer.Mode) {
         guard let snapshot = latestSnapshot, snapshot.identity == identity, isEnabled else {
             return
         }
@@ -273,7 +273,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
             table: layoutTable,
             position: snapshot.positionSeconds,
             viewport: viewport,
-            staged: staged
+            mode: mode
         )
     }
 

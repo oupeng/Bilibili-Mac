@@ -5,10 +5,10 @@ import Testing
 
 @testable import BiliDanmaku
 
-/// 固定呈现控制器的契约：画面在分段布局完成后按当前时刻整屏出现；每次时间不连续（含拖动的每一步）都按
-/// 那一刻整屏对齐、作废之前没完成的准备（落点分段未到时不留旧画面），原地跳变画面不变；关闭弹幕清屏、打开恢复；设置变化整屏换成
-/// 新布局；换视频清屏；换 item 只接受当前 owner，清屏后按原布局表挂回；旧 surface owner 的操作无效；
-/// 窗口尺寸变化不重排、立即按新取景框增删，屏幕尺寸变化整张重排。
+/// 固定呈现控制器的契约：画面在分段布局完成后按当前时刻整屏出现；每次时间不连续都按那一刻对齐，连续
+/// 拖动时已就绪的纹理每一步都挂上，停下后补齐落点（落点分段未到时不留旧画面），原地跳变画面不变；关闭
+/// 弹幕清屏、打开恢复；设置变化整屏换成新布局；换视频清屏；换 item 只接受当前 owner，清屏后按原布局表
+/// 挂回；旧 surface owner 的操作无效；窗口尺寸变化不重排、立即按新取景框增删，屏幕尺寸变化整张重排。
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct DanmakuPresentationControllerTests {
@@ -39,20 +39,29 @@ struct DanmakuPresentationControllerTests {
         #expect(backend.clearCount == clearCount)
     }
 
-    /// 纹理没赶上的拖动：每一步作废上一步还没完成的准备，最后整屏只按落点挂上。
+    /// 纹理赶不上的连续拖动：每一步都把已就绪、此刻仍应在屏的挂上并移走不再应在的，不会一直停在旧画面；
+    /// 停下后剩下的补齐，画面等于落点应有的样子。
     @Test
-    func dragStepsDiscardEarlierPreparations() async {
+    func draggingKeepsInstallingReadyTextures() async {
         let (controller, backend) = await laidOutController(at: 30)
         backend.delaysPreparation = true
 
-        for (step, position) in [120.0, 160, 200].enumerated() {
+        let steps = Array(stride(from: 120.0, to: 140, by: 1.6))
+        for (index, position) in steps.enumerated() {
             controller.apply(
-                snapshot(identity: identity, position: position, generation: 2 + UInt64(step))
+                snapshot(identity: identity, position: position, generation: 2 + UInt64(index))
             )
+            let expected = expectedIDs(at: position, in: controller)
+            if index > 0 {
+                #expect(!backend.installed.isEmpty)
+                #expect(backend.installedEventIDs.isSubset(of: expected))
+            }
+            backend.completePreparations(backend.pendingPreparationCount / 2)
         }
         backend.completePreparations()
 
-        #expect(backend.installedEventIDs == expectedIDs(at: 200, in: controller))
+        let last = steps[steps.count - 1]
+        #expect(backend.installedEventIDs == expectedIDs(at: last, in: controller))
     }
 
     /// 落点分段还没到：按新时刻对齐（旧时刻的弹幕全部移走），分段到达后整屏挂上。
