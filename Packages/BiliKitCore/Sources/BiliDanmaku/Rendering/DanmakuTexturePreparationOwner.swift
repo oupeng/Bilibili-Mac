@@ -6,8 +6,8 @@ import Foundation
 /// 不拥有 layer 与上屏（交给 `CoreAnimationDanmakuRenderer`），也不自己监听系统内存压力：监听由
 /// App 的窗口 adapter（`WindowAdapters.live`）持有，经 renderer 转到 `handleMemoryPressure()`。
 /// 状态只在 MainActor 上读写；栅格化在后台队列执行，结果经 `Task { @MainActor }` 交回，同一 key
-/// 的并发请求共用一个 operation。请求带调用方的准备 generation，`consume` 时比对，
-/// 不等就不交出纹理。释放时只取消队列中的 operation，不等待后台栅格化结束。
+/// 的并发请求共用一个 operation。作废的准备由调用方按准备 ID 丢弃（准备 ID 单调递增、不复用），
+/// owner 不另做 generation 校验。释放时只取消队列中的 operation，不等待后台栅格化结束。
 @MainActor
 final class DanmakuTexturePreparationOwner {
     typealias Rasterize =
@@ -17,7 +17,7 @@ final class DanmakuTexturePreparationOwner {
     struct Configuration: Sendable, Equatable {
         /// 栅格化最多 2 个并发；未完成请求（排队中加已就绪未取走）的上限与活动弹幕硬上限同为 640。
         ///
-        /// 并发越高补位批次准备得越快，但同时占用的 CPU 与像素缓冲越多；
+        /// 并发越高 seek 或整屏替换时缺的纹理准备得越快，但同时占用的 CPU 与像素缓冲越多；
         /// 请求上限低于活动上限会让高峰期在准备阶段就以容量不足丢弃。
         static let production = Configuration(
             maximumConcurrentOperations: 2,
@@ -37,13 +37,11 @@ final class DanmakuTexturePreparationOwner {
         ) -> Void
 
     private struct Request {
-        let generation: UInt64
         let key: DanmakuTextureCacheKey
         let completion: Completion
     }
 
     private struct Prepared {
-        let generation: UInt64
         let key: DanmakuTextureCacheKey
     }
 
@@ -96,7 +94,6 @@ final class DanmakuTexturePreparationOwner {
         event: DanmakuEvent,
         backingScale: Double,
         preparationID: UInt64,
-        generation: UInt64,
         completion: @escaping Completion
     ) {
         guard requests[preparationID] == nil,
@@ -118,7 +115,6 @@ final class DanmakuTexturePreparationOwner {
         }
         if let payload = cache.value(for: key) {
             prepared[preparationID] = Prepared(
-                generation: generation,
                 key: key
             )
             completion(.ready(payload.metrics))
@@ -126,7 +122,6 @@ final class DanmakuTexturePreparationOwner {
         }
 
         requests[preparationID] = Request(
-            generation: generation,
             key: key,
             completion: completion
         )
@@ -159,15 +154,13 @@ final class DanmakuTexturePreparationOwner {
         queue.addOperation(operation)
     }
 
-    /// 取走已就绪的纹理；generation 或 key 与发起时不一致、或纹理已被缓存淘汰时返回 nil，
+    /// 取走已就绪的纹理；key 与发起时不一致、或纹理已被缓存淘汰时返回 nil，
     /// 准备记录都会被移除。
     func consume(
         preparationID: UInt64,
-        generation: UInt64,
         expectedKey: DanmakuTextureCacheKey
     ) -> DanmakuTexturePayload? {
         guard let value = prepared.removeValue(forKey: preparationID),
-            value.generation == generation,
             value.key == expectedKey
         else {
             return nil
@@ -175,9 +168,20 @@ final class DanmakuTexturePreparationOwner {
         return cache.value(for: expectedKey)
     }
 
+    /// 丢弃一次准备；它所在 key 的在途栅格化已没有任何请求在等时一并取消。
+    ///
+    /// 拖动进度条时每一步都会作废上一步的准备，不取消的话排队的 operation 仍会逐个栅格化作废的纹理，
+    /// 新的准备排在它们后面被拖慢。已在执行的 operation 收到取消后丢弃结果，不交回主线程。
     func discard(preparationID: UInt64) {
-        requests.removeValue(forKey: preparationID)
         prepared.removeValue(forKey: preparationID)
+        guard let request = requests.removeValue(forKey: preparationID),
+            let work = inflight[request.key],
+            !work.requestIDs.contains(where: { requests[$0] != nil })
+        else {
+            return
+        }
+        inflight[request.key] = nil
+        work.operation.cancel()
     }
 
     /// 取消全部请求、已就绪记录与在途 operation；被取消的请求不再回调，缓存保留。
@@ -213,7 +217,6 @@ final class DanmakuTexturePreparationOwner {
                 continue
             }
             prepared[preparationID] = Prepared(
-                generation: request.generation,
                 key: request.key
             )
             request.completion(.ready(acceptedPayload.metrics))

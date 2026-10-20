@@ -49,15 +49,15 @@ enum DanmakuTextureRasterizer {
     static let maximumHeightPixels = 512
     /// 单个纹理的字节上限，也是纹理缓存的单项上限；宽度接近像素上限的长文本主要受它约束。
     static let maximumTextureByteCost = 8 * 1_024 * 1_024
-    /// 支持的最大 backing scale；renderer 与呈现控制器把更大的值夹到这里。
+    /// 支持的最大 backing scale；呈现控制器归一时把更大的值夹到这里。
     static let maximumBackingScale = 4.0
     /// 宿主还没报告窗口 backing scale 时的初值，也是非有限值的回退：Retina 屏是 2。
     static let defaultBackingScale = 2.0
 
-    /// renderer 与呈现控制器共用的 backing scale 归一。
+    /// 窗口报告的 backing scale 归一到 1...`maximumBackingScale`，非有限值回退到 `defaultBackingScale`。
     ///
-    /// 夹到 1...`maximumBackingScale`，非有限值回退到 `defaultBackingScale`。两边必须一致，否则
-    /// 控制器认为 scale 没变而 renderer 已经换了栅格倍率，或反过来多取消一轮准备。
+    /// 只由呈现控制器在 surface 更新时调用一次，再把结果交给 renderer 与 materializer；两边不再各自
+    /// 归一，否则一边认为 scale 没变、另一边已经换了栅格倍率。
     static func normalizedBackingScale(_ scale: Double) -> Double {
         scale.isFinite ? min(max(scale, 1), maximumBackingScale) : defaultBackingScale
     }
@@ -85,23 +85,16 @@ enum DanmakuTextureRasterizer {
         event: DanmakuEvent,
         backingScale: Double
     ) -> DanmakuTextureCacheKey? {
-        guard !event.text.isEmpty,
-            event.text.utf16.count <= maximumTextUTF16Length,
-            event.fontSize.isFinite,
-            backingScale.isFinite,
-            backingScale >= 1,
-            backingScale <= maximumBackingScale
-        else {
+        guard let measureKey = measureKey(event: event, backingScale: backingScale) else {
             return nil
         }
-        let fontSize = DanmakuEvent.normalizedFontSize(event.fontSize)
         return DanmakuTextureCacheKey(
-            text: event.text,
-            fontSize: fontSize,
+            text: measureKey.text,
+            fontSize: measureKey.fontSize,
             colorRGB: event.colorStyle == .vipGradient
                 ? vipGradientFillRGB : event.colorRGB & 0x00FF_FFFF,
             colorStyle: event.colorStyle,
-            backingScale: backingScale
+            backingScale: measureKey.backingScale
         )
     }
 
@@ -112,10 +105,6 @@ enum DanmakuTextureRasterizer {
         let colorSpace =
             CGColorSpace(name: CGColorSpace.sRGB)
             ?? CGColorSpaceCreateDeviceRGB()
-        let font = NSFont.systemFont(
-            ofSize: CGFloat(key.fontSize),
-            weight: fontWeight
-        )
         let components = rgbComponents(key.colorRGB)
         let foreground = CGColor(
             srgbRed: components.red,
@@ -123,50 +112,26 @@ enum DanmakuTextureRasterizer {
             blue: components.blue,
             alpha: 1
         )
-        let attributed = NSAttributedString(
-            string: key.text,
-            attributes: [
-                NSAttributedString.Key(kCTFontAttributeName as String): font,
-                NSAttributedString.Key(kCTForegroundColorAttributeName as String):
-                    foreground
-            ]
-        )
-        let line = CTLineCreateWithAttributedString(attributed)
-        var ascent: CGFloat = 0
-        var descent: CGFloat = 0
-        var leading: CGFloat = 0
-        let width = CGFloat(
-            CTLineGetTypographicBounds(line, &ascent, &descent, &leading)
-        )
-        let height = ascent + descent + leading
-        guard width.isFinite, height.isFinite, width > 0, height > 0 else {
-            return nil
-        }
-
-        let outlineRadiusPixels = outlineWidthPoints * key.backingScale
-        let shadowRadiusPixels =
-            shadowRadiusPoints > 0
-            ? max(
-                1,
-                Int((shadowRadiusPoints * key.backingScale).rounded())
-            ) : 0
-        // 四周留白要容纳描边与阴影的扩散，至少 4 像素。
-        let paddingPixels = max(
-            4,
-            Int(ceil(outlineRadiusPixels)) + shadowRadiusPixels + 2
-        )
-        let widthPixels = Int(ceil(width * scale)) + paddingPixels * 2
-        let heightPixels = Int(ceil(height * scale)) + paddingPixels * 2
-        let bytesPerRow = widthPixels * 4
-        guard widthPixels > 0,
-            heightPixels > 0,
-            widthPixels <= maximumWidthPixels,
-            heightPixels <= maximumHeightPixels,
-            bytesPerRow <= Int.max / heightPixels,
-            bytesPerRow * heightPixels <= maximumTextureByteCost
+        guard
+            let layout = lineLayout(
+                DanmakuTextMeasureKey(
+                    text: key.text,
+                    fontSize: key.fontSize,
+                    backingScale: key.backingScale
+                ),
+                foreground: foreground
+            )
         else {
             return nil
         }
+        let widthPixels = layout.widthPixels
+        let heightPixels = layout.heightPixels
+        let bytesPerRow = layout.bytesPerRow
+        let paddingPixels = layout.paddingPixels
+        let outlineRadiusPixels = layout.outlineRadiusPixels
+        let shadowRadiusPixels = layout.shadowRadiusPixels
+        let line = layout.line
+        let descent = layout.descent
 
         var fill = [UInt8](repeating: 0, count: bytesPerRow * heightPixels)
         let drewLine = fill.withUnsafeMutableBytes { buffer -> Bool in

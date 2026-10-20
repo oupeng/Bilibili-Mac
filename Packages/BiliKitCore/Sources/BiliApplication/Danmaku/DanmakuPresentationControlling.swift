@@ -54,7 +54,7 @@ public struct DanmakuOpacity: Sendable, Equatable {
     }
 }
 
-/// 让 Feature 驱动弹幕会话开始、可见性与完整停止，而不暴露 scheduler 或 renderer。
+/// 让 Feature 驱动弹幕会话开始、可见性与完整停止，而不暴露分段缓存、布局或 renderer。
 ///
 /// 实现是 BiliDanmaku 的 `DanmakuSession`，调用方是播放页的 `DanmakuControlsViewModel`。
 @MainActor

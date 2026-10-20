@@ -5,56 +5,17 @@ import Testing
 
 @testable import BiliDanmaku
 
-/// 呈现控制器测试的车道配置：800pt 宽、30pt 车道、全屏显示区域，只变化容量与高度。
-func configuration(
-    maximumActiveCount: Int,
-    surfaceHeight: Double = 300
-) -> DanmakuLaneConfiguration {
+/// 呈现测试的车道配置：800 × 360pt（10 条车道）、12pt 间距、全屏显示区域，只变化宽度。
+func configuration(surfaceWidth: Double = 800) -> DanmakuLaneConfiguration {
     DanmakuLaneConfiguration(
-        surfaceWidth: 800,
-        surfaceHeight: surfaceHeight,
-        laneHeight: 30,
+        surfaceWidth: surfaceWidth,
+        surfaceHeight: 360,
         minimumHorizontalGap: 12,
-        maximumActiveCount: maximumActiveCount,
         displayAreaFraction: 1
     )
 }
 
-/// 呈现控制器测试的一次时间线更新：有弹幕或要求清屏时附带同 identity、同落地代号的批次；
-/// `generation` 同时作为不连续代号与落地代号。
-func update(
-    identity: PlaybackItemIdentity,
-    position: Double,
-    generation: UInt64,
-    state: PlaybackTimelineState = .playing,
-    rate: Double = 1,
-    events: [DanmakuEvent] = [],
-    catchesUp: Bool = false,
-    clearsExisting: Bool = false
-) -> DanmakuPresentationUpdate {
-    let snapshot = PlaybackTimelineSnapshot(
-        identity: identity,
-        positionSeconds: position,
-        durationSeconds: 100,
-        rate: rate,
-        state: state,
-        discontinuityGeneration: generation,
-        landingGeneration: generation
-    )
-    let batch =
-        events.isEmpty && !clearsExisting
-        ? nil
-        : DanmakuBatch(
-            identity: identity,
-            landingGeneration: generation,
-            events: events,
-            clearsExisting: clearsExisting,
-            catchesUp: catchesUp
-        )
-    return DanmakuPresentationUpdate(snapshot: snapshot, batch: batch)
-}
-
-/// 补位测试用的弹幕：时间点与模式可变，文字与字号固定。
+/// 时间点与模式可变、文字与字号固定的弹幕。
 func timedEvent(
     id: String,
     time: Double,
@@ -72,95 +33,123 @@ func timedEvent(
     )
 }
 
-/// 呈现控制器测试唯一的渲染后端替身：记录准备、上屏、移除、清屏、速率、重新合成请求与停止，
-/// 可延迟纹理准备由测试逐个完成，也可让上屏失败；不创建任何 layer。
+/// 用测试测量把分段排成布局表；设置取 `configuration()` 与默认速度。
+func layoutTable(
+    _ segments: [Int: [DanmakuEvent]],
+    surfaceWidth: Double = 800
+) -> [Int: DanmakuSegmentLayout] {
+    let lanes = configuration(surfaceWidth: surfaceWidth)
+    return DanmakuLayoutPlanner.layouts(
+        for: segments,
+        reusing: [:],
+        parameters: DanmakuLayoutParameters(
+            configuration: lanes,
+            speedLevel: .default,
+            backingScale: 2,
+            filter: DanmakuFilter()
+        ),
+        measure: fixtureMetrics
+    ) ?? [:]
+}
+
+/// 呈现测试唯一的渲染后端替身，不创建任何 layer。
+///
+/// 记录在屏弹幕的 placement、清屏与画面尺寸，可延迟纹理准备由测试逐个完成；在屏集合
+/// 每次变化时检查等待条件。
 @MainActor
 final class RecordingRenderingBackend: DanmakuRenderingBackend {
-    weak var delegate: (any DanmakuRenderingBackendDelegate)?
-    /// `+id` 表示安装、`-id` 表示移除，只用于断言移除先于新准入。
-    private(set) var lifecycle: [String] = []
-    private(set) var renderedEventIDs: [String] = []
-    /// 已安装且尚未被移除、清屏或停止的弹幕，即此刻在屏上的弹幕。
-    private(set) var activeEventIDs: Set<String> = []
-    private(set) var renderedPlacements: [DanmakuLanePlacement] = []
-    private(set) var renderedElapsedSeconds: [Double] = []
-    private(set) var rates: [Double] = []
-    /// 每次请求静止重新合成时已发生的清屏与上屏次数，用来断言它在一整批改动之后才被调用。
-    private(set) var recomposites: [(clearCount: Int, renderCount: Int)] = []
+    /// 此刻在屏的弹幕与它们的 placement。
+    private(set) var installed: [String: DanmakuLanePlacement] = [:]
+    /// 每次新挂上的事件 ID，按顺序。
+    private(set) var installedHistory: [String] = []
+    /// 每次原位替换（同一 ID 已在屏时再次安装）的事件 ID，按顺序。
+    private(set) var replacedHistory: [String] = []
+    /// 每次移除的事件 ID，按顺序。
+    private(set) var removedHistory: [String] = []
     private(set) var clearCount = 0
     private(set) var stopCount = 0
-    private(set) var measureCount = 0
+    /// 每次 `updateSurfaceSize` 收到的宽高，按顺序。
+    private(set) var surfaceSizes: [(width: Double, height: Double)] = []
+    /// 为 true 时准备不立即完成，等测试调用 `completePreparations`。
     var delaysPreparation = false
-    var renderPreparedResult = true
-    private(set) var preparationIDs: [UInt64] = []
-    private(set) var cancelPreparationCount = 0
-    private var preparationCompletions:
-        [UInt64: @MainActor @Sendable (DanmakuPreparationResult) -> Void] = [:]
+    private var delayedCompletions:
+        [(eventID: String, completion: @MainActor @Sendable (DanmakuPreparationResult) -> Void)] =
+            []
+    private var waiters:
+        [UUID: (isSatisfied: @MainActor () -> Bool, continuation: CheckedContinuation<Void, Never>)] =
+            [:]
+
+    var installedEventIDs: Set<String> { Set(installed.keys) }
+    var pendingPreparationCount: Int { delayedCompletions.count }
 
     func prepare(
         _ event: DanmakuEvent,
         preparationID: UInt64,
-        generation: UInt64,
-        backingScale: Double,
         completion:
             @escaping @MainActor @Sendable (
                 DanmakuPreparationResult
             ) -> Void
     ) {
-        preparationIDs.append(preparationID)
         if delaysPreparation {
-            preparationCompletions[preparationID] = completion
+            delayedCompletions.append((event.id, completion))
         } else {
-            measureCount += 1
             completion(.ready(DanmakuTextMetrics(width: 120, height: 24)))
         }
     }
 
-    @discardableResult
-    func renderPrepared(
-        _ placement: DanmakuLanePlacement,
-        preparationID: UInt64,
-        generation: UInt64,
-        elapsedSeconds: Double
-    ) -> Bool {
-        guard renderPreparedResult else { return false }
-        let eventID = placement.request.event.id
-        lifecycle.append("+" + eventID)
-        renderedEventIDs.append(eventID)
-        activeEventIDs.insert(eventID)
-        renderedPlacements.append(placement)
-        renderedElapsedSeconds.append(elapsedSeconds)
-        return true
+    /// 按发起顺序完成前 `count` 个延迟的准备（默认全部）；`reversed` 时倒序完成它们。
+    func completePreparations(_ count: Int? = nil, reversed: Bool = false) {
+        let completing = Array(delayedCompletions.prefix(count ?? delayedCompletions.count))
+        delayedCompletions.removeFirst(completing.count)
+        for item in reversed ? completing.reversed() : completing {
+            item.completion(.ready(DanmakuTextMetrics(width: 120, height: 24)))
+        }
     }
 
-    func completePreparation(_ preparationID: UInt64) {
-        preparationCompletions[preparationID]?(
-            .ready(DanmakuTextMetrics(width: 120, height: 24))
-        )
+    /// 不限纹理字节；已在屏的同一 ID 视为原位替换，记入 `replacedHistory`。
+    @discardableResult
+    func install(
+        _ placement: DanmakuLanePlacement,
+        preparationID: UInt64,
+        at position: Double
+    ) -> DanmakuInstallResult {
+        let eventID = placement.request.event.id
+        if installed[eventID] != nil {
+            replacedHistory.append(eventID)
+        } else {
+            installedHistory.append(eventID)
+        }
+        installed[eventID] = placement
+        notifyWaiters()
+        return DanmakuInstallResult(isInstalled: true, evictedEventIDs: [])
+    }
+
+    @discardableResult
+    func update(_ placement: DanmakuLanePlacement) -> Bool {
+        let eventID = placement.request.event.id
+        guard installed[eventID] != nil else { return false }
+        installed[eventID] = placement
+        notifyWaiters()
+        return true
     }
 
     func discardPreparation(preparationID: UInt64) {}
 
     func cancelPendingPreparations() {
-        cancelPreparationCount += 1
+        delayedCompletions.removeAll()
     }
 
     func remove(eventID: String) {
-        lifecycle.append("-" + eventID)
-        activeEventIDs.remove(eventID)
+        removedHistory.append(eventID)
+        installed[eventID] = nil
+        notifyWaiters()
     }
 
     func clearAll() {
         clearCount += 1
-        activeEventIDs.removeAll()
-    }
-
-    func setPlaybackRate(_ rate: Double) {
-        rates.append(rate)
-    }
-
-    func recompositeIfStill() {
-        recomposites.append((clearCount, renderedEventIDs.count))
+        delayedCompletions.removeAll()
+        installed.removeAll()
+        notifyWaiters()
     }
 
     func setOpacity(_ opacity: DanmakuOpacity) {}
@@ -169,10 +158,29 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
         width: Double,
         height: Double,
         backingScale: Double
-    ) {}
+    ) {
+        surfaceSizes.append((width, height))
+    }
 
     func stop() {
         stopCount += 1
-        activeEventIDs.removeAll()
+        delayedCompletions.removeAll()
+        installed.removeAll()
+        notifyWaiters()
+    }
+
+    /// 等到在屏状态满足 `isSatisfied`；每次在屏集合变化时检查。
+    func waitUntil(_ isSatisfied: @escaping @MainActor () -> Bool) async {
+        guard !isSatisfied() else { return }
+        await withCheckedContinuation { continuation in
+            waiters[UUID()] = (isSatisfied, continuation)
+        }
+    }
+
+    private func notifyWaiters() {
+        let ready = waiters.filter { $0.value.isSatisfied() }
+        for (id, waiter) in ready where waiters.removeValue(forKey: id) != nil {
+            waiter.continuation.resume()
+        }
     }
 }
