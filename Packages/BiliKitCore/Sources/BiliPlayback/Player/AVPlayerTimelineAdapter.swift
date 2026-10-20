@@ -277,8 +277,8 @@ final class AVPlayerTimelineAdapter {
             token: token,
             durationSeconds: Self.seconds(from: duration)
         )
-        // 从 playlist 起播位置开始的 item 一就绪就位于该处；标记不连续，弹幕等消费方从这里排起，
-        // 而不是把 0 到起播位置之间当作连续前进。
+        // 从 playlist 起播位置开始的 item 一就绪就位于该处；标记不连续，Now Playing 据此按起播位置
+        // 重新发布已播时长，而不是把 0 到起播位置之间当作连续前进。
         guard startPositionSeconds > 0 else { return }
         store.markDiscontinuity(
             token: token,
