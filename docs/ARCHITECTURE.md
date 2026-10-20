@@ -168,24 +168,30 @@ timebase 直接驱动（见下文「弹幕时钟层」与「弹幕」）；哪�
   原地的时间跳变（刚在原处 seek 过、落点还在吞的除外），它推进一次不连续代号。周期回调的位置照常写入。
 - progressive 单文件（充电试看、没有 DASH 的较早视频）没有 playlist，不续播，一律从头播放。
 - 弹幕时钟层（App `Platform/DanmakuTimebaseClock`，owner 是 `DanmakuOverlayView`）是一个普通
-  `CALayer`，本地时间严格等于当前 item `timebase` 的时间，不经过主线程：
-  - 驱动：经 `NotificationCenter`（queue 为 nil，同步执行）观察 timebase 的速率变化与时间跳变，回调只把
-    登记时的 generation 投递到私有串行队列。队列上 generation 不匹配就丢弃；否则用
-    `CMSyncGetRelativeRateAndAnchorTime` 读 timebase 相对宿主时钟的最新速率与锚点，外推到此刻 `now`，
-    在显式 `CATransaction` 里写 `beginTime = now`、`timeOffset`（此刻的媒体时间）与 `speed`（速率）。
-  - 绑定：`bind` 推进 generation、注销旧 timebase 的观察并登记新的，再主动同步一次（状态不变时没有
-    通知）；解绑时时钟层停在当前本地时间、速率 0。宿主在 `currentItem` 变化时先让呈现控制器清屏再换绑；
-    `AVPlayerItem` 创建后 `timebase` 就不是 nil，换 item 后是另一个对象。
+  `CALayer`，本地时间跟随当前 item `timebase` 的时间，更新不经过主线程：
+  - 驱动：经 `NotificationCenter`（queue 为 nil，同步执行）观察 timebase 的速率变化与时间跳变，回调只向
+    私有串行队列投递一次同步。队列上读当前绑定的 timebase，用 `CMSyncGetRelativeRateAndAnchorTime` 读它
+    相对宿主时钟的最新速率与锚点，外推到此刻 `now`，在显式 `CATransaction` 里写 `beginTime = now`、
+    `timeOffset`（此刻的媒体时间）与 `speed`（速率）。旧 timebase 迟到的通知只会让当前绑定多同步一次，
+    结果相同。
+  - 绑定：`bind` 注销旧 timebase 的观察并登记新的，再主动同步一次（状态不变时没有通知）；解绑时时钟层
+    停在当前本地时间、速率 0。宿主在 `currentItem` 变化时先让呈现控制器清屏再换绑；`AVPlayerItem` 创建
+    后 `timebase` 就不是 nil，换 item 后是另一个对象。
   - 约束：timebase 的通知由播放器的多个内部队列在持有 MediaToolbox 锁的线程上同步发出。回调里调用
     AVPlayer／AVPlayerItem 的 API（例如 `currentTime()`）必然死锁，回调里的任何等待都会原样延长持锁
     时间、挡住主线程，所以回调只投递；多个来源的通知到达顺序不保证，所以不用通知的 payload，而在队列上
-    读最新锚点；后台队列没有 runloop，隐式事务不会提交；`now` 取 `CACurrentMediaTime()`，前提是时钟层
-    的祖先都是没改时间属性的 AppKit 视图 layer。时钟层的时间属性只由该队列写，frame 与弹幕 layer 的增删
-    在主线程。
-  - 行为：`pause()` 后约 1ms timebase 速率变成 0，冻结点就是调用 `pause()` 的时刻，时钟层随之停下。
-    暂停时播放器持锁等待音频暂停握手（约 30ms）、设置 `rate`（35～135ms）都会挡住主线程，这不再让弹幕
-    多走一段后回退。timebase 自身的跳变照样跟随，不做平滑追赶：从暂停恢复时前跳约 20～40ms，播放中
-    seek 后起播时后退约 57ms。以上是在 macOS 27 上实测的系统行为。
+    读最新锚点；后台队列没有 runloop，隐式事务不会提交。时钟层的时间属性只由该队列写，frame 与弹幕
+    layer 的增删在主线程。
+  - 前提：`now` 取 `CACurrentMediaTime()`，要求时钟层的祖先都没有修改时间属性（`speed`、`timeOffset`、
+    `beginTime`），父层的本地时间才等于宿主时间。窗口内播放经测试与实测确认；detached 全屏与画中画下的
+    layer 树没有实测。
+  - 行为：`pause()` 后约 1ms timebase 速率变成 0，冻结点就是调用 `pause()` 的时刻。暂停时播放器持锁
+    等待音频暂停握手（约 30ms）、设置 `rate`（35～135ms）期间主线程被挡住，时钟层仍在 timebase 停下
+    或变速的时刻停下或变速。timebase 自身的跳变照样跟随，不做平滑追赶：从暂停恢复时前跳约 20～40ms，
+    播放中 seek 后起播时后退约 57ms。以上是在 macOS 27 上实测的系统行为。
+  - 已知边界：时钟层只在速率变化与时间跳变时与 timebase 对齐，两次之间按当时的速率外推。timebase 相对
+    宿主时钟有微小漂移且不为此发通知，长时间不暂停、不 seek 时会累积每小时几十毫秒量级的偏差（实测约
+    38ms/小时），下一次变化时消除。不做周期性重新同步。
   - 播放器宿主关闭 AVKit 的画面分析（`allowsVideoFrameAnalysis`），减少暂停时的主线程阻塞：它在
     `pause()` 内的 rate KVO 回调里于主线程读取 `currentTime`，多挡约 20ms。
 
