@@ -60,8 +60,10 @@ extension DanmakuLaneConfiguration {
 /// 只用来决定何时 reconcile。
 ///
 /// 取景框：布局表按规划画布排一次，规划尺寸取承载窗口的屏幕尺寸与窗口尺寸的较大者（逐个维度）。规划
-/// 尺寸、backing scale 或设置变化时整张重排，在一次暂存提交里瞬时替换整屏；窗口尺寸只决定露出布局表的
-/// 哪一部分，变化时不重排，只移动 backend 的锚定边并按新取景框普通对齐（见 docs/ARCHITECTURE.md「弹幕」）。
+/// 尺寸、backing scale 或设置变化时整张重排，在一次整屏暂存提交里瞬时替换整屏；分段到达只填补原本空着
+/// 的区域，它的暂存可以被重新对齐取代（见 `DanmakuMaterializer.StagedCommitKind`）。窗口尺寸只决定露出
+/// 布局表的哪一部分，变化时不重排，只移动 backend 的锚定边并按新取景框普通对齐（见
+/// docs/ARCHITECTURE.md「弹幕」）。
 ///
 /// 拥有布局 coordinator、materializer、布局设置（规划尺寸、速度、显示区域、密度、过滤）、窗口尺寸与 surface owner；
 /// 不拥有 layer 与纹理（backend），也不拥有时间线与分段加载（`DanmakuSession`）。surface owner ID 防止
@@ -129,8 +131,13 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     public init(backend: any DanmakuRenderingBackend) {
         self.backend = backend
         materializer = DanmakuMaterializer(backend: backend)
-        coordinator.tableDidChange = { [weak self] in
-            self?.reconcile(.staged)
+        coordinator.tableDidChange = { [weak self] change in
+            switch change {
+            case .relayout:
+                self?.reconcile(.staged(.wholeScreen))
+            case .segmentsAdded:
+                self?.reconcile(.staged(.supersedable))
+            }
         }
     }
 
@@ -182,7 +189,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         guard isEnabled != enabled else { return }
         isEnabled = enabled
         if enabled {
-            reconcile(.staged)
+            reconcile(.staged(.wholeScreen))
         } else {
             materializer.clear()
         }
@@ -227,7 +234,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         guard surfaceOwnerID != ownerID else { return }
         surfaceOwnerID = ownerID
         materializer.clear()
-        reconcile(.staged)
+        reconcile(.staged(.wholeScreen))
     }
 
     /// 只有当前 owner 能交还 surface，交还时清屏；返回是否生效。

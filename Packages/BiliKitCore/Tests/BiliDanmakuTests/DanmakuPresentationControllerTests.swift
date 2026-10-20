@@ -7,10 +7,10 @@ import Testing
 
 /// 固定呈现控制器的契约：画面在分段布局完成后按当前时刻整屏出现；何时对齐只看位置是否越出上次对齐的
 /// 覆盖区间（含回跳），与不连续代号无关，区间长于步长、不超过前瞻，区间内的跳变什么都不做；跳到纹理已
-/// 缓存的地方在一次调用里整屏换成那一刻的样子；连续拖动时已就绪的纹理每一步都挂上，停下后补齐落点（落点
-/// 分段未到时不留旧画面）；关闭弹幕清屏、打开恢复；设置变化整屏换成新布局；换视频清屏；换 item 只接受
-/// 当前 owner，清屏后直到新 item 的第一个快照才按原布局表挂回；旧 surface owner 的操作无效；窗口尺寸
-/// 变化不重排、立即按新取景框增删，屏幕尺寸变化整张重排。
+/// 缓存的地方在一次调用里整屏换成那一刻的样子；连续拖动时已就绪的纹理每一步都挂上，拖进未缓存区域、
+/// 分段陆续到达时也一样，停下后补齐落点（落点分段未到时不留旧画面）；关闭弹幕清屏、打开恢复；设置变化
+/// 整屏换成新布局；换视频清屏；换 item 只接受当前 owner，清屏后直到新 item 的第一个快照才按原布局表
+/// 挂回；旧 surface owner 的操作无效；窗口尺寸变化不重排、立即按新取景框增删，屏幕尺寸变化整张重排。
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct DanmakuPresentationControllerTests {
@@ -60,6 +60,39 @@ struct DanmakuPresentationControllerTests {
     }
 
     /// 落点分段还没到：按新时刻对齐（旧时刻的弹幕全部移走），分段到达后整屏挂上。
+    @Test
+    func draggingIntoUncachedSegmentsKeepsFollowing() async {
+        let (controller, backend) = await laidOutController(at: 30)
+        backend.delaysPreparation = true
+        let second = denseEvents(segment: 2, count: 900, seed: 151)
+        let third = denseEvents(segment: 3, count: 900, seed: 152)
+        func step(to position: Double) {
+            controller.apply(snapshot(identity: identity, position: position, generation: 1))
+            #expect(!backend.installed.isEmpty)
+            #expect(
+                backend.installedEventIDs.isSubset(of: expectedIDs(at: position, in: controller))
+            )
+            backend.completePreparations(backend.pendingPreparationCount / 2)
+        }
+
+        for (segments, start) in [
+            ([1: events(), 2: second], 400.0), ([1: events(), 2: second, 3: third], 730)
+        ] {
+            controller.apply(snapshot(identity: identity, position: start, generation: 1))
+            #expect(backend.installed.isEmpty)
+            let waiting = backend.pendingPreparationCount
+            controller.setSegments(segments, for: identity)
+            await backend.waitUntil { backend.pendingPreparationCount > waiting }
+            backend.completePreparations(backend.pendingPreparationCount / 2)
+            for offset in [1.6, 3.2, 4.8] {
+                step(to: start + offset)
+            }
+        }
+        backend.completePreparations()
+
+        #expect(backend.installedEventIDs == expectedIDs(at: 734.8, in: controller))
+    }
+
     @Test
     func farSeekShowsNothingStaleUntilItsSegmentArrives() async {
         let (controller, backend) = await laidOutController(at: 30)

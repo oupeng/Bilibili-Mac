@@ -130,13 +130,23 @@ struct DanmakuMaterializerTests {
         let wideViewport = viewport(width: 1_400)
         let backend = RecordingRenderingBackend()
         let materializer = DanmakuMaterializer(backend: backend)
-        materializer.reconcile(table: narrow, position: 120, viewport: fullViewport, mode: .staged)
+        materializer.reconcile(
+            table: narrow,
+            position: 120,
+            viewport: fullViewport,
+            mode: .staged(.wholeScreen)
+        )
         let before = backend.installed
         #expect(!before.isEmpty)
 
         // 新表里有旧屏上没有的弹幕：它们的纹理全部就绪之前，屏上原样不动。
         backend.delaysPreparation = true
-        materializer.reconcile(table: wide, position: 120, viewport: wideViewport, mode: .staged)
+        materializer.reconcile(
+            table: wide,
+            position: 120,
+            viewport: wideViewport,
+            mode: .staged(.wholeScreen)
+        )
         let waiting = backend.pendingPreparationCount
         #expect(waiting > 1)
         backend.completePreparations(waiting - 1)
@@ -161,12 +171,22 @@ struct DanmakuMaterializerTests {
         let wideViewport = viewport(width: 1_400)
         let backend = RecordingRenderingBackend()
         let materializer = DanmakuMaterializer(backend: backend)
-        materializer.reconcile(table: narrow, position: 120, viewport: fullViewport, mode: .staged)
+        materializer.reconcile(
+            table: narrow,
+            position: 120,
+            viewport: fullViewport,
+            mode: .staged(.wholeScreen)
+        )
         let before = backend.installed
         #expect(!before.isEmpty)
 
         backend.delaysPreparation = true
-        materializer.reconcile(table: wide, position: 120, viewport: wideViewport, mode: .staged)
+        materializer.reconcile(
+            table: wide,
+            position: 120,
+            viewport: wideViewport,
+            mode: .staged(.wholeScreen)
+        )
         #expect(materializer.isCommitPending)
         materializer.reconcile(
             table: wide,
@@ -185,6 +205,49 @@ struct DanmakuMaterializerTests {
         )
         #expect(backend.installed == placementsByID(expected))
         #expect(!materializer.isCommitPending)
+    }
+
+    @Test
+    func realignSupersedesAPendingSegmentArrival() {
+        let first = denseEvents(segment: 1, count: 300, seed: 141)
+        let second = denseEvents(segment: 2, count: 900, seed: 142)
+        let withoutSecond = layoutTable([1: first])
+        let withSecond = layoutTable([1: first, 2: second])
+        let backend = RecordingRenderingBackend()
+        let materializer = DanmakuMaterializer(backend: backend)
+        materializer.reconcile(
+            table: withoutSecond,
+            position: 400,
+            viewport: fullViewport,
+            mode: .realign
+        )
+        #expect(backend.installed.isEmpty)
+
+        backend.delaysPreparation = true
+        materializer.reconcile(
+            table: withSecond,
+            position: 400,
+            viewport: fullViewport,
+            mode: .staged(.supersedable)
+        )
+        #expect(materializer.isCommitPending)
+        backend.completePreparations(backend.pendingPreparationCount / 2)
+        #expect(backend.installed.isEmpty)
+
+        materializer.reconcile(
+            table: withSecond,
+            position: 401.6,
+            viewport: fullViewport,
+            mode: .realign
+        )
+        let expected = placementsByID(
+            DanmakuMaterializer.desiredPlacements(in: withSecond, at: 401.6, viewport: fullViewport)
+        )
+        #expect(!backend.installed.isEmpty)
+        #expect(backend.installed.allSatisfy { expected[$0.key] == $0.value })
+
+        backend.completePreparations()
+        #expect(backend.installed == expected)
     }
 
     @Test
@@ -227,12 +290,22 @@ struct DanmakuMaterializerTests {
         let table = layoutTable([1: denseEvents(segment: 1, count: 300, seed: 71)])
         let backend = RecordingRenderingBackend()
         let materializer = DanmakuMaterializer(backend: backend)
-        materializer.reconcile(table: table, position: 90, viewport: fullViewport, mode: .staged)
+        materializer.reconcile(
+            table: table,
+            position: 90,
+            viewport: fullViewport,
+            mode: .staged(.wholeScreen)
+        )
         let before = backend.installed
 
         materializer.clear()
         #expect(backend.installed.isEmpty)
-        materializer.reconcile(table: table, position: 90, viewport: fullViewport, mode: .staged)
+        materializer.reconcile(
+            table: table,
+            position: 90,
+            viewport: fullViewport,
+            mode: .staged(.wholeScreen)
+        )
         #expect(backend.installed == before)
     }
 
@@ -242,13 +315,23 @@ struct DanmakuMaterializerTests {
         let table = layoutTable([1: denseEvents(segment: 1, count: 300, seed: 81)])
         let backend = RecordingRenderingBackend()
         let materializer = DanmakuMaterializer(backend: backend)
-        materializer.reconcile(table: table, position: 150, viewport: fullViewport, mode: .staged)
+        materializer.reconcile(
+            table: table,
+            position: 150,
+            viewport: fullViewport,
+            mode: .staged(.wholeScreen)
+        )
         let before = backend.installed
         #expect(!before.isEmpty)
 
         backend.delaysPreparation = true
         materializer.setBackingScale(3)
-        materializer.reconcile(table: table, position: 150, viewport: fullViewport, mode: .staged)
+        materializer.reconcile(
+            table: table,
+            position: 150,
+            viewport: fullViewport,
+            mode: .staged(.wholeScreen)
+        )
         #expect(backend.pendingPreparationCount == before.count)
         backend.completePreparations(before.count - 1)
         #expect(backend.installed == before)
@@ -267,7 +350,12 @@ struct DanmakuMaterializerTests {
         let backend = RecordingRenderingBackend()
         backend.delaysPreparation = true
         let materializer = DanmakuMaterializer(backend: backend)
-        materializer.reconcile(table: table, position: 150, viewport: fullViewport, mode: .staged)
+        materializer.reconcile(
+            table: table,
+            position: 150,
+            viewport: fullViewport,
+            mode: .staged(.wholeScreen)
+        )
 
         backend.completePreparations(reversed: true)
         let expected = DanmakuMaterializer.desiredPlacements(
@@ -295,13 +383,18 @@ struct DanmakuMaterializerTests {
                 table: table,
                 position: 150,
                 viewport: viewport,
-                mode: .staged
+                mode: .staged(.wholeScreen)
             )
             return backend.installed
         }
         let backend = RecordingRenderingBackend()
         let materializer = DanmakuMaterializer(backend: backend)
-        materializer.reconcile(table: table, position: 150, viewport: small, mode: .staged)
+        materializer.reconcile(
+            table: table,
+            position: 150,
+            viewport: small,
+            mode: .staged(.wholeScreen)
+        )
         #expect(backend.installed == direct(small))
 
         materializer.reconcile(table: table, position: 150, viewport: large, mode: .incremental)
@@ -329,11 +422,21 @@ struct DanmakuMaterializerTests {
         let small = viewport(width: 1_200, height: 200)
         let backend = RecordingRenderingBackend()
         let materializer = DanmakuMaterializer(backend: backend)
-        materializer.reconcile(table: table, position: 150, viewport: large, mode: .staged)
+        materializer.reconcile(
+            table: table,
+            position: 150,
+            viewport: large,
+            mode: .staged(.wholeScreen)
+        )
         let before = backend.installed
 
         backend.delaysPreparation = true
-        materializer.reconcile(table: table, position: 151, viewport: large, mode: .staged)
+        materializer.reconcile(
+            table: table,
+            position: 151,
+            viewport: large,
+            mode: .staged(.wholeScreen)
+        )
         #expect(materializer.isCommitPending)
         materializer.reconcile(table: table, position: 151, viewport: small, mode: .incremental)
 
