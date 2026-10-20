@@ -150,9 +150,9 @@ session path，提供内存中生成的 master／media playlist，并把 AVPlaye
 `BiliApplication.PlaybackTimelineProviding` 是弹幕、Now Playing 与观看进度的唯一时间来源，由
 `BiliPlayback` 用 AVPlayer observation 与 item 通知实现，表达 item identity、位置、速率、状态与
 discontinuity generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CMTime`／KVO；各自 timer 无法正确
-表达卡顿、暂停、倍速和 seek。唯一的例外是弹幕动画本身：弹幕 layer 挂在播放器宿主的
-`AVSynchronizedLayer` 下，由 AVFoundation 按 item timebase 驱动（见「弹幕」）；哪些弹幕在屏上、何时请求
-分段仍按时间线快照决定，`BiliDanmaku` 不接触 AVFoundation。字幕作为原生 subtitle rendition 进入同一 `AVPlayerItem`，由系统字幕
+表达卡顿、暂停、倍速和 seek。唯一的例外是弹幕动画本身：弹幕 layer 挂在播放器宿主的时钟层下，由 item
+timebase 直接驱动（见下文「弹幕时钟层」与「弹幕」）；哪些弹幕在屏上、何时请求分段仍按时间线快照决定，
+`BiliDanmaku` 不接触 AVFoundation 与 Core Media。字幕作为原生 subtitle rendition 进入同一 `AVPlayerItem`，由系统字幕
 菜单选择。
 
 - 续播位置在 load 时写入 master playlist 的 `#EXT-X-START:TIME-OFFSET=…,PRECISE=YES`，item 就绪即
@@ -167,6 +167,27 @@ discontinuity generation。消费者不自建 wall-clock timer，也不接触 `A
   原地的时间跳变（刚在原处 seek 过、落点还在吞的除外），它推进一次不连续代号；弹幕因此多做一次内容相同的
   暂存提交，画面不变。周期回调的位置照常写入。
 - progressive 单文件（充电试看、没有 DASH 的较早视频）没有 playlist，不续播，一律从头播放。
+- 弹幕时钟层（App `Platform/DanmakuTimebaseClock`，owner 是 `DanmakuOverlayView`）是一个普通
+  `CALayer`，本地时间严格等于当前 item `timebase` 的时间，不经过主线程：
+  - 驱动：经 `NotificationCenter`（queue 为 nil，同步执行）观察 timebase 的速率变化与时间跳变，回调只把
+    登记时的 generation 投递到私有串行队列。队列上 generation 不匹配就丢弃；否则用
+    `CMSyncGetRelativeRateAndAnchorTime` 读 timebase 相对宿主时钟的最新速率与锚点，外推到此刻 `now`，
+    在显式 `CATransaction` 里写 `beginTime = now`、`timeOffset`（此刻的媒体时间）与 `speed`（速率）。
+  - 绑定：`bind` 推进 generation、注销旧 timebase 的观察并登记新的，再主动同步一次（状态不变时没有
+    通知）；解绑时时钟层停在当前本地时间、速率 0。宿主在 `currentItem` 变化时先让呈现控制器清屏再换绑；
+    `AVPlayerItem` 创建后 `timebase` 就不是 nil，换 item 后是另一个对象。
+  - 约束：timebase 的通知由播放器的多个内部队列在持有 MediaToolbox 锁的线程上同步发出。回调里调用
+    AVPlayer／AVPlayerItem 的 API（例如 `currentTime()`）必然死锁，回调里的任何等待都会原样延长持锁
+    时间、挡住主线程，所以回调只投递；多个来源的通知到达顺序不保证，所以不用通知的 payload，而在队列上
+    读最新锚点；后台队列没有 runloop，隐式事务不会提交；`now` 取 `CACurrentMediaTime()`，前提是时钟层
+    的祖先都是没改时间属性的 AppKit 视图 layer。时钟层的时间属性只由该队列写，frame 与弹幕 layer 的增删
+    在主线程。
+  - 行为：`pause()` 后约 1ms timebase 速率变成 0，冻结点就是调用 `pause()` 的时刻，时钟层随之停下。
+    暂停时播放器持锁等待音频暂停握手（约 30ms）、设置 `rate`（35～135ms）都会挡住主线程，这不再让弹幕
+    多走一段后回退。timebase 自身的跳变照样跟随，不做平滑追赶：从暂停恢复时前跳约 20～40ms，播放中
+    seek 后起播时后退约 57ms。以上是在 macOS 27 上实测的系统行为。
+  - 播放器宿主关闭 AVKit 的画面分析（`allowsVideoFrameAnalysis`），减少暂停时的主线程阻塞：它在
+    `pause()` 内的 rate KVO 回调里于主线程读取 `currentTime`，多挡约 20ms。
 
 ### 弹幕
 
@@ -197,16 +218,13 @@ discontinuity generation。消费者不自建 wall-clock timer，也不接触 `A
     应在的位置。播放中时间每推进 1 秒对齐一次；布局表替换、时间不连续、打开弹幕、接管 surface 时暂存提交：
     缺的纹理全部有结果后，在一次调用里按此刻完成整屏的移除、换车道与挂上，挂上按 (时间, ID) 顺序。窗口换到
     backing scale 不同的屏幕时，已在屏的弹幕也当作缺纹理重新准备，提交时原位换纹理，不先移除。
-  - 渲染：`rootLayer` 挂在播放器宿主（`DanmakuOverlayView`）的 `AVSynchronizedLayer` 下，子树的局部时间
-    就是播放 item 的时间。动画 `beginTime` 是弹幕的时间点（0 写成 `AVCoreAnimationBeginTimeAtZero`，由
-    App 注入，`BiliDanmaku` 不 import AVFoundation），`removedOnCompletion` 为 false；fillMode 保持默认，
+  - 渲染：`rootLayer` 挂在播放器宿主（`DanmakuOverlayView`）的时钟层下（见「媒体时间轴」），子树的局部
+    时间就是播放 item 的时间。动画 `beginTime` 是弹幕的时间点（0 写成时钟层定义的正数哨兵，由 App 注入：
+    Core Animation 把 0 当作「现在」），`removedOnCompletion` 为 false；fillMode 保持默认，
     动画区间外呈现回到模型值，所以模型值本身不可见（滚动弹幕在画面左外侧，顶部底部弹幕不透明度为 0），
-    可见区间由动画撑起。暂停、倍速、缓冲停顿、播放结束与暂停中 seek 都由 AVFoundation 调整同步 layer，
-    renderer 没有时钟；主线程卡顿时渲染服务器按原速率继续插值，之后精确跳回。暂停时播放器在持有内部锁的
-    状态下等待音频暂停握手约 30ms，期间主线程上任何读取 `currentTime` 的调用都会被挡住，所以暂停瞬间弹幕
-    仍会回退约 30ms 的位移：AVKit 控制条的读取无法避免；播放器宿主关闭 AVKit 的画面分析
-    （`allowsVideoFrameAnalysis`），去掉它在 `pause()` 内的 rate KVO 回调里额外造成的约 20ms 阻塞。同步 layer 不随
-    `replaceCurrentItem` 自动换绑：宿主在 `currentItem` 变化时先让呈现控制器清屏（只接受当前 surface
+    可见区间由动画撑起。暂停、倍速、缓冲停顿、播放结束与暂停中 seek 都由时钟层跟随 timebase，renderer
+    没有时钟；时钟层的更新不经过主线程，主线程卡顿（包括暂停时被播放器挡住）不影响弹幕的停与走。时钟层
+    不随 `replaceCurrentItem` 自动换绑：宿主在 `currentItem` 变化时先让呈现控制器清屏（只接受当前 surface
     owner，布局表保留），再换绑。以上是在 macOS 27 上用本地 HLS 与 mp4 实测的系统行为。
 - 取景框：布局表按规划画布排一次，窗口尺寸不是布局输入，只决定露出表中的哪一部分。规划尺寸逐个维度取
   承载窗口的屏幕尺寸（`NSScreen.frame`，全屏覆盖整块屏）与窗口尺寸的较大者，由 `DanmakuOverlayView`
@@ -247,7 +265,7 @@ discontinuity generation。消费者不自建 wall-clock timer，也不接触 `A
 - 纹理字节上限（64 MiB）只作内存安全阀，按全部 layer（含前瞻弹幕）计：超限时先移除已走完、还没等到
   对齐的，再由已进场的弹幕挤掉进场最晚的前瞻弹幕；前瞻弹幕之间不互相挤，超限即被拒。被拒的弹幕缺席，
   但不影响车道布局。
-- 弹幕由同步 layer 驱动，暂停时增删 layer 由系统照常合成，不需要主动请求重新合成。弹幕 layer 与 `rootLayer`
+- 弹幕由时钟层驱动，暂停时增删 layer 由系统照常合成，不需要主动请求重新合成。弹幕 layer 与 `rootLayer`
   用 `actions` 禁用上屏、移除、子层与几何变化的隐式动画，增删不另包显式事务（顶层显式事务会单独提交，
   把同一次对齐拆进不同的提交）。
 - 大会员彩色弹幕：元素字段 24 `colorful` 为 60001 时映射为 `DanmakuColorStyle.vipGradient`，其余类型按普通
@@ -588,8 +606,10 @@ gain 只压低不放大：`min(−18 LUFS − I, 0)`，下限 −12 dB。不放�
 - 第三方 DI、Coordinator 框架、Redux／TCA。
 - 每个模块独立 `Package.swift`；为单一调用方新建 renderer／Shared target。
 - Feature 直接观察 `AVPlayer`；字幕或弹幕独立 timer；弹幕放进 Feature 或在 `BiliDanmaku` 解码 wire。
-- 弹幕自建动画时钟（按快照改 `rootLayer` 的速率与时间）或靠识别 seek 清屏、补位：时钟切换与误判的跳变
-  都会闪，画面也依赖到达顺序；弹幕动画只由同步 layer 按 item 时间驱动。
+- 弹幕按时间线快照自建动画时钟（按快照改 `rootLayer` 的速率与时间）或靠识别 seek 清屏、补位：时钟切换与
+  误判的跳变都会闪，画面也依赖到达顺序；弹幕动画只由时钟层按 item timebase 驱动（见「媒体时间轴」）。
+- 弹幕挂在 `AVSynchronizedLayer` 下：它的速率与时间由 AVFoundation 在主线程更新，暂停时主线程被播放器
+  挡住期间它晚停 30～40ms，弹幕先多走一段再跳回。
 - 弹幕按窗口尺寸布局、resize 后去抖重排并整屏替换：拖动窗口边缘时画面整屏跳变，去抖期间还要为居中、
   贴底与按旧宽度运动写特判；取景框模型让 resize 只移动锚定边。
 - mpv 等第二播放后端；AVPlayer + loopback 能满足当前需求。
