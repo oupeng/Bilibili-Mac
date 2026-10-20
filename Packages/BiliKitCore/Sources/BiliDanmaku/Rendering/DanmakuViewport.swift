@@ -7,7 +7,7 @@ import Foundation
 /// 可见条件是 placement、媒体时间与窗口尺寸的纯函数：
 /// - 车道从各自的锚定边数起（滚动与顶部从顶边，底部从底边），占用的车道全部小于可见车道数才显示；
 ///   跨过可见边界的多车道弹幕整条不显示。
-/// - 滚动弹幕锚在右边缘，从进场到左缘走出窗口之前可见：
+/// - 滚动弹幕锚在右边缘，从进场到右缘（尾缘）越过窗口左边界之前可见：
 ///   t_i ≤ t < t_i + 时长 × (窗口宽 + w) / (规划宽 + w)。顶部与底部弹幕在整个停留时长内可见。
 ///
 /// 由 `DanmakuPresentationController` 按窗口尺寸与显示区域构造，交给 `DanmakuMaterializer`。
@@ -39,8 +39,8 @@ struct DanmakuViewport: Sendable, Equatable {
 
     /// 弹幕在窗口里可见到哪个媒体时刻为止。
     ///
-    /// 滚动弹幕按 placement 自己的匀速运动换算左缘走出窗口的时刻；窗口不比规划画布窄时就是
-    /// `expiresAtSeconds`。
+    /// 滚动弹幕按 placement 自己的匀速运动换算右缘（尾缘）越过窗口左边界的时刻；窗口不比规划画布窄
+    /// 时就是 `expiresAtSeconds`。
     func visibleUntil(_ placement: DanmakuLanePlacement) -> Double {
         switch placement.request.event.mode {
         case .top, .bottom:

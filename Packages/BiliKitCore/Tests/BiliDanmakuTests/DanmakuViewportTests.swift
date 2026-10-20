@@ -6,8 +6,8 @@ import Testing
 @testable import BiliDanmaku
 
 /// 固定取景框的契约：占用的车道全部在窗口的可见车道数之内才显示，跨过可见边界的整条不显示；滚动弹幕
-/// 锚在右边缘，左缘走出窗口时不再可见，窗口与规划画布一样宽时就是走完的时刻；顶部底部弹幕整个停留时长
-/// 可见。
+/// 锚在右边缘，右缘（尾缘）越过窗口左边界时不再可见，窗口与规划画布一样宽时就是走完的时刻；顶部底部
+/// 弹幕整个停留时长可见。
 @Suite
 struct DanmakuViewportTests {
     @Test(arguments: [DanmakuPresentationMode.scrolling, .top, .bottom])
@@ -30,10 +30,10 @@ struct DanmakuViewportTests {
     }
 
     @Test
-    func scrollingLeavesANarrowWindowWhenItsLeftEdgeCrossesIt() {
+    func scrollingLeavesANarrowWindowWhenItsTrailingEdgeCrossesIt() {
         let scrolling = placement(mode: .scrolling, lane: 0, height: 30, width: 100, duration: 13)
 
-        // 规划画布 1200pt：13 秒走完 1300pt，窗口 600pt 时走 700pt 后离开窗口。
+        // 规划画布 1200pt：13 秒走完 1300pt，窗口 600pt 时走 700pt 后右缘越过窗口左边界。
         let narrow = DanmakuViewport(width: 600, height: 200, displayAreaFraction: 1)
         #expect(abs(narrow.visibleUntil(scrolling) - (10 + 7)) < 1e-9)
         let full = DanmakuViewport(width: 1_200, height: 200, displayAreaFraction: 1)
