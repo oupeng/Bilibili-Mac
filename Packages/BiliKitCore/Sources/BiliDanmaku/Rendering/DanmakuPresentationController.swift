@@ -68,11 +68,11 @@ extension DanmakuLaneConfiguration {
 /// 旧 `AVPlayerView` 的迟到 resize/detach 操作清空新宿主。换 identity、`stopPresentation`、接管或交还
 /// surface 时清屏；关闭弹幕时清屏但保留布局表，打开时按当前时刻整屏挂上。
 ///
-/// 不连续：`discontinuityGeneration` 变化（seek、换项、续播起点、系统时间跳变）时按快照位置重新对齐
-/// 一次，暂存与否由 materializer 按缺纹理的情况决定（见 `DanmakuMaterializer.realign()`），否则按推进
-/// 步长普通对齐。弹幕不隐藏也不清屏，屏上的 layer 一直跟随媒体时间。原生拖动每一步都推进不连续代号，
-/// 每一步都重新对齐，已就绪的纹理随之挂上。从暂停恢复播放时系统报的原地跳变也推进代号，只多做一次
-/// 内容相同的对齐，画面不变。
+/// 何时对齐只看快照位置与上次对齐位置，不识别 seek 或拖动，也不读不连续代号：位置落在上次对齐的覆盖
+/// 区间 [上次对齐位置, 上次对齐位置 + `alignmentCoverageSeconds`) 里时，屏上已挂的就是此刻应有的，
+/// 只在推进满 `reconcileStride` 时普通对齐；越出区间（向前跳出或回跳）时重新对齐，暂存与否由
+/// materializer 按缺纹理的情况决定（见 `DanmakuMaterializer.realign()`）。恢复播放、timebase 重锚与
+/// 缓冲恢复时位置还在区间里，什么都不做。弹幕不隐藏也不清屏，屏上的 layer 一直跟随媒体时间。
 @MainActor
 public final class DanmakuPresentationController: DanmakuPresentationSink {
     /// 播放中两次普通 reconcile 之间至少推进的媒体时长。
@@ -80,6 +80,15 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     /// 快照每秒约 30 个，不必每个都 reconcile；它必须短于 `DanmakuMaterializer.lookaheadSeconds`，
     /// 即将进场的弹幕才能提前准备纹理。调小增加主线程开销，调大则走完的 layer 留得更久。
     static let reconcileStride = 1.0
+
+    /// 上次对齐覆盖的媒体时长：位置在 [上次对齐位置, 上次对齐位置 + 它) 里时不必重新对齐。
+    ///
+    /// 上次对齐挂上了进场时间不晚于「上次对齐位置 + 前瞻」的弹幕，区间比前瞻短 0.5 秒，留给之后才进场的
+    /// 弹幕准备纹理。它必须大于 `reconcileStride` 加单个快照的最大前进量（每秒约 30 个快照、最高 4 倍速时
+    /// 约 0.13 秒），否则正常播放会越过步长直接落到区间外；即使主线程卡顿跳出了区间，重新对齐时缺纹理的
+    /// 几乎只有前瞻弹幕，也走普通增量，画面不变。不能超过前瞻，否则向前跳到区间末尾时会缺已该进场的
+    /// 弹幕；调小则更多正常推进被当作重新对齐。
+    static let alignmentCoverageSeconds = 1.5
 
     private let backend: any DanmakuRenderingBackend
     private let coordinator = DanmakuLayoutCoordinator()
@@ -103,10 +112,10 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     private var backingScale = DanmakuTextureRasterizer.defaultBackingScale
     /// 最近一次快照；reconcile 用它的位置作为当前媒体时间。
     private var latestSnapshot: PlaybackTimelineSnapshot?
-    /// 最近一次 reconcile 时的位置；播放中推进超过 `reconcileStride` 才再 reconcile。
-    private var reconciledPosition: Double?
-    /// 最近一次见到的不连续代号；变化时按新位置重新对齐。
-    private var discontinuityGeneration: UInt64?
+    /// 最近一次对齐时的位置，覆盖区间从这里算起。
+    ///
+    /// 为 nil 时下一个快照重新对齐。任何一次 reconcile 都更新它，换 identity、停止与换 item 时清掉。
+    private var alignedPosition: Double?
 
     /// 窗口与屏幕尺寸由接管 surface 的宿主经 `updateSurface` 给出，之前不布局。
     public init(backend: any DanmakuRenderingBackend) {
@@ -140,13 +149,15 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         }
         latestSnapshot = snapshot
 
-        let isDiscontinuous = discontinuityGeneration != snapshot.discontinuityGeneration
-        discontinuityGeneration = snapshot.discontinuityGeneration
-        if isDiscontinuous {
+        let position = snapshot.positionSeconds
+        guard let aligned = alignedPosition,
+            position >= aligned,
+            position < aligned + Self.alignmentCoverageSeconds
+        else {
             reconcile(.realign)
-        } else if reconciledPosition.map({
-            abs(snapshot.positionSeconds - $0) >= Self.reconcileStride
-        }) ?? true {
+            return
+        }
+        if position - aligned >= Self.reconcileStride {
             reconcile(.incremental)
         }
     }
@@ -223,11 +234,12 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     /// 宿主的同步 layer 即将换绑到另一个播放 item：先清屏，再由宿主换绑；只接受当前 owner。
     ///
     /// 同步 layer 换绑后时间立刻按新 item 走，旧 layer 留着会在新时间线上错位，所以必须先清。布局表保留
-    /// （同一视频换线路或清晰度时仍然有效），下一个快照按新 item 的时刻整屏挂上。
+    /// （同一视频换线路或清晰度时仍然有效）；上次对齐位置一并清掉，否则新 item 的位置还在覆盖区间里，
+    /// 清空的屏不会再挂上。下一个快照按新 item 的时刻重新对齐，纹理多半还在缓存里，一次整屏挂上。
     public func playerItemWillChange(ownerID: UUID) {
         guard surfaceOwnerID == ownerID else { return }
         materializer.clear()
-        discontinuityGeneration = nil
+        alignedPosition = nil
     }
 
     /// 只接受当前 owner 的尺寸更新：`width`/`height` 是窗口里弹幕画面的尺寸，`screenWidth`/`screenHeight`
@@ -268,7 +280,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         guard let snapshot = latestSnapshot, snapshot.identity == identity, isEnabled else {
             return
         }
-        reconciledPosition = snapshot.positionSeconds
+        alignedPosition = snapshot.positionSeconds
         materializer.reconcile(
             table: layoutTable,
             position: snapshot.positionSeconds,
@@ -282,8 +294,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         coordinator.reset()
         materializer.clear()
         latestSnapshot = nil
-        reconciledPosition = nil
-        discontinuityGeneration = nil
+        alignedPosition = nil
     }
 
     /// 把当前设置与规划尺寸交给布局 coordinator；与上次相同时 coordinator 什么都不做，画面尚未布局

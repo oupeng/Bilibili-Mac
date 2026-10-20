@@ -9,7 +9,7 @@ import os
 /// clear 时统一释放，避免旧 item 继续推进弹幕、观看进度等时间线消费方。
 ///
 /// `discontinuityGeneration` 由 engine 的 seek 收尾与 `AVPlayerItem` 的 time-jump 通知推进；同一次 seek
-/// 的迟到或重复跳变按落点吞掉，不重复推进（Now Playing、观看进度与弹幕都依赖它只在真正不连续时前进）。
+/// 的迟到或重复跳变按落点吞掉，不重复推进（Now Playing 依赖它只在真正不连续时前进）。
 @MainActor
 final class AVPlayerTimelineAdapter {
     /// 已发出、尚未收尾的 seek：目标位置，以及是否已观察到落在目标附近的系统 time-jump。

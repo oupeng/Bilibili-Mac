@@ -5,9 +5,10 @@ import Testing
 
 @testable import BiliDanmaku
 
-/// 固定呈现控制器的契约：画面在分段布局完成后按当前时刻整屏出现；每次时间不连续都按那一刻对齐，连续
-/// 拖动时已就绪的纹理每一步都挂上，停下后补齐落点（落点分段未到时不留旧画面），原地跳变画面不变；关闭
-/// 弹幕清屏、打开恢复；设置变化整屏换成新布局；换视频清屏；换 item 只接受当前 owner，清屏后按原布局表
+/// 固定呈现控制器的契约：画面在分段布局完成后按当前时刻整屏出现；何时对齐只看位置是否越出上次对齐的
+/// 覆盖区间（含回跳），与不连续代号无关，区间内的跳变什么都不做；跳到纹理已缓存的地方在一次调用里整屏
+/// 换成那一刻的样子；连续拖动时已就绪的纹理每一步都挂上，停下后补齐落点（落点分段未到时不留旧画面）；
+/// 关闭弹幕清屏、打开恢复；设置变化整屏换成新布局；换视频清屏；换 item 只接受当前 owner，清屏后按原布局表
 /// 挂回；旧 surface owner 的操作无效；窗口尺寸变化不重排、立即按新取景框增删，屏幕尺寸变化整张重排。
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
@@ -24,16 +25,14 @@ struct DanmakuPresentationControllerTests {
         #expect(backend.installedEventIDs == expectedIDs(at: 30, in: controller))
     }
 
-    /// 拖动的每一步都推进不连续代号，每步都按那一刻整屏对齐，不清屏。
+    /// 不连续代号不变也照样对齐：每次跳到纹理已缓存的地方，都在这一次调用里整屏换成那一刻的样子，不清屏。
     @Test
-    func everyDragStepAlignsTheScreenToItsTime() async {
+    func everyJumpOutOfTheCoveredSpanAlignsTheScreenAtOnce() async {
         let (controller, backend) = await laidOutController(at: 30)
         let clearCount = backend.clearCount
 
-        for (step, position) in [120.0, 160, 200].enumerated() {
-            controller.apply(
-                snapshot(identity: identity, position: position, generation: 2 + UInt64(step))
-            )
+        for position in [120.0, 160, 200] {
+            controller.apply(snapshot(identity: identity, position: position, generation: 1))
             #expect(backend.installedEventIDs == expectedIDs(at: position, in: controller))
         }
         #expect(backend.clearCount == clearCount)
@@ -48,9 +47,7 @@ struct DanmakuPresentationControllerTests {
 
         let steps = Array(stride(from: 120.0, to: 140, by: 1.6))
         for (index, position) in steps.enumerated() {
-            controller.apply(
-                snapshot(identity: identity, position: position, generation: 2 + UInt64(index))
-            )
+            controller.apply(snapshot(identity: identity, position: position, generation: 1))
             let expected = expectedIDs(at: position, in: controller)
             if index > 0 {
                 #expect(!backend.installed.isEmpty)
@@ -81,16 +78,31 @@ struct DanmakuPresentationControllerTests {
         #expect(backend.installedEventIDs.allSatisfy { $0.hasPrefix("far-") })
     }
 
-    /// 从暂停恢复播放时的原地跳变也推进不连续代号：多做一次内容相同的对齐，画面不变、不清屏。
+    /// 恢复播放时的原地重锚这类跳变：即使推进了不连续代号，位置仍在覆盖区间里，不移除、不准备、不提交。
     @Test
-    func timeJumpInPlaceKeepsTheScreen() async {
+    func jumpInsideTheCoveredSpanDoesNothing() async {
         let (controller, backend) = await laidOutController(at: 30)
+        backend.delaysPreparation = true
         let before = backend.installed
+        let removed = backend.removedHistory.count
         let clearCount = backend.clearCount
 
-        controller.apply(snapshot(identity: identity, position: 30.05, generation: 2))
+        controller.apply(snapshot(identity: identity, position: 30.9, generation: 2))
         #expect(backend.installed == before)
+        #expect(backend.removedHistory.count == removed)
+        #expect(backend.pendingPreparationCount == 0)
         #expect(backend.clearCount == clearCount)
+    }
+
+    /// 回跳一小段也越出覆盖区间：重新对齐到新位置，挂回刚走完的弹幕、移走还不该前瞻的。
+    @Test
+    func jumpingBackRealignsEvenBySmallAmounts() async throws {
+        let (controller, backend) = await laidOutController(at: 30)
+        let target = 29.7
+        try #require(expectedIDs(at: target, in: controller) != backend.installedEventIDs)
+
+        controller.apply(snapshot(identity: identity, position: target, generation: 1))
+        #expect(backend.installedEventIDs == expectedIDs(at: target, in: controller))
     }
 
     @Test
