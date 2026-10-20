@@ -167,6 +167,34 @@ struct DanmakuLayoutPlannerTests {
         }
     }
 
+    /// 前缀稳定（取景框模型的前提）：规划车道更多的表裁到前 N 条车道，与只有 N 条车道的表完全一致。
+    ///
+    /// 只覆盖不叠放的密度档、单车道高度的弹幕且不触及同屏上限：叠放时 N 条车道的表把溢出的弹幕叠进前 N
+    /// 条车道，而车道更多的表把它们放进隐藏车道；多车道弹幕可能跨过可见边界、在隐藏中占住边界车道。
+    @Test(arguments: [(360.0, 180.0), (720.0, 200.0), (720.0, 36.0)])
+    func moreLanesAgreeWithFewerLanesOnTheSharedPrefix(
+        planningHeight: Double,
+        windowHeight: Double
+    ) throws {
+        let events = denseEvents(segment: 1, count: 1_200, seed: 13)
+        let planned = try #require(
+            layouts(
+                [1: events],
+                configuration: BiliDanmakuTests.configuration(surfaceHeight: planningHeight)
+            )?[1]?.placements
+        )
+        let direct = try #require(
+            layouts(
+                [1: events],
+                configuration: BiliDanmakuTests.configuration(surfaceHeight: windowHeight)
+            )?[1]?.placements
+        )
+        let viewport = BiliDanmakuTests.viewport(height: windowHeight)
+
+        #expect(planned.count > direct.count)
+        #expect(planned.filter(viewport.showsLanes(of:)) == direct)
+    }
+
     static let configuration = BiliDanmakuTests.configuration()
 
     private func layouts(
