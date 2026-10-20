@@ -302,6 +302,6 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
                 backingScale: backingScale,
                 filter: filter
             ) : nil
-        coordinator.setParameters(parameters, debounced: false)
+        coordinator.setParameters(parameters)
     }
 }
