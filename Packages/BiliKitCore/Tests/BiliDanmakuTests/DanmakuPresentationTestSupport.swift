@@ -5,14 +5,22 @@ import Testing
 
 @testable import BiliDanmaku
 
-/// 呈现测试的车道配置：800 × 360pt（10 条车道）、12pt 间距、全屏显示区域，只变化宽度。
-func configuration(surfaceWidth: Double = 800) -> DanmakuLaneConfiguration {
+/// 呈现测试的车道配置：默认 800 × 360pt（10 条车道）、12pt 间距、全屏显示区域、不叠放。
+func configuration(
+    surfaceWidth: Double = 800,
+    surfaceHeight: Double = 360
+) -> DanmakuLaneConfiguration {
     DanmakuLaneConfiguration(
         surfaceWidth: surfaceWidth,
-        surfaceHeight: 360,
+        surfaceHeight: surfaceHeight,
         minimumHorizontalGap: 12,
         displayAreaFraction: 1
     )
+}
+
+/// 显示区域为全屏的取景框；默认与 `configuration()` 的规划画布一样大。
+func viewport(width: Double = 800, height: Double = 360) -> DanmakuViewport {
+    DanmakuViewport(width: width, height: height, displayAreaFraction: 1)
 }
 
 /// 时间点与模式可变、文字与字号固定的弹幕。
@@ -36,9 +44,10 @@ func timedEvent(
 /// 用测试测量把分段排成布局表；设置取 `configuration()` 与默认速度。
 func layoutTable(
     _ segments: [Int: [DanmakuEvent]],
-    surfaceWidth: Double = 800
+    surfaceWidth: Double = 800,
+    surfaceHeight: Double = 360
 ) -> [Int: DanmakuSegmentLayout] {
-    let lanes = configuration(surfaceWidth: surfaceWidth)
+    let lanes = configuration(surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
     return DanmakuLayoutPlanner.layouts(
         for: segments,
         reusing: [:],

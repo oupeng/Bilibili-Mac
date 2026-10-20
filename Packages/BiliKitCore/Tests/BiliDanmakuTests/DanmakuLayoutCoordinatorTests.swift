@@ -5,8 +5,8 @@ import Testing
 
 @testable import BiliDanmaku
 
-/// 固定布局表 owner 的契约：设置变化后在后台整张重排、一次替换；过期设置的结果被丢弃；live resize
-/// 去抖后只按最后的尺寸重排；晚到的上一段排进来后，表与从头连续排一致。
+/// 固定布局表 owner 的契约：设置变化后在后台整张重排、一次替换；过期设置的结果被丢弃；晚到的上一段
+/// 排进来后，表与从头连续排一致。
 @Suite(.timeLimit(.minutes(1)))
 @MainActor
 struct DanmakuLayoutCoordinatorTests {
@@ -15,15 +15,15 @@ struct DanmakuLayoutCoordinatorTests {
         let coordinator = DanmakuLayoutCoordinator()
         let changes = TableChangeRecorder(coordinator)
         coordinator.setSegments([1: denseEvents(segment: 1, count: 120, seed: 1)])
-        coordinator.setParameters(parameters(width: 800), debounced: false)
+        coordinator.setParameters(parameters(width: 800))
         try await changes.wait(until: 1)
 
-        coordinator.setParameters(parameters(width: 1_200), debounced: false)
+        coordinator.setParameters(parameters(width: 1_200))
         try await changes.wait(until: 2)
 
         let placements = try #require(coordinator.layouts[1]?.placements)
         #expect(!placements.isEmpty)
-        #expect(placements.allSatisfy { $0.surfaceWidthAtAdmission == 1_200 })
+        #expect(placements.allSatisfy { $0.planningWidth == 1_200 })
     }
 
     /// 已有布局表时连改两次设置：第一次的任务在途时 generation 已经变了，它的结果被丢弃，表只换成最后
@@ -33,11 +33,11 @@ struct DanmakuLayoutCoordinatorTests {
         let coordinator = DanmakuLayoutCoordinator()
         let changes = TableChangeRecorder(coordinator)
         coordinator.setSegments([1: denseEvents(segment: 1, count: 120, seed: 2)])
-        coordinator.setParameters(parameters(width: 800), debounced: false)
+        coordinator.setParameters(parameters(width: 800))
         try await changes.wait(until: 1)
 
-        coordinator.setParameters(parameters(width: 960), debounced: false)
-        coordinator.setParameters(parameters(width: 640), debounced: false)
+        coordinator.setParameters(parameters(width: 960))
+        coordinator.setParameters(parameters(width: 640))
         try await changes.wait(until: 2)
 
         #expect(coordinator.layoutParameters == parameters(width: 640))
@@ -62,7 +62,7 @@ struct DanmakuLayoutCoordinatorTests {
                 weight: $0.weight
             )
         }
-        coordinator.setParameters(parameters(width: 800), debounced: false)
+        coordinator.setParameters(parameters(width: 800))
         coordinator.setSegments([1: original])
         coordinator.setSegments([1: replacement])
         try await changes.wait(until: 2)
@@ -73,28 +73,12 @@ struct DanmakuLayoutCoordinatorTests {
     }
 
     @Test
-    func liveResizeRelayoutsOnceWithTheLastSize() async throws {
-        let coordinator = DanmakuLayoutCoordinator()
-        let changes = TableChangeRecorder(coordinator)
-        coordinator.setSegments([1: denseEvents(segment: 1, count: 60, seed: 3)])
-        coordinator.setParameters(parameters(width: 800), debounced: false)
-        try await changes.wait(until: 1)
-
-        for width in stride(from: 810.0, through: 900, by: 10) {
-            coordinator.setParameters(parameters(width: width), debounced: true)
-        }
-        try await changes.wait(until: 2)
-
-        #expect(changes.parameters == [parameters(width: 800), parameters(width: 900)])
-    }
-
-    @Test
     func lateEarlierSegmentGivesTheSameTableAsContinuousLayout() async throws {
         let first = denseEvents(segment: 1, count: 300, seed: 4)
         let second = denseEvents(segment: 2, count: 300, seed: 5)
         let late = DanmakuLayoutCoordinator()
         let lateChanges = TableChangeRecorder(late)
-        late.setParameters(parameters(width: 800), debounced: false)
+        late.setParameters(parameters(width: 800))
         late.setSegments([2: second])
         try await lateChanges.wait(until: 1)
         late.setSegments([1: first, 2: second])
@@ -102,7 +86,7 @@ struct DanmakuLayoutCoordinatorTests {
 
         let continuous = DanmakuLayoutCoordinator()
         let continuousChanges = TableChangeRecorder(continuous)
-        continuous.setParameters(parameters(width: 800), debounced: false)
+        continuous.setParameters(parameters(width: 800))
         continuous.setSegments([1: first, 2: second])
         try await continuousChanges.wait(until: 1)
 

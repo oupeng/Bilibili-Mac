@@ -15,10 +15,15 @@ import QuartzCore
 /// 局部时间就是媒体时间：动画的 `beginTime` 是弹幕自己的时间点，暂停、倍速、seek 与缓冲停顿都由同步
 /// layer 处理，renderer 不维护时钟。时间点 0 不能直接写 0（Core Animation 会当作「现在」），用宿主
 /// 注入的 `beginTimeAtZero`。动画 `removedOnCompletion` 为 false、fillMode 保持默认：动画区间之外
-/// 呈现回到模型值，所以模型值本身不可见（滚动弹幕停在画面左外侧，顶部底部弹幕不透明度为 0），
+/// 呈现回到模型值，所以模型值本身不可见（滚动弹幕停在规划画布左外侧，顶部底部弹幕不透明度为 0），
 /// 区间之内由动画撑起。layer 何时移除由 `DanmakuMaterializer` 按媒体时间决定，renderer 不监听动画结束。
 ///
-/// 拥有 `rootLayer`、活动 layer 与纹理准备 owner；`rootLayer` 挂到哪里由 App 的 overlay 决定，内存压力
+/// 取景框：弹幕按规划画布布局，窗口只决定露出哪一部分（见 docs/ARCHITECTURE.md「弹幕」）。弹幕 layer
+/// 不直接挂在 `rootLayer` 下，而是挂在三个零尺寸的锚点层下：滚动弹幕锚在窗口右边缘、顶部弹幕锚在顶边
+/// 中点、底部弹幕锚在底边中点。弹幕在锚点局部坐标里的轨迹只由 placement 决定，窗口尺寸变化时只移动
+/// 锚点，不改任何弹幕的动画；超出窗口的部分由 `rootLayer` 裁掉。
+///
+/// 拥有 `rootLayer`、三个锚点层、活动 layer 与纹理准备 owner；`rootLayer` 挂到哪里由 App 的 overlay 决定，内存压力
 /// 监听由 App 窗口 adapter 持有。暂停时增删 layer 由系统照常合成，renderer 不需要主动请求重新合成。
 @MainActor
 public final class CoreAnimationDanmakuRenderer:
@@ -40,7 +45,7 @@ public final class CoreAnimationDanmakuRenderer:
     static let maximumActiveTextureByteCost = 64 * 1_024 * 1_024
     /// 每个弹幕 layer 上唯一的位移／显隐动画的 key。
     static let animationKey = "danmaku"
-    /// 弹幕 layer 与 `rootLayer` 上禁用的隐式动画：上屏、移除、子层与几何变化都不带过渡。
+    /// 弹幕 layer、锚点层与 `rootLayer` 上禁用的隐式动画：上屏、移除、子层与几何变化都不带过渡。
     ///
     /// 用 `actions` 逐个 layer 关掉，而不是给改动另包显式事务：顶层显式事务在 commit 时就单独提交，会把
     /// 同一次 reconcile 的增删拆进不同的提交；速率为 0 时移除的淡出过渡还会冻在第一帧。
@@ -50,6 +55,12 @@ public final class CoreAnimationDanmakuRenderer:
     ]
 
     public let rootLayer: CALayer
+    /// 滚动弹幕的锚点：位于窗口右边缘、顶边。
+    private let scrollingAnchor = CALayer()
+    /// 顶部弹幕的锚点：位于顶边中点。
+    private let topAnchor = CALayer()
+    /// 底部弹幕的锚点：位于底边中点。
+    private let bottomAnchor = CALayer()
 
     /// 媒体时间 0 对应的动画 `beginTime`，由宿主按同步 layer 的约定注入。
     private let beginTimeAtZero: CFTimeInterval
@@ -72,10 +83,16 @@ public final class CoreAnimationDanmakuRenderer:
         preparationOwner = DanmakuTexturePreparationOwner()
         rootLayer = CALayer()
         rootLayer.anchorPoint = .zero
-        // y 轴向下，与 allocator 自顶边计算的 `originY` 一致。
+        // y 轴向下：锚点层与弹幕 layer 继承这个方向，滚动与顶部弹幕的车道自顶边往下数。
         rootLayer.isGeometryFlipped = true
         rootLayer.masksToBounds = true
         rootLayer.actions = Self.disabledActions
+        for anchor in [scrollingAnchor, topAnchor, bottomAnchor] {
+            // 零尺寸：局部坐标原点就是 position，子层不被锚点自身裁剪。
+            anchor.bounds = .zero
+            anchor.actions = Self.disabledActions
+            rootLayer.addSublayer(anchor)
+        }
     }
 
     public func prepare(
@@ -139,7 +156,7 @@ public final class CoreAnimationDanmakuRenderer:
             layer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
             layer.shadowOpacity = 0
             layer.actions = Self.disabledActions
-            rootLayer.addSublayer(layer)
+            anchor(for: event.mode).addSublayer(layer)
         }
         configure(layer, for: placement)
         entries[event.id] = Entry(
@@ -235,6 +252,11 @@ public final class CoreAnimationDanmakuRenderer:
         CATransaction.commit()
     }
 
+    /// 窗口尺寸变化只移动三个锚点，不碰任何弹幕 layer 与动画。
+    ///
+    /// 不另包显式事务：`rootLayer` 与锚点已用 `actions` 禁用隐式动画，几何变化与调用方随后按新窗口
+    /// 立即做的增删（纹理已就绪的挂上、取景框外的移除）落在同一次隐式提交里。缺纹理的弹幕就绪后才挂上；
+    /// 暂存提交未完成时新露出的部分要等提交（见 `DanmakuMaterializer`），这期间那块区域是空的。
     public func updateSurfaceSize(
         width: Double,
         height: Double,
@@ -244,21 +266,14 @@ public final class CoreAnimationDanmakuRenderer:
             self.backingScale = backingScale
             preparationOwner.cancelAllPreparations()
         }
-        let oldSurfaceSize = surfaceSize
         surfaceSize = CGSize(
             width: max(width.isFinite ? width : 0, 0),
             height: max(height.isFinite ? height : 0, 0)
         )
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
         rootLayer.frame = CGRect(origin: .zero, size: surfaceSize)
-        for entry in entries.values {
-            updateFixedGeometry(
-                for: entry,
-                heightDelta: surfaceSize.height - oldSurfaceSize.height
-            )
-        }
-        CATransaction.commit()
+        scrollingAnchor.position = CGPoint(x: surfaceSize.width, y: 0)
+        topAnchor.position = CGPoint(x: surfaceSize.width / 2, y: 0)
+        bottomAnchor.position = CGPoint(x: surfaceSize.width / 2, y: surfaceSize.height)
     }
 
     /// 会话结束：取消在途准备并清屏。
@@ -272,25 +287,41 @@ public final class CoreAnimationDanmakuRenderer:
         seconds > 0 ? seconds : beginTimeAtZero
     }
 
-    /// 按 placement 设定 layer 的几何、不可见的模型值与唯一的动画；安装与布局替换共用。
+    /// 弹幕所属的锚点层；同一事件的模式不变，layer 一直挂在同一个锚点下。
+    private func anchor(for mode: DanmakuPresentationMode) -> CALayer {
+        switch mode {
+        case .scrolling: scrollingAnchor
+        case .top: topAnchor
+        case .bottom: bottomAnchor
+        }
+    }
+
+    /// 按 placement 设定 layer 在锚点局部坐标里的几何、不可见的模型值与唯一的动画；安装与布局替换共用。
+    ///
+    /// 局部坐标 y 轴向下（继承 `rootLayer` 的翻转）。滚动弹幕从右边缘外侧（x = +w/2）走到规划画布
+    /// 左外侧（x = −(规划宽度 + w/2)）；底部弹幕在底边之上，y 为负。
     private func configure(_ layer: CALayer, for placement: DanmakuLanePlacement) {
         let request = placement.request
         let width = request.width
         layer.bounds = CGRect(x: 0, y: 0, width: width, height: request.height)
-        let centerY = placement.originY + request.height / 2
         let animation: CABasicAnimation
         switch request.event.mode {
         case .scrolling:
-            // 模型值在画面左外侧：动画开始之前与结束之后都看不见。
-            layer.position = CGPoint(x: -width / 2, y: centerY)
+            // 模型值在规划画布左外侧：动画开始之前与结束之后都看不见。
+            let exitX = -(placement.planningWidth + width / 2)
+            layer.position = CGPoint(x: exitX, y: placement.edgeOffset + request.height / 2)
             layer.opacity = 1
             animation = CABasicAnimation(keyPath: "position.x")
-            animation.fromValue = placement.surfaceWidthAtAdmission + width / 2
-            animation.toValue = -width / 2
+            animation.fromValue = width / 2
+            animation.toValue = exitX
             animation.timingFunction = CAMediaTimingFunction(name: .linear)
         case .top, .bottom:
+            let centerY = placement.edgeOffset + request.height / 2
             // 模型不透明度为 0，停留期间由不透明度为 1 的动画撑起。
-            layer.position = CGPoint(x: surfaceSize.width / 2, y: centerY)
+            layer.position = CGPoint(
+                x: 0,
+                y: request.event.mode == .top ? centerY : -centerY
+            )
             layer.opacity = 0
             animation = CABasicAnimation(keyPath: "opacity")
             animation.fromValue = 1
@@ -300,24 +331,6 @@ public final class CoreAnimationDanmakuRenderer:
         animation.duration = request.durationSeconds
         animation.isRemovedOnCompletion = false
         layer.add(animation, forKey: Self.animationKey)
-    }
-
-    /// 顶部与底部弹幕随新宽度重新居中，底部弹幕随高度变化平移以贴住底边；滚动弹幕保持布局时的运动。
-    ///
-    /// 只在尺寸变化到按新尺寸重新布局之间起作用，重新布局后整屏换成新布局。
-    private func updateFixedGeometry(
-        for entry: Entry,
-        heightDelta: CGFloat
-    ) {
-        switch entry.placement.request.event.mode {
-        case .scrolling:
-            return
-        case .top:
-            entry.layer.position.x = surfaceSize.width / 2
-        case .bottom:
-            entry.layer.position.x = surfaceSize.width / 2
-            entry.layer.position.y += heightDelta
-        }
     }
 
     private func removeAllEntries() {

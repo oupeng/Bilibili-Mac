@@ -10,16 +10,10 @@ import Foundation
 /// 同一时刻最多一个布局任务：测量缓存在任务运行时整份移交给它、完成时交回，所以任务必须串行。
 /// 设置变化与 `reset` 递增 `generation` 并取消在途任务；任务完成时（含被取消）回到主线程交回缓存，
 /// generation 不等的结果整份丢弃，然后按待办开始下一个任务。设置变化后重排全部分段（传空的已有布局），
-/// 只有新分段时沿用仍有效的布局、只排新分段及其后受影响的分段。窗口 live resize 时尺寸变化去抖
-/// `resizeRelayoutDelay` 后才重排，期间屏上沿用旧布局。`deinit` 与 `reset` 取消任务与去抖计时。
+/// 只有新分段时沿用仍有效的布局、只排新分段及其后受影响的分段。窗口尺寸不是布局输入（画布是规划
+/// 尺寸，见 `DanmakuPresentationController`），所以拖动窗口边缘不会到这里。`deinit` 与 `reset` 取消任务。
 @MainActor
 final class DanmakuLayoutCoordinator {
-    /// live resize 时尺寸变化的去抖时长：最后一次尺寸变化之后这么久才按新尺寸整屏重排。
-    ///
-    /// 拖动窗口边缘时尺寸每帧都变，逐帧重排会反复替换整屏；调小在拖动中途就开始重排，调大则松手后
-    /// 旧布局多停留一会儿。
-    static let resizeRelayoutDelay = Duration.milliseconds(200)
-
     /// 布局表被替换后在主线程调用；调用时 `layouts` 已是新表。
     var tableDidChange: (@MainActor () -> Void)?
     /// 当前布局表：按分段号，只含已缓存的分段，全部按 `layoutParameters` 计算。
@@ -28,7 +22,7 @@ final class DanmakuLayoutCoordinator {
     private(set) var layoutParameters: DanmakuLayoutParameters?
 
     private var segments: [Int: [DanmakuEvent]] = [:]
-    /// 下一个布局任务使用的设置；画面尺寸还不可用时为 nil，不布局。
+    /// 下一个布局任务使用的设置；规划尺寸还不可用时为 nil，不布局。
     private var parameters: DanmakuLayoutParameters?
     /// 设置变化与 `reset` 时递增；任务带上开始时的值，完成时不等就丢弃结果。
     private var generation: UInt64 = 0
@@ -38,13 +32,9 @@ final class DanmakuLayoutCoordinator {
     private var job: Task<Void, Never>?
     /// 测量缓存；任务运行期间移交给任务，此处为 nil。
     private var measurementCache: DanmakuTextMeasurementCache? = DanmakuTextMeasurementCache()
-    /// 去抖中的尺寸变化；到点后按 `pendingParameters` 重排，期间的新变化重新计时。
-    private var debounceTask: Task<Void, Never>?
-    private var pendingParameters: DanmakuLayoutParameters?
 
     deinit {
         job?.cancel()
-        debounceTask?.cancel()
     }
 
     /// 换上会话当前缓存的全部分段；新分段排进布局表，被淘汰或内容变了的分段的布局随之丢弃。
@@ -57,52 +47,8 @@ final class DanmakuLayoutCoordinator {
         startIfNeeded()
     }
 
-    /// 换上新的布局设置；与当前设置相同时什么都不做。
-    ///
-    /// `debounced` 为 true（画面尺寸变化）且已有布局表时去抖，否则立即作废在途任务并全部重排。
-    func setParameters(
-        _ parameters: DanmakuLayoutParameters?,
-        debounced: Bool
-    ) {
-        if debounced, layoutParameters != nil, parameters != nil {
-            guard parameters != (pendingParameters ?? self.parameters) else { return }
-            pendingParameters = parameters
-            debounceTask?.cancel()
-            debounceTask = Task { [weak self] in
-                try? await Task.sleep(for: Self.resizeRelayoutDelay)
-                guard !Task.isCancelled else { return }
-                self?.applyPendingParameters()
-            }
-            return
-        }
-        cancelDebounce()
-        apply(parameters)
-    }
-
-    /// 换视频或会话结束：丢弃分段、布局表与在途结果；设置保留，去抖中的设置立即生效。
-    func reset() {
-        applyPendingParameters()
-        generation &+= 1
-        job?.cancel()
-        segments.removeAll(keepingCapacity: false)
-        layouts.removeAll(keepingCapacity: false)
-        layoutParameters = nil
-        needsFullRelayout = false
-    }
-
-    private func applyPendingParameters() {
-        guard let pending = pendingParameters else { return }
-        cancelDebounce()
-        apply(pending)
-    }
-
-    private func cancelDebounce() {
-        debounceTask?.cancel()
-        debounceTask = nil
-        pendingParameters = nil
-    }
-
-    private func apply(_ parameters: DanmakuLayoutParameters?) {
+    /// 换上新的布局设置；与当前设置相同时什么都不做，否则立即作废在途任务并全部重排。
+    func setParameters(_ parameters: DanmakuLayoutParameters?) {
         guard parameters != self.parameters else { return }
         self.parameters = parameters
         generation &+= 1
@@ -114,6 +60,16 @@ final class DanmakuLayoutCoordinator {
             tableDidChange?()
         }
         startIfNeeded()
+    }
+
+    /// 换视频或会话结束：丢弃分段、布局表与在途结果；设置保留。
+    func reset() {
+        generation &+= 1
+        job?.cancel()
+        segments.removeAll(keepingCapacity: false)
+        layouts.removeAll(keepingCapacity: false)
+        layoutParameters = nil
+        needsFullRelayout = false
     }
 
     /// 没有在途任务、设置可用且有待办（设置变化，或有分段还没有布局）时开始下一个任务。

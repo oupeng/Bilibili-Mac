@@ -7,7 +7,8 @@ import Testing
 
 /// 固定呈现控制器的契约：画面在分段布局完成后按当前时刻整屏出现；每次时间不连续（含拖动的每一步）都按
 /// 那一刻整屏对齐、作废之前没完成的准备（落点分段未到时不留旧画面），原地跳变画面不变；关闭弹幕清屏、打开恢复；设置变化整屏换成
-/// 新布局；换视频清屏；换 item 只接受当前 owner，清屏后按原布局表挂回；旧 surface owner 的操作无效。
+/// 新布局；换视频清屏；换 item 只接受当前 owner，清屏后按原布局表挂回；旧 surface owner 的操作无效；
+/// 窗口尺寸变化不重排、立即按新取景框增删，屏幕尺寸变化整张重排。
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct DanmakuPresentationControllerTests {
@@ -105,7 +106,8 @@ struct DanmakuPresentationControllerTests {
         await backend.waitUntil { backend.installed != before }
         let expected = DanmakuMaterializer.desiredPlacements(
             in: controller.layoutTable,
-            at: 30
+            at: 30,
+            viewport: controller.viewport
         )
         #expect(expected.allSatisfy { backend.installed[$0.request.event.id] == $0 })
         #expect(backend.installed.count == expected.count)
@@ -164,32 +166,125 @@ struct DanmakuPresentationControllerTests {
         controller.attachSurface(ownerID: second)
 
         let sizesBefore = backend.surfaceSizes.count
-        controller.updateSurface(width: 10, height: 10, backingScale: 2, ownerID: first)
+        controller.updateSurface(
+            width: 10,
+            height: 10,
+            screenWidth: 10,
+            screenHeight: 10,
+            backingScale: 2,
+            ownerID: first
+        )
         #expect(backend.surfaceSizes.count == sizesBefore)
         #expect(!controller.detachSurface(ownerID: first))
         #expect(controller.detachSurface(ownerID: second))
         #expect(backend.stopCount == 0)
     }
 
-    /// 由一个宿主接管、画面 800 × 360pt 的控制器。
-    private func makeController() -> (DanmakuPresentationController, RecordingRenderingBackend) {
+    /// 窗口缩小与放大都不重排：布局表与一开始就用小窗口时相同；增删当场按新取景框完成，不清屏；
+    /// 放大后的画面与一直是大窗口时相同，新露出的、正在飞的弹幕按原 placement 挂上。
+    @Test
+    func resizingKeepsTheTableAndAlignsTheVisibleSetAtOnce() async {
+        let screen = Size(width: 1_200, height: 720)
+        let owner = UUID()
+        let (controller, backend) = await laidOutController(
+            at: 30,
+            surfaceOwner: owner,
+            window: screen,
+            screen: screen
+        )
+        let table = controller.layoutTable
+        let fullScreen = backend.installed
+        let clearCount = backend.clearCount
+
+        resize(controller, owner: owner, window: Size(width: 600, height: 300), screen: screen)
+        #expect(controller.layoutTable.mapValues(\.placements) == table.mapValues(\.placements))
+        #expect(backend.installedEventIDs == expectedIDs(at: 30, in: controller))
+        #expect(backend.installed.count < fullScreen.count)
+        #expect(backend.clearCount == clearCount)
+
+        let (small, _) = await laidOutController(
+            at: 30,
+            window: Size(width: 600, height: 300),
+            screen: screen
+        )
+        #expect(small.layoutTable.mapValues(\.placements) == table.mapValues(\.placements))
+
+        resize(controller, owner: owner, window: screen, screen: screen)
+        #expect(backend.installed == fullScreen)
+        #expect(backend.clearCount == clearCount)
+    }
+
+    /// 换到尺寸不同的屏幕：按新的规划尺寸整张重排，整屏换成新布局。
+    @Test
+    func screenChangeRelaysOutTheWholeTable() async {
+        let owner = UUID()
+        let window = Size(width: 800, height: 360)
+        let (controller, backend) = await laidOutController(
+            at: 30,
+            surfaceOwner: owner,
+            window: window,
+            screen: window
+        )
+
+        resize(controller, owner: owner, window: window, screen: Size(width: 1_600, height: 900))
+        await backend.waitUntil {
+            !backend.installed.isEmpty
+                && backend.installed.values.allSatisfy { $0.planningWidth == 1_600 }
+        }
+        #expect(
+            controller.layoutTable.values.allSatisfy {
+                $0.placements.allSatisfy { $0.planningWidth == 1_600 }
+            }
+        )
+        #expect(backend.installedEventIDs == expectedIDs(at: 30, in: controller))
+    }
+
+    private struct Size {
+        let width: Double
+        let height: Double
+    }
+
+    private func resize(
+        _ controller: DanmakuPresentationController,
+        owner: UUID,
+        window: Size,
+        screen: Size
+    ) {
+        controller.updateSurface(
+            width: window.width,
+            height: window.height,
+            screenWidth: screen.width,
+            screenHeight: screen.height,
+            backingScale: 2,
+            ownerID: owner
+        )
+    }
+
+    /// 由一个宿主接管的控制器；默认窗口与屏幕都是 800 × 360pt，取景框就是整张规划画布。
+    private func makeController(
+        owner: UUID = UUID(),
+        window: Size = Size(width: 800, height: 360),
+        screen: Size = Size(width: 800, height: 360)
+    ) -> (DanmakuPresentationController, RecordingRenderingBackend) {
         let backend = RecordingRenderingBackend()
         let controller = DanmakuPresentationController(backend: backend)
-        let owner = UUID()
         controller.attachSurface(ownerID: owner)
-        controller.updateSurface(width: 800, height: 360, backingScale: 2, ownerID: owner)
+        resize(controller, owner: owner, window: window, screen: screen)
         return (controller, backend)
     }
 
     /// 暂停在 `position`、第一段已布局并挂上屏的控制器。
     private func laidOutController(
         at position: Double,
-        surfaceOwner: UUID? = nil
+        surfaceOwner: UUID? = nil,
+        window: Size = Size(width: 800, height: 360),
+        screen: Size = Size(width: 800, height: 360)
     ) async -> (DanmakuPresentationController, RecordingRenderingBackend) {
-        let (controller, backend) = makeController()
-        if let surfaceOwner {
-            controller.attachSurface(ownerID: surfaceOwner)
-        }
+        let (controller, backend) = makeController(
+            owner: surfaceOwner ?? UUID(),
+            window: window,
+            screen: screen
+        )
         controller.apply(
             snapshot(identity: identity, position: position, generation: 1, state: .paused)
         )
@@ -213,8 +308,12 @@ struct DanmakuPresentationControllerTests {
         in controller: DanmakuPresentationController
     ) -> Set<String> {
         Set(
-            DanmakuMaterializer.desiredPlacements(in: controller.layoutTable, at: position)
-                .map(\.request.event.id)
+            DanmakuMaterializer.desiredPlacements(
+                in: controller.layoutTable,
+                at: position,
+                viewport: controller.viewport
+            )
+            .map(\.request.event.id)
         )
     }
 }

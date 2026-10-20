@@ -27,7 +27,7 @@ struct DanmakuLaneAllocatorTests {
             admission.map(\.request.event.id)
                 == ["top", "bottom", "scroll"]
         )
-        #expect(admission.map(\.originY) == [0, 72, 0])
+        #expect(admission.map(\.edgeOffset) == [0, 0, 0])
     }
 
     @Test
@@ -51,7 +51,7 @@ struct DanmakuLaneAllocatorTests {
             admission.map(\.request.event.id)
                 == ["top", "scroll", "bottom"]
         )
-        #expect(admission.map(\.originY) == [0, 0, 0])
+        #expect(admission.map(\.edgeOffset) == [0, 0, 0])
     }
 
     @Test
@@ -288,7 +288,7 @@ struct DanmakuLaneAllocatorTests {
 
         #expect(admission.map(\.request.event.id) == ["large", "small"])
         #expect(admission.map(\.laneIndex) == [0, 2])
-        #expect(admission.map(\.originY) == [0, 72])
+        #expect(admission.map(\.edgeOffset) == [0, 72])
     }
 
     @Test(arguments: [DanmakuPresentationMode.top, .scrolling])
@@ -313,7 +313,7 @@ struct DanmakuLaneAllocatorTests {
     }
 
     @Test
-    func tallBottomRequestUsesItsMeasuredHeightFromSurfaceEdge() throws {
+    func tallBottomRequestSitsOnTheBottomEdge() throws {
         var allocator = DanmakuLaneAllocator(configuration: configuration())
         let admission = admit(
             &allocator,
@@ -323,21 +323,21 @@ struct DanmakuLaneAllocatorTests {
 
         let placement = try #require(admission.first)
         #expect(placement.laneIndex == 0)
-        #expect(placement.originY == 37)
-        #expect(placement.originY + placement.request.height == 108)
+        #expect(placement.laneSpan == 2)
+        #expect(placement.edgeOffset == 0)
     }
 
+    /// 顶部弹幕从顶边往下、底部弹幕从底边往上，各自数到显示区域的车道数为止。
     @Test(
         arguments: [
-            (0.5, [0, 36], [108, 72]),
-            (0.75, [0, 36, 72], [108, 72, 36]),
-            (1, [0, 36, 72, 108], [108, 72, 36, 0])
-        ] as [(Double, [Double], [Double])]
+            (0.5, [0, 36]),
+            (0.75, [0, 36, 72]),
+            (1, [0, 36, 72, 108])
+        ] as [(Double, [Double])]
     )
-    func displayAreaFractionMirrorsBottomFromSurfaceEdge(
+    func displayAreaFractionLimitsLanesFromEachEdge(
         fraction: Double,
-        expectedTop: [Double],
-        expectedBottom: [Double]
+        expectedOffsets: [Double]
     ) {
         var allocator = DanmakuLaneAllocator(
             configuration: configuration(
@@ -347,19 +347,19 @@ struct DanmakuLaneAllocatorTests {
         )
         let top = admit(
             &allocator,
-            expectedTop.indices.map { request(id: "top-\($0)", mode: .top) },
+            (0...expectedOffsets.count).map { request(id: "top-\($0)", mode: .top) },
             at: 0
         )
         let bottom = admit(
             &allocator,
-            expectedBottom.indices.map {
+            (0...expectedOffsets.count).map {
                 request(id: "bottom-\($0)", mode: .bottom)
             },
             at: 0
         )
 
-        #expect(top.map(\.originY) == expectedTop)
-        #expect(bottom.map(\.originY) == expectedBottom)
+        #expect(top.map(\.edgeOffset) == expectedOffsets)
+        #expect(bottom.map(\.edgeOffset) == expectedOffsets)
     }
 
     @Test(arguments: DanmakuDisplayArea.allCases)
