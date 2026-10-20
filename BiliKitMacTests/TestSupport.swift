@@ -1,3 +1,4 @@
+import AVFoundation
 import AppKit
 import BiliApplication
 import BiliDanmaku
@@ -18,6 +19,18 @@ import Testing
 @MainActor
 func danmakuLayers(of renderer: CoreAnimationDanmakuRenderer) -> [CALayer] {
     (renderer.rootLayer.sublayers ?? []).flatMap { $0.sublayers ?? [] }
+}
+
+/// 在 `directory` 写一段静音的 PCM 音频：有音轨，播放器按音频时钟驱动 item 的 timebase。
+func writeSilentAudio(seconds: Double, in directory: URL) throws -> URL {
+    let url = directory.appendingPathComponent("silence-\(UUID().uuidString).caf")
+    let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2))
+    let file = try AVAudioFile(forWriting: url, settings: format.settings)
+    let frameCount = AVAudioFrameCount(seconds * format.sampleRate)
+    let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount))
+    buffer.frameLength = frameCount
+    try file.write(from: buffer)
+    return url
 }
 
 /// 在一次性的 UserDefaults suite 中执行；前后都清空，测试之间、测试与真实偏好互不影响。

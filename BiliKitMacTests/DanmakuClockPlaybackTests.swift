@@ -10,8 +10,8 @@ import Testing
 
 /// 固定弹幕时间来自真实播放器的契约。
 ///
-/// 证明的范围：弹幕 layer 挂在宿主的时钟层下，时钟绑定的是当前 item 的 timebase，局部时间等于播放
-/// item 的时间，暂停中 seek、开播、两倍速与再暂停之后都一致（时钟层异步落地，等到一致为止）；媒体时间
+/// 证明的范围：弹幕 layer 挂在宿主的时钟层下，局部时间等于播放 item 的时间，暂停中 seek、开播、两倍速
+/// 与再暂停之后都一致（时钟层在后台队列上异步落地，等到一致为止）；媒体时间
 /// 0 的弹幕用时钟定义的哨兵开始，在真实播放下处于可见区间；暂停中 seek 之后开播，屏上仍是同一组
 /// layer（呈现控制器没有清屏重建）。
 ///
@@ -22,7 +22,7 @@ import Testing
 /// 全屏下的同步。
 @Suite(.serialized, .timeLimit(.minutes(1)))
 @MainActor
-struct DanmakuSynchronizedPlaybackTests {
+struct DanmakuClockPlaybackTests {
     /// 局部时间与 item 时间的容差（秒）：两者在不同时刻读取，播放中相差约一次读取的间隔。
     private static let timeTolerance = 0.05
 
@@ -32,7 +32,7 @@ struct DanmakuSynchronizedPlaybackTests {
             .appendingPathComponent("danmaku-sync-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let mediaURL = try Self.writeSilentAudio(seconds: 8, in: directory)
+        let mediaURL = try writeSilentAudio(seconds: 8, in: directory)
 
         let renderer = CoreAnimationDanmakuRenderer(
             beginTimeAtZero: DanmakuTimebaseClock.beginTimeAtMediaZero
@@ -65,7 +65,6 @@ struct DanmakuSynchronizedPlaybackTests {
         view.startObservingPlayerItemChanges()
         view.layoutSubtreeIfNeeded()
         #expect(await waitUntil(timeout: .seconds(10)) { item.status == .readyToPlay })
-        #expect(view.danmakuOverlay.boundTimebase === item.timebase)
 
         // 暂停中 seek 到 2 秒，弹幕按 2 秒整屏挂上。
         player.pause()
@@ -184,19 +183,5 @@ struct DanmakuSynchronizedPlaybackTests {
             colorStyle: .solid,
             weight: 1
         )
-    }
-
-    /// 写一段静音的 PCM 音频：有音轨，播放器按音频时钟驱动 timebase。
-    private static func writeSilentAudio(seconds: Double, in directory: URL) throws -> URL {
-        let url = directory.appendingPathComponent("silence.caf")
-        let format = try #require(
-            AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)
-        )
-        let file = try AVAudioFile(forWriting: url, settings: format.settings)
-        let frameCount = AVAudioFrameCount(seconds * format.sampleRate)
-        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount))
-        buffer.frameLength = frameCount
-        try file.write(from: buffer)
-        return url
     }
 }

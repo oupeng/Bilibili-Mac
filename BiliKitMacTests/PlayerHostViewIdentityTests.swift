@@ -119,7 +119,9 @@ struct PlayerHostViewIdentityTests {
     }
 
     /// 弹幕时钟不会随 `replaceCurrentItem` 自动换绑：宿主在 `currentItem` 变化时先清屏，再换绑到新 item
-    /// 的 timebase，旧 item 的弹幕不会留在新 item 的时间线上。
+    /// 的 timebase，旧 item 的弹幕不会留在新 item 的时间线上，弹幕的局部时间随即等于新 item 的时间。
+    ///
+    /// 两个 item 用同一段带音轨的本地静音媒体：旧 item 先 seek 到 3 秒，新 item 从 0 开始，两者可区分。
     @Test
     @MainActor
     func danmakuClockFollowsTheCurrentItemAndClearsOnReplacement() async throws {
@@ -142,12 +144,25 @@ struct PlayerHostViewIdentityTests {
         )
         window.contentView?.addSubview(view)
         view.layoutSubtreeIfNeeded()
-        let first = AVPlayerItem(url: URL(fileURLWithPath: "/nonexistent/first.mp4"))
-        let second = AVPlayerItem(url: URL(fileURLWithPath: "/nonexistent/second.mp4"))
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("danmaku-item-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let mediaURL = try writeSilentAudio(seconds: 8, in: directory)
+        let first = AVPlayerItem(url: mediaURL)
+        let second = AVPlayerItem(url: mediaURL)
         let player = AVPlayer(playerItem: first)
         view.player = player
         view.startObservingPlayerItemChanges()
-        #expect(view.danmakuOverlay.boundTimebase === first.timebase)
+        defer { view.stopObservingPlayerItemChanges() }
+        #expect(await waitUntil(timeout: .seconds(10)) { first.status == .readyToPlay })
+        await player.seek(to: CMTime(seconds: 3, preferredTimescale: 600))
+        #expect(
+            await waitUntil(timeout: .seconds(5)) {
+                first.currentTime().seconds > 2.9
+                    && localTime(of: renderer.rootLayer, matches: first)
+            }
+        )
 
         let identity = PlaybackItemIdentity(bvid: "item-fixture", cid: 1)
         controller.apply(pausedSnapshot(identity: identity, position: 1))
@@ -159,13 +174,19 @@ struct PlayerHostViewIdentityTests {
 
         player.replaceCurrentItem(with: second)
         #expect(
-            await waitUntil {
-                view.danmakuOverlay.boundTimebase === second.timebase
+            await waitUntil(timeout: .seconds(5)) {
+                danmakuLayers(of: renderer).isEmpty
+                    && localTime(of: renderer.rootLayer, matches: second)
             }
         )
-        #expect(danmakuLayers(of: renderer).isEmpty)
+        #expect(second.currentTime().seconds < 1)
         #expect(renderer.rootLayer.superlayer != nil)
-        view.stopObservingPlayerItemChanges()
+    }
+
+    /// 弹幕层的局部时间与 item 时间相差不到 0.05 秒（两者在不同时刻读取）。
+    @MainActor
+    private func localTime(of layer: CALayer, matches item: AVPlayerItem) -> Bool {
+        abs(layer.convertTime(CACurrentMediaTime(), from: nil) - item.currentTime().seconds) < 0.05
     }
 
     private func danmakuEvent(
