@@ -9,7 +9,7 @@ import os
 /// clear 时统一释放，避免旧 item 继续推进弹幕、观看进度等时间线消费方。
 ///
 /// `discontinuityGeneration` 由 engine 的 seek 收尾与 `AVPlayerItem` 的 time-jump 通知推进；同一次 seek
-/// 的迟到或重复跳变按落点吞掉，不重复推进（Now Playing、观看进度与弹幕都依赖它只在真正不连续时前进）。
+/// 的迟到或重复跳变按落点吞掉，不重复推进（Now Playing 依赖它只在真正不连续时前进）。
 @MainActor
 final class AVPlayerTimelineAdapter {
     /// 已发出、尚未收尾的 seek：目标位置，以及是否已观察到落在目标附近的系统 time-jump。
@@ -277,8 +277,8 @@ final class AVPlayerTimelineAdapter {
             token: token,
             durationSeconds: Self.seconds(from: duration)
         )
-        // 从 playlist 起播位置开始的 item 一就绪就位于该处；标记不连续，弹幕等消费方从这里排起，
-        // 而不是把 0 到起播位置之间当作连续前进。
+        // 从 playlist 起播位置开始的 item 一就绪就位于该处；标记不连续，Now Playing 据此按起播位置
+        // 重新发布已播时长，而不是把 0 到起播位置之间当作连续前进。
         guard startPositionSeconds > 0 else { return }
         store.markDiscontinuity(
             token: token,
