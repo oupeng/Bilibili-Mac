@@ -32,8 +32,8 @@ final class DanmakuOverlayView: NSView {
     private var previousScreenSize: CGSize?
     private var previousBackingScale: CGFloat?
     private var isSurfaceAttached = false
-    /// 当前观察换屏通知的窗口；离开窗口时据此注销。
-    private weak var observedWindow: NSWindow?
+    /// 是否已登记换屏与屏幕参数通知；进入窗口时登记一次，离开窗口时按名字整体注销，不依赖窗口引用。
+    private var isObservingScreenChanges = false
 
     init(
         renderer: CoreAnimationDanmakuRenderer,
@@ -98,15 +98,13 @@ final class DanmakuOverlayView: NSView {
     /// 仅由当前 surface owner 发布窗口尺寸、屏幕尺寸与 backing scale。
     ///
     /// 窗口尺寸变化只移动取景框；屏幕尺寸或 scale 变化时呈现控制器整张重排，并在一次提交里瞬时替换整屏。
-    /// 屏幕取 `frame` 而不是 `visibleFrame`：全屏时画面覆盖整块屏幕，菜单栏与 Dock 不占位。
+    /// 屏幕取 `frame` 而不是 `visibleFrame`：全屏时画面覆盖整块屏幕，菜单栏与 Dock 不占位。不在窗口里时
+    /// 不发布（拿不到承载它的屏幕，用别的屏幕会按错误的规划尺寸重排）；窗口完全在屏幕外时屏幕尺寸按 0
+    /// 发布，规划尺寸退回窗口尺寸。
     func updateSurfaceIfNeeded() {
-        guard bounds.width > 0, bounds.height > 0 else { return }
-        let screen = window?.screen ?? NSScreen.main
-        let backingScale =
-            window?.backingScaleFactor
-            ?? screen?.backingScaleFactor
-            ?? 2
-        let screenSize = screen?.frame.size ?? .zero
+        guard let window, bounds.width > 0, bounds.height > 0 else { return }
+        let backingScale = window.backingScaleFactor
+        let screenSize = window.screen?.frame.size ?? .zero
         guard
             bounds.size != previousSize
                 || screenSize != previousScreenSize
@@ -141,9 +139,8 @@ final class DanmakuOverlayView: NSView {
     /// 窗口换到另一块屏幕、或屏幕分辨率与排列变化时重新发布尺寸；backing scale 的变化另由
     /// `viewDidChangeBackingProperties` 覆盖，但同 scale 不同尺寸的屏幕只有这两个通知。
     private func startObservingScreenChanges(of window: NSWindow) {
-        guard observedWindow !== window else { return }
-        stopObservingScreenChanges()
-        observedWindow = window
+        guard !isObservingScreenChanges else { return }
+        isObservingScreenChanges = true
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(screenDidChange),
@@ -158,13 +155,14 @@ final class DanmakuOverlayView: NSView {
         )
     }
 
+    /// `object` 传 nil：注销本视图在这个名字下的全部登记，与当时登记的是哪个窗口无关。
     private func stopObservingScreenChanges() {
-        guard let window = observedWindow else { return }
-        observedWindow = nil
+        guard isObservingScreenChanges else { return }
+        isObservingScreenChanges = false
         NotificationCenter.default.removeObserver(
             self,
             name: NSWindow.didChangeScreenNotification,
-            object: window
+            object: nil
         )
         NotificationCenter.default.removeObserver(
             self,
