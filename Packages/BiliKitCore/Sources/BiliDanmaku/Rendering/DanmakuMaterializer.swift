@@ -1,20 +1,23 @@
 import BiliModels
 import Foundation
 
-/// 让 backend 上的弹幕 layer 等于布局表在当前媒体时间应有的集合。
+/// 让 backend 上的弹幕 layer 等于布局表在当前媒体时间、当前取景框下应有的集合。
 ///
-/// 对给定时刻 t，应在 backend 上的是布局表里 `admittedAt ≤ t + lookahead` 且 `expiresAt > t` 的
-/// placement：已经进场、还没走完的，加上不久就要进场、提前以将来的开始时间挂上的。layer 按媒体时间
-/// 运动，所以同一张布局表下，seek 到 t 之后 reconcile 一次与连续推进到 t 得到同一组 layer；
-/// 不需要补位、去重或投递游标。纹理迟到时挂上去也直接出现在中途应在的位置。
+/// 对给定时刻 t，应在 backend 上的是布局表里 `admittedAt ≤ t + lookahead`、在取景框里可见到 t 之后、
+/// 且车道落在取景框里的 placement（见 `DanmakuViewport`）：已经进场、还在窗口里的，加上不久就要进场、
+/// 提前以将来的开始时间挂上的。layer 按媒体时间运动，所以同一张布局表下，seek 到 t 之后 reconcile 一次
+/// 与连续推进到 t 得到同一组 layer；不需要补位、去重或投递游标。纹理迟到时挂上去也直接出现在中途应在
+/// 的位置。窗口尺寸变化只换取景框、走普通 reconcile：放大时补上新露出的、正在飞的弹幕，缩小时移除被裁
+/// 掉的。
 ///
 /// 拥有在屏 placement 的记录、在途纹理准备与「暂存提交」；不拥有布局表（`DanmakuLayoutCoordinator`）
 /// 与 layer（backend）。两种 reconcile：
 /// - 普通：增删与布局替换立即生效，缺纹理的弹幕各自准备好时再挂上；时间推进时使用。
 /// - 暂存：先为应在屏而缺纹理的弹幕准备纹理，全部有结果（就绪或被拒）后才在一次调用里按此刻的媒体
 ///   时间移除、替换并挂上全部弹幕，落在同一次 Core Animation 提交里；缓存全部命中时当场完成。布局表
-///   替换、时间不连续（seek、换项）、打开弹幕与接管 surface 时使用，整屏因此一次换成新的样子。暂存期间的普通 reconcile
-///   推迟到提交之后再做一次。
+///   替换、时间不连续（seek、换项）、打开弹幕与接管 surface 时使用，整屏因此一次换成新的样子。暂存期间的
+///   普通 reconcile 只立即移除按自己的 placement 已不在取景框里的 layer（窗口缩小或时间推进），其余推迟到
+///   提交之后再做一次；提交按最新的取景框决定挂上哪些，窗口放大时新露出的部分要等到提交。
 ///
 /// `preparationGeneration` 在 `clear` 与 backing scale 变化时递增；准备请求带上发起时的值，完成时不等、
 /// 或这条弹幕已不在待准备记录里（不再需要或已换成新的请求），结果就被丢弃。
@@ -57,6 +60,8 @@ final class DanmakuMaterializer {
     private var backingScale = DanmakuTextureRasterizer.defaultBackingScale
     private var table: [Int: DanmakuSegmentLayout] = [:]
     private var position = 0.0
+    /// 最近一次 reconcile 的取景框；暂存提交与迟到的纹理都按它判断可见。
+    private var viewport = DanmakuViewport(width: 0, height: 0, displayAreaFraction: 0)
 
     init(backend: any DanmakuRenderingBackend) {
         self.backend = backend
@@ -65,15 +70,16 @@ final class DanmakuMaterializer {
     /// 是否有等待中的暂存提交。
     var isCommitPending: Bool { awaitedByCommit != nil }
 
-    /// 布局表在 `position` 时刻应在 backend 上的 placement，按 (时间, ID) 排序。
+    /// 布局表在 `position` 时刻、`viewport` 取景框下应在 backend 上的 placement，按 (时间, ID) 排序。
     static func desiredPlacements(
         in table: [Int: DanmakuSegmentLayout],
-        at position: Double
+        at position: Double,
+        viewport: DanmakuViewport
     ) -> [DanmakuLanePlacement] {
         var desired: [DanmakuLanePlacement] = []
         for layout in table.values {
             let candidates = layout.placements(at: position, lookahead: lookaheadSeconds)
-            desired.append(contentsOf: candidates.filter { $0.expiresAtSeconds > position })
+            desired.append(contentsOf: candidates.filter { viewport.shows($0, at: position) })
         }
         desired.sort(by: DanmakuLanePlacement.precedes)
         return desired
@@ -86,17 +92,23 @@ final class DanmakuMaterializer {
         Dictionary(placements.map { ($0.request.event.id, $0) }) { first, _ in first }
     }
 
-    /// 按布局表与媒体时间对齐 backend；`staged` 见类型说明。
+    /// 按布局表、媒体时间与取景框对齐 backend；`staged` 见类型说明。
     func reconcile(
         table: [Int: DanmakuSegmentLayout],
         position: Double,
+        viewport: DanmakuViewport,
         staged: Bool
     ) {
         self.table = table
         self.position = position
+        self.viewport = viewport
         if staged {
             beginStagedCommit()
         } else if isCommitPending {
+            // 暂存提交未完成时窗口变了：取景框外已挂上的弹幕立即移除，否则锚点已按新窗口移动，缩小时
+            // 会露出 N 以外车道的弹幕。只移除、不换 placement，提交前屏上仍是旧表；新露出的部分等提交，
+            // 提交按最新的表、时间与取景框挂上。
+            removeInstalledOutsideViewport()
             reconcilesAfterCommit = true
         } else {
             reconcileNow()
@@ -136,7 +148,7 @@ final class DanmakuMaterializer {
     private func beginStagedCommit() {
         // 新的暂存提交取代旧的：旧的已就绪纹理仍可用，并入这一次。
         awaitedByCommit = []
-        let desired = Self.desiredPlacements(in: table, at: position)
+        let desired = Self.desiredPlacements(in: table, at: position, viewport: viewport)
         let desiredByID = Self.byEventID(desired)
         discardPreparations(notIn: desiredByID)
         for placement in desired {
@@ -155,7 +167,7 @@ final class DanmakuMaterializer {
     private func commit() {
         awaitedByCommit = nil
         reconcilesAfterCommit = false
-        let desired = Self.desiredPlacements(in: table, at: position)
+        let desired = Self.desiredPlacements(in: table, at: position, viewport: viewport)
         let desiredByID = Self.byEventID(desired)
         let ready = parked
         parked.removeAll(keepingCapacity: false)
@@ -173,7 +185,7 @@ final class DanmakuMaterializer {
 
     /// 普通 reconcile：立即移除与替换，缺纹理的发起准备。
     private func reconcileNow() {
-        let desired = Self.desiredPlacements(in: table, at: position)
+        let desired = Self.desiredPlacements(in: table, at: position, viewport: viewport)
         let desiredByID = Self.byEventID(desired)
         removeInstalled(notIn: desiredByID)
         discardPreparations(notIn: desiredByID)
@@ -203,6 +215,15 @@ final class DanmakuMaterializer {
                 installed[eventID] = nil
                 installedScales[eventID] = nil
             }
+        }
+    }
+
+    /// 移除按自己的 placement 已不在取景框里的 layer；不看布局表，暂存提交期间也不会提前换上新表。
+    private func removeInstalledOutsideViewport() {
+        for (eventID, placement) in installed where !viewport.shows(placement, at: position) {
+            backend.remove(eventID: eventID)
+            installed[eventID] = nil
+            installedScales[eventID] = nil
         }
     }
 
@@ -250,7 +271,7 @@ final class DanmakuMaterializer {
         }
     }
 
-    /// 准备完成：暂存期间先放着，否则还没走完就立即挂上。
+    /// 准备完成：暂存期间先放着，否则此刻仍在取景框里（车道与时间都按当前取景框）就立即挂上。
     ///
     /// 在 `prepare` 内同步回调（缓存命中、立即拒绝）时只记下结果，由发起请求的调用收尾；异步回调时
     /// 自己推进暂存提交，或在有被拒绝的请求时重新 reconcile 一次补上它们。
@@ -272,7 +293,7 @@ final class DanmakuMaterializer {
         case .ready:
             if awaitedByCommit != nil {
                 parked[eventID] = preparation
-            } else if preparation.placement.expiresAtSeconds > position {
+            } else if viewport.shows(preparation.placement, at: position) {
                 installPrepared(preparation.placement, preparationID: preparationID)
             } else {
                 backend.discardPreparation(preparationID: preparationID)

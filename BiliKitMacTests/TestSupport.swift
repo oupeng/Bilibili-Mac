@@ -1,5 +1,6 @@
 import AppKit
 import BiliApplication
+import BiliDanmaku
 import BiliModels
 import BiliVideoCollectionUI
 import BiliVideoDetailFeature
@@ -12,6 +13,12 @@ import Testing
 @testable import BiliKit
 
 /// App 测试 target 共用的等待与记录替身；各测试文件不再各自复制。
+
+/// renderer 挂在滚动、顶部、底部三个锚点层下的全部弹幕 layer，按锚点顺序、各自按挂上的先后。
+@MainActor
+func danmakuLayers(of renderer: CoreAnimationDanmakuRenderer) -> [CALayer] {
+    (renderer.rootLayer.sublayers ?? []).flatMap { $0.sublayers ?? [] }
+}
 
 /// 在一次性的 UserDefaults suite 中执行；前后都清空，测试之间、测试与真实偏好互不影响。
 func withIsolatedDefaults(_ body: (UserDefaults) throws -> Void) rethrows {

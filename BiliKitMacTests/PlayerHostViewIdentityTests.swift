@@ -83,14 +83,14 @@ struct PlayerHostViewIdentityTests {
         let beforeReparent = danmakuEvent(at: 1, id: "before-reparent", mode: .scrolling)
         controller.apply(pausedSnapshot(identity: identity, position: 1))
         controller.setSegments([1: [beforeReparent]], for: identity)
-        #expect(await waitUntil { (renderer.rootLayer.sublayers?.count ?? 0) == 1 })
-        let firstLayer = try #require(renderer.rootLayer.sublayers?.first)
+        #expect(await waitUntil { danmakuLayers(of: renderer).count == 1 })
+        let firstLayer = try #require(danmakuLayers(of: renderer).first)
 
         overlay.removeFromSuperview()
         #expect(overlay.window == nil)
         #expect(renderer.rootLayer.superlayer is AVSynchronizedLayer)
-        #expect(renderer.rootLayer.sublayers?.first === firstLayer)
-        #expect((renderer.rootLayer.sublayers?.count ?? 0) == 1)
+        #expect(danmakuLayers(of: renderer).contains { $0 === firstLayer })
+        #expect(danmakuLayers(of: renderer).count == 1)
 
         overlay.frame = .zero
         overlay.layoutSubtreeIfNeeded()
@@ -98,18 +98,18 @@ struct PlayerHostViewIdentityTests {
             [1: [beforeReparent, danmakuEvent(at: 1.5, id: "during-reparent", mode: .top)]],
             for: identity
         )
-        #expect(await waitUntil { (renderer.rootLayer.sublayers?.count ?? 0) == 2 })
+        #expect(await waitUntil { danmakuLayers(of: renderer).count == 2 })
 
         overlay.frame = secondWindow.contentView?.bounds ?? .zero
         secondWindow.contentView?.addSubview(overlay)
         overlay.layoutSubtreeIfNeeded()
         #expect(renderer.rootLayer.superlayer is AVSynchronizedLayer)
-        #expect(renderer.rootLayer.sublayers?.first === firstLayer)
-        #expect((renderer.rootLayer.sublayers?.count ?? 0) == 2)
+        #expect(danmakuLayers(of: renderer).contains { $0 === firstLayer })
+        #expect(danmakuLayers(of: renderer).count == 2)
 
         overlay.detachSurface()
         #expect(renderer.rootLayer.superlayer == nil)
-        #expect((renderer.rootLayer.sublayers?.count ?? 0) == 0)
+        #expect(danmakuLayers(of: renderer).count == 0)
     }
 
     /// 弹幕同步 layer 不会随 `replaceCurrentItem` 自动换绑：宿主在 `currentItem` 变化时先清屏再换绑，
@@ -147,7 +147,7 @@ struct PlayerHostViewIdentityTests {
             [1: [danmakuEvent(at: 1, id: "before-replacement", mode: .top)]],
             for: identity
         )
-        #expect(await waitUntil { (renderer.rootLayer.sublayers?.count ?? 0) == 1 })
+        #expect(await waitUntil { danmakuLayers(of: renderer).count == 1 })
 
         player.replaceCurrentItem(with: second)
         #expect(
@@ -155,7 +155,7 @@ struct PlayerHostViewIdentityTests {
                 (renderer.rootLayer.superlayer as? AVSynchronizedLayer)?.playerItem === second
             }
         )
-        #expect(renderer.rootLayer.sublayers?.isEmpty ?? true)
+        #expect(danmakuLayers(of: renderer).isEmpty)
         #expect(renderer.rootLayer.superlayer is AVSynchronizedLayer)
         view.stopObservingPlayerItemChanges()
     }

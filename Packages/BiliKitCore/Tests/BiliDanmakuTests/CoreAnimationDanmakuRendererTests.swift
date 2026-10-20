@@ -9,7 +9,8 @@ import Testing
 @testable import BiliDanmaku
 
 /// 固定 Core Animation renderer 的契约：弹幕动画按媒体时间开始、模型值不可见，位置只由同步父层给出的
-/// 媒体时间决定；纹理准备有界、内存压力与无效文本失败关闭；用户透明度在根层，改动不带隐式过渡。
+/// 媒体时间决定；窗口尺寸变化只移动锚定边；纹理准备有界、内存压力与无效文本失败关闭；用户透明度在根层，
+/// 改动不带隐式过渡。
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct CoreAnimationDanmakuRendererTests {
@@ -25,16 +26,16 @@ struct CoreAnimationDanmakuRendererTests {
             renderer: renderer,
             event: fixture,
             preparationID: 1,
-            originY: 20
+            lane: 0
         )
-        let layer = try #require(renderer.rootLayer.sublayers?.first)
+        let layer = try #require(danmakuLayers(renderer).first)
 
         let opacity = try #require(DanmakuOpacity(0.35))
         renderer.setOpacity(opacity)
         #expect(abs(Double(renderer.rootLayer.opacity) - 0.35) < 0.001)
         #expect(layer.opacity == 1)
-        #expect(renderer.rootLayer.sublayers?.count == 1)
-        #expect(renderer.rootLayer.sublayers?.first === layer)
+        #expect(danmakuLayers(renderer).count == 1)
+        #expect(danmakuLayers(renderer).first === layer)
         #expect(renderer.activeTextureByteCost > 0)
         #expect(
             renderer.activeTextureByteCost
@@ -42,7 +43,7 @@ struct CoreAnimationDanmakuRendererTests {
         )
         renderer.remove(eventID: fixture.id)
         #expect(renderer.activeTextureByteCost == 0)
-        #expect(renderer.rootLayer.sublayers?.isEmpty ?? true)
+        #expect(danmakuLayers(renderer).isEmpty)
     }
 
     @Test
@@ -96,9 +97,9 @@ struct CoreAnimationDanmakuRendererTests {
             renderer: renderer,
             event: fixture,
             preparationID: 2,
-            originY: 20
+            lane: 0
         )
-        #expect(renderer.rootLayer.sublayers?.count == 1)
+        #expect(danmakuLayers(renderer).count == 1)
     }
 
     /// 拖动时作废的准备：排队中的栅格化随之取消，不执行，新的准备不排在它们后面。
@@ -197,7 +198,7 @@ struct CoreAnimationDanmakuRendererTests {
                 renderer: renderer,
                 event: fixtureEvent(id: "release", mode: .scrolling),
                 preparationID: 1,
-                originY: 20
+                lane: 0
             )
             renderer.stop()
         }
@@ -242,7 +243,7 @@ struct CoreAnimationDanmakuRendererTests {
                 preparationID: 2
             ) == .rejected(.oversized)
         )
-        #expect(renderer.rootLayer.sublayers?.isEmpty ?? true)
+        #expect(danmakuLayers(renderer).isEmpty)
 
         // 拒绝的准备不占用 preparation owner 的有界名额。
         let owner = DanmakuTexturePreparationOwner()
@@ -266,18 +267,18 @@ struct CoreAnimationDanmakuRendererTests {
             renderer: renderer,
             event: fixtureEvent(id: "scroll-zero", mode: .scrolling),
             preparationID: 1,
-            originY: 20,
+            lane: 0,
             admittedAt: 0
         )
-        let scrollingLayer = try #require(renderer.rootLayer.sublayers?.last)
+        let scrollingLayer = try #require(danmakuLayers(renderer).last)
         _ = try await prepareAndInstall(
             renderer: renderer,
             event: fixtureEvent(id: "top-later", mode: .top),
             preparationID: 2,
-            originY: 60,
+            lane: 1,
             admittedAt: 12.5
         )
-        let topLayer = try #require(renderer.rootLayer.sublayers?.last)
+        let topLayer = try #require(danmakuLayers(renderer).last)
         let scrollingAnimation = try #require(
             scrollingLayer.animation(forKey: CoreAnimationDanmakuRenderer.animationKey)
                 as? CABasicAnimation
@@ -292,7 +293,7 @@ struct CoreAnimationDanmakuRendererTests {
         #expect(!scrollingAnimation.isRemovedOnCompletion)
         #expect(!topAnimation.isRemovedOnCompletion)
         #expect(scrollingAnimation.duration == 4)
-        #expect(scrollingLayer.position.x == -scrollingLayer.bounds.width / 2)
+        #expect(scrollingLayer.position.x == -(800 + scrollingLayer.bounds.width / 2))
         #expect(scrollingLayer.opacity == 1)
         #expect(topLayer.opacity == 0)
         #expect(topAnimation.keyPath == "opacity")
@@ -312,10 +313,10 @@ struct CoreAnimationDanmakuRendererTests {
             renderer: renderer,
             event: fixtureEvent(id: "media-time", mode: .scrolling),
             preparationID: 1,
-            originY: 20,
+            lane: 0,
             admittedAt: 10
         )
-        let layer = try #require(renderer.rootLayer.sublayers?.first)
+        let layer = try #require(danmakuLayers(renderer).first)
         let animation = try #require(
             layer.animation(forKey: CoreAnimationDanmakuRenderer.animationKey)
                 as? CABasicAnimation
@@ -325,9 +326,9 @@ struct CoreAnimationDanmakuRendererTests {
         }
 
         #expect(animation.beginTime == 10)
-        #expect(animation.fromValue as? Double == 800 + metrics.width / 2)
-        #expect(animation.toValue as? Double == -metrics.width / 2)
-        #expect(abs(layer.position.x + metrics.width / 2) < 0.001)
+        #expect(animation.fromValue as? Double == metrics.width / 2)
+        #expect(animation.toValue as? Double == -(800 + metrics.width / 2))
+        #expect(abs(layer.position.x + 800 + metrics.width / 2) < 0.001)
         #expect(renderer.rootLayer.speed == 1)
         #expect(renderer.rootLayer.timeOffset == 0)
 
@@ -358,24 +359,24 @@ struct CoreAnimationDanmakuRendererTests {
             renderer: renderer,
             event: event,
             preparationID: 1,
-            originY: 20,
+            lane: 0,
             admittedAt: 3
         )
-        let layer = try #require(renderer.rootLayer.sublayers?.first)
+        let layer = try #require(danmakuLayers(renderer).first)
         let contents = layer.contents as AnyObject?
-        let moved = placement(event: event, metrics: metrics, originY: 80, admittedAt: 3)
+        let moved = placement(event: event, metrics: metrics, lane: 2, admittedAt: 3)
         let absent = placement(
             event: fixtureEvent(id: "absent", mode: .top),
             metrics: metrics,
-            originY: 0,
+            lane: 0,
             admittedAt: 0
         )
 
         #expect(renderer.update(moved))
-        #expect(renderer.rootLayer.sublayers?.count == 1)
-        #expect(renderer.rootLayer.sublayers?.first === layer)
+        #expect(danmakuLayers(renderer).count == 1)
+        #expect(danmakuLayers(renderer).first === layer)
         #expect(layer.contents as AnyObject? === contents)
-        #expect(abs(layer.position.y - (80 + metrics.height / 2)) < 0.001)
+        #expect(abs(layer.position.y - (72 + metrics.height / 2)) < 0.001)
         #expect(!renderer.update(absent))
     }
 
@@ -407,7 +408,7 @@ struct CoreAnimationDanmakuRendererTests {
                 return .notInstalled
             }
             return renderer.install(
-                placement(event: event, metrics: metrics, originY: 0, admittedAt: admittedAt),
+                placement(event: event, metrics: metrics, lane: 0, admittedAt: admittedAt),
                 preparationID: nextPreparationID,
                 at: 5
             )
@@ -422,19 +423,72 @@ struct CoreAnimationDanmakuRendererTests {
             lookaheadIDs.append(id)
         }
         #expect(!lookaheadIDs.isEmpty && lookaheadIDs.count < 200)
-        let installedBefore = renderer.rootLayer.sublayers?.count
+        let installedBefore = danmakuLayers(renderer).count
 
         let entered = await install("entered", admittedAt: 4)
         #expect(entered.isInstalled)
         #expect(entered.evictedEventIDs == [try #require(lookaheadIDs.last)])
-        #expect(renderer.rootLayer.sublayers?.count == installedBefore)
+        #expect(danmakuLayers(renderer).count == installedBefore)
         #expect(
             renderer.activeTextureByteCost
                 <= CoreAnimationDanmakuRenderer.maximumActiveTextureByteCost
         )
     }
 
-    /// 上屏、移除、子层与几何变化不带隐式过渡：弹幕 layer 与 rootLayer 都禁用这些动作。
+    /// 窗口尺寸变化只移动锚定边：滚动弹幕跟着右边缘、顶部弹幕在顶边居中、底部弹幕贴着底边，每条弹幕
+    /// 的动画与锚点局部位置都不变，所以飞行中的弹幕相对右边缘的位置与窗口无关。
+    @Test
+    func resizingMovesOnlyTheAnchorEdges() async throws {
+        let renderer = makeRenderer()
+        var layers: [DanmakuPresentationMode: CALayer] = [:]
+        for (offset, mode) in [DanmakuPresentationMode.scrolling, .top, .bottom].enumerated() {
+            _ = try await prepareAndInstall(
+                renderer: renderer,
+                event: fixtureEvent(id: "resize-\(offset)", mode: mode),
+                preparationID: UInt64(offset + 1),
+                lane: 1
+            )
+            layers[mode] = danmakuLayers(renderer).last
+        }
+        // 每条弹幕的锚点局部位置与动画（关键路径、起止值、开始时间、时长）。
+        func snapshot() -> [DanmakuPresentationMode: [String]] {
+            layers.mapValues { layer in
+                let animation =
+                    layer.animation(forKey: CoreAnimationDanmakuRenderer.animationKey)
+                    as? CABasicAnimation
+                return [
+                    "\(layer.position)",
+                    "\(animation?.keyPath ?? "")",
+                    "\(animation?.fromValue ?? "")",
+                    "\(animation?.toValue ?? "")",
+                    "\(animation?.beginTime ?? -1)",
+                    "\(animation?.duration ?? -1)"
+                ]
+            }
+        }
+        let before = snapshot()
+
+        renderer.updateSurfaceSize(width: 1_200, height: 480, backingScale: 2)
+
+        #expect(snapshot() == before)
+        let scrolling = try #require(layers[.scrolling])
+        let top = try #require(layers[.top])
+        let bottom = try #require(layers[.bottom])
+        // rootLayer 坐标（y 轴向下）里的位置：都离各自的边一条车道，与窗口尺寸无关。
+        let laneHeight = DanmakuLaneConfiguration.laneHeight
+        func frame(_ layer: CALayer) -> CGRect {
+            layer.convert(layer.bounds, to: renderer.rootLayer)
+        }
+        // 滚动弹幕的模型值停在规划画布（800pt）左外侧，从新的右边缘量起。
+        #expect(abs(frame(scrolling).maxX - (1_200 - 800)) < 0.001)
+        #expect(abs(frame(scrolling).minY - laneHeight) < 0.001)
+        #expect(abs(frame(top).midX - 600) < 0.001)
+        #expect(abs(frame(top).minY - laneHeight) < 0.001)
+        #expect(abs(frame(bottom).midX - 600) < 0.001)
+        #expect(abs(frame(bottom).maxY - (480 - laneHeight)) < 0.001)
+    }
+
+    /// 上屏、移除、子层与几何变化不带隐式过渡：弹幕 layer、锚点层与 rootLayer 都禁用这些动作。
     @Test
     func renderedLayersAndRootDisableImplicitOrderingActions() async throws {
         let renderer = makeRenderer()
@@ -442,16 +496,24 @@ struct CoreAnimationDanmakuRendererTests {
             renderer: renderer,
             event: fixtureEvent(id: "no-fade", mode: .top),
             preparationID: 1,
-            originY: 20
+            lane: 0
         )
-        let layer = try #require(renderer.rootLayer.sublayers?.first)
+        let layer = try #require(danmakuLayers(renderer).first)
+        let anchors = renderer.rootLayer.sublayers ?? []
+        #expect(anchors.count == 3)
 
         for key in [
             "onOrderIn", "onOrderOut", "sublayers", "position", "bounds", "opacity"
         ] {
             #expect(layer.actions?[key] is NSNull)
             #expect(renderer.rootLayer.actions?[key] is NSNull)
+            #expect(anchors.allSatisfy { $0.actions?[key] is NSNull })
         }
+    }
+
+    /// 挂在三个锚点层下的全部弹幕 layer：滚动、顶部、底部依次，各自按挂上的先后。
+    private func danmakuLayers(_ renderer: CoreAnimationDanmakuRenderer) -> [CALayer] {
+        (renderer.rootLayer.sublayers ?? []).flatMap { $0.sublayers ?? [] }
     }
 
     private func makeRenderer() -> CoreAnimationDanmakuRenderer {
@@ -466,7 +528,7 @@ struct CoreAnimationDanmakuRendererTests {
         renderer: CoreAnimationDanmakuRenderer,
         event: DanmakuEvent,
         preparationID: UInt64,
-        originY: Double,
+        lane: Int,
         admittedAt: Double = 1
     ) async throws -> DanmakuTextMetrics {
         let result = await prepare(
@@ -479,7 +541,7 @@ struct CoreAnimationDanmakuRendererTests {
             return DanmakuTextMetrics(width: 0, height: 0)
         }
         let installation = renderer.install(
-            placement(event: event, metrics: metrics, originY: originY, admittedAt: admittedAt),
+            placement(event: event, metrics: metrics, lane: lane, admittedAt: admittedAt),
             preparationID: preparationID,
             at: admittedAt
         )
@@ -521,7 +583,7 @@ struct CoreAnimationDanmakuRendererTests {
     private func placement(
         event: DanmakuEvent,
         metrics: DanmakuTextMetrics,
-        originY: Double,
+        lane: Int,
         admittedAt: Double
     ) -> DanmakuLanePlacement {
         DanmakuLanePlacement(
@@ -531,9 +593,8 @@ struct CoreAnimationDanmakuRendererTests {
                 height: metrics.height,
                 durationSeconds: 4
             ),
-            laneIndex: 0,
-            originY: originY,
-            surfaceWidthAtAdmission: 800,
+            laneIndex: lane,
+            planningWidth: 800,
             admittedAtSeconds: admittedAt,
             expiresAtSeconds: admittedAt + 4
         )

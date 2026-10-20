@@ -84,10 +84,10 @@ struct DanmakuSynchronizedPlaybackTests {
         )
         #expect(
             await waitUntil(timeout: .seconds(5)) {
-                (renderer.rootLayer.sublayers?.count ?? 0) == 3
+                danmakuLayers(of: renderer).count == 3
             }
         )
-        let layers = renderer.rootLayer.sublayers ?? []
+        let layers = danmakuLayers(of: renderer)
         expectLocalTime(of: renderer.rootLayer, matches: item)
 
         // 媒体时间 0 的弹幕：开始时间是同步层约定的常量，此刻（2 秒）仍在它 4 秒的可见区间里。
@@ -108,7 +108,7 @@ struct DanmakuSynchronizedPlaybackTests {
         )
         #expect(await waitUntil(timeout: .seconds(5)) { item.currentTime().seconds > 2.4 })
         expectLocalTime(of: renderer.rootLayer, matches: item)
-        #expect(renderer.rootLayer.sublayers?.elementsEqual(layers, by: ===) == true)
+        #expect(danmakuLayers(of: renderer).elementsEqual(layers, by: ===))
 
         // 两倍速：局部时间按两倍推进。
         player.rate = 2

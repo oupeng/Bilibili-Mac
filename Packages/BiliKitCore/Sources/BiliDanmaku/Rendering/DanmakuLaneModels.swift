@@ -2,8 +2,10 @@ import BiliApplication
 import BiliModels
 import Foundation
 
-/// 车道分配的几何参数，由 `DanmakuPresentationController` 按画面尺寸、显示区域与密度推导
+/// 车道分配的几何参数，由 `DanmakuPresentationController` 按规划画布尺寸、显示区域与密度推导
 /// （`init(surfaceWidth:surfaceHeight:displayArea:density:)`），经车道布局交给 `DanmakuLaneAllocator`。
+///
+/// 这里的 surface 是规划画布而不是窗口；窗口只决定露出哪一部分（`DanmakuViewport`）。
 ///
 /// 车道高度与同屏上限是产品常量，不随设置变化。任一参数变化，布局表都按新参数整张重排；`isValid`
 /// 不成立时 allocator 拒绝全部请求，画面尚未布局时也就不布局。
@@ -48,6 +50,23 @@ struct DanmakuLaneConfiguration: Sendable, Equatable {
         self.minimumHorizontalGap = minimumHorizontalGap
         self.displayAreaFraction = displayAreaFraction
         self.maximumOverlapDepth = maximumOverlapDepth
+    }
+
+    /// 显示区域内的车道数：画面高度乘以比例，按车道高度向下取整，封顶 `maximumLaneCount`。
+    ///
+    /// 规划画布用它得到布局的车道数，取景框用它得到窗口里可见的车道数；两边必须是同一个计算，车道号
+    /// 才能直接比较。
+    static func laneCount(surfaceHeight: Double, displayAreaFraction: Double) -> Int {
+        let uncapped = floor(surfaceHeight * displayAreaFraction / laneHeight)
+        guard uncapped.isFinite, uncapped > 0 else { return 0 }
+        return Int(min(uncapped, Double(maximumLaneCount)))
+    }
+
+    /// 一条高 `height` 的纹理占用的连续车道数；高度无效或超出车道上限时为 nil。
+    static func laneSpan(forHeight height: Double) -> Int? {
+        let span = ceil(height / laneHeight)
+        guard span.isFinite, span > 0, span <= Double(maximumLaneCount) else { return nil }
+        return Int(span)
     }
 
     /// 叠放层数只来自密度策略，校验上限取策略允许的最大层数。
@@ -101,14 +120,15 @@ public struct DanmakuLaneRequest: Sendable, Equatable {
 /// 公开只因为 `DanmakuRenderingBackend` 的签名用到它；只在本模块构造。
 ///
 /// 时间都是媒体时间：`admittedAtSeconds` 是准入时刻，车道布局里就是弹幕自己的时间点，也是动画的开始
-/// 时间；到 `expiresAtSeconds` 时车道被回收、layer 走完。`originY` 自画面顶边向下计算。
-/// `surfaceWidthAtAdmission` 是布局时的画面宽度：滚动弹幕从这里入场，renderer 按它设定运动起点；
-/// 画面尺寸变了、按新尺寸重新布局之前，屏上仍按旧布局运动。
+/// 时间；到 `expiresAtSeconds` 时车道被回收、滚动弹幕走完整张规划画布。
+///
+/// 几何都相对弹幕所属的锚定边，与窗口尺寸无关（取景框模型，见 docs/ARCHITECTURE.md「弹幕」）：
+/// `planningWidth` 是布局时的规划画布宽度，滚动弹幕从窗口右边缘入场、在 `durationSeconds` 内走完
+/// 「规划宽度 + 文字宽度」；纵向位置见 `edgeOffset`。
 public struct DanmakuLanePlacement: Sendable, Equatable {
     public let request: DanmakuLaneRequest
     public let laneIndex: Int
-    public let originY: Double
-    public let surfaceWidthAtAdmission: Double
+    public let planningWidth: Double
     public let admittedAtSeconds: Double
     public let expiresAtSeconds: Double
     public let overlapDepth: Int
@@ -116,19 +136,29 @@ public struct DanmakuLanePlacement: Sendable, Equatable {
     init(
         request: DanmakuLaneRequest,
         laneIndex: Int,
-        originY: Double,
-        surfaceWidthAtAdmission: Double,
+        planningWidth: Double,
         admittedAtSeconds: Double,
         expiresAtSeconds: Double,
         overlapDepth: Int = 0
     ) {
         self.request = request
         self.laneIndex = laneIndex
-        self.originY = originY
-        self.surfaceWidthAtAdmission = surfaceWidthAtAdmission
+        self.planningWidth = planningWidth
         self.admittedAtSeconds = admittedAtSeconds
         self.expiresAtSeconds = expiresAtSeconds
         self.overlapDepth = overlapDepth
+    }
+
+    /// 到锚定边的距离（point）：滚动与顶部弹幕是上缘到画面顶边，底部弹幕是下缘到画面底边。
+    ///
+    /// 只由车道号决定，不含画面高度，所以窗口变高变矮时弹幕贴着各自的边不动。
+    var edgeOffset: Double {
+        Double(laneIndex) * DanmakuLaneConfiguration.laneHeight
+    }
+
+    /// 占用的车道数；与 allocator 准入时的计算是同一个。
+    var laneSpan: Int {
+        DanmakuLaneConfiguration.laneSpan(forHeight: request.height) ?? 0
     }
 }
 
