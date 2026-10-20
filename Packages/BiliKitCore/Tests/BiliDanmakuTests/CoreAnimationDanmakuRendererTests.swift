@@ -1,4 +1,3 @@
-import AVFoundation
 import BiliApplication
 import BiliModels
 import Foundation
@@ -8,12 +7,15 @@ import Testing
 
 @testable import BiliDanmaku
 
-/// 固定 Core Animation renderer 的契约：弹幕动画按媒体时间开始、模型值不可见，位置只由同步父层给出的
+/// 固定 Core Animation renderer 的契约：弹幕动画按媒体时间开始、模型值不可见，位置只由宿主时钟层给出的
 /// 媒体时间决定；窗口尺寸变化只移动锚定边；纹理准备有界、内存压力与无效文本失败关闭；用户透明度在根层，
 /// 改动不带隐式过渡。
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct CoreAnimationDanmakuRendererTests {
+    /// 注入 renderer 的媒体时间 0 哨兵；任何可忽略的正数都行。
+    private static let beginTimeAtZero: CFTimeInterval = 1e-100
+
     @Test
     func rendererAppliesUserOpacityAtRootAndReleasesTextureBytes() async throws {
         let renderer = makeRenderer()
@@ -258,7 +260,7 @@ struct CoreAnimationDanmakuRendererTests {
         #expect(owner.outstandingRequestCount == 0)
     }
 
-    /// 动画在弹幕自己的媒体时间开始（时间点 0 换成同步 layer 约定的常量），结束后不移除；
+    /// 动画在弹幕自己的媒体时间开始（时间点 0 换成宿主注入的哨兵），结束后不移除；
     /// 模型值不可见：滚动弹幕停在画面左外侧，顶部底部弹幕不透明度为 0。
     @Test
     func animationsStartAtTheEventsMediaTimeAndLeaveInvisibleModelValues() async throws {
@@ -288,7 +290,7 @@ struct CoreAnimationDanmakuRendererTests {
                 as? CABasicAnimation
         )
 
-        #expect(scrollingAnimation.beginTime == AVCoreAnimationBeginTimeAtZero)
+        #expect(scrollingAnimation.beginTime == Self.beginTimeAtZero)
         #expect(topAnimation.beginTime == 12.5)
         #expect(!scrollingAnimation.isRemovedOnCompletion)
         #expect(!topAnimation.isRemovedOnCompletion)
@@ -300,12 +302,12 @@ struct CoreAnimationDanmakuRendererTests {
         #expect(topAnimation.fromValue as? Double == 1)
     }
 
-    /// 在模拟同步 layer 的父层下，弹幕 layer 的局部时间就是父层给出的媒体时间。
+    /// 在模拟宿主时钟层的父层下，弹幕 layer 的局部时间就是父层给出的媒体时间。
     ///
     /// 暂停时冻结、seek 时跳到新时间、倍速时按倍率推进。renderer 不改 `rootLayer` 的时间属性，动画开始于
     /// 弹幕的媒体时间，所以位置只取决于父层给出的媒体时间；插值本身由 Core Animation 完成，这里不重算。
     @Test
-    func layerTimeFollowsTheSynchronizedParentsMediaTime() async throws {
+    func layerTimeFollowsTheClockParentsMediaTime() async throws {
         let renderer = makeRenderer()
         let clock = CALayer()
         clock.addSublayer(renderer.rootLayer)
@@ -518,7 +520,7 @@ struct CoreAnimationDanmakuRendererTests {
 
     private func makeRenderer() -> CoreAnimationDanmakuRenderer {
         let renderer = CoreAnimationDanmakuRenderer(
-            beginTimeAtZero: AVCoreAnimationBeginTimeAtZero
+            beginTimeAtZero: Self.beginTimeAtZero
         )
         renderer.updateSurfaceSize(width: 800, height: 240, backingScale: 2)
         return renderer

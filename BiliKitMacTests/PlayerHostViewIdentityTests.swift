@@ -13,7 +13,9 @@ struct PlayerHostViewIdentityTests {
     @Test
     @MainActor
     func nativePlayerViewLeavesNowPlayingOwnershipToProcessController() {
-        let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
+        let renderer = CoreAnimationDanmakuRenderer(
+            beginTimeAtZero: DanmakuTimebaseClock.beginTimeAtMediaZero
+        )
         let controller = DanmakuPresentationController(backend: renderer)
         let view = DanmakuPlayerView(
             renderer: renderer,
@@ -28,7 +30,9 @@ struct PlayerHostViewIdentityTests {
     @Test
     @MainActor
     func playbackPreparationBlocksNativePlayerInputAndAccessibility() {
-        let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
+        let renderer = CoreAnimationDanmakuRenderer(
+            beginTimeAtZero: DanmakuTimebaseClock.beginTimeAtMediaZero
+        )
         let controller = DanmakuPresentationController(backend: renderer)
         let view = DanmakuPlayerView(
             renderer: renderer,
@@ -55,7 +59,9 @@ struct PlayerHostViewIdentityTests {
     @Test
     @MainActor
     func danmakuSurfaceSurvivesTemporaryWindowReparenting() async throws {
-        let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
+        let renderer = CoreAnimationDanmakuRenderer(
+            beginTimeAtZero: DanmakuTimebaseClock.beginTimeAtMediaZero
+        )
         let controller = DanmakuPresentationController(backend: renderer)
         let overlay = DanmakuOverlayView(
             renderer: renderer,
@@ -77,7 +83,7 @@ struct PlayerHostViewIdentityTests {
 
         firstWindow.contentView?.addSubview(overlay)
         overlay.layoutSubtreeIfNeeded()
-        #expect(renderer.rootLayer.superlayer is AVSynchronizedLayer)
+        #expect(renderer.rootLayer.superlayer != nil)
 
         let identity = PlaybackItemIdentity(bvid: "fixture", cid: 1)
         let beforeReparent = danmakuEvent(at: 1, id: "before-reparent", mode: .scrolling)
@@ -88,7 +94,7 @@ struct PlayerHostViewIdentityTests {
 
         overlay.removeFromSuperview()
         #expect(overlay.window == nil)
-        #expect(renderer.rootLayer.superlayer is AVSynchronizedLayer)
+        #expect(renderer.rootLayer.superlayer != nil)
         #expect(danmakuLayers(of: renderer).contains { $0 === firstLayer })
         #expect(danmakuLayers(of: renderer).count == 1)
 
@@ -103,7 +109,7 @@ struct PlayerHostViewIdentityTests {
         overlay.frame = secondWindow.contentView?.bounds ?? .zero
         secondWindow.contentView?.addSubview(overlay)
         overlay.layoutSubtreeIfNeeded()
-        #expect(renderer.rootLayer.superlayer is AVSynchronizedLayer)
+        #expect(renderer.rootLayer.superlayer != nil)
         #expect(danmakuLayers(of: renderer).contains { $0 === firstLayer })
         #expect(danmakuLayers(of: renderer).count == 2)
 
@@ -112,12 +118,16 @@ struct PlayerHostViewIdentityTests {
         #expect(danmakuLayers(of: renderer).count == 0)
     }
 
-    /// 弹幕同步 layer 不会随 `replaceCurrentItem` 自动换绑：宿主在 `currentItem` 变化时先清屏再换绑，
-    /// 旧 item 的弹幕不会留在新 item 的时间线上。
+    /// 弹幕时钟不会随 `replaceCurrentItem` 自动换绑：宿主在 `currentItem` 变化时先清屏，再换绑到新 item
+    /// 的 timebase，旧 item 的弹幕不会留在新 item 的时间线上，弹幕的局部时间随即等于新 item 的时间。
+    ///
+    /// 两个 item 用同一段带音轨的本地静音媒体：旧 item 先 seek 到 3 秒，新 item 从 0 开始，两者可区分。
     @Test
     @MainActor
     func danmakuClockFollowsTheCurrentItemAndClearsOnReplacement() async throws {
-        let renderer = CoreAnimationDanmakuRenderer(beginTimeAtZero: AVCoreAnimationBeginTimeAtZero)
+        let renderer = CoreAnimationDanmakuRenderer(
+            beginTimeAtZero: DanmakuTimebaseClock.beginTimeAtMediaZero
+        )
         let controller = DanmakuPresentationController(backend: renderer)
         let view = DanmakuPlayerView(
             renderer: renderer,
@@ -134,12 +144,25 @@ struct PlayerHostViewIdentityTests {
         )
         window.contentView?.addSubview(view)
         view.layoutSubtreeIfNeeded()
-        let first = AVPlayerItem(url: URL(fileURLWithPath: "/nonexistent/first.mp4"))
-        let second = AVPlayerItem(url: URL(fileURLWithPath: "/nonexistent/second.mp4"))
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("danmaku-item-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let mediaURL = try writeSilentAudio(seconds: 8, in: directory)
+        let first = AVPlayerItem(url: mediaURL)
+        let second = AVPlayerItem(url: mediaURL)
         let player = AVPlayer(playerItem: first)
         view.player = player
         view.startObservingPlayerItemChanges()
-        #expect((renderer.rootLayer.superlayer as? AVSynchronizedLayer)?.playerItem === first)
+        defer { view.stopObservingPlayerItemChanges() }
+        #expect(await waitUntil(timeout: .seconds(10)) { first.status == .readyToPlay })
+        await player.seek(to: CMTime(seconds: 3, preferredTimescale: 600))
+        #expect(
+            await waitUntil(timeout: .seconds(5)) {
+                first.currentTime().seconds > 2.9
+                    && localTime(of: renderer.rootLayer, matches: first)
+            }
+        )
 
         let identity = PlaybackItemIdentity(bvid: "item-fixture", cid: 1)
         controller.apply(pausedSnapshot(identity: identity, position: 1))
@@ -151,13 +174,19 @@ struct PlayerHostViewIdentityTests {
 
         player.replaceCurrentItem(with: second)
         #expect(
-            await waitUntil {
-                (renderer.rootLayer.superlayer as? AVSynchronizedLayer)?.playerItem === second
+            await waitUntil(timeout: .seconds(5)) {
+                danmakuLayers(of: renderer).isEmpty
+                    && localTime(of: renderer.rootLayer, matches: second)
             }
         )
-        #expect(danmakuLayers(of: renderer).isEmpty)
-        #expect(renderer.rootLayer.superlayer is AVSynchronizedLayer)
-        view.stopObservingPlayerItemChanges()
+        #expect(second.currentTime().seconds < 1)
+        #expect(renderer.rootLayer.superlayer != nil)
+    }
+
+    /// 弹幕层的局部时间与 item 时间相差不到 0.05 秒（两者在不同时刻读取）。
+    @MainActor
+    private func localTime(of layer: CALayer, matches item: AVPlayerItem) -> Bool {
+        abs(layer.convertTime(CACurrentMediaTime(), from: nil) - item.currentTime().seconds) < 0.05
     }
 
     private func danmakuEvent(

@@ -56,7 +56,7 @@ extension DanmakuLaneConfiguration {
 ///
 /// 同一组已缓存分段与设置下，画面是媒体时间与窗口尺寸的纯函数：布局表（`DanmakuLayoutCoordinator`）
 /// 给出每条弹幕的车道与时长，`DanmakuMaterializer` 让 backend 上的 layer 等于此刻取景框里应有的集合，
-/// layer 的运动由宿主的同步 layer 按播放 item 的时间驱动。暂停、倍速与缓冲都不需要这里处理；时间线快照
+/// layer 的运动由宿主的时钟层按播放 item 的 timebase 驱动。暂停、倍速与缓冲都不需要这里处理；时间线快照
 /// 只用来决定何时 reconcile。
 ///
 /// 取景框：布局表按规划画布排一次，规划尺寸取承载窗口的屏幕尺寸与窗口尺寸的较大者（逐个维度）。规划
@@ -246,9 +246,9 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         return true
     }
 
-    /// 宿主的同步 layer 即将换绑到另一个播放 item：先清屏，再由宿主换绑；只接受当前 owner。
+    /// 宿主的时钟层即将换绑到另一个播放 item：先清屏，再由宿主换绑；只接受当前 owner。
     ///
-    /// 同步 layer 换绑后时间立刻按新 item 走，旧 layer 留着会在新时间线上错位，所以必须先清。布局表保留
+    /// 时钟层换绑后时间立刻按新 item 走，旧 layer 留着会在新时间线上错位，所以必须先清。布局表保留
     /// （同一视频换线路或清晰度时仍然有效）。最近快照与上次对齐位置一并清掉：旧 item 的位置在新时间线上
     /// 没有意义，留着的话新 item 第一个快照之前的 resize 或布局表替换会按它对齐，新位置又可能落在它的
     /// 覆盖区间里，清空的屏就不再挂上。新 item 的第一个快照到来之前不对齐，到来时按它的时刻重新对齐，
