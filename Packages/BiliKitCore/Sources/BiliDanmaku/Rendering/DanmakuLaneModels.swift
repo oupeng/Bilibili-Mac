@@ -4,6 +4,7 @@ import Foundation
 
 /// 车道分配的几何参数，由 `DanmakuPresentationController` 按规划画布尺寸、显示区域与密度推导
 /// （`init(surfaceWidth:surfaceHeight:displayArea:density:)`），经车道布局交给 `DanmakuLaneAllocator`。
+///
 /// 这里的 surface 是规划画布而不是窗口；窗口只决定露出哪一部分（`DanmakuViewport`）。
 ///
 /// 车道高度与同屏上限是产品常量，不随设置变化。任一参数变化，布局表都按新参数整张重排；`isValid`

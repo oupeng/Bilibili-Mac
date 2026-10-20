@@ -83,7 +83,7 @@ public final class CoreAnimationDanmakuRenderer:
         preparationOwner = DanmakuTexturePreparationOwner()
         rootLayer = CALayer()
         rootLayer.anchorPoint = .zero
-        // y 轴向下，与 allocator 自顶边计算的 `originY` 一致。
+        // y 轴向下：锚点层与弹幕 layer 继承这个方向，滚动与顶部弹幕的车道自顶边往下数。
         rootLayer.isGeometryFlipped = true
         rootLayer.masksToBounds = true
         rootLayer.actions = Self.disabledActions
