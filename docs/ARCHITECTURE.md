@@ -178,9 +178,10 @@ D(now) 决定，时间线快照只用来确认 identity、作检查节拍与决�
   - 单调下限：同一绑定纪元里播放中（速率 r > 0）timebase 此刻低于弹幕时间 D 时不往回跳，写
     `beginTime = now + (D − tb)/r`、`timeOffset = D`、`speed = r`，原地停在 D，到 timebase 的直线追上的那一刻
     起两者重合，没有滤波状态；`fillMode` 固定 `.backwards`，否则 `beginTime` 在未来的那段时间里时钟层不活跃、
-    整屏消失（渲染服务器像素层面经探针确认，到时间后不需要再提交就自行恢复运动）。速率为 0 时的任何跳变一律
-    严格跟随：seek、拖动与暂停都发生在速率为 0 时（AVKit 的各种往回 seek 经探针确认都先经过速率 0），所以不
-    需要识别 seek。换绑后的第一次同步也严格跟随：旧时间线上的 D 对新 item 没有意义，这一条是为等待补的。
+    整屏消失；设了之后渲染服务器上同样停在 `timeOffset`，到 `beginTime` 不需要再提交就自行恢复运动。速率为 0
+    时的任何跳变一律严格跟随：seek、拖动与暂停都发生在速率为 0 时（AVKit 的往回 seek，含原生进度条拖动与
+    键盘，都先经过速率 0），所以不需要识别 seek。换绑后的第一次同步也严格跟随：旧时间线上的 D 对新 item 没有
+    意义，这一条是为等待补的；纪元按每次 `bind` 递增，换回同一个 timebase 也算换绑。
     D 只由 `DanmakuClockWrite.mediaTime` 一个纯函数计算。
   - 原子写入：三个时间属性的赋值在 `CATransaction.lock()` 内完成，提交在锁外。主线程同一轮改过时钟层本身
     （布局时的 frame、接管 surface 时的子层）时，它的提交会带上这个 layer 当时的全部属性，不加锁可能把写到
@@ -205,8 +206,9 @@ D(now) 决定，时间线快照只用来确认 identity、作检查节拍与决�
     在 Core Animation 锁内读 `displayTime()`，所以只有「Core Animation 锁 → 绑定锁」一种嵌套。
   - 前提：`now` 取 `CACurrentMediaTime()`，要求时钟层的祖先都没有修改时间属性（`speed`、`timeOffset`、
     `beginTime`），父层的本地时间才等于宿主时间；普通窗口、原生全屏、detached 全屏与画中画下实测都成立。
-    overlay 每次进入窗口检查一次祖先，换绑时检查 item 的 `timebase` 不为 nil；不成立时 DEBUG 下断言失败，
-    Release 下只记一条固定分类的日志。
+    overlay 每次进入窗口之后检查一次祖先：进入窗口与第一次布局时它的 layer 往往还没接进窗口的 layer 树，
+    所以等之后的布局或时钟写入回调里 layer 链能走到窗口的根 layer 时才判定。换绑时检查 item 的 `timebase`
+    不为 nil。不成立时 DEBUG 下断言失败，Release 下只记一条固定分类的日志。
   - 行为：`pause()` 后约 1ms timebase 速率变成 0，冻结点就是调用 `pause()` 的时刻。暂停时播放器持锁
     等待音频暂停握手（约 30ms）、设置 `rate`（35～135ms）期间主线程被挡住，时钟层仍在 timebase 停下
     或变速的时刻停下或变速。首播、seek 后起播与卡顿恢复时 timebase 后退一个音频输出延迟（有线约 −37ms，
