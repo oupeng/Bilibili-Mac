@@ -199,6 +199,8 @@ Sparkle 更新网络，以及任何 redirect 后的主机。不使用 `*.bilibil
 
 - 产品代码不输出网络日志；错误只含阶段与分类。新增任何日志或诊断前必须先加脱敏并更新本文。日志与诊断不记录内容身份组合、标题、位置、
   Referer、query/body、Cookie、CSRF、账号标识、完整 URL 或响应正文。
+- 现有的产品日志只有一处：弹幕时钟的平台前提不成立（时钟层祖先改了时间属性、播放 item 没有 timebase）时，
+  Release 构建记一条固定的英文分类字符串（`DanmakuClock` 类别，public），不带任何时间值、位置或参数。
 - fixture 只用手写假值与 `example.invalid`（媒体地址用虚构的 `*.fixture.bilivideo.com`，生产 allowlist 不为测试开口），不录制现场响应；`Scripts/check-secrets.sh` 在 static Gate
   中扫描已知秘密模式。
 - 现场探针只输出字段名、类型、长度、计数、状态与分类。

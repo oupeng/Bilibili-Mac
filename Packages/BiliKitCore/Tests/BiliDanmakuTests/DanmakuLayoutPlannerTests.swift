@@ -237,12 +237,32 @@ func scrollingEvent(id: String, time: Double, width: Int) -> DanmakuEvent {
     )
 }
 
-/// 落在第 `segment` 段内、三种模式混合的高密度弹幕；同一 `seed` 总得到同一组。
-func denseEvents(segment: Int, count: Int, seed: UInt64) -> [DanmakuEvent] {
-    var state = seed &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
-    func next() -> UInt64 {
+/// 测试用的确定性随机序列：同一种子总得到同一串 31 位整数（线性同余，取高位）。
+///
+/// 不遵循 `RandomNumberGenerator`：标准库的 `random(in:using:)` 要求均匀的 64 位输出。
+struct SeededSequence {
+    private var state: UInt64
+
+    init(seed: UInt64) {
+        state = seed &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+    }
+
+    mutating func next() -> UInt64 {
         state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
         return state >> 33
+    }
+
+    /// [0, 1) 里的一个数。
+    mutating func unit() -> Double {
+        Double(next()) / Double(1 << 31)
+    }
+}
+
+/// 落在第 `segment` 段内、三种模式混合的高密度弹幕；同一 `seed` 总得到同一组。
+func denseEvents(segment: Int, count: Int, seed: UInt64) -> [DanmakuEvent] {
+    var sequence = SeededSequence(seed: seed)
+    func next() -> UInt64 {
+        sequence.next()
     }
     let start = Double(segment - 1) * DanmakuSegmentCache.segmentDurationSeconds
     return (0..<count).map { offset in

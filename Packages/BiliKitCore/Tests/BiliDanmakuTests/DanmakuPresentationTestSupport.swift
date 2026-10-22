@@ -64,7 +64,7 @@ func layoutTable(
 /// 呈现测试唯一的渲染后端替身，不创建任何 layer。
 ///
 /// 记录在屏弹幕的 placement、清屏与画面尺寸，可延迟纹理准备由测试逐个完成；在屏集合变化或
-/// 收到延迟的准备请求时检查等待条件。
+/// 收到延迟的准备请求时检查等待条件。backing scale 变化时与 renderer 一样静默取消在途准备。
 @MainActor
 final class RecordingRenderingBackend: DanmakuRenderingBackend {
     /// 此刻在屏的弹幕与它们的 placement。
@@ -79,6 +79,7 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
     private(set) var stopCount = 0
     /// 每次 `updateSurfaceSize` 收到的宽高，按顺序。
     private(set) var surfaceSizes: [(width: Double, height: Double)] = []
+    private var backingScale = DanmakuTextureRasterizer.defaultBackingScale
     /// 为 true 时准备不立即完成，等测试调用 `completePreparations`。
     var delaysPreparation = false
     private var delayedCompletions:
@@ -164,12 +165,17 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
 
     func setOpacity(_ opacity: DanmakuOpacity) {}
 
+    /// 与 renderer 一样：backing scale 变化时静默取消在途准备，不回调。
     func updateSurfaceSize(
         width: Double,
         height: Double,
         backingScale: Double
     ) {
         surfaceSizes.append((width, height))
+        if backingScale != self.backingScale {
+            self.backingScale = backingScale
+            delayedCompletions.removeAll()
+        }
     }
 
     func stop() {
@@ -192,5 +198,74 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
         for (id, waiter) in ready where waiters.removeValue(forKey: id) != nil {
             waiter.continuation.resume()
         }
+    }
+}
+
+/// 呈现测试唯一的显示时间替身：测试直接设定宿主时钟层发布的 D；`time` 为 nil 表示读不到（从未绑定、换绑后
+/// 新纪元还没写入）。
+final class ManualDisplayClock: DanmakuDisplayClock, @unchecked Sendable {
+    // 只在 MainActor 上的测试里读写，不跨线程；`@unchecked` 只为满足 port 的 Sendable 要求。
+    var time: Double?
+
+    init(time: Double? = nil) {
+        self.time = time
+    }
+
+    func displayTime() -> Double? {
+        time
+    }
+}
+
+/// t 时刻屏上真正看得见的弹幕：在屏、已进场，且按自己的 placement 在取景框里还没走完。
+///
+/// 只看 backend 记录的 placement 与时刻，不看 materializer 的内部记录；前瞻挂上、还没进场的不算。
+@MainActor
+func visibleEventIDs(
+    on backend: RecordingRenderingBackend,
+    at time: Double,
+    viewport: DanmakuViewport
+) -> Set<String> {
+    Set(
+        backend.installed.values
+            .filter { $0.admittedAtSeconds <= time && viewport.shows($0, at: time) }
+            .map(\.request.event.id)
+    )
+}
+
+/// 布局表在 t 时刻应该看得见的弹幕：直接由布局表与取景框求，不经过 materializer，不含前瞻。
+func expectedVisibleEventIDs(
+    in table: [Int: DanmakuSegmentLayout],
+    at time: Double,
+    viewport: DanmakuViewport
+) -> Set<String> {
+    Set(
+        table.values.flatMap { layout in
+            layout.placements(at: time, lookahead: 0)
+                .filter { $0.admittedAtSeconds <= time && viewport.shows($0, at: time) }
+                .map(\.request.event.id)
+        }
+    )
+}
+
+/// 可见性采样相对 D 的偏移（媒体秒）：此刻、区间中段、上次对齐覆盖的区间末端之前。
+private let visibilitySampleOffsets = [0, 0.5, 1.4]
+
+/// 显示时间停在 `displayTime` 时，此刻与之后 1.4 媒体秒内看得见的都与布局表一致。
+@MainActor
+func expectVisibilityMatchesTheTable(
+    on backend: RecordingRenderingBackend,
+    table: [Int: DanmakuSegmentLayout],
+    viewport: DanmakuViewport,
+    at displayTime: Double,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    for offset in visibilitySampleOffsets {
+        let time = displayTime + offset
+        #expect(
+            visibleEventIDs(on: backend, at: time, viewport: viewport)
+                == expectedVisibleEventIDs(in: table, at: time, viewport: viewport),
+            "D + \(offset) 秒时看得见的集合与布局表不一致",
+            sourceLocation: sourceLocation
+        )
     }
 }
