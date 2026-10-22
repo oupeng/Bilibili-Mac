@@ -158,9 +158,13 @@ public final class DanmakuSession: DanmakuPresentationControlling {
 
     /// 一个分段加载结束、腾出名额后，按时间线当前的快照继续请求；暂停时不会有新快照来触发。
     ///
-    /// 快照不属于当前 identity（换视频的途中）时 `desiredSegmentIndices` 给出空集，什么都不请求。
+    /// 快照不属于当前 identity（换视频的途中）时 `desiredSegmentIndices` 给出空集，什么都不请求。先让缓存观察
+    /// 这个快照：它可能比经 stream 收到的新一些，淘汰保护的与这里请求的要出自同一个位置，否则刚请求到的分段
+    /// 可能一到就被淘汰。
     private func requestRemainingSegments() {
-        requestSegments(for: timeline.currentTimelineSnapshot)
+        let current = timeline.currentTimelineSnapshot
+        segmentCache.observe(current)
+        requestSegments(for: current)
     }
 
     private func load(
@@ -177,7 +181,12 @@ public final class DanmakuSession: DanmakuPresentationControlling {
                     self.identity == identity
                 else { return }
                 self.loadTasks[index] = nil
-                if self.segmentCache.store(segment, for: identity) {
+                // 淘汰同时保护屏上弹幕所在时刻（呈现端的显示时间）需要的分段，见 DanmakuSegmentCache。
+                if self.segmentCache.store(
+                    segment,
+                    for: identity,
+                    displayPosition: self.presentationSink?.displayPosition()
+                ) {
                     self.presentationSink?.setSegments(self.segmentCache.segments, for: identity)
                 }
                 self.requestRemainingSegments()

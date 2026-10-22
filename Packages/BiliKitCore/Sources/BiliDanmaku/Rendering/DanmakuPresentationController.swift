@@ -185,6 +185,10 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         evaluate()
     }
 
+    public func displayPosition() -> Double? {
+        clockBox.clock?.displayTime()
+    }
+
     /// 时钟层写入了新的直线（速率变化、时间跳变、换绑后的第一次同步）：按新的 D(now) 检查一次；只接受当前 owner。
     ///
     /// 由宿主在主线程调用，多次写入可能合并成一次；暂停中 seek 时没有后续快照，靠它重新对齐。

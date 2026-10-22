@@ -25,7 +25,7 @@ func snapshot(
 }
 
 /// 弹幕会话测试唯一的呈现端替身：记录收到的快照、分段、开关、过滤与停止次数，每收到一个快照或分段
-/// 检查一次等待条件；不渲染任何弹幕。
+/// 检查一次等待条件；显示时间由测试设定；不渲染任何弹幕。
 @MainActor
 final class SessionPresentationSink: DanmakuPresentationSink {
     private(set) var snapshots: [PlaybackTimelineSnapshot] = []
@@ -45,6 +45,13 @@ final class SessionPresentationSink: DanmakuPresentationSink {
     func apply(_ snapshot: PlaybackTimelineSnapshot) {
         snapshots.append(snapshot)
         resumeSatisfiedWaiters()
+    }
+
+    /// 呈现端此刻的显示时间，由测试设定；默认读不到。
+    var displayPositionSeconds: Double?
+
+    func displayPosition() -> Double? {
+        displayPositionSeconds
     }
 
     func setSegments(

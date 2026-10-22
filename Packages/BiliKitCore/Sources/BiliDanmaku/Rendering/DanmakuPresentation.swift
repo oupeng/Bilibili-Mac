@@ -10,6 +10,9 @@ public protocol DanmakuPresentationSink: AnyObject {
     /// 每个快照都要送达：呈现端靠它得知 identity，并把它当作「该检查一下了」的节拍；在屏集合与何时对齐
     /// 按宿主时钟层的显示时间（`DanmakuDisplayClock`）决定，不按快照位置。
     func apply(_ snapshot: PlaybackTimelineSnapshot)
+    /// 此刻的弹幕显示时间 D；没有接管 surface 的时钟、或时钟还读不到当前 item 的时间时为 nil。会话淘汰分段时
+    /// 保护 D 需要的分段（屏上弹幕正在那里运动）。
+    func displayPosition() -> Double?
     /// 会话当前缓存的全部分段（按分段号）；分段到达或被淘汰时整份重新给出。identity 与呈现端当前的
     /// 不一致时忽略。
     func setSegments(
