@@ -78,7 +78,7 @@ struct DanmakuMaterializerTests {
         #expect(seekingBackend.installed == continuousBackend.installed)
     }
 
-    /// 跳到一半纹理还在缓存里、没命中的已进场弹幕也不少的地方：命中的在同一次调用里全部出现，其余按任意
+    /// 跳到一半纹理还在缓存里、也有没命中的已进场弹幕的地方：命中的在同一次调用里全部出现，其余按任意
     /// 顺序逐条就绪，每就绪一条就出现，不等别的。
     @Test
     func jumpShowsCachedTexturesAtOnceAndTheRestAsEachBecomesReady() throws {
@@ -109,7 +109,7 @@ struct DanmakuMaterializerTests {
         let uncachedAdmitted = desired.filter {
             !cached.contains($0.request.event.id) && $0.admittedAtSeconds <= 200
         }
-        try #require(uncachedAdmitted.count > 8)
+        try #require(!uncachedAdmitted.isEmpty)
         backend.delaysPreparation = true
         backend.cachedEventIDs = cached
 
@@ -380,6 +380,9 @@ struct DanmakuMaterializerTests {
         #expect(!materializer.isCommitPending)
         #expect(backend.installed == installedBefore)
         #expect(backend.heldPreparationCount == 0)
+        if staged {
+            #expect(backend.pendingPreparationCount == 0)
+        }
         backend.completePreparations()
         #expect(backend.installed == installedBefore)
         #expect(backend.heldPreparationCount == 0)

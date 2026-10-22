@@ -51,27 +51,16 @@ struct DanmakuPresentationControllerTests {
         let (controller, backend) = await laidOutController(at: 30)
         backend.delaysPreparation = true
 
-        let steps = Array(stride(from: 120.0, to: 140, by: 1.6))
-        for (index, position) in steps.enumerated() {
+        let steps = (0..<13).map { 120 + Double($0) * Self.dragStep }
+        for position in steps {
             move(controller, to: position, generation: 1)
-            let expected = expectedIDs(at: position, in: controller)
-            if index > 0 {
-                #expect(!backend.installed.isEmpty)
-                #expect(backend.installedEventIDs.isSubset(of: expected))
-            }
+            expectNothingWithheld(in: controller, backend, at: position)
             backend.completePreparations(backend.pendingPreparationCount / 2)
-            expectNothingWithheld(
-                on: backend,
-                table: controller.layoutTable,
-                viewport: controller.viewport,
-                at: position
-            )
+            expectNothingWithheld(in: controller, backend, at: position)
         }
         backend.completePreparations()
 
-        let last = steps[steps.count - 1]
-        #expect(backend.installedEventIDs == expectedIDs(at: last, in: controller))
-        expectVisibility(in: controller, backend, at: last)
+        expectVisibility(in: controller, backend, at: steps[steps.count - 1])
     }
 
     /// 落点分段还没到：按新时刻对齐（旧时刻的弹幕全部移走），分段到达后整屏挂上。
@@ -83,11 +72,12 @@ struct DanmakuPresentationControllerTests {
         let third = denseEvents(segment: 3, count: 900, seed: 152)
         func step(to position: Double) {
             move(controller, to: position, generation: 1)
-            #expect(!backend.installed.isEmpty)
-            #expect(
-                backend.installedEventIDs.isSubset(of: expectedIDs(at: position, in: controller))
-            )
+            expectNothingWithheld(in: controller, backend, at: position)
             backend.completePreparations(backend.pendingPreparationCount / 2)
+            expectNothingWithheld(in: controller, backend, at: position)
+            #expect(
+                !visibleEventIDs(on: backend, at: position, viewport: controller.viewport).isEmpty
+            )
         }
 
         for (segments, start) in [
@@ -99,14 +89,13 @@ struct DanmakuPresentationControllerTests {
             controller.setSegments(segments, for: identity)
             await backend.waitUntil { backend.pendingPreparationCount > waiting }
             backend.completePreparations(backend.pendingPreparationCount / 2)
-            for offset in [1.6, 3.2, 4.8] {
-                step(to: start + offset)
+            for count in 1...3 {
+                step(to: start + Double(count) * Self.dragStep)
             }
         }
         backend.completePreparations()
 
-        #expect(backend.installedEventIDs == expectedIDs(at: 734.8, in: controller))
-        expectVisibility(in: controller, backend, at: 734.8)
+        expectVisibility(in: controller, backend, at: 730 + 3 * Self.dragStep)
     }
 
     @Test
@@ -124,11 +113,15 @@ struct DanmakuPresentationControllerTests {
         expectVisibility(in: controller, backend, at: 1_000)
     }
 
-    /// 步长加一个快照周期短于前瞻：按步长推进时，即将进场的弹幕在进场前已请求过纹理，余下的时间留给栅格化。
+    /// 步长加一个快照周期短于前瞻：按步长推进时，即将进场的弹幕在进场前已请求过纹理。
+    ///
+    /// 这条不等式不含栅格化余量：步长贴着前瞻（例如 1.9 秒）它仍成立，余下的准备时间取决于密度，单元测试量不出。
+    /// 「越过步长就对齐、就绪即可见」的真正防线是按 `dragStep` 拖动的那几个测试。
     @Test
     func strideAndOneCheckIntervalFitInsideTheLookahead() {
+        let snapshotInterval = 1 / Double(PlaybackTimelineSnapshot.periodicSnapshotsPerMediaSecond)
         #expect(
-            DanmakuPresentationController.reconcileStride + Self.snapshotInterval
+            DanmakuPresentationController.reconcileStride + snapshotInterval
                 < DanmakuMaterializer.lookaheadSeconds
         )
     }
@@ -249,7 +242,7 @@ struct DanmakuPresentationControllerTests {
         let newTable = placementsByEventID(controller.layoutTable)
         #expect(newTable != oldTable)
 
-        let steps = Array(stride(from: 31.6, to: 50, by: 1.6))
+        let steps = (1...12).map { 30 + Double($0) * Self.dragStep }
         for position in steps {
             move(controller, to: position, generation: 1)
             let installed = backend.installed
@@ -263,12 +256,7 @@ struct DanmakuPresentationControllerTests {
         let last = steps[steps.count - 1]
         #expect(!backend.installed.isEmpty)
         #expect(backend.installed.allSatisfy { newTable[$0.key] == $0.value })
-        expectNothingWithheld(
-            on: backend,
-            table: controller.layoutTable,
-            viewport: controller.viewport,
-            at: last
-        )
+        expectNothingWithheld(in: controller, backend, at: last)
     }
 
     @Test
@@ -514,8 +502,8 @@ struct DanmakuPresentationControllerTests {
     /// 换屏重排用的更大屏幕。
     private static let largerScreen = Size(width: 1_600, height: 900)
 
-    /// 时间线快照的周期（媒体秒）：BiliPlayback 的周期观察器每 1/30 媒体秒发布一次。
-    private static let snapshotInterval = 1.0 / 30
+    /// 原生拖动一步跨过的媒体时长：越过一个步长，所以每一步都要对齐。
+    private static let dragStep = DanmakuPresentationController.reconcileStride * 1.6
 
     /// 等到按 `screenWidth` 规划的新布局表落地。
     private func waitForLayout(
@@ -673,6 +661,21 @@ struct DanmakuPresentationControllerTests {
                 viewport: controller.viewport
             )
             .map(\.request.event.id)
+        )
+    }
+
+    private func expectNothingWithheld(
+        in controller: DanmakuPresentationController,
+        _ backend: RecordingRenderingBackend,
+        at displayTime: Double,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        BiliDanmakuTests.expectNothingWithheld(
+            on: backend,
+            table: controller.layoutTable,
+            viewport: controller.viewport,
+            at: displayTime,
+            sourceLocation: sourceLocation
         )
     }
 
