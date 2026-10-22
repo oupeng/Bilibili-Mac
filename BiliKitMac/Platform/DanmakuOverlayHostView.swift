@@ -1,6 +1,7 @@
 import AVFoundation
 import AppKit
 import BiliDanmaku
+import os
 
 /// 将 renderer 的 layer 挂到弹幕时钟层下，放进当前 `AVPlayerView` 的 content overlay，并独占其尺寸更新权。
 ///
@@ -76,6 +77,7 @@ final class DanmakuOverlayView: NSView {
         if let window {
             startObservingScreenChanges(of: window)
             attachSurfaceIfNeeded()
+            verifyClockAncestorsKeepHostTime()
         }
     }
 
@@ -91,6 +93,9 @@ final class DanmakuOverlayView: NSView {
     /// `AVPlayerItem` 创建后 `timebase` 就不是 nil，换 item 之后是另一个对象，所以按 timebase 判断换绑。
     func bind(to item: AVPlayerItem?) {
         let timebase = item?.timebase
+        if item != nil, timebase == nil {
+            DanmakuClockPrecondition.missingTimebase.report()
+        }
         guard boundTimebase !== timebase else { return }
         if isSurfaceAttached {
             controller.playerItemWillChange(ownerID: ownerID)
@@ -184,6 +189,22 @@ final class DanmakuOverlayView: NSView {
         )
     }
 
+    /// 检查时钟层的祖先都没有改时间属性。
+    ///
+    /// 时钟按 `CACurrentMediaTime()` 写时钟层的 `beginTime`，祖先的时间属性恒等时父层的本地时间才等于宿主
+    /// 时间；普通窗口、原生全屏、detached 全屏与画中画下实测都成立。每次进入窗口（含 AVKit 把画面移到别的
+    /// 窗口）检查一次，不成立时只报告，不尝试换算。
+    private func verifyClockAncestorsKeepHostTime() {
+        var ancestor = clock.layer.superlayer
+        while let layer = ancestor {
+            guard layer.speed == 1, layer.timeOffset == 0, layer.beginTime == 0 else {
+                DanmakuClockPrecondition.ancestorTiming.report()
+                return
+            }
+            ancestor = layer.superlayer
+        }
+    }
+
     @objc private func screenDidChange(_ notification: Notification) {
         updateSurfaceIfNeeded()
     }
@@ -197,6 +218,21 @@ final class DanmakuOverlayView: NSView {
         previousScreenSize = nil
         previousBackingScale = nil
         updateSurfaceIfNeeded()
+    }
+}
+
+/// 弹幕时钟依赖、但不能自己保证的平台前提；不成立时弹幕时间与画面错开。
+///
+/// DEBUG 下断言失败；Release 下只记一条固定分类的日志，不含时间、位置或内容身份（docs/SECURITY-MODEL.md §8）。
+private enum DanmakuClockPrecondition: String {
+    case ancestorTiming = "danmaku clock ancestor layer has non-identity timing"
+    case missingTimebase = "player item has no timebase for the danmaku clock"
+
+    private static let log = Logger(subsystem: "com.shiinayane.BiliKit", category: "DanmakuClock")
+
+    func report() {
+        assertionFailure(rawValue)
+        Self.log.error("\(rawValue, privacy: .public)")
     }
 }
 
