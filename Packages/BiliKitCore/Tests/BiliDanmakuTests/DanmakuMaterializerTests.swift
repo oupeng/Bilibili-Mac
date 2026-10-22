@@ -8,7 +8,9 @@ import Testing
 /// 固定 materializer 的契约：任一时刻在屏的 layer 恰好是布局表在该时刻、该取景框里可见的弹幕加前瞻；
 /// seek 到任意时刻与从头连续推进到该时刻得到同一组 layer；重新对齐时已进场缺纹理的不超过上限就逐条
 /// 补上、超过就等齐一次替换；布局表替换在一次调用里整屏换掉，替换还在等纹理时的重新对齐（含极小回跳）
-/// 也不拆开它；迟到的纹理补上原 placement；清屏之后整屏重新挂上；换取景框的结果与一开始就用它相同。
+/// 也不拆开它；迟到的纹理补上原 placement，是否挂上按纹理到达那一刻的显示时间判断，读不到显示时间时
+/// 只记下结果、不挂也不提交；清屏之后整屏重新挂上；换取景框的结果与一开始就用它相同；backing scale
+/// 变化必须在 backend 静默取消之后重开暂存，反过来暂存永远等不齐。
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct DanmakuMaterializerTests {
@@ -18,7 +20,7 @@ struct DanmakuMaterializerTests {
     func layersAtATimeAreTheOnScreenSetPlusTheLookahead() {
         let table = layoutTable([1: denseEvents(segment: 1, count: 500, seed: 31)])
         let backend = RecordingRenderingBackend()
-        let materializer = DanmakuMaterializer(backend: backend)
+        let materializer = StoppedClockMaterializer(backend: backend)
 
         for position in stride(from: 0.0, through: 360, by: 11.3) {
             materializer.reconcile(
@@ -42,7 +44,7 @@ struct DanmakuMaterializerTests {
             2: denseEvents(segment: 2, count: 900, seed: 42)
         ])
         let continuousBackend = RecordingRenderingBackend()
-        let continuous = DanmakuMaterializer(backend: continuousBackend)
+        let continuous = StoppedClockMaterializer(backend: continuousBackend)
         for position in stride(
             from: 0.0,
             to: target,
@@ -63,7 +65,7 @@ struct DanmakuMaterializerTests {
         )
 
         let seekingBackend = RecordingRenderingBackend()
-        let seeking = DanmakuMaterializer(backend: seekingBackend)
+        let seeking = StoppedClockMaterializer(backend: seekingBackend)
         seeking.reconcile(table: table, position: 600, viewport: fullViewport, mode: .incremental)
         seeking.reconcile(table: table, position: target, viewport: fullViewport, mode: .realign)
 
@@ -86,7 +88,7 @@ struct DanmakuMaterializerTests {
         try #require(admitted.count == missing)
         let backend = RecordingRenderingBackend()
         backend.delaysPreparation = true
-        let materializer = DanmakuMaterializer(backend: backend)
+        let materializer = StoppedClockMaterializer(backend: backend)
 
         materializer.reconcile(table: table, position: 100, viewport: fullViewport, mode: .realign)
         #expect(materializer.isCommitPending == (beyondLimit > 0))
@@ -100,7 +102,7 @@ struct DanmakuMaterializerTests {
     func realignWithManyMissingTexturesReplacesTheScreenOnceReady() {
         let table = layoutTable([1: denseEvents(segment: 1, count: 900, seed: 121)])
         let backend = RecordingRenderingBackend()
-        let materializer = DanmakuMaterializer(backend: backend)
+        let materializer = StoppedClockMaterializer(backend: backend)
         materializer.reconcile(table: table, position: 60, viewport: fullViewport, mode: .realign)
         let before = backend.installed
         #expect(!before.isEmpty)
@@ -129,7 +131,7 @@ struct DanmakuMaterializerTests {
         let wide = layoutTable([1: events], surfaceWidth: 1_400)
         let wideViewport = viewport(width: 1_400)
         let backend = RecordingRenderingBackend()
-        let materializer = DanmakuMaterializer(backend: backend)
+        let materializer = StoppedClockMaterializer(backend: backend)
         materializer.reconcile(
             table: narrow,
             position: 120,
@@ -170,7 +172,7 @@ struct DanmakuMaterializerTests {
         let wide = layoutTable([1: events], surfaceWidth: 1_400)
         let wideViewport = viewport(width: 1_400)
         let backend = RecordingRenderingBackend()
-        let materializer = DanmakuMaterializer(backend: backend)
+        let materializer = StoppedClockMaterializer(backend: backend)
         materializer.reconcile(
             table: narrow,
             position: 120,
@@ -214,7 +216,7 @@ struct DanmakuMaterializerTests {
         let withoutSecond = layoutTable([1: first])
         let withSecond = layoutTable([1: first, 2: second])
         let backend = RecordingRenderingBackend()
-        let materializer = DanmakuMaterializer(backend: backend)
+        let materializer = StoppedClockMaterializer(backend: backend)
         materializer.reconcile(
             table: withoutSecond,
             position: 400,
@@ -255,7 +257,7 @@ struct DanmakuMaterializerTests {
         let table = layoutTable([1: denseEvents(segment: 1, count: 300, seed: 61)])
         let backend = RecordingRenderingBackend()
         backend.delaysPreparation = true
-        let materializer = DanmakuMaterializer(backend: backend)
+        let materializer = StoppedClockMaterializer(backend: backend)
         materializer.reconcile(
             table: table,
             position: 200,
@@ -289,7 +291,7 @@ struct DanmakuMaterializerTests {
     func clearingAndReconcilingAgainRestoresTheSameScreen() {
         let table = layoutTable([1: denseEvents(segment: 1, count: 300, seed: 71)])
         let backend = RecordingRenderingBackend()
-        let materializer = DanmakuMaterializer(backend: backend)
+        let materializer = StoppedClockMaterializer(backend: backend)
         materializer.reconcile(
             table: table,
             position: 90,
@@ -314,7 +316,7 @@ struct DanmakuMaterializerTests {
     func backingScaleChangeReplacesTexturesInPlaceInOneCall() {
         let table = layoutTable([1: denseEvents(segment: 1, count: 300, seed: 81)])
         let backend = RecordingRenderingBackend()
-        let materializer = DanmakuMaterializer(backend: backend)
+        let materializer = StoppedClockMaterializer(backend: backend)
         materializer.reconcile(
             table: table,
             position: 150,
@@ -349,7 +351,7 @@ struct DanmakuMaterializerTests {
         let table = layoutTable([1: denseEvents(segment: 1, count: 300, seed: 91)])
         let backend = RecordingRenderingBackend()
         backend.delaysPreparation = true
-        let materializer = DanmakuMaterializer(backend: backend)
+        let materializer = StoppedClockMaterializer(backend: backend)
         materializer.reconcile(
             table: table,
             position: 150,
@@ -379,7 +381,7 @@ struct DanmakuMaterializerTests {
         let small = viewport(width: 500, height: 200)
         func direct(_ viewport: DanmakuViewport) -> [String: DanmakuLanePlacement] {
             let backend = RecordingRenderingBackend()
-            DanmakuMaterializer(backend: backend).reconcile(
+            StoppedClockMaterializer(backend: backend).reconcile(
                 table: table,
                 position: 150,
                 viewport: viewport,
@@ -388,7 +390,7 @@ struct DanmakuMaterializerTests {
             return backend.installed
         }
         let backend = RecordingRenderingBackend()
-        let materializer = DanmakuMaterializer(backend: backend)
+        let materializer = StoppedClockMaterializer(backend: backend)
         materializer.reconcile(
             table: table,
             position: 150,
@@ -421,7 +423,7 @@ struct DanmakuMaterializerTests {
         let large = viewport(width: 1_200, height: 720)
         let small = viewport(width: 1_200, height: 200)
         let backend = RecordingRenderingBackend()
-        let materializer = DanmakuMaterializer(backend: backend)
+        let materializer = StoppedClockMaterializer(backend: backend)
         materializer.reconcile(
             table: table,
             position: 150,
@@ -449,9 +451,125 @@ struct DanmakuMaterializerTests {
         #expect(backend.installed == placementsByID(expected))
     }
 
+    /// 纹理到达时显示时间已走到这些弹幕都离场之后：按此刻的 D 判断，一条也不挂。
+    @Test
+    func lateTextureIsJudgedAtTheCurrentDisplayTime() {
+        let table = layoutTable([1: denseEvents(segment: 1, count: 300, seed: 62)])
+        let backend = RecordingRenderingBackend()
+        backend.delaysPreparation = true
+        let materializer = StoppedClockMaterializer(backend: backend)
+        materializer.reconcile(
+            table: table,
+            position: 200,
+            viewport: fullViewport,
+            mode: .incremental
+        )
+        #expect(backend.pendingPreparationCount > 0)
+
+        materializer.clock.time = 300
+        backend.completePreparations()
+
+        #expect(backend.installed.isEmpty)
+    }
+
+    /// 纹理异步完成时读不到 D：普通准备不挂上，暂存不提交；之后有 D 的重新对齐用已就绪的纹理一次整屏挂上。
+    @Test
+    func completionWithoutADisplayTimeInstallsAndCommitsNothing() {
+        let table = layoutTable([1: denseEvents(segment: 1, count: 300, seed: 63)])
+        let backend = RecordingRenderingBackend()
+        backend.delaysPreparation = true
+        let materializer = StoppedClockMaterializer(backend: backend)
+        materializer.reconcile(
+            table: table,
+            position: 120,
+            viewport: fullViewport,
+            mode: .staged(.wholeScreen)
+        )
+        #expect(materializer.isCommitPending)
+
+        materializer.clock.time = nil
+        backend.completePreparations()
+        #expect(backend.installed.isEmpty)
+        #expect(materializer.isCommitPending)
+
+        materializer.reconcile(table: table, position: 120, viewport: fullViewport, mode: .realign)
+        let expected = DanmakuMaterializer.desiredPlacements(
+            in: table,
+            at: 120,
+            viewport: fullViewport
+        )
+        #expect(backend.installed == placementsByID(expected))
+        #expect(backend.pendingPreparationCount == 0)
+    }
+
+    /// backing scale 变化的顺序契约：backend 先静默取消在途准备，materializer 再按此刻的 D 重开暂存，纹理
+    /// 齐了就提交；反过来，重开发出的请求被随后的取消吞掉，暂存永远等不齐。
+    @Test(arguments: [true, false])
+    func backingScaleRestartMustFollowTheBackendsSilentCancel(backendFirst: Bool) {
+        let table = layoutTable([1: denseEvents(segment: 1, count: 300, seed: 64)])
+        let backend = RecordingRenderingBackend()
+        backend.delaysPreparation = true
+        let materializer = StoppedClockMaterializer(backend: backend)
+        materializer.reconcile(
+            table: table,
+            position: 150,
+            viewport: fullViewport,
+            mode: .staged(.wholeScreen)
+        )
+        #expect(materializer.isCommitPending)
+
+        if backendFirst {
+            backend.updateSurfaceSize(width: 800, height: 360, backingScale: 3)
+            materializer.setBackingScale(3)
+        } else {
+            materializer.setBackingScale(3)
+            backend.updateSurfaceSize(width: 800, height: 360, backingScale: 3)
+        }
+        backend.completePreparations()
+
+        #expect(materializer.isCommitPending == !backendFirst)
+        #expect(backend.installed.isEmpty == !backendFirst)
+    }
+
     private func placementsByID(
         _ placements: [DanmakuLanePlacement]
     ) -> [String: DanmakuLanePlacement] {
         Dictionary(uniqueKeysWithValues: placements.map { ($0.request.event.id, $0) })
+    }
+}
+
+/// 显示时间停在最近一次 reconcile 位置的 materializer。
+///
+/// 这些测试里时间不自己走：纹理异步完成时 materializer 读到的 D 就是最近一次 reconcile 传入的位置；要让 D
+/// 在两次 reconcile 之间移动或读不到的测试直接改 `clock`。
+@MainActor
+private final class StoppedClockMaterializer {
+    let clock: ManualDisplayClock
+    let materializer: DanmakuMaterializer
+
+    init(backend: RecordingRenderingBackend) {
+        let clock = ManualDisplayClock()
+        self.clock = clock
+        materializer = DanmakuMaterializer(backend: backend) { clock.time }
+    }
+
+    var isCommitPending: Bool { materializer.isCommitPending }
+
+    func reconcile(
+        table: [Int: DanmakuSegmentLayout],
+        position: Double,
+        viewport: DanmakuViewport,
+        mode: DanmakuMaterializer.Mode
+    ) {
+        clock.time = position
+        materializer.reconcile(table: table, position: position, viewport: viewport, mode: mode)
+    }
+
+    func setBackingScale(_ scale: Double) {
+        materializer.setBackingScale(scale, at: clock.time)
+    }
+
+    func clear() {
+        materializer.clear()
     }
 }

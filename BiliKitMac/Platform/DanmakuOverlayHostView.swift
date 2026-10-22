@@ -14,7 +14,8 @@ import BiliDanmaku
 /// `rootLayer` 挂在它下面。它不会跟随 `replaceCurrentItem` 自动换绑：播放器宿主在 `currentItem` 变化时
 /// 调用 `bind(to:)`，先让呈现控制器清屏，再换绑到新 item 的 timebase，否则旧弹幕会在新 item 的时间线上
 /// 错位。本视图拥有时钟（释放时随之注销观察），并在主线程负责时钟层的 frame；时钟层的时间属性只由时钟
-/// 自己的队列写。
+/// 自己的队列写。接管 surface 时把时钟交给呈现控制器作为显示时间 D(now) 的唯一来源，时钟每次写入后经
+/// `displayClockDidChange(ownerID:)` 提醒控制器按新的 D 检查一次。
 ///
 /// 这是 layer-backed 视图加自定义 layer（先 `wantsLayer` 再设 `layer`），不是 layer-hosting；视图本身
 /// 从不绘制。暂停时增删弹幕 layer 由系统照常合成，不需要主动请求重新合成。
@@ -52,6 +53,11 @@ final class DanmakuOverlayView: NSView {
         clock.layer.actions = ["bounds": NSNull(), "position": NSNull()]
         clock.layer.anchorPoint = .zero
         layer?.addSublayer(clock.layer)
+        // 只弱引用本视图、经它取控制器：控制器接管 surface 后持有时钟，回调若直接捕获控制器会成环。
+        clock.setWriteHandler { [weak self] in
+            guard let self else { return }
+            controller.displayClockDidChange(ownerID: ownerID)
+        }
     }
 
     @available(*, unavailable)
@@ -184,7 +190,7 @@ final class DanmakuOverlayView: NSView {
     private func attachSurfaceIfNeeded() {
         guard !isSurfaceAttached else { return }
         isSurfaceAttached = true
-        controller.attachSurface(ownerID: ownerID)
+        controller.attachSurface(ownerID: ownerID, clock: clock)
         clock.layer.addSublayer(renderer.rootLayer)
         previousSize = nil
         previousScreenSize = nil

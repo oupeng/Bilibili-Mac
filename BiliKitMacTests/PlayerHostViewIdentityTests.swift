@@ -56,9 +56,16 @@ struct PlayerHostViewIdentityTests {
         #expect(!view.isAccessibilityHidden())
     }
 
+    /// 弹幕位置来自时钟层的显示时间，所以先绑定一个停在媒体时间 0 的 item：时钟从未绑定时读不到时间，
+    /// 什么都不挂。
     @Test
     @MainActor
     func danmakuSurfaceSurvivesTemporaryWindowReparenting() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("danmaku-reparent-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let item = AVPlayerItem(url: try writeSilentAudio(seconds: 4, in: directory))
         let renderer = CoreAnimationDanmakuRenderer(
             beginTimeAtZero: DanmakuTimebaseClock.beginTimeAtMediaZero
         )
@@ -83,6 +90,7 @@ struct PlayerHostViewIdentityTests {
 
         firstWindow.contentView?.addSubview(overlay)
         overlay.layoutSubtreeIfNeeded()
+        overlay.bind(to: item)
         #expect(renderer.rootLayer.superlayer != nil)
 
         let identity = PlaybackItemIdentity(bvid: "fixture", cid: 1)
