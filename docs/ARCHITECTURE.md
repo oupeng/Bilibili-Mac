@@ -174,6 +174,16 @@ timebase 直接驱动（见下文「弹幕时钟层」与「弹幕」）；哪�
     相对宿主时钟的最新速率与锚点，外推到此刻 `now`，在显式 `CATransaction` 里写 `beginTime = now`、
     `timeOffset`（此刻的媒体时间）与 `speed`（速率）。旧 timebase 迟到的通知只会让当前绑定多同步一次，
     结果相同。
+  - 原子写入：三个时间属性的赋值在 `CATransaction.lock()` 内完成，提交在锁外。主线程同一轮改过时钟层本身
+    （布局时的 frame、接管 surface 时的子层）时，它的提交会带上这个 layer 当时的全部属性，不加锁可能把写到
+    一半的三元组推上屏。提交不能放进锁里：提交先取 Core Animation 的 context 锁再取这把全局锁，持着全局锁
+    提交会与其他线程的提交（例如 AppKit 在显示链接线程上推进动画）反序加锁，实测死锁。锁内不取其他锁，只持
+    几微秒。
+  - 发布：每次写入之后，在锁里连同绑定纪元发布这次写入的直线（`DanmakuClockWrite`，速率与 `CALayer.speed`
+    同为 Float），`bind` 递增纪元并作废发布值，期间换绑的旧同步不发布。任意线程经 `displayTime()`
+    （`BiliDanmaku.DanmakuDisplayClock`）用同一个纯函数求此刻的弹幕时间 D；从未绑定过、或换绑后新 timebase
+    第一次写入之前读不到。发布之后经一个合并标志向主线程投递一次写入通知（主线程先清标志再读发布值，同一
+    时间最多排一个，不丢唤醒）。
   - 绑定：`bind` 注销旧 timebase 的观察并登记新的，再主动同步一次（状态不变时没有通知）；解绑时时钟层
     停在当前本地时间、速率 0。宿主在 `currentItem` 变化时先让呈现控制器清屏再换绑；`AVPlayerItem` 创建
     后 `timebase` 就不是 nil，换 item 后是另一个对象。
@@ -181,7 +191,8 @@ timebase 直接驱动（见下文「弹幕时钟层」与「弹幕」）；哪�
     AVPlayer／AVPlayerItem 的 API（例如 `currentTime()`）必然死锁，回调里的任何等待都会原样延长持锁
     时间、挡住主线程，所以回调只投递；多个来源的通知到达顺序不保证，所以不用通知的 payload，而在队列上
     读最新锚点；后台队列没有 runloop，隐式事务不会提交。时钟层的时间属性只由该队列写，frame 与弹幕
-    layer 的增删在主线程。
+    layer 的增删在主线程。保护绑定与发布值的锁是叶子锁，队列释放 Core Animation 锁之后才取它，主线程可能
+    在 Core Animation 锁内读 `displayTime()`，所以只有「Core Animation 锁 → 绑定锁」一种嵌套。
   - 前提：`now` 取 `CACurrentMediaTime()`，要求时钟层的祖先都没有修改时间属性（`speed`、`timeOffset`、
     `beginTime`），父层的本地时间才等于宿主时间。窗口内播放经测试与实测确认；detached 全屏与画中画下的
     layer 树没有实测。

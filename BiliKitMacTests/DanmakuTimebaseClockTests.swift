@@ -1,13 +1,16 @@
 import CoreMedia
 import Dispatch
+import Foundation
 import QuartzCore
+import Synchronization
 import Testing
 
 @testable import BiliKit
 
 /// 固定弹幕时钟层的契约：每次速率变化或时间跳变之后本地时间与绑定 timebase 的时间一致（播放、暂停、跳
 /// 时间、倍速），主线程被挡住时照样停下，绑定时不等通知就同步，换绑后旧 timebase 的变化不影响时钟层，
-/// 解绑后停在速率 0。
+/// 解绑后停在速率 0；与其他线程的 Core Animation 提交并发时不死锁；其他线程按发布值求出的弹幕时间与 Core Animation 换算的本地时间是同一条线（斜率同为
+/// Float），从未绑定时读不到，换绑立即作废旧发布值，每次写入之后都会唤醒主线程读到它。
 ///
 /// 用以宿主时钟为源的真实 `CMTimebase`，它的通知与播放器 item 的 timebase 走同一条路径。时钟层的更新
 /// 在后台队列上异步落地，所以每次改变 timebase 之后等到时钟层与它一致；同时比对此刻与
@@ -19,6 +22,12 @@ struct DanmakuTimebaseClockTests {
     private static let tolerance = 1e-3
     /// 额外比对的未来宿主时间偏移（秒）：速率差 0.01 在这里就是 0.1 秒，远大于容差。
     private static let lookahead = 10.0
+    /// 比对斜率的未来宿主时间偏移（秒）：速率 1.1 时 Double 与 Float 斜率在这里相差约 9e-5 秒。
+    private static let floatSlopeHorizon = 3_600.0
+    /// 同一斜率下两种换算只差浮点舍入，远小于斜率差。
+    private static let floatSlopeTolerance = 1e-6
+    /// 与后台提交并发的时钟写入次数：未修正时几百次之内就会死锁。
+    private static let concurrentCommitRounds = 2_000
     /// 主线程忙等时钟层停下的上限（秒），只作超时；正常在 timebase 停下后 1ms 内完成。
     private static let blockedMainThreadTimeout = 2.0
 
@@ -76,6 +85,74 @@ struct DanmakuTimebaseClockTests {
         #expect(await converges(clock, to: new))
     }
 
+    @Test
+    func neverBoundClockHasNoDisplayTime() {
+        #expect(DanmakuTimebaseClock().displayTime() == nil)
+    }
+
+    /// 发布值求出的弹幕时间夹在读取前后两个宿主时间的 Core Animation 本地时间之间。
+    @Test
+    func publishedDisplayTimeIsTheClockLayersLine() async throws {
+        let timebase = try makeTimebase(time: 20, rate: 0)
+        let clock = DanmakuTimebaseClock()
+        clock.bind(timebase)
+        #expect(await converges(clock, to: timebase))
+        #expect(await waitUntil { publishedTimeMatchesTheLayer(clock) })
+
+        CMTimebaseSetRate(timebase, rate: 2)
+        #expect(await converges(clock, to: timebase))
+        #expect(await waitUntil { publishedTimeMatchesTheLayer(clock) })
+    }
+
+    /// 速率 1.1 不能被 Float 精确表示：发布的直线与时钟层按同一个 Float 斜率走，一小时之后仍重合。
+    @Test
+    func publishedLineHasTheLayersFloatSlope() async throws {
+        let timebase = try makeTimebase(time: 3, rate: 1.1)
+        let clock = DanmakuTimebaseClock()
+        clock.bind(timebase)
+        #expect(await converges(clock, to: timebase))
+        let later = CACurrentMediaTime() + Self.floatSlopeHorizon
+        #expect(
+            await waitUntil {
+                clock.displayTime(at: later).map {
+                    abs($0 - clock.layer.convertTime(later, from: nil)) < Self.floatSlopeTolerance
+                } ?? false
+            }
+        )
+    }
+
+    /// 换绑立即作废旧 timebase 的发布值；新 timebase 第一次写入后才有读数。
+    @Test
+    func rebindingInvalidatesThePublishedTimeUntilTheNewTimebaseWrites() async throws {
+        let old = try makeTimebase(time: 100, rate: 1)
+        let new = try makeTimebase(time: 5, rate: 0)
+        let clock = DanmakuTimebaseClock()
+        clock.bind(old)
+        #expect(await waitUntil { clock.displayTime() != nil })
+
+        clock.bind(new)
+        #expect(clock.displayTime() == nil)
+
+        #expect(await waitUntil { clock.displayTime() != nil })
+        #expect(abs((clock.displayTime() ?? 0) - 5) < Self.tolerance)
+    }
+
+    /// 每次写入之后都有一次唤醒，唤醒时读到的已是这次写入：暂停中跳时间之后不需要别的触发。
+    @Test
+    func everyWriteIsFollowedByAWakeThatSeesIt() async throws {
+        let timebase = try makeTimebase(time: 20, rate: 0)
+        let clock = DanmakuTimebaseClock()
+        let wakes = WakeRecorder()
+        clock.setWriteHandler { [weak clock] in wakes.record(clock?.displayTime()) }
+        clock.bind(timebase)
+        #expect(await waitUntil { abs((wakes.lastSeen ?? 0) - 20) < Self.tolerance })
+
+        for target in [42.0, 7, 300] {
+            CMTimebaseSetTime(timebase, time: CMTime(seconds: target, preferredTimescale: 600))
+            #expect(await waitUntil { abs((wakes.lastSeen ?? 0) - target) < Self.tolerance })
+        }
+    }
+
     /// 主线程被挡住时，时钟层照样在 timebase 停下的时刻停下。
     ///
     /// 模拟暂停时主线程被播放器挡住：后台线程把速率设为 0，主线程等它返回之后一直忙等、不让出。时钟层的
@@ -93,6 +170,28 @@ struct DanmakuTimebaseClockTests {
         #expect(matches(clock, timebase))
     }
 
+    /// 时钟写入与别的线程的 Core Animation 提交并发时不死锁。
+    ///
+    /// 时钟队列写时钟层的同时，另一条线程不停提交事务（AppKit 在显示链接线程上推进动画就是这样），主线程同时
+    /// 读本地时间：三方都能继续。持着全局锁提交会与对方反序加锁而死锁，这里会卡住。
+    @Test
+    func clockWritesDoNotDeadlockWithAnotherThreadsCommits() async throws {
+        let timebase = try makeTimebase(time: 0, rate: 0)
+        let clock = DanmakuTimebaseClock()
+        clock.bind(timebase)
+        #expect(await converges(clock, to: timebase))
+        let committer = BackgroundCommitter()
+        committer.start()
+        defer { committer.stop() }
+
+        for step in 0..<Self.concurrentCommitRounds {
+            CMTimebaseSetTime(timebase, time: CMTime(value: CMTimeValue(step), timescale: 600))
+            _ = clock.layer.convertTime(CACurrentMediaTime(), from: nil)
+        }
+
+        #expect(await converges(clock, to: timebase))
+    }
+
     @Test
     func unbindingStopsTheClock() async throws {
         let timebase = try makeTimebase(time: 4, rate: 1)
@@ -106,6 +205,48 @@ struct DanmakuTimebaseClockTests {
         let now = CACurrentMediaTime()
         let local = clock.layer.convertTime(now, from: nil)
         #expect(clock.layer.convertTime(now + Self.lookahead, from: nil) == local)
+    }
+
+    /// 在一条后台线程上不停提交改自己 layer 的显式事务，直到 `stop`。
+    private final class BackgroundCommitter: Sendable {
+        private let isStopped = Atomic<Bool>(false)
+
+        func start() {
+            Thread { [self] in
+                let layer = CALayer()
+                var opacity: Float = 0
+                while !isStopped.load(ordering: .acquiring) {
+                    opacity = opacity < 1 ? opacity + 0.01 : 0
+                    CATransaction.begin()
+                    CATransaction.setDisableActions(true)
+                    layer.opacity = opacity
+                    CATransaction.commit()
+                }
+            }.start()
+        }
+
+        func stop() {
+            isStopped.store(true, ordering: .releasing)
+        }
+    }
+
+    /// 记录每次写入通知时读到的弹幕时间。
+    @MainActor
+    private final class WakeRecorder {
+        private(set) var lastSeen: Double?
+
+        func record(_ seconds: Double?) {
+            lastSeen = seconds
+        }
+    }
+
+    /// 此刻读到的发布值，落在读取前后两个宿主时间的 Core Animation 本地时间之间。
+    private func publishedTimeMatchesTheLayer(_ clock: DanmakuTimebaseClock) -> Bool {
+        let before = CACurrentMediaTime()
+        guard let published = clock.displayTime() else { return false }
+        let after = CACurrentMediaTime()
+        return published >= clock.layer.convertTime(before, from: nil) - Self.tolerance
+            && published <= clock.layer.convertTime(after, from: nil) + Self.tolerance
     }
 
     private func makeTimebase(time: Double, rate: Double) throws -> CMTimebase {
