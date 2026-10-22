@@ -9,8 +9,9 @@ import Testing
 
 /// 固定弹幕时钟层的契约：每次速率变化或时间跳变之后本地时间与绑定 timebase 的时间一致（播放、暂停、跳
 /// 时间、倍速），主线程被挡住时照样停下，绑定时不等通知就同步，换绑后旧 timebase 的变化不影响时钟层，
-/// 解绑后停在速率 0；与其他线程的 Core Animation 提交并发时不死锁；其他线程按发布值求出的弹幕时间与 Core Animation 换算的本地时间是同一条线（斜率同为
-/// Float），从未绑定时读不到，换绑立即作废旧发布值，每次写入之后都会唤醒主线程读到它。
+/// 解绑后停在速率 0、读不到弹幕时间；与其他线程的 Core Animation 提交并发时不死锁；其他线程按发布值求出
+/// 的弹幕时间与 Core Animation 换算的本地时间是同一条线，从未绑定时读不到，换绑立即作废旧发布值，每次
+/// 写入之后都会唤醒主线程读到它。
 ///
 /// 用以宿主时钟为源的真实 `CMTimebase`，它的通知与播放器 item 的 timebase 走同一条路径。时钟层的更新
 /// 在后台队列上异步落地，所以每次改变 timebase 之后等到时钟层与它一致；同时比对此刻与
@@ -22,10 +23,6 @@ struct DanmakuTimebaseClockTests {
     private static let tolerance = 1e-3
     /// 额外比对的未来宿主时间偏移（秒）：速率差 0.01 在这里就是 0.1 秒，远大于容差。
     private static let lookahead = 10.0
-    /// 比对斜率的未来宿主时间偏移（秒）：速率 1.1 时 Double 与 Float 斜率在这里相差约 9e-5 秒。
-    private static let floatSlopeHorizon = 3_600.0
-    /// 同一斜率下两种换算只差浮点舍入，远小于斜率差。
-    private static let floatSlopeTolerance = 1e-6
     /// 与后台提交并发的时钟写入次数：未修正时几百次之内就会死锁。
     private static let concurrentCommitRounds = 2_000
     /// 主线程忙等时钟层停下的上限（秒），只作超时；正常在 timebase 停下后 1ms 内完成。
@@ -104,21 +101,20 @@ struct DanmakuTimebaseClockTests {
         #expect(await waitUntil { publishedTimeMatchesTheLayer(clock) })
     }
 
-    /// 速率 1.1 不能被 Float 精确表示：发布的直线与时钟层按同一个 Float 斜率走，一小时之后仍重合。
+    /// 解绑之后没有 item 也就没有弹幕时间：时钟层停住，发布值一直读不到，不会冒充下一个视频的时间。
     @Test
-    func publishedLineHasTheLayersFloatSlope() async throws {
-        let timebase = try makeTimebase(time: 3, rate: 1.1)
+    func unbindingLeavesNoDisplayTime() async throws {
+        let timebase = try makeTimebase(time: 300, rate: 1)
         let clock = DanmakuTimebaseClock()
         clock.bind(timebase)
-        #expect(await converges(clock, to: timebase))
-        let later = CACurrentMediaTime() + Self.floatSlopeHorizon
-        #expect(
-            await waitUntil {
-                clock.displayTime(at: later).map {
-                    abs($0 - clock.layer.convertTime(later, from: nil)) < Self.floatSlopeTolerance
-                } ?? false
-            }
-        )
+        #expect(await waitUntil { clock.displayTime() != nil })
+
+        clock.bind(nil)
+        #expect(clock.displayTime() == nil)
+        #expect(await waitUntil { clock.layer.speed == 0 })
+
+        CMTimebaseSetTime(timebase, time: CMTime(seconds: 5, preferredTimescale: 600))
+        #expect(clock.displayTime() == nil)
     }
 
     /// 换绑立即作废旧 timebase 的发布值；新 timebase 第一次写入后才有读数。

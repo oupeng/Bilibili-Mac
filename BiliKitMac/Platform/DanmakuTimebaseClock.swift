@@ -66,9 +66,11 @@ final class DanmakuTimebaseClock: @unchecked Sendable {
         /// 队列在同步开头连同 timebase 读出它，发布时纪元已变（期间又换绑）就丢弃这次发布：时钟层已写入的
         /// 旧直线会被 `bind` 投递的下一次同步覆盖，调用方此时已清屏，没有可见后果。
         var epoch: UInt64 = 0
-        /// 当前纪元最近一次写入时钟层的直线；从未绑定过、以及 `bind` 之后新纪元第一次写入之前为 nil。
+        /// 当前纪元最近一次写入时钟层的直线；从未绑定过、解绑之后、以及换绑之后新纪元第一次写入之前为 nil。
         ///
-        /// 从未绑定时时钟层虽然停在媒体时间 0，那只是占位，不代表任何 item 的时间，所以同样读不到 D。
+        /// 没有 timebase 就没有 D：从未绑定时时钟层停在媒体时间 0、解绑后停在旧 item 的最后时刻，都只是占位，
+        /// 不代表任何 item 的时间。解绑之后紧接着换到下一个视频时，若发布这条停住的直线，新视频的弹幕会按旧
+        /// 视频的时刻挂上、冻结在黑屏上。
         var published: DanmakuClockWrite?
         /// 写入后在主线程调用的回调，由 owner 设置。
         var writeHandler: (@MainActor @Sendable () -> Void)?
@@ -83,7 +85,8 @@ final class DanmakuTimebaseClock: @unchecked Sendable {
     /// 注销观察。
     ///
     /// 队列里的 block 强引用本对象，所以 `deinit` 可能在队列线程上、最后一个 block 执行完时发生：block
-    /// 形式观察的 `removeObserver` 可以在任何线程调用；时钟层由父层另外持有，这里不碰它。
+    /// 形式观察的 `removeObserver` 可以在任何线程调用。这里不碰时钟层；它若已不在任何父层下，会随本对象在
+    /// 同一线程（可能就是队列线程）释放。
     deinit {
         let observers = binding.withLock { $0.observers }
         for observer in observers {
@@ -95,7 +98,7 @@ final class DanmakuTimebaseClock: @unchecked Sendable {
     ///
     /// 由 `DanmakuOverlayView` 在主线程调用，调用方必须先让呈现控制器清屏：时钟层随后立即按新 timebase
     /// 运行，旧弹幕会在新时间线上错位。返回时发布值已作废（`displayTime()` 为 nil），时钟层的更新是异步的，
-    /// 新纪元第一次写入通常在下一帧前完成。
+    /// 新纪元第一次写入通常在下一帧前完成；解绑之后一直读不到。
     func bind(_ timebase: CMTimebase?) {
         binding.withLock { binding in
             for observer in binding.observers {
@@ -116,16 +119,11 @@ final class DanmakuTimebaseClock: @unchecked Sendable {
         binding.withLock { $0.writeHandler = handler }
     }
 
-    /// 此刻（`CACurrentMediaTime()`）的弹幕时间 D；从未绑定过、或当前纪元还没有写入过时为 nil。
+    /// 此刻（`CACurrentMediaTime()`）的弹幕时间 D；没有绑定 timebase、或当前纪元还没有写入过时为 nil。
     ///
     /// 任意线程可调用，只取一次 `binding`，不阻塞在队列上。
     func displayTime() -> Double? {
-        displayTime(at: CACurrentMediaTime())
-    }
-
-    /// 父层时间 `hostTime` 时的弹幕时间 D，按当前发布的直线计算；读不到时为 nil。
-    func displayTime(at hostTime: CFTimeInterval) -> Double? {
-        binding.withLock { $0.published }?.mediaTime(at: hostTime)
+        binding.withLock { $0.published }?.mediaTime(at: CACurrentMediaTime())
     }
 
     /// 登记速率变化与时间跳变通知。
@@ -156,7 +154,8 @@ final class DanmakuTimebaseClock: @unchecked Sendable {
         }
     }
 
-    /// 只在 `queue` 上执行：把时钟层平移到此刻、当前绑定的 timebase 的状态，再发布这次写入。
+    /// 只在 `queue` 上执行：把时钟层平移到此刻、当前绑定的 timebase 的状态，再发布这次写入；解绑时只停住
+    /// 时钟层，不发布（见 `Binding.published`）。
     ///
     /// 读完绑定、写入之前可能又有一次 `bind`，这时写入的是旧 timebase，发布因纪元不符被丢弃，新绑定投递的
     /// 同步排在后面，随即覆盖。
@@ -165,26 +164,27 @@ final class DanmakuTimebaseClock: @unchecked Sendable {
         // 时钟层挂在 AppKit 视图的 layer 树下，祖先都没有改时间属性，父层的本地时间就是
         // `CACurrentMediaTime()`；`beginTime` 按父层时间写，所以 `now` 直接取它。
         let now = CACurrentMediaTime()
-        let next: DanmakuClockWrite
-        if let timebase {
-            // 读不出锚点时沿用上一次的状态，直到下一次通知或绑定再同步：timebase 正常时总能读出，
-            // 为这种异常另起重试只会多一个没有 owner 的定时器。
-            guard let anchor = Self.hostAnchor(of: timebase) else { return }
-            // 锚点是 (宿主时间 Ha, 媒体时间 Ta, 速率)：外推到 now 的媒体时间作为 timeOffset，
-            // 本地时间 = (父层时间 − now) × speed + timeOffset，此后由渲染服务器按 speed 插值。
-            next = DanmakuClockWrite(
-                beginTime: now,
-                timeOffset: anchor.mediaTime + (now - anchor.hostTime) * anchor.rate,
-                speed: Float(anchor.rate)
+        guard let timebase else {
+            // 解绑：停在此刻的本地时间，重复执行结果不变；发布值保持 `bind(nil)` 置的 nil。
+            write(
+                DanmakuClockWrite(
+                    beginTime: now,
+                    timeOffset: written.mediaTime(at: now),
+                    speed: 0
+                )
             )
-        } else {
-            // 解绑：停在此刻的本地时间；重复执行结果不变。
-            next = DanmakuClockWrite(
-                beginTime: now,
-                timeOffset: written.mediaTime(at: now),
-                speed: 0
-            )
+            return
         }
+        // 读不出锚点时沿用上一次的状态，直到下一次通知或绑定再同步：timebase 正常时总能读出，
+        // 为这种异常另起重试只会多一个没有 owner 的定时器。
+        guard let anchor = Self.hostAnchor(of: timebase) else { return }
+        // 锚点是 (宿主时间 Ha, 媒体时间 Ta, 速率)：外推到 now 的媒体时间作为 timeOffset，
+        // 本地时间 = (父层时间 − now) × speed + timeOffset，此后由渲染服务器按 speed 插值。
+        let next = DanmakuClockWrite(
+            beginTime: now,
+            timeOffset: anchor.mediaTime + (now - anchor.hostTime) * anchor.rate,
+            speed: Float(anchor.rate)
+        )
         write(next)
         publish(next, epoch: epoch)
     }
