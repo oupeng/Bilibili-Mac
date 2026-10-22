@@ -73,10 +73,6 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
     private(set) var installed: [String: DanmakuLanePlacement] = [:]
     /// 此刻在屏的弹幕的纹理按哪个 backing scale 准备。
     private(set) var textureScales: [String: Double] = [:]
-    /// 每次新挂上的事件 ID，按顺序。
-    private(set) var installedHistory: [String] = []
-    /// 每次原位替换（同一 ID 已在屏时再次安装）的事件 ID，按顺序。
-    private(set) var replacedHistory: [String] = []
     /// 每次移除的事件 ID，按顺序。
     private(set) var removedHistory: [String] = []
     private(set) var clearCount = 0
@@ -153,7 +149,7 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
         completion(.ready(DanmakuTextMetrics(width: 120, height: 24)))
     }
 
-    /// 不计纹理字节，只拒绝 `rejectedEventIDs` 里的；已在屏的同一 ID 视为原位替换，记入 `replacedHistory`。
+    /// 不计纹理字节，只拒绝 `rejectedEventIDs` 里的；已在屏的同一 ID 视为原位换纹理。
     @discardableResult
     func install(
         _ placement: DanmakuLanePlacement,
@@ -164,11 +160,6 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
         let eventID = placement.request.event.id
         guard !rejectedEventIDs.contains(eventID) else {
             return DanmakuInstallResult(isInstalled: false, evictedEventIDs: [])
-        }
-        if installed[eventID] != nil {
-            replacedHistory.append(eventID)
-        } else {
-            installedHistory.append(eventID)
         }
         installed[eventID] = placement
         textureScales[eventID] = backingScale

@@ -255,9 +255,7 @@ struct DanmakuPresentationControllerTests {
         backend.delaysPreparation = true
 
         controller.setSpeedLevel(.one)
-        while controller.layoutTable.mapValues(\.placements) == oldTable {
-            await Task.yield()
-        }
+        await backend.waitUntil { controller.layoutTable.mapValues(\.placements) != oldTable }
         let current = placementsByEventID(controller.layoutTable)
         func expectOnlyTheNewLanes() {
             #expect(backend.installed.allSatisfy { current[$0.key] == $0.value })
@@ -440,7 +438,7 @@ struct DanmakuPresentationControllerTests {
         )
         #expect(Set(backend.textureScales.values) == [2, 3])
 
-        await waitForLayout(of: controller, onScreenWidth: Self.largerScreen.width)
+        await waitForLayout(of: controller, backend, onScreenWidth: Self.largerScreen.width)
         let current = placementsByEventID(controller.layoutTable)
         #expect(backend.installed.allSatisfy { current[$0.key] == $0.value })
         expectNothingWithheld(in: controller, backend, at: 30)
@@ -464,7 +462,7 @@ struct DanmakuPresentationControllerTests {
         backend.delaysPreparation = true
 
         resize(controller, owner: owner, window: window, screen: Self.largerScreen, backingScale: 3)
-        await waitForLayout(of: controller, onScreenWidth: Self.largerScreen.width)
+        await waitForLayout(of: controller, backend, onScreenWidth: Self.largerScreen.width)
         let desired = DanmakuMaterializer.desiredPlacements(
             in: controller.layoutTable,
             at: 30,
@@ -492,16 +490,18 @@ struct DanmakuPresentationControllerTests {
     private static let dragStep = DanmakuPresentationController.reconcileStride * 1.6
 
     /// 等到按 `screenWidth` 规划的新布局表落地。
+    ///
+    /// 新表落地的同一次调用里在屏的弹幕原位换车道，backend 随之检查等待条件。
     private func waitForLayout(
         of controller: DanmakuPresentationController,
+        _ backend: RecordingRenderingBackend,
         onScreenWidth screenWidth: Double
     ) async {
-        while controller.layoutTable.isEmpty
-            || !controller.layoutTable.values.allSatisfy({
-                $0.placements.allSatisfy { $0.planningWidth == screenWidth }
-            })
-        {
-            await Task.yield()
+        await backend.waitUntil {
+            !controller.layoutTable.isEmpty
+                && controller.layoutTable.values.allSatisfy {
+                    $0.placements.allSatisfy { $0.planningWidth == screenWidth }
+                }
         }
     }
 
