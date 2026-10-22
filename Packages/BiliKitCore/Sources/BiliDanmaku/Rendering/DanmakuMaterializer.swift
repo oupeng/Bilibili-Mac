@@ -26,9 +26,9 @@ import Foundation
 ///
 /// 媒体时间是宿主时钟层的显示时间 D：reconcile 与 backing scale 变化时由呈现控制器传入它在入口读到的值，
 /// 纹理异步完成时自己经 `currentPosition` 重新读此刻的 D，所以迟到纹理是否挂上、暂存提交按哪一刻整屏对齐、
-/// 腾纹理字节时谁已走完，都与画面同一条时间线。异步完成时读不到 D（时钟换绑后新纪元还没写入；正常到不了，
-/// 换绑与交还 surface 都先 `clear`，在途完成按 generation 丢弃）就只记下结果，不挂上、不提交，等下一次有 D
-/// 的 reconcile 收尾；不沿用旧时间。
+/// 腾纹理字节时谁已走完，都与画面同一条时间线。异步完成时读不到 D（时钟换绑或解绑之后；正常到不了，换绑、
+/// 解绑与交还 surface 都先 `clear`，在途完成按 generation 丢弃）就不挂上、不提交，不沿用旧时间：结果照常
+/// 记下，暂存的等待集合照常扣减；等齐了却没能提交的暂存由下一次有 D 的 reconcile 提交，普通 reconcile 也算。
 ///
 /// `preparationGeneration` 在 `clear` 与 backing scale 变化时递增；准备请求带上发起时的值，完成时不等、
 /// 或这条弹幕已不在待准备记录里（不再需要或已换成新的请求），结果就被丢弃。
@@ -154,6 +154,10 @@ final class DanmakuMaterializer {
             beginStagedCommit(keepsWholeScreen ? .wholeScreen : kind)
         case .realign:
             realign()
+        case .incremental where awaitedByCommit?.isEmpty == true:
+            // 暂存已经等齐，只是纹理完成时读不到 D 没能提交：按这次的 D 提交。不提交的话它永远不会再有完成
+            // 回调来推动，之后的普通 reconcile 都只移除、不挂上。
+            commit()
         case .incremental where isCommitPending:
             // 暂存提交未完成时窗口变了或时间按步长推进：取景框外已挂上的弹幕立即移除，否则锚点已按
             // 新窗口移动，缩小时会露出 N 以外车道的弹幕。只移除、不换 placement，提交前屏上仍是旧表；
@@ -391,7 +395,7 @@ final class DanmakuMaterializer {
     ///
     /// 在 `prepare` 内同步回调（缓存命中、立即拒绝）时只记下结果，由发起请求的调用收尾，时间就是那次
     /// reconcile 传入的 D；异步回调时先读此刻的 D，再自己推进暂存提交，或在有被拒绝的请求时重新 reconcile
-    /// 一次补上它们。异步回调读不到 D 时只记下结果（见类型说明）。
+    /// 一次补上它们。异步回调读不到 D 时只记下结果、扣减暂存的等待集合，不挂上、不提交（见类型说明）。
     private func completePreparation(
         eventID: String,
         preparationID: UInt64,
@@ -424,15 +428,16 @@ final class DanmakuMaterializer {
         case .rejected(.invalidInput), .rejected(.oversized):
             unpreparable.insert(eventID)
         }
-        guard requestDepth == 0, now != nil else { return }
+        guard requestDepth == 0 else { return }
         if var awaited = awaitedByCommit {
             awaited.remove(eventID)
             awaitedByCommit = awaited
-            if awaited.isEmpty {
+            if awaited.isEmpty, now != nil {
                 commit()
             }
             return
         }
+        guard now != nil else { return }
         if hasRetryableRejections {
             hasRetryableRejections = false
             reconcileNow()
