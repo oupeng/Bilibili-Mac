@@ -451,10 +451,22 @@ final class DanmakuPlayerView: AVPlayerView {
         observedPlayer = player
         playerItemObservation = player.observe(\.currentItem, options: [.new]) {
             [weak self] _, _ in
+            // `replaceCurrentItem` 只在主线程调用（`AVPlayerEngine` 是 @MainActor），这个 KVO 在调用内部同步
+            // 触发：弹幕在这里同步清屏并换绑时钟，调用返回时新 item 上已没有旧弹幕，旧时钟也不会再多走一个主线程
+            // 回合。不在主线程（违反前提）时 DEBUG 下断言失败，并退回下一个主线程回合换绑。
+            if Thread.isMainThread {
+                MainActor.assumeIsolated {
+                    self?.danmakuOverlay.bind(to: self?.player?.currentItem)
+                }
+            } else {
+                assertionFailure("player currentItem changed off the main thread")
+                Task { @MainActor in
+                    self?.danmakuOverlay.bind(to: self?.player?.currentItem)
+                }
+            }
             Task { @MainActor in
                 self?.cancelMomentaryPlaybackRate()
                 self?.overlayModel.clearResumeNotice(markDismissed: true)
-                self?.danmakuOverlay.bind(to: self?.player?.currentItem)
                 self?.startObservingCurrentItemTimeJumps()
                 self?.updatePlaybackActivity()
             }

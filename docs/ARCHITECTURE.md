@@ -196,8 +196,10 @@ D(now) 决定，时间线快照只用来确认 identity、作检查节拍与决�
     通知（主线程先清标志再读发布值，同一时间最多排一个，不丢唤醒），宿主据此让呈现控制器按新的 D 检查一次：
     暂停中 seek 没有后续快照，靠它重新对齐。
   - 绑定：`bind` 注销旧 timebase 的观察并登记新的，再主动同步一次（状态不变时没有通知）；解绑时时钟层
-    停在当前本地时间、速率 0。宿主在 `currentItem` 变化时先让呈现控制器清屏再换绑；`AVPlayerItem` 创建
-    后 `timebase` 就不是 nil，换 item 后是另一个对象。
+    停在当前本地时间、速率 0。宿主在 `currentItem` 变化时先让呈现控制器清屏再换绑，两步在
+    `replaceCurrentItem` 之内同步完成：调用方只在主线程，`currentItem` 的 KVO 在调用内部同步触发，回调确认在
+    主线程后直接换绑（不在主线程时 DEBUG 下断言失败、退回下一个主线程回合），旧弹幕不会在新 item 上多留一个
+    回合。`AVPlayerItem` 创建后 `timebase` 就不是 nil，换 item 后是另一个对象。
   - 约束：timebase 的通知由播放器的多个内部队列在持有 MediaToolbox 锁的线程上同步发出。回调里调用
     AVPlayer／AVPlayerItem 的 API（例如 `currentTime()`）必然死锁，回调里的任何等待都会原样延长持锁
     时间、挡住主线程，所以回调只投递；多个来源的通知到达顺序不保证，所以不用通知的 payload，而在队列上
@@ -269,8 +271,8 @@ D(now) 决定，时间线快照只用来确认 identity、作检查节拍与决�
     动画区间外呈现回到模型值，所以模型值本身不可见（滚动弹幕在画面左外侧，顶部底部弹幕不透明度为 0），
     可见区间由动画撑起。暂停、倍速、缓冲停顿、播放结束与暂停中 seek 都由时钟层跟随 timebase，renderer
     没有时钟；时钟层的更新不经过主线程，主线程卡顿（包括暂停时被播放器挡住）不影响弹幕的停与走。时钟层
-    不随 `replaceCurrentItem` 自动换绑：宿主在 `currentItem` 变化时先让呈现控制器清屏（只接受当前 surface
-    owner，布局表保留），再换绑。以上是在 macOS 27 上用本地 HLS 与 mp4 实测的系统行为。
+    不随 `replaceCurrentItem` 自动换绑：宿主在 `currentItem` 的 KVO 里同步先让呈现控制器清屏（只接受当前
+    surface owner，布局表保留），再换绑。以上是在 macOS 27 上用本地 HLS 与 mp4 实测的系统行为。
 - 取景框：布局表按规划画布排一次，窗口尺寸不是布局输入，只决定露出表中的哪一部分。规划尺寸逐个维度取
   承载窗口的屏幕尺寸（`NSScreen.frame`，全屏覆盖整块屏）与窗口尺寸的较大者，由 `DanmakuOverlayView`
   在尺寸、backing scale、换屏与屏幕参数变化时发布；规划尺寸或 scale 变化走整张重排。显示区域比例与密度
