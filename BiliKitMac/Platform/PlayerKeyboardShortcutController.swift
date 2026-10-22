@@ -7,7 +7,7 @@ import BiliVideoDetailFeature
 /// 以 content overlay 中的弹幕层为锚点取所在窗口，因此 detached 全屏窗口里同样生效。由
 /// `DanmakuPlayerView` 持有：弹幕层挂上 content overlay 时 `startMonitoring()`，拆除时宿主先
 /// `cancelInputSession()` 再 `stopMonitoring()`。拥有本地 key monitor、长按计时 Task 与字幕切换
-/// Task；`cancelInputSession()` 取消两个 Task、结束仍在进行的长按并清除反馈。长按计时到时按
+/// Task；`cancelInputSession()` 取消两个 Task、结束仍在进行的长按并收起长按倍速徽章。长按计时到时按
 /// `keyboardLongPressID` 与状态机的 `pressID` 比对，不符即丢弃。MainActor 隔离，local monitor
 /// 回调在主线程上同步决定是否吞掉事件。
 @MainActor
@@ -63,7 +63,9 @@ final class PlayerKeyboardShortcutController {
         keyboardLongPressID = nil
         subtitleToggleTask?.cancel()
         subtitleToggleTask = nil
-        feedbackPresenter?.clearFeedback()
+        // 只收起按住期间的倍速徽章；已完成操作的反馈照常到时淡出。暂停也会走到这里（播放器停下即结束
+        // 长按），清掉全部反馈会让空格暂停的“暂停”徽章一出现就消失。
+        feedbackPresenter?.endMomentaryRate()
     }
 
     func startMonitoring() {
