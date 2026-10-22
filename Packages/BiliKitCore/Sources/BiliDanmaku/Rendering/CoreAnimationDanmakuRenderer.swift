@@ -256,7 +256,7 @@ public final class CoreAnimationDanmakuRenderer:
     ///
     /// 不另包显式事务：`rootLayer` 与锚点已用 `actions` 禁用隐式动画，几何变化与调用方随后按新窗口
     /// 立即做的增删（纹理已就绪的挂上、取景框外的移除）落在同一次隐式提交里。缺纹理的弹幕就绪后才挂上；
-    /// 暂存提交未完成时新露出的部分要等提交（见 `DanmakuMaterializer`），这期间那块区域是空的。
+    /// 车道重排的暂存提交未完成时新露出的部分要等提交（见 `DanmakuMaterializer`），这期间那块区域是空的。
     public func updateSurfaceSize(
         width: Double,
         height: Double,
