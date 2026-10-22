@@ -41,10 +41,12 @@ struct AppEnvironment {
     private let danmakuPreferencesStore: any DanmakuPreferencesStoring
     private let authenticationService: any AuthenticationServicing
     private let authenticationQRCodeProvider: any AuthenticationQRCodeProviding
+    let sponsorBlockController: SponsorBlockController
     let open: @MainActor @Sendable () -> Void
     let close: @MainActor @Sendable () -> Void
 
     init(
+        sponsorBlockRepository: any SponsorBlockRepositoryPort,
         feedRepository: any FeedRepository,
         videoRepository: any VideoRepository,
         relatedVideoRepository: any RelatedVideoRepository,
@@ -60,6 +62,7 @@ struct AppEnvironment {
         danmakuRepository: any DanmakuSegmentRepository,
         playerEngine: AVPlayerEngine,
         playbackPreferencesController: PlaybackPreferencesController,
+        appSettingsModel: AppSettingsModel? = nil,
         danmakuPreferencesStore: any DanmakuPreferencesStoring,
         authenticationService: any AuthenticationServicing,
         authenticationQRCodeProvider: any AuthenticationQRCodeProviding,
@@ -99,6 +102,15 @@ struct AppEnvironment {
         )
         self.authenticationService = authenticationService
         self.authenticationQRCodeProvider = authenticationQRCodeProvider
+        let playerEngineRef = playerEngine
+        self.sponsorBlockController = SponsorBlockController(
+            repository: sponsorBlockRepository,
+            timeline: playerEngine,
+            settings: appSettingsModel?.sponsorBlockSettings ?? .default,
+            seekHandler: { positionSeconds in
+                _ = playerEngineRef.requestSeek(to: .seconds(positionSeconds))
+            }
+        )
         self.open = open
         self.close = close
     }
@@ -196,6 +208,7 @@ struct AppEnvironment {
                 danmakuRenderer: danmakuRenderer,
                 danmakuController: danmakuController,
                 videoModel: videoModel,
+                sponsorBlockController: sponsorBlockController,
                 beginMomentaryPlaybackRate: { [playerEngine] rate in
                     try? playerEngine.beginMomentaryPlaybackRate(Double(rate))
                 },
@@ -356,7 +369,9 @@ struct AppEnvironment {
             historyRepository: BiliWatchHistoryRepository(client: api),
             watchProgressRepository: accountSessionCoordinator.watchProgressRepository,
             danmakuRepository: BiliDanmakuRepository(client: api),
+            sponsorBlockRepository: BiliSponsorBlockRepository(),
             playerEngine: playerEngine,
+            appSettingsModel: appSettingsModel,
             playbackPreferencesController: playbackPreferencesController,
             danmakuPreferencesStore: UserDefaultsDanmakuPreferencesStore(),
             authenticationService: authenticationService,
