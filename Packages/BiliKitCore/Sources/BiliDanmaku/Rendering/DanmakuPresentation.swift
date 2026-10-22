@@ -23,3 +23,12 @@ public protocol DanmakuPresentationSink: AnyObject {
     func setDensity(_ density: DanmakuDensity)
     func stopPresentation()
 }
+
+/// 弹幕的显示时间来源：宿主时钟层此刻的本地时间 D(now)，弹幕 layer 正按它运动。
+///
+/// 实现是 App 的 `DanmakuTimebaseClock`，D 与 Core Animation 渲染时钟层用的是同一条直线。任意线程可调用、
+/// 不阻塞；时钟从未绑定过 timebase、或换绑到另一个 timebase 之后新 timebase 第一次写入之前返回 nil，这时
+/// 没有任何 item 的时间可用。
+public protocol DanmakuDisplayClock: AnyObject, Sendable {
+    func displayTime() -> Double?
+}

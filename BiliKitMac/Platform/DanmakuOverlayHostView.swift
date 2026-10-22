@@ -192,3 +192,6 @@ final class DanmakuOverlayView: NSView {
         updateSurfaceIfNeeded()
     }
 }
+
+/// 时钟层发布的弹幕时间就是 `BiliDanmaku` 的显示时间；`displayTime()` 的实现与线程规则见 `DanmakuTimebaseClock`。
+extension DanmakuTimebaseClock: DanmakuDisplayClock {}
