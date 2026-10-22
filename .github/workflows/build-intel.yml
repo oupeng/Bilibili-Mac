@@ -33,8 +33,6 @@ jobs:
               if [ "$CUSTOM_ICNS" != "./custom_icon.icns" ] && [ "$CUSTOM_ICNS" != "custom_icon.icns" ]; then
                   cp -f "$CUSTOM_ICNS" custom_icon.icns
               fi
-          else
-              echo "Warning: No custom .icns found, using default."
           fi
 
           cat << 'EOF' > generate_icons.py
@@ -54,7 +52,6 @@ jobs:
                   src_png = sorted(candidates, key=lambda f: os.path.getsize(f))[-1]
 
           if src_png and os.path.exists(src_png):
-              print(f"Using source image: {src_png}")
               light_img = Image.open(src_png).convert("RGBA")
               light_img.save("icon_light.png")
 
@@ -97,16 +94,15 @@ jobs:
                               queue.append((nx, ny))
 
               dark_img.save("icon_dark.png")
-              print("Successfully generated icon_light.png and icon_dark.png!")
           EOF
           python3 generate_icons.py
 
-      - name: Apply All Patches (Auto-Fix Code, TeamID & Keychain)
+      - name: Apply Clean Patches (Native Audio Passthrough, No Fake AudioMix)
         run: |
           cat << 'EOF' > patch_all.py
           import os, re, subprocess
 
-          # 1. 自动注入抗 Sync Fork 覆盖的双保险 WebCredentialStore
+          # 1. 自动写入 WebCredentialStore.swift 双保险持久化
           cred_file = "Packages/BiliKitCore/Sources/BiliAuth/Credential/WebCredentialStore.swift"
           if os.path.exists(cred_file):
               fixed_store_code = """import Foundation
@@ -230,7 +226,7 @@ jobs:
               with open(cred_file, "w", encoding="utf-8") as f:
                   f.write(fixed_store_code)
 
-          # 2. 消除 -warnings-as-errors 冲突
+          # 2. 消除 -warnings-as-errors
           for root, dirs, files in os.walk("."):
               for file in files:
                   if file.endswith((".swift", ".pbxproj", ".xcconfig")):
@@ -258,7 +254,7 @@ jobs:
                   with open(target_file, "w", encoding="utf-8") as f:
                       f.write(content)
 
-          # 4. 修复 NSColor.quinaryLabelColor 重命名
+          # 4. 修复 NSColor.quinaryLabelColor
           for root, dirs, files in os.walk("."):
               for file in files:
                   if file.endswith(".swift"):
@@ -273,45 +269,37 @@ jobs:
                       except Exception:
                           pass
 
-          # 5. 核心修复：从原生代码中动态提取函数签名，生成 100% 吻合且无歧义的 LoudnessProcessingTap
+          # 5. 【彻底根除杂音核心修复】：让 make 直接安全返回 nil，促使控制器完全放弃注入空 AudioMix，走系统原生纯净音频直通！
           loudness_file = "Packages/BiliKitCore/Sources/BiliPlayback/Audio/LoudnessProcessingTap.swift"
           try:
               orig_code = subprocess.check_output(["git", "show", f"HEAD:{loudness_file}"], text=True)
           except Exception:
               orig_code = ""
 
-          # 提取原作者定义的原生签名
           make_match = re.search(r"(public\s+|open\s+)?(static\s+func\s+make[^{]+)", orig_code)
           make_sig = make_match.group(0).strip() if make_match else "static func make(for playerItem: AVPlayerItem, policy: Any? = nil) -> LoudnessProcessingTap?"
 
-          mix_match = re.search(r"(public\s+|open\s+)?(func\s+makeAudioMix[^{]+)", orig_code)
-          mix_sig = mix_match.group(0).strip() if mix_match else "func makeAudioMix() -> AVAudioMix"
-
-          gain_match = re.search(r"(public\s+|open\s+)?(func\s+setTargetGain[^{]+)", orig_code)
-          gain_sig = gain_match.group(0).strip() if gain_match else "func setTargetGain(_ targetGain: Float, rampDuration: TimeInterval = 0)"
-
-          print(f"Extracted Native Signatures:\n  {make_sig}\n  {mix_sig}\n  {gain_sig}")
-
-          stub_loudness = f"""import Foundation
+          clean_loudness = f"""import Foundation
           import AVFoundation
           import MediaToolbox
 
           final class LoudnessProcessingTap: @unchecked Sendable {{
               init() {{}}
+              // 返回 nil 让控制器直接进入原生音频直通模式，不污染播放器音频缓冲
               {make_sig} {{
-                  return LoudnessProcessingTap()
+                  return nil
               }}
-              {mix_sig} {{
-                  return AVAudioMix()
+              func makeAudioMix() -> AVAudioMix? {{
+                  return nil
               }}
-              {gain_sig} {{}}
+              func setTargetGain(_ targetGain: Float, rampDuration: TimeInterval = 0) {{}}
           }}
           """
           with open(loudness_file, "w", encoding="utf-8") as f:
-              f.write(stub_loudness)
-          print("Injected perfectly aligned LoudnessProcessingTap stub!")
+              f.write(clean_loudness)
+          print("Configured pure native audio passthrough (zero AudioMix corruption)!")
 
-          # 6. 移除 App Sandbox 与 Keychain Access Groups（防止钥匙串拦截）
+          # 6. 移除 App Sandbox 与 Keychain 限制
           for root, dirs, files in os.walk("."):
               for file in files:
                   if file.endswith(".entitlements"):
@@ -323,11 +311,10 @@ jobs:
                           ent = re.sub(r"<key>keychain-access-groups</key>\s*<array>.*?</array>", "", ent, flags=re.DOTALL)
                           with open(path, "w", encoding="utf-8") as f:
                               f.write(ent)
-                          print(f"Patched entitlements: {path}")
                       except Exception:
                           pass
 
-          # 7. 禁用 Sparkle 自动更新检查
+          # 7. 禁用 Sparkle 自动更新
           for root, dirs, files in os.walk("."):
               for file in files:
                   if "Info.plist" in file:
@@ -340,11 +327,10 @@ jobs:
                               plist = plist.replace("</dict>", sparkle_block, 1)
                               with open(path, "w", encoding="utf-8") as f:
                                   f.write(plist)
-                              print(f"Disabled Sparkle auto-update in: {path}")
                       except Exception:
                           pass
 
-          # 8. 注入带有 AppKit 引用且符合 Swift 6 并发安全的主题切换器
+          # 8. 注入动态主题切换器
           app_file = "BiliKitMac/App/BiliKitMacApp.swift"
           if os.path.exists(app_file):
               with open(app_file, "r", encoding="utf-8") as f:
@@ -390,7 +376,6 @@ jobs:
 
               with open(app_file, "w", encoding="utf-8") as f:
                   f.write(app_code)
-              print("Injected ThemeIconSwitcher safely!")
           EOF
           python3 patch_all.py
 
