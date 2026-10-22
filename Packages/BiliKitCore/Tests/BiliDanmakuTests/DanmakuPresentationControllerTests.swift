@@ -11,7 +11,8 @@ import Testing
 /// 什么都不做；跳到纹理已缓存的地方在一次调用里整屏换成那一刻的样子；连续拖动时已就绪的纹理每一步都
 /// 挂上，拖进未缓存区域、分段陆续到达时也一样，停下后补齐落点（落点分段未到时不留旧画面）；整屏暂存
 /// 等纹理时 D 回跳不拆开它；关闭弹幕清屏、打开恢复；设置变化整屏换成新布局；换视频清屏；换 item 只接受
-/// 当前 owner，清屏后直到新 item 的快照与新时钟纪元的 D 都有了才按原布局表挂回；旧 surface owner 的操作
+/// 当前 owner，清屏后直到新 item 的快照与新时钟纪元的 D 都有了才按原布局表挂回；切视频时旧 item 解绑后、
+/// 新 item 有时间之前什么都不挂；旧 surface owner 的操作
 /// 与唤醒无效；窗口尺寸变化不重排、立即按新取景框增删，屏幕尺寸变化整张重排。
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
@@ -186,17 +187,52 @@ struct DanmakuPresentationControllerTests {
         expectVisibility(in: controller, backend, at: 30)
     }
 
-    /// 回归护栏：整屏暂存（设置重排）还在等纹理时，快照回跳 2ms 而 D 不动，暂存不被拆开。
+    /// 快照回跳 2ms 而 D 不动时什么都不做，分段到达的可取代暂存还在等纹理时也一样。
+    ///
+    /// 按快照判断的话，这次回跳越出覆盖区间、触发重新对齐，取代这次暂存，把已就绪的那部分先挂上。
     @Test
-    func snapshotTwitchDuringAWholeScreenStageDoesNotSplitIt() async {
-        let owner = UUID()
-        let (controller, backend) = await stagingRelayout(owner: owner)
+    func snapshotTwitchDuringASupersedableStageChangesNothing() async {
+        let (controller, backend) = await laidOutController(at: 365)
+        backend.delaysPreparation = true
+        let waiting = backend.pendingPreparationCount
+        controller.setSegments(
+            [1: events(), 2: denseEvents(segment: 2, count: 900, seed: 153)],
+            for: identity
+        )
+        await backend.waitUntil { backend.pendingPreparationCount > waiting }
+        backend.completePreparations(backend.pendingPreparationCount / 2)
         let history = ScreenHistory(backend)
 
-        controller.apply(snapshot(identity: identity, position: 29.998, generation: 2))
+        controller.apply(snapshot(identity: identity, position: 364.998, generation: 2))
 
         #expect(ScreenHistory(backend) == history)
-        drainRelayout(controller, backend, at: 30)
+        backend.completePreparations()
+        expectVisibility(in: controller, backend, at: 365)
+    }
+
+    /// 切视频时，新 item 有时间之前什么都不挂。
+    ///
+    /// 旧 item 解绑后时钟读不到 D（没有 item 就没有时间）。新视频的快照与分段在新 item 有时间之前到达，
+    /// 不会按旧视频的时刻冻结在黑屏上；新 item 的 D 到了才按它的时刻挂上。
+    @Test
+    func switchingVideosShowsNothingUntilTheNewItemHasATime() async {
+        let owner = UUID()
+        let (controller, backend) = await laidOutController(at: 300, surfaceOwner: owner)
+        let next = PlaybackItemIdentity(bvid: "BV1NextVideo", cid: 2)
+
+        controller.playerItemWillChange(ownerID: owner)
+        clock.time = nil
+        controller.apply(snapshot(identity: next, position: 0, generation: 1, state: .loading))
+        controller.setSegments([1: events()], for: next)
+        while controller.layoutTable.isEmpty {
+            await Task.yield()
+        }
+        #expect(backend.installed.isEmpty)
+
+        clock.time = 0
+        controller.displayClockDidChange(ownerID: owner)
+        #expect(!backend.installed.isEmpty)
+        #expect(backend.installedEventIDs == expectedIDs(at: 0, in: controller))
     }
 
     /// 整屏暂存（设置重排）还在等纹理时 D 往回跳，暂存不被拆开。
