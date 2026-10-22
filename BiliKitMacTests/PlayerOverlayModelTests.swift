@@ -43,9 +43,22 @@ struct PlayerOverlayModelTests {
 
         model.expireFeedback(id: replacement.id)
         #expect(model.feedback == nil)
+    }
 
-        model.showFeedback(.danmaku(true))
-        model.clearFeedback()
+    @Test
+    func cancellingInputSessionEndsOnlyTheHeldMomentaryRateBadge() throws {
+        let model = PlayerOverlayModel()
+        let shortcuts = PlayerKeyboardShortcutController()
+        shortcuts.feedbackPresenter = model
+
+        // 空格暂停后播放器停下会取消输入会话，“暂停”徽章要照常停留到自动消失。
+        model.showFeedback(.playback(false))
+        let paused = try #require(model.feedback)
+        shortcuts.cancelInputSession()
+        #expect(model.feedback == paused)
+
+        model.showMomentaryRate(.fast)
+        shortcuts.cancelInputSession()
         #expect(model.feedback == nil)
     }
 

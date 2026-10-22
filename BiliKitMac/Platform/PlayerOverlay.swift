@@ -309,10 +309,6 @@ final class PlayerOverlayModel {
         fadeOutFeedback()
     }
 
-    func clearFeedback() {
-        feedback = nil
-    }
-
     func setResumeNotice(
         _ notice: PlaybackResumeNotice?,
         restartFromBeginning: @escaping () -> Void
