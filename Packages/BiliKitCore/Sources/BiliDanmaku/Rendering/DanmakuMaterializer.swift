@@ -227,8 +227,8 @@ final class DanmakuMaterializer {
     /// - 缺得多、没有可取代的暂存（单次跳到没缓存的地方）：暂存，旧画面保留到新纹理齐了一次替换。
     ///
     /// 正在等的是整屏暂存（`StagedCommitKind.wholeScreen`）时，不按上面三条选，只在新集合上继续整屏
-    /// 暂存：否则显示时间 D 自己的小幅回跳（速率 0 时往回 seek、起播时 timebase 后退一个音频输出延迟）
-    /// 也会把一次整屏替换拆成部分挂上、露出新旧表混在一起的画面。
+    /// 暂存：否则显示时间 D 自己的小幅回跳（速率 0 时往回 seek、在宿主时钟层的等待窗口里暂停）也会把
+    /// 一次整屏替换拆成部分挂上、露出新旧表混在一起的画面。
     private func realign() {
         if isCommitPending, stagedCommitKind == .wholeScreen {
             beginStagedCommit(.wholeScreen)

@@ -8,10 +8,11 @@ import Testing
 @testable import BiliKit
 
 /// 固定弹幕时钟层的契约：每次速率变化或时间跳变之后本地时间与绑定 timebase 的时间一致（播放、暂停、跳
-/// 时间、倍速），主线程被挡住时照样停下，绑定时不等通知就同步，换绑后旧 timebase 的变化不影响时钟层，
-/// 解绑后停在速率 0、读不到弹幕时间；与其他线程的 Core Animation 提交并发时不死锁；其他线程按发布值求出
-/// 的弹幕时间与 Core Animation 换算的本地时间是同一条线，从未绑定时读不到，换绑立即作废旧发布值，每次
-/// 写入之后都会唤醒主线程读到它。
+/// 时间、倍速）；同一纪元里播放中弹幕时间只进不退，timebase 低于它时原地停住、等直线追上后重合，反复
+/// 起播、暂停与 seek 误差不累积，换绑后立即严格跟随；主线程被挡住时照样停下，绑定时不等通知就同步，换绑
+/// 后旧 timebase 的变化不影响时钟层，解绑后停在速率 0、读不到弹幕时间；与其他线程的 Core Animation 提交
+/// 并发时不死锁；其他线程按发布值求出的弹幕时间与 Core Animation 换算的本地时间是同一条线，从未绑定时
+/// 读不到，换绑立即作废旧发布值，每次写入之后都会唤醒主线程读到它。
 ///
 /// 用以宿主时钟为源的真实 `CMTimebase`，它的通知与播放器 item 的 timebase 走同一条路径。时钟层的更新
 /// 在后台队列上异步落地，所以每次改变 timebase 之后等到时钟层与它一致；同时比对此刻与
@@ -25,6 +26,14 @@ struct DanmakuTimebaseClockTests {
     private static let lookahead = 10.0
     /// 与后台提交并发的时钟写入次数：未修正时几百次之内就会死锁。
     private static let concurrentCommitRounds = 2_000
+    /// 模拟 timebase 新直线晚于此刻才经过冻结值的等待 δ（秒）：比时钟层落地的延迟大得多，等待窗口一定能被采样到。
+    private static let anchoredStartDelay = 0.3
+    /// 反复起播、暂停与 seek 的轮数。
+    private static let repeatedRoundCount = 200
+    /// 相邻采样按浮点比较，只容许 CMTime 取整与浮点舍入。
+    private static let monotonicSlack = 1e-6
+    /// 等待结束之后比对误差的偏移（秒）：只要越过等待的终点即可。
+    private static let settleOffset = 0.001
     /// 主线程忙等时钟层停下的上限（秒），只作超时；正常在 timebase 停下后 1ms 内完成。
     private static let blockedMainThreadTimeout = 2.0
 
@@ -58,9 +67,152 @@ struct DanmakuTimebaseClockTests {
         CMTimebaseSetRate(timebase, rate: 2)
         #expect(await converges(clock, to: timebase))
 
-        // 播放中跳时间：速率保持，时间换到新位置。
-        CMTimebaseSetTime(timebase, time: CMTime(seconds: 7, preferredTimescale: 600))
+        // 播放中向前跳时间：速率保持，时间换到新位置。
+        CMTimebaseSetTime(timebase, time: CMTime(seconds: 70, preferredTimescale: 600))
         #expect(await converges(clock, to: timebase))
+    }
+
+    @Test
+    func clockLayerHoldsItsStartValueBeforeItBegins() {
+        #expect(DanmakuTimebaseClock().layer.fillMode == .backwards)
+    }
+
+    /// 起播时 timebase 的新直线在 δ 之后才经过冻结值（系统按音频输出延迟重锚），此刻读数比冻结值小 δ × 速率：
+    /// 等待窗口里本地时间停在冻结值，之后与 timebase 重合；暂停后往回 seek 仍严格跟随。
+    @Test
+    func playingClockWaitsAtTheFrozenTimeUntilTheAnchoredLineCatchesUp() async throws {
+        let frozen = 10.0
+        let timebase = try makeTimebase(time: frozen, rate: 0)
+        let clock = DanmakuTimebaseClock()
+        clock.bind(timebase)
+        #expect(await converges(clock, to: timebase))
+
+        let host = CACurrentMediaTime()
+        let start = startPlaying(timebase, at: frozen, after: Self.anchoredStartDelay)
+        #expect(timebaseTime(timebase, at: host) < frozen - Self.anchoredStartDelay / 2)
+        #expect(await waitUntil { clock.layer.speed == 1 })
+
+        for sample in stride(from: host, to: start, by: Self.anchoredStartDelay / 10) {
+            #expect(abs(clock.layer.convertTime(sample, from: nil) - frozen) < Self.tolerance)
+        }
+        for offset in [0, 1, Self.lookahead] {
+            let sample = start + offset
+            #expect(
+                abs(clock.layer.convertTime(sample, from: nil) - timebaseTime(timebase, at: sample))
+                    < Self.tolerance
+            )
+        }
+        // 主线程读到的发布值就是这条带等待的直线：等待窗口里同样停在冻结值。
+        #expect(await waitUntil { publishedTimeMatchesTheLayer(clock) })
+
+        CMTimebaseSetRate(timebase, rate: 0)
+        CMTimebaseSetTime(timebase, time: CMTime(seconds: 3, preferredTimescale: 600))
+        #expect(await converges(clock, to: timebase))
+    }
+
+    /// 播放中 timebase 往回跳（4x HLS 的跳变风暴）：本地时间停在跳之前，等 timebase 追上再走。
+    @Test
+    func playingClockDoesNotFollowABackwardJump() async throws {
+        let timebase = try makeTimebase(time: 20, rate: 0)
+        let clock = DanmakuTimebaseClock()
+        clock.bind(timebase)
+        #expect(await converges(clock, to: timebase))
+        CMTimebaseSetRate(timebase, rate: 2)
+        #expect(await converges(clock, to: timebase))
+
+        let host = CACurrentMediaTime()
+        let before = timebaseTime(timebase, at: host)
+        CMTimebaseSetTime(
+            timebase,
+            time: CMTime(seconds: before - 1, preferredTimescale: 1_000_000_000)
+        )
+        #expect(await waitUntil { clock.layer.beginTime > CACurrentMediaTime() })
+
+        // 往回跳 1 秒、速率 2：停在跳之前的值，0.5 秒后追上，之后与 timebase 重合。
+        let held = clock.layer.convertTime(host, from: nil)
+        #expect(held >= before - Self.tolerance)
+        let caughtUp = clock.layer.beginTime
+        #expect(abs(clock.layer.convertTime(caughtUp, from: nil) - held) < Self.tolerance)
+        let later = caughtUp + Self.lookahead
+        #expect(
+            abs(clock.layer.convertTime(later, from: nil) - timebaseTime(timebase, at: later))
+                < Self.tolerance
+        )
+    }
+
+    /// 换绑到一个正在播放、时间更早的 timebase：下限只在同一纪元里成立，立即跟随新时间线。
+    @Test
+    func rebindingToAnEarlierPlayingTimebaseFollowsItImmediately() async throws {
+        let old = try makeTimebase(time: 100, rate: 1)
+        let new = try makeTimebase(time: 5, rate: 1)
+        let clock = DanmakuTimebaseClock()
+        clock.bind(old)
+        #expect(await converges(clock, to: old))
+
+        clock.bind(new)
+
+        #expect(await converges(clock, to: new))
+    }
+
+    /// 换走再换回同一个 timebase（A→B→A），期间 A 在播放中被移到更早的位置：换回是新纪元，不沿用 A 上次的
+    /// 下限，立即跟随。
+    @Test
+    func rebindingBackToTheSameTimebaseDoesNotKeepItsFloor() async throws {
+        let first = try makeTimebase(time: 100, rate: 1)
+        let second = try makeTimebase(time: 5, rate: 0)
+        let clock = DanmakuTimebaseClock()
+        clock.bind(first)
+        #expect(await converges(clock, to: first))
+
+        clock.bind(second)
+        CMTimebaseSetTime(first, time: CMTime(seconds: 40, preferredTimescale: 600))
+        clock.bind(first)
+
+        #expect(await converges(clock, to: first))
+    }
+
+    /// 反复「锚定起播 → 暂停 → 速率 0 往回 seek → 速率 0 向前 seek」：每轮等待窗口里与之后本地时间都不后退，
+    /// 等待结束之后与 timebase 重合，误差不随轮数增长。
+    @Test
+    func repeatedStartPauseAndSeekRoundsDoNotAccumulateError() async throws {
+        let timebase = try makeTimebase(time: 100, rate: 0)
+        let clock = DanmakuTimebaseClock()
+        clock.bind(timebase)
+        #expect(await converges(clock, to: timebase))
+
+        var errors: [Double] = []
+        for round in 0..<Self.repeatedRoundCount {
+            // δ 在 10～200ms 里按黄金分割序列铺开，确定且覆盖均匀。
+            let spread = (Double(round) * 0.618_033_988_749_895).truncatingRemainder(dividingBy: 1)
+            let delay = 0.01 + 0.19 * spread
+            let frozen = timebaseTime(timebase, at: CACurrentMediaTime())
+            let host = CACurrentMediaTime()
+            let start = startPlaying(timebase, at: frozen, after: delay)
+            #expect(await waitUntil { clock.layer.speed == 1 })
+
+            // 起播之前停在 frozen：之后的采样从它开始都不后退。
+            let window = stride(from: host, through: start + delay, by: delay / 8)
+            let samples = [frozen] + window.map { clock.layer.convertTime($0, from: nil) }
+            #expect(
+                zip(samples, samples.dropFirst()).allSatisfy { $0 <= $1 + Self.monotonicSlack }
+            )
+            let settled = start + Self.settleOffset
+            let local = clock.layer.convertTime(settled, from: nil)
+            errors.append(abs(local - timebaseTime(timebase, at: settled)))
+
+            CMTimebaseSetRate(timebase, rate: 0)
+            #expect(await converges(clock, to: timebase))
+            let paused = timebaseTime(timebase, at: CACurrentMediaTime())
+            CMTimebaseSetTime(timebase, time: CMTime(seconds: paused - 3, preferredTimescale: 600))
+            #expect(await converges(clock, to: timebase))
+            CMTimebaseSetTime(timebase, time: CMTime(seconds: paused + 5, preferredTimescale: 600))
+            #expect(await converges(clock, to: timebase))
+        }
+
+        #expect(errors.allSatisfy { $0 < Self.tolerance })
+        let early = errors.prefix(10).max() ?? 0
+        let late = errors.suffix(10).max() ?? 0
+        #expect(late < Self.tolerance, "前 10 轮最大误差 \(early)，后 10 轮 \(late)")
     }
 
     @Test
@@ -243,6 +395,31 @@ struct DanmakuTimebaseClockTests {
         let after = CACurrentMediaTime()
         return published >= clock.layer.convertTime(before, from: nil) - Self.tolerance
             && published <= clock.layer.convertTime(after, from: nil) + Self.tolerance
+    }
+
+    /// 让暂停在 `frozen` 的 timebase 以速率 1 起播，新直线在宿主时间 `delay` 秒之后才经过 `frozen`（系统按音频
+    /// 输出延迟重锚时就是这样）；返回经过的那一刻。
+    private func startPlaying(
+        _ timebase: CMTimebase,
+        at frozen: Double,
+        after delay: Double
+    ) -> Double {
+        let start = CMClockGetTime(CMClockGetHostTimeClock()).seconds + delay
+        CMTimebaseSetRateAndAnchorTime(
+            timebase,
+            rate: 1,
+            anchorTime: CMTime(seconds: frozen, preferredTimescale: 1_000_000_000),
+            immediateSourceTime: CMTime(seconds: start, preferredTimescale: 1_000_000_000)
+        )
+        return start
+    }
+
+    private func timebaseTime(_ timebase: CMTimebase, at host: Double) -> Double {
+        CMSyncConvertTime(
+            CMTime(seconds: host, preferredTimescale: 1_000_000_000),
+            from: CMClockGetHostTimeClock(),
+            to: timebase
+        ).seconds
     }
 
     private func makeTimebase(time: Double, rate: Double) throws -> CMTimebase {

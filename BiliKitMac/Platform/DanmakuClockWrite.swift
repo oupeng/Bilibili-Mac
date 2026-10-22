@@ -13,8 +13,35 @@ struct DanmakuClockWrite: Equatable, Sendable {
 
     /// 时钟层按这三个属性在父层时间 `hostTime` 的本地时间，即弹幕时间 D。
     ///
-    /// `hostTime` 早于 `beginTime` 时停在 `timeOffset`，不外推到写入之前。
+    /// `hostTime` 早于 `beginTime` 时停在 `timeOffset`：时钟层的 `fillMode` 是 `.backwards`，Core Animation 在
+    /// 开始之前同样冻结在起点（原地等待时 `beginTime` 在未来）。
     func mediaTime(at hostTime: CFTimeInterval) -> CFTimeInterval {
         timeOffset + max(0, hostTime - beginTime) * Double(speed)
+    }
+
+    /// 在父层时间 `now` 跟上 timebase 的下一次写入：timebase 此刻在 `timebaseTime`、速率 `speed`；`floor` 是
+    /// 同一纪元里此刻的弹幕时间，换绑后的第一次同步传 nil。
+    ///
+    /// 播放中（`speed` > 0）timebase 此刻低于 `floor` 时不往回跳，原地等待：timebase 的直线
+    /// `timebaseTime + (t − now) × speed` 在 `now + (floor − timebaseTime) / speed` 处到达 `floor`，从那一刻起两条
+    /// 直线重合，没有残留状态；等待中再同步一次得到同一个写入。首播、seek 后起播与卡顿恢复时系统会把
+    /// timebase 后退一个音频输出延迟，画面停在目标帧上，弹幕靠这条规则同样停住。其余情况（速率为 0 时的任何
+    /// 跳变、timebase 不低于 `floor`、没有 `floor`）严格跟随：seek、拖动与暂停都发生在速率为 0 时，不需要识别
+    /// seek。`floor` 为 nil 是为等待补的条件：旧时间线上的弹幕时间对新 item 没有意义，不跟随的话新 item 已在
+    /// 播放时会按旧位置原地等很久。
+    static func following(
+        timebaseTime: CFTimeInterval,
+        speed: Float,
+        floor: CFTimeInterval?,
+        at now: CFTimeInterval
+    ) -> DanmakuClockWrite {
+        if speed > 0, let floor, timebaseTime < floor {
+            return DanmakuClockWrite(
+                beginTime: now + (floor - timebaseTime) / Double(speed),
+                timeOffset: floor,
+                speed: speed
+            )
+        }
+        return DanmakuClockWrite(beginTime: now, timeOffset: timebaseTime, speed: speed)
     }
 }
