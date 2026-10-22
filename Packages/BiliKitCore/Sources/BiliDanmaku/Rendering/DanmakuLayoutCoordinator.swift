@@ -1,16 +1,6 @@
 import BiliModels
 import Foundation
 
-/// 布局表这一次为什么被替换；呈现端据此决定新表是整屏暂存提交，还是普通对齐。
-enum DanmakuLayoutTableChange: Sendable, Equatable {
-    /// 设置、规划尺寸或 backing scale 变化后整张重排了已有的布局：屏上弹幕的车道与时长都可能变，整屏暂存，
-    /// 新表里缺的纹理齐了再一次换掉。设置变为不可用、清空布局表时也是这一种。
-    case relayout
-    /// 新分段排进表里（含晚到的上一段让后一段重排、表原本为空时的第一次布局）：主要填补原本空着的
-    /// 区域，屏上已有的弹幕至多少数换一次车道，普通对齐在同一次调用里原位换掉，新弹幕各自就绪时出现。
-    case segmentsAdded
-}
-
 /// 弹幕布局表的 owner：在后台测量并排车道，完成后在主线程一次性替换布局表。
 ///
 /// 拥有已缓存分段的事件、当前布局设置、布局表、测量缓存与后台布局任务；不拥有分段加载（交给
@@ -24,8 +14,8 @@ enum DanmakuLayoutTableChange: Sendable, Equatable {
 /// 尺寸，见 `DanmakuPresentationController`），所以拖动窗口边缘不会到这里。`deinit` 与 `reset` 取消任务。
 @MainActor
 final class DanmakuLayoutCoordinator {
-    /// 布局表被替换后在主线程调用，参数是这次替换的原因；调用时 `layouts` 已是新表。
-    var tableDidChange: (@MainActor (DanmakuLayoutTableChange) -> Void)?
+    /// 布局表被替换（整张重排、新分段排进表里、设置变为不可用而清空）后在主线程调用；调用时 `layouts` 已是新表。
+    var tableDidChange: (@MainActor () -> Void)?
     /// 当前布局表：按分段号，只含已缓存的分段，全部按 `layoutParameters` 计算。
     private(set) var layouts: [Int: DanmakuSegmentLayout] = [:]
     /// `layouts` 对应的设置；还没有布局表时为 nil。
@@ -67,7 +57,7 @@ final class DanmakuLayoutCoordinator {
         if parameters == nil, layoutParameters != nil {
             layouts.removeAll(keepingCapacity: false)
             layoutParameters = nil
-            tableDidChange?(.relayout)
+            tableDidChange?()
         }
         startIfNeeded()
     }
@@ -93,9 +83,6 @@ final class DanmakuLayoutCoordinator {
             return
         }
         let existing = needsFullRelayout ? [:] : layouts
-        // 换表原因在开始任务时就定下：整张重排且旧表有布局才是 relayout；旧表为空时屏上没有旧布局可混。
-        let change: DanmakuLayoutTableChange =
-            needsFullRelayout && !layouts.isEmpty ? .relayout : .segmentsAdded
         needsFullRelayout = false
         measurementCache = nil
         let jobGeneration = generation
@@ -109,7 +96,6 @@ final class DanmakuLayoutCoordinator {
             )
             self?.finish(
                 result,
-                change: change,
                 parameters: parameters,
                 segments: segments,
                 cache: cache,
@@ -142,7 +128,6 @@ final class DanmakuLayoutCoordinator {
 
     private func finish(
         _ result: [Int: DanmakuSegmentLayout]?,
-        change: DanmakuLayoutTableChange,
         parameters: DanmakuLayoutParameters,
         segments jobSegments: [Int: [DanmakuEvent]],
         cache: DanmakuTextMeasurementCache,
@@ -156,7 +141,7 @@ final class DanmakuLayoutCoordinator {
                 segments[index].map { $0 == jobSegments[index] } ?? false
             }
             layoutParameters = parameters
-            tableDidChange?(change)
+            tableDidChange?()
         }
         startIfNeeded()
     }

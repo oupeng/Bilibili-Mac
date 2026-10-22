@@ -9,9 +9,9 @@ import Testing
 /// 重新检查，读不到 D 时什么都不挂；画面在分段布局完成后按 D 出现，看得见的集合与布局表在 D 时刻一致；
 /// D 离开上次对齐后的一个步长（含回跳）就对齐，步长内什么都不做，步长加一个快照周期短于前瞻；跳到纹理已
 /// 缓存的地方在一次调用里整屏换成那一刻的样子；连续拖动时已就绪的纹理每一步都挂上、不被扣留，拖进未缓存
-/// 区域、分段陆续到达时也一样，停下后补齐落点（落点分段未到时不留旧画面）；设置重排的暂存等纹理时 D 回跳
-/// 不拆开它，拖动中也会提交；关闭弹幕清屏、打开恢复；设置变化整屏换成新布局；换 backing scale 时在屏的弹幕
-/// 逐条原位换纹理，新表落地后换到新车道，新纹理被拒的也换车道；换视频清屏；换 item 只接受当前 owner，清屏后
+/// 区域、分段陆续到达时也一样，停下后补齐落点（落点分段未到时不留旧画面）；改设置后新表落地的同一次调用
+/// 里在屏的全部换到新车道，与拖动交错时也一样，之后每就绪一条就出现；关闭弹幕清屏、打开恢复；换 backing
+/// scale 时在屏的弹幕逐条原位换纹理，新表落地后换到新车道，新纹理被拒的也换车道；换视频清屏；换 item 只接受当前 owner，清屏后
 /// 直到新 item 的快照与新时钟纪元的 D 都有了才按原布局表挂回；切视频时旧 item 解绑后、新 item 有时间之前
 /// 什么都不挂；旧 surface owner 的操作与唤醒无效；窗口尺寸变化不重排、立即按新取景框增删，屏幕尺寸变化
 /// 整张重排。
@@ -210,28 +210,7 @@ struct DanmakuPresentationControllerTests {
         #expect(backend.installedEventIDs == expectedIDs(at: 0, in: controller))
     }
 
-    /// 设置重排的暂存还在等纹理时 D 往回跳，暂存不被拆开。
-    ///
-    /// D 往回跳来自速率 0 时往回 seek、在时钟层的等待窗口里暂停：暂存期间的对齐只移除取景框外的，旧表的画面
-    /// 一条不动；纹理齐了之后一次换成新表在新 D 的样子。拆开的话就是新旧表混排。
-    @Test
-    func clockJumpingBackDuringARelayoutStageKeepsTheOldLayout() async {
-        let owner = UUID()
-        let (controller, backend) = await stagingRelayout(owner: owner)
-        backend.completePreparations(backend.pendingPreparationCount / 2)
-        let history = ScreenHistory(backend)
-
-        for position in [29.7, 29.0] {
-            clock.time = position
-            controller.displayClockDidChange(ownerID: owner)
-            #expect(ScreenHistory(backend) == history)
-        }
-
-        drainRelayout(controller, backend, at: 29.0)
-    }
-
-    /// 改设置后紧接着拖动、纹理只陆续完成一部分：不必停下等纹理排空，拖动途中屏上就换成新布局，就绪的都
-    /// 看得见；任何一步屏上都只出自一张布局表。
+    /// 改设置后紧接着拖动、纹理只陆续完成一部分：新表落地之后的每一步屏上都只出自新布局，就绪的都看得见。
     @Test
     func settingsChangeWhileDraggingReachesTheNewLayoutMidDrag() async {
         let (controller, backend) = await laidOutController(at: 30)
@@ -243,20 +222,14 @@ struct DanmakuPresentationControllerTests {
         #expect(newTable != oldTable)
 
         let steps = (1...12).map { 30 + Double($0) * Self.dragStep }
+        #expect(backend.installed.allSatisfy { newTable[$0.key] == $0.value })
         for position in steps {
             move(controller, to: position, generation: 1)
-            let installed = backend.installed
-            #expect(
-                installed.allSatisfy { oldTable[$0.key] == $0.value }
-                    || installed.allSatisfy { newTable[$0.key] == $0.value }
-            )
             backend.completePreparations((backend.pendingPreparationCount + 1) / 2)
+            #expect(!backend.installed.isEmpty)
+            #expect(backend.installed.allSatisfy { newTable[$0.key] == $0.value })
+            expectNothingWithheld(in: controller, backend, at: position)
         }
-
-        let last = steps[steps.count - 1]
-        #expect(!backend.installed.isEmpty)
-        #expect(backend.installed.allSatisfy { newTable[$0.key] == $0.value })
-        expectNothingWithheld(in: controller, backend, at: last)
     }
 
     @Test
@@ -273,20 +246,30 @@ struct DanmakuPresentationControllerTests {
         expectVisibility(in: controller, backend, at: 45)
     }
 
+    /// 改设置：新表落地的同一次调用里在屏的全部换到新表的车道，之后每就绪一条就出现；任何时刻屏上都只出自
+    /// 新表。
     @Test
     func settingsChangeReplacesTheScreenWithTheNewLayout() async {
         let (controller, backend) = await laidOutController(at: 30)
-        let before = backend.installed
+        let oldTable = controller.layoutTable.mapValues(\.placements)
+        backend.delaysPreparation = true
 
         controller.setSpeedLevel(.one)
-        await backend.waitUntil { backend.installed != before }
-        let expected = DanmakuMaterializer.desiredPlacements(
-            in: controller.layoutTable,
-            at: 30,
-            viewport: controller.viewport
-        )
-        #expect(expected.allSatisfy { backend.installed[$0.request.event.id] == $0 })
-        #expect(backend.installed.count == expected.count)
+        while controller.layoutTable.mapValues(\.placements) == oldTable {
+            await Task.yield()
+        }
+        let current = placementsByEventID(controller.layoutTable)
+        func expectOnlyTheNewLanes() {
+            #expect(backend.installed.allSatisfy { current[$0.key] == $0.value })
+            expectNothingWithheld(in: controller, backend, at: 30)
+        }
+        #expect(!backend.installed.isEmpty)
+        expectOnlyTheNewLanes()
+        while backend.pendingPreparationCount > 0 {
+            backend.completePreparations(1)
+            expectOnlyTheNewLanes()
+        }
+        expectVisibility(in: controller, backend, at: 30)
     }
 
     @Test
@@ -434,7 +417,8 @@ struct DanmakuPresentationControllerTests {
     }
 
     /// 窗口换到 backing scale 与尺寸都不同的屏幕：新表落地之前，在屏的弹幕一条不移除，就绪一条就原位换一条
-    /// 新 scale 纹理，看得见的集合不变；新表落地、纹理排空之后，屏上全部出自新表，全部是新 scale 的纹理。
+    /// 新 scale 纹理，看得见的集合不变；新表落地的同一次调用里在屏的全部换到新车道（还没换纹理的按新尺寸
+    /// 拉伸）；纹理排空之后全部是新 scale 的纹理。
     @Test
     func backingScaleChangeSwapsTexturesInPlaceThenMovesToTheNewLayout() async {
         let owner = UUID()
@@ -457,10 +441,12 @@ struct DanmakuPresentationControllerTests {
         #expect(Set(backend.textureScales.values) == [2, 3])
 
         await waitForLayout(of: controller, onScreenWidth: Self.largerScreen.width)
+        let current = placementsByEventID(controller.layoutTable)
+        #expect(backend.installed.allSatisfy { current[$0.key] == $0.value })
+        expectNothingWithheld(in: controller, backend, at: 30)
         while backend.pendingPreparationCount > 0 {
             backend.completePreparations()
         }
-        let current = placementsByEventID(controller.layoutTable)
         #expect(!backend.installed.isEmpty)
         #expect(backend.installed.allSatisfy { current[$0.key] == $0.value })
         #expect(backend.textureScales.values.allSatisfy { $0 == 3 })
@@ -517,56 +503,6 @@ struct DanmakuPresentationControllerTests {
         {
             await Task.yield()
         }
-    }
-
-    /// 屏上增删的累计记录；暂存期间它不变，说明旧画面一条没动。
-    private struct ScreenHistory: Equatable {
-        let installed: [String]
-        let replaced: [String]
-        let removed: [String]
-
-        @MainActor
-        init(_ backend: RecordingRenderingBackend) {
-            installed = backend.installedHistory
-            replaced = backend.replacedHistory
-            removed = backend.removedHistory
-        }
-    }
-
-    /// D 与快照都停在 30、已挂满屏的控制器换到最慢的速度档，返回时整屏暂存正在等延迟的纹理。
-    ///
-    /// 换档后滚动弹幕走得更久，原本已离场的弹幕此刻仍在屏上，它们要准备纹理，所以暂存一定要等；暂存发起
-    /// 时新布局表已经落地。
-    private func stagingRelayout(
-        owner: UUID
-    ) async -> (DanmakuPresentationController, RecordingRenderingBackend) {
-        let (controller, backend) = await laidOutController(at: 30, surfaceOwner: owner)
-        backend.delaysPreparation = true
-        controller.setSpeedLevel(.one)
-        await backend.waitUntil { backend.pendingPreparationCount > 0 }
-        return (controller, backend)
-    }
-
-    /// 完成全部延迟的纹理（完成可能引出新的请求）之后，屏上恰是新布局表在 D 应有的 placement。
-    private func drainRelayout(
-        _ controller: DanmakuPresentationController,
-        _ backend: RecordingRenderingBackend,
-        at displayTime: Double,
-        sourceLocation: SourceLocation = #_sourceLocation
-    ) {
-        while backend.pendingPreparationCount > 0 {
-            backend.completePreparations()
-        }
-        let expected = DanmakuMaterializer.desiredPlacements(
-            in: controller.layoutTable,
-            at: displayTime,
-            viewport: controller.viewport
-        )
-        let expectedByID = Dictionary(
-            uniqueKeysWithValues: expected.map { ($0.request.event.id, $0) }
-        )
-        #expect(backend.installed == expectedByID, sourceLocation: sourceLocation)
-        expectVisibility(in: controller, backend, at: displayTime, sourceLocation: sourceLocation)
     }
 
     /// 暂停在 `position` 的当前 identity 快照。

@@ -7,10 +7,10 @@ import Testing
 
 /// 固定 materializer 的契约：任一时刻在屏的 layer 恰好是布局表在该时刻、该取景框里可见的弹幕加前瞻；
 /// seek 到任意时刻与从头连续推进到该时刻得到同一组 layer；跳到别处时缓存命中的纹理在同一次调用里挂上，
-/// 其余各自就绪即出现，不为等别的弹幕扣住；整张重排的暂存在一次调用里整屏换掉，按 (时间, ID) 顺序挂上；
-/// 迟到的纹理补上原 placement，是否挂上按纹理到达那一刻的显示时间判断，读不到显示时间时不挂上，有暂存就
-/// 放弃它并交还全部准备；清屏之后重新挂上同一屏；换取景框的结果与一开始就用它相同；backing scale 变化
-/// 必须在 backend 静默取消之后重开暂存，反过来暂存永远等不齐。
+/// 其余各自就绪即出现，不为等别的弹幕扣住；布局表替换在同一次调用里把在屏的全部换到新车道；迟到的纹理
+/// 补上原 placement，是否挂上按纹理到达那一刻的显示时间判断，读不到显示时间时不挂上并交还；清屏之后重新
+/// 挂上同一屏；换取景框的结果与一开始就用它相同；换 backing scale 时 materializer 自己不发请求，与 backend
+/// 谁先换都收敛到全部新 scale 的纹理。
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct DanmakuMaterializerTests {
@@ -26,8 +26,7 @@ struct DanmakuMaterializerTests {
             materializer.reconcile(
                 table: table,
                 position: position,
-                viewport: fullViewport,
-                mode: .incremental
+                viewport: fullViewport
             )
             let expected = table[1]?.placements.filter {
                 $0.admittedAtSeconds <= position + DanmakuMaterializer.lookaheadSeconds
@@ -53,25 +52,22 @@ struct DanmakuMaterializerTests {
             continuous.reconcile(
                 table: table,
                 position: position,
-                viewport: fullViewport,
-                mode: .incremental
+                viewport: fullViewport
             )
         }
         continuous.reconcile(
             table: table,
             position: target,
-            viewport: fullViewport,
-            mode: .incremental
+            viewport: fullViewport
         )
 
         let seekingBackend = RecordingRenderingBackend()
         let seeking = StoppedClockMaterializer(backend: seekingBackend)
-        seeking.reconcile(table: table, position: 600, viewport: fullViewport, mode: .incremental)
+        seeking.reconcile(table: table, position: 600, viewport: fullViewport)
         seeking.reconcile(
             table: table,
             position: target,
-            viewport: fullViewport,
-            mode: .incremental
+            viewport: fullViewport
         )
 
         #expect(!seekingBackend.installed.isEmpty)
@@ -93,8 +89,7 @@ struct DanmakuMaterializerTests {
         materializer.reconcile(
             table: table,
             position: 60,
-            viewport: largeViewport,
-            mode: .incremental
+            viewport: largeViewport
         )
         #expect(!backend.installed.isEmpty)
 
@@ -116,8 +111,7 @@ struct DanmakuMaterializerTests {
         materializer.reconcile(
             table: table,
             position: 200,
-            viewport: largeViewport,
-            mode: .incremental
+            viewport: largeViewport
         )
         #expect(backend.installedEventIDs == cached)
         expectNothingWithheld(on: backend, table: table, viewport: largeViewport, at: 200)
@@ -128,45 +122,41 @@ struct DanmakuMaterializerTests {
         #expect(backend.installed == placementsByID(desired))
     }
 
+    /// 布局表替换（换车道）：同一次调用里在屏的全部换成新表的 placement，纹理已在缓存里的新弹幕同时出现，
+    /// 其余逐条就绪即出现；任何时刻屏上都只出自新表。
     @Test
-    func replacedTableSwapsTheWholeScreenInOneCall() {
+    func replacedTableMovesTheScreenToItsLanesInOneCall() {
         let events = denseEvents(segment: 1, count: 400, seed: 51)
         let narrow = layoutTable([1: events], surfaceWidth: 800)
         let wide = layoutTable([1: events], surfaceWidth: 1_400)
         let wideViewport = viewport(width: 1_400)
         let backend = RecordingRenderingBackend()
         let materializer = StoppedClockMaterializer(backend: backend)
-        materializer.reconcile(
-            table: narrow,
-            position: 120,
-            viewport: fullViewport,
-            mode: .incremental
-        )
+        materializer.reconcile(table: narrow, position: 120, viewport: fullViewport)
         let before = backend.installed
         #expect(!before.isEmpty)
 
-        // 新表里有旧屏上没有的弹幕：它们的纹理全部就绪之前，屏上原样不动。
+        let desired = placementsByID(
+            DanmakuMaterializer.desiredPlacements(in: wide, at: 120, viewport: wideViewport)
+        )
+        let appearing = desired.keys.filter { before[$0] == nil }.sorted()
+        #expect(appearing.count > 1)
         backend.delaysPreparation = true
-        materializer.reconcile(
-            table: wide,
-            position: 120,
-            viewport: wideViewport,
-            mode: .staged
-        )
-        let waiting = backend.pendingPreparationCount
-        #expect(waiting > 1)
-        backend.completePreparations(waiting - 1)
-        #expect(backend.installed == before)
-        #expect(materializer.isCommitPending)
+        backend.cachedEventIDs = Set(appearing.prefix(appearing.count / 2))
+        let wideByID = placementsByEventID(wide)
+        func expectOnlyTheNewLanes() {
+            #expect(backend.installed.allSatisfy { wideByID[$0.key] == $0.value })
+            expectNothingWithheld(on: backend, table: wide, viewport: wideViewport, at: 120)
+        }
 
-        backend.completePreparations()
-        let expected = DanmakuMaterializer.desiredPlacements(
-            in: wide,
-            at: 120,
-            viewport: wideViewport
-        )
-        #expect(backend.installed == placementsByID(expected))
-        #expect(!materializer.isCommitPending)
+        materializer.reconcile(table: wide, position: 120, viewport: wideViewport)
+        #expect(backend.cachedEventIDs.isSubset(of: backend.installedEventIDs))
+        expectOnlyTheNewLanes()
+        while backend.pendingPreparationCount > 0 {
+            backend.completePreparations(1)
+            expectOnlyTheNewLanes()
+        }
+        #expect(backend.installed == desired)
     }
 
     @Test
@@ -178,8 +168,7 @@ struct DanmakuMaterializerTests {
         materializer.reconcile(
             table: table,
             position: 200,
-            viewport: fullViewport,
-            mode: .incremental
+            viewport: fullViewport
         )
         #expect(backend.installed.isEmpty)
 
@@ -187,8 +176,7 @@ struct DanmakuMaterializerTests {
         materializer.reconcile(
             table: table,
             position: 200.5,
-            viewport: fullViewport,
-            mode: .incremental
+            viewport: fullViewport
         )
         backend.completePreparations()
         let expected = DanmakuMaterializer.desiredPlacements(
@@ -212,8 +200,7 @@ struct DanmakuMaterializerTests {
         materializer.reconcile(
             table: table,
             position: 90,
-            viewport: fullViewport,
-            mode: .incremental
+            viewport: fullViewport
         )
         let before = backend.installed
 
@@ -222,33 +209,9 @@ struct DanmakuMaterializerTests {
         materializer.reconcile(
             table: table,
             position: 90,
-            viewport: fullViewport,
-            mode: .incremental
-        )
-        #expect(backend.installed == before)
-    }
-
-    /// 暂存提交按 (时间, ID) 顺序挂上，与纹理完成的先后无关。
-    @Test
-    func stagedCommitInstallsInTimeOrder() {
-        let table = layoutTable([1: denseEvents(segment: 1, count: 300, seed: 91)])
-        let backend = RecordingRenderingBackend()
-        backend.delaysPreparation = true
-        let materializer = StoppedClockMaterializer(backend: backend)
-        materializer.reconcile(
-            table: table,
-            position: 150,
-            viewport: fullViewport,
-            mode: .staged
-        )
-
-        backend.completePreparations(reversed: true)
-        let expected = DanmakuMaterializer.desiredPlacements(
-            in: table,
-            at: 150,
             viewport: fullViewport
         )
-        #expect(backend.installedHistory == expected.map(\.request.event.id))
+        #expect(backend.installed == before)
     }
 
     /// 窗口放大与缩小都只按新取景框增删：结果与一开始就用这个窗口相同，放大时补上的包括已在飞行
@@ -267,8 +230,7 @@ struct DanmakuMaterializerTests {
             StoppedClockMaterializer(backend: backend).reconcile(
                 table: table,
                 position: 150,
-                viewport: viewport,
-                mode: .incremental
+                viewport: viewport
             )
             return backend.installed
         }
@@ -277,61 +239,20 @@ struct DanmakuMaterializerTests {
         materializer.reconcile(
             table: table,
             position: 150,
-            viewport: small,
-            mode: .incremental
+            viewport: small
         )
         #expect(backend.installed == direct(small))
 
-        materializer.reconcile(table: table, position: 150, viewport: large, mode: .incremental)
+        materializer.reconcile(table: table, position: 150, viewport: large)
         #expect(backend.installed == direct(large))
         let revealedInFlight = backend.installed.values.filter {
             $0.admittedAtSeconds < 150 && !small.showsLanes(of: $0)
         }
         #expect(!revealedInFlight.isEmpty)
 
-        materializer.reconcile(table: table, position: 150, viewport: small, mode: .incremental)
+        materializer.reconcile(table: table, position: 150, viewport: small)
         #expect(backend.installed == direct(small))
         #expect(!backend.removedHistory.isEmpty)
-    }
-
-    /// 暂存提交还在等纹理时缩小窗口：取景框外已挂上的弹幕立即移除，屏上不换成新 placement；提交后
-    /// 与一开始就用小窗口相同。
-    @Test
-    func shrinkingDuringAStagedCommitRemovesOutsideLayersAtOnce() {
-        let table = layoutTable(
-            [1: denseEvents(segment: 1, count: 900, seed: 111)],
-            surfaceWidth: 1_200,
-            surfaceHeight: 720
-        )
-        let large = viewport(width: 1_200, height: 720)
-        let small = viewport(width: 1_200, height: 200)
-        let backend = RecordingRenderingBackend()
-        let materializer = StoppedClockMaterializer(backend: backend)
-        materializer.reconcile(
-            table: table,
-            position: 150,
-            viewport: large,
-            mode: .incremental
-        )
-        let before = backend.installed
-
-        backend.delaysPreparation = true
-        materializer.reconcile(
-            table: table,
-            position: 151,
-            viewport: large,
-            mode: .staged
-        )
-        #expect(materializer.isCommitPending)
-        materializer.reconcile(table: table, position: 151, viewport: small, mode: .incremental)
-
-        #expect(!backend.removedHistory.isEmpty)
-        #expect(backend.installed.values.allSatisfy { small.shows($0, at: 151) })
-        #expect(backend.installed.allSatisfy { before[$0.key] == $0.value })
-
-        backend.completePreparations()
-        let expected = DanmakuMaterializer.desiredPlacements(in: table, at: 151, viewport: small)
-        #expect(backend.installed == placementsByID(expected))
     }
 
     /// 纹理到达时显示时间已走到这些弹幕都离场之后：按此刻的 D 判断，一条也不挂。
@@ -344,8 +265,7 @@ struct DanmakuMaterializerTests {
         materializer.reconcile(
             table: table,
             position: 200,
-            viewport: fullViewport,
-            mode: .incremental
+            viewport: fullViewport
         )
         #expect(backend.pendingPreparationCount > 0)
 
@@ -355,44 +275,26 @@ struct DanmakuMaterializerTests {
         #expect(backend.installed.isEmpty)
     }
 
-    /// 纹理异步完成时读不到 D：不挂上；有暂存时放弃它，已就绪与在途的准备全部交还 backend，不占着名额。
+    /// 纹理异步完成时读不到 D：不挂上，交还 backend，不占着名额。
     ///
-    /// 正常到不了：读不到 D 之前总会先清屏。D 回来之后的下一次普通 reconcile 挂上此刻的集合。
-    @Test(arguments: [true, false])
-    func textureCompletedWithoutADisplayTimeWaitsForTheNextAlignment(staged: Bool) {
+    /// 正常到不了：读不到 D 之前总会先清屏。D 回来之后的下一次 reconcile 挂上此刻的集合。
+    @Test
+    func textureCompletedWithoutADisplayTimeWaitsForTheNextAlignment() {
         let table = layoutTable([1: denseEvents(segment: 1, count: 300, seed: 63)])
         let backend = RecordingRenderingBackend()
         backend.delaysPreparation = true
         let materializer = StoppedClockMaterializer(backend: backend)
-        materializer.reconcile(
-            table: table,
-            position: 120,
-            viewport: fullViewport,
-            mode: staged ? .staged : .incremental
-        )
-        #expect(materializer.isCommitPending == staged)
+        materializer.reconcile(table: table, position: 120, viewport: fullViewport)
         backend.completePreparations(backend.pendingPreparationCount / 2)
         let installedBefore = backend.installed
-        #expect(installedBefore.isEmpty == staged)
+        #expect(!installedBefore.isEmpty)
 
         materializer.clock.time = nil
-        backend.completePreparations(1)
-        #expect(!materializer.isCommitPending)
-        #expect(backend.installed == installedBefore)
-        #expect(backend.heldPreparationCount == 0)
-        if staged {
-            #expect(backend.pendingPreparationCount == 0)
-        }
         backend.completePreparations()
         #expect(backend.installed == installedBefore)
         #expect(backend.heldPreparationCount == 0)
 
-        materializer.reconcile(
-            table: table,
-            position: 120.4,
-            viewport: fullViewport,
-            mode: .incremental
-        )
+        materializer.reconcile(table: table, position: 120.4, viewport: fullViewport)
         backend.completePreparations()
         let expected = DanmakuMaterializer.desiredPlacements(
             in: table,
@@ -402,58 +304,19 @@ struct DanmakuMaterializerTests {
         #expect(backend.installed == placementsByID(expected))
     }
 
-    /// backing scale 在读不到 D 时变化（正常到不了：读不到 D 之前总会先清屏）：放弃等待中的暂存，不按旧时间
-    /// 重开；D 回来后的普通 reconcile 按新 scale 准备并挂上此刻的集合。
-    @Test
-    func backingScaleChangeWithoutADisplayTimeDropsThePendingStage() {
-        let table = layoutTable([1: denseEvents(segment: 1, count: 300, seed: 65)])
-        let backend = RecordingRenderingBackend()
-        backend.delaysPreparation = true
-        let materializer = StoppedClockMaterializer(backend: backend)
-        materializer.reconcile(
-            table: table,
-            position: 150,
-            viewport: fullViewport,
-            mode: .staged
-        )
-        #expect(materializer.isCommitPending)
-
-        materializer.clock.time = nil
-        backend.updateSurfaceSize(width: 800, height: 360, backingScale: 3)
-        materializer.setBackingScale(3)
-        #expect(!materializer.isCommitPending)
-        #expect(backend.pendingPreparationCount == 0)
-
-        materializer.reconcile(
-            table: table,
-            position: 150,
-            viewport: fullViewport,
-            mode: .incremental
-        )
-        backend.completePreparations()
-        let expected = DanmakuMaterializer.desiredPlacements(
-            in: table,
-            at: 150,
-            viewport: fullViewport
-        )
-        #expect(backend.installed == placementsByID(expected))
-    }
-
-    /// backing scale 变化的顺序契约：backend 先静默取消在途准备，materializer 再按此刻的 D 重开暂存，纹理
-    /// 齐了就提交；反过来，重开发出的请求被随后的取消吞掉，暂存永远等不齐。
+    /// backing scale 变化的顺序契约是「backend 换 scale 与 materializer 换 scale 之间不发准备请求」：materializer
+    /// 换 scale 只作废在途记录、自己不发请求，所以两步谁先谁后都一样，之后的 reconcile 把在屏的全部原位换成
+    /// 新 scale 的纹理。
     @Test(arguments: [true, false])
-    func backingScaleRestartMustFollowTheBackendsSilentCancel(backendFirst: Bool) {
+    func backingScaleChangeIssuesNoRequestsSoEitherOrderConverges(backendFirst: Bool) {
         let table = layoutTable([1: denseEvents(segment: 1, count: 300, seed: 64)])
         let backend = RecordingRenderingBackend()
-        backend.delaysPreparation = true
         let materializer = StoppedClockMaterializer(backend: backend)
-        materializer.reconcile(
-            table: table,
-            position: 150,
-            viewport: fullViewport,
-            mode: .staged
-        )
-        #expect(materializer.isCommitPending)
+        materializer.reconcile(table: table, position: 150, viewport: fullViewport)
+        #expect(!backend.installed.isEmpty)
+        backend.delaysPreparation = true
+        materializer.reconcile(table: table, position: 155, viewport: fullViewport)
+        #expect(backend.pendingPreparationCount > 0)
 
         if backendFirst {
             backend.updateSurfaceSize(width: 800, height: 360, backingScale: 3)
@@ -462,10 +325,15 @@ struct DanmakuMaterializerTests {
             materializer.setBackingScale(3)
             backend.updateSurfaceSize(width: 800, height: 360, backingScale: 3)
         }
-        backend.completePreparations()
+        #expect(backend.pendingPreparationCount == 0)
 
-        #expect(materializer.isCommitPending == !backendFirst)
-        #expect(backend.installed.isEmpty == !backendFirst)
+        materializer.reconcile(table: table, position: 155, viewport: fullViewport)
+        backend.completePreparations()
+        let expected = placementsByID(
+            DanmakuMaterializer.desiredPlacements(in: table, at: 155, viewport: fullViewport)
+        )
+        #expect(backend.installed == expected)
+        #expect(backend.textureScales.values.allSatisfy { $0 == 3 })
     }
 
     private func placementsByID(
@@ -490,20 +358,17 @@ private final class StoppedClockMaterializer {
         materializer = DanmakuMaterializer(backend: backend) { clock.time }
     }
 
-    var isCommitPending: Bool { materializer.isCommitPending }
-
     func reconcile(
         table: [Int: DanmakuSegmentLayout],
         position: Double,
-        viewport: DanmakuViewport,
-        mode: DanmakuMaterializer.Mode
+        viewport: DanmakuViewport
     ) {
         clock.time = position
-        materializer.reconcile(table: table, position: position, viewport: viewport, mode: mode)
+        materializer.reconcile(table: table, position: position, viewport: viewport)
     }
 
     func setBackingScale(_ scale: Double) {
-        materializer.setBackingScale(scale, at: clock.time)
+        materializer.setBackingScale(scale)
     }
 
     func clear() {

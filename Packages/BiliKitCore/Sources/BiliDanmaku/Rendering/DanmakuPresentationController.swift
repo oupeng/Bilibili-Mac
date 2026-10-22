@@ -71,9 +71,9 @@ extension DanmakuLaneConfiguration {
 /// 区间里可见，所以错误只可能是缺席，不会错位或多余。
 ///
 /// 取景框：布局表按规划画布排一次，规划尺寸取承载窗口的屏幕尺寸与窗口尺寸的较大者（逐个维度）。规划
-/// 尺寸、backing scale 或设置变化时整张重排，在一次整屏暂存提交里瞬时替换整屏；分段到达只填补原本空着
-/// 的区域，走普通对齐（见 `DanmakuMaterializer`）。窗口尺寸只决定露出布局表的哪一部分，变化时不重排，只
-/// 移动 backend 的锚定边并按新取景框普通对齐（见 docs/ARCHITECTURE.md「弹幕」）。
+/// 尺寸、backing scale 或设置变化时整张重排；布局表每次替换（整张重排或分段到达）都在同一次调用里对齐，
+/// 在屏的弹幕原位换车道（见 `DanmakuMaterializer`）。窗口尺寸只决定露出布局表的哪一部分，变化时不重排，只
+/// 移动 backend 的锚定边并按新取景框对齐（见 docs/ARCHITECTURE.md「弹幕」）。
 ///
 /// 拥有布局 coordinator、materializer、布局设置（规划尺寸、速度、显示区域、密度、过滤）、窗口尺寸与 surface owner；
 /// 不拥有 layer 与纹理（backend），也不拥有时间线与分段加载（`DanmakuSession`）。surface owner ID 防止
@@ -82,7 +82,7 @@ extension DanmakuLaneConfiguration {
 ///
 /// 何时对齐只看 D 与上次对齐位置，不识别 seek 或拖动，也不读不连续代号：位置落在
 /// [上次对齐位置, 上次对齐位置 + `reconcileStride`) 里时，屏上已挂的就是此刻应有的，什么都不做；落在这之外
-/// （按步长推进、向前跳出或回跳）都是同一次普通对齐，缓存命中的纹理在同一次调用里挂上，其余各自就绪时出现。
+/// （按步长推进、向前跳出或回跳）都是同一次对齐，缓存命中的纹理在同一次调用里挂上，其余各自就绪时出现。
 /// 恢复播放、向前的 timebase 重锚与缓冲恢复时 D 还在步长里，什么都不做（起播与卡顿恢复时 timebase 的后退由
 /// 宿主时钟层原地等待吸收，D 不回跳）。弹幕不隐藏也不清屏，屏上的 layer 一直跟随媒体时间。
 @MainActor
@@ -135,13 +135,8 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         materializer = DanmakuMaterializer(backend: backend) {
             clockBox.clock?.displayTime()
         }
-        coordinator.tableDidChange = { [weak self] change in
-            switch change {
-            case .relayout:
-                self?.reconcileAtDisplayTime(.staged)
-            case .segmentsAdded:
-                self?.reconcileAtDisplayTime(.incremental)
-            }
+        coordinator.tableDidChange = { [weak self] in
+            self?.reconcileAtDisplayTime()
         }
     }
 
@@ -182,7 +177,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         evaluate()
     }
 
-    /// 按此刻的 D 决定是否对齐：D 不在 [上次对齐位置, 上次对齐位置 + 步长) 里就普通对齐一次。
+    /// 按此刻的 D 决定是否对齐：D 不在 [上次对齐位置, 上次对齐位置 + 步长) 里就对齐一次。
     private func evaluate() {
         guard canAlign, let position = clockBox.clock?.displayTime() else { return }
         if let aligned = alignedPosition,
@@ -191,7 +186,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         {
             return
         }
-        reconcile(.incremental, at: position)
+        reconcile(at: position)
     }
 
     public func setSegments(
@@ -206,7 +201,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         guard isEnabled != enabled else { return }
         isEnabled = enabled
         if enabled {
-            reconcileAtDisplayTime(.incremental)
+            reconcileAtDisplayTime()
         } else {
             materializer.clear()
         }
@@ -255,7 +250,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         clockBox.clock = clock
         alignedPosition = nil
         materializer.clear()
-        reconcileAtDisplayTime(.incremental)
+        reconcileAtDisplayTime()
     }
 
     /// 只有当前 owner 能交还 surface，交还时清屏并放下它的时钟；返回是否生效。
@@ -288,9 +283,8 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     /// 是承载窗口的屏幕尺寸（point，宿主取不到屏幕时传 0）。
     ///
     /// 规划尺寸逐个维度取屏幕与窗口的较大者，所以窗口跨屏变得比屏幕大时，新表排好后也不会露出规划画布
-    /// 之外；规划尺寸或 scale 变了才整张重排。窗口尺寸变化本身只移动锚定边并按新取景框普通对齐：放大时补上
-    /// 新露出的、正在飞的弹幕（缺纹理的就绪后出现，重排的暂存提交未完成时等提交），缩小时立即移除被裁掉的，
-    /// 不做暂存的整屏替换。
+    /// 之外；规划尺寸或 scale 变了才整张重排。窗口尺寸变化本身只移动锚定边并按新取景框对齐：放大时补上
+    /// 新露出的、正在飞的弹幕（缺纹理的就绪后出现），缩小时立即移除被裁掉的。
     public func updateSurface(
         width: Double,
         height: Double,
@@ -303,17 +297,17 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         let position = clockBox.clock?.displayTime()
         let normalizedScale = DanmakuTextureRasterizer.normalizedBackingScale(backingScale)
         self.backingScale = normalizedScale
-        // 顺序是契约：backend 换 scale 时静默取消在途准备（不回调），materializer 随后作废记录、在有暂存时按
-        // 此刻的 D 重开。反过来的话，重开发出的请求会被随后的取消吞掉，暂存永远等不齐。
+        // backend 换 scale 时静默取消在途准备（不回调），materializer 随后作废对应的记录；两步之间不得发准备
+        // 请求，否则它们被取消吞掉、记录永远不清（见 `DanmakuMaterializer.setBackingScale`）。
         backend.updateSurfaceSize(width: width, height: height, backingScale: normalizedScale)
-        materializer.setBackingScale(normalizedScale, at: position)
+        materializer.setBackingScale(normalizedScale)
         surfaceWidth = width
         surfaceHeight = height
         planningWidth = Self.planningExtent(window: width, screen: screenWidth)
         planningHeight = Self.planningExtent(window: height, screen: screenHeight)
         updateLayoutParameters()
         if let position {
-            reconcile(.incremental, at: position)
+            reconcile(at: position)
         }
     }
 
@@ -330,21 +324,16 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     /// 读一次此刻的 D，再按它 reconcile；读不到时什么都不做。
     ///
     /// 用于不经 `evaluate` 的入口：布局表替换、打开弹幕、接管 surface。
-    private func reconcileAtDisplayTime(_ mode: DanmakuMaterializer.Mode) {
+    private func reconcileAtDisplayTime() {
         guard let position = clockBox.clock?.displayTime() else { return }
-        reconcile(mode, at: position)
+        reconcile(at: position)
     }
 
     /// 布局表在 `position`（入口读到的 D）时刻应有的弹幕挂到 backend 上；不满足 `canAlign` 时什么都不做。
-    private func reconcile(_ mode: DanmakuMaterializer.Mode, at position: Double) {
+    private func reconcile(at position: Double) {
         guard canAlign else { return }
         alignedPosition = position
-        materializer.reconcile(
-            table: layoutTable,
-            position: position,
-            viewport: viewport,
-            mode: mode
-        )
+        materializer.reconcile(table: layoutTable, position: position, viewport: viewport)
     }
 
     /// 换 identity 或停止：丢弃布局表与时间线状态并清屏。

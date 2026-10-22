@@ -125,8 +125,11 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
         }
     }
 
-    /// 按发起顺序完成最早的 `count` 个延迟的准备（默认全部）；`reversed` 时从最晚发起的开始倒序完成 `count` 个。
-    func completePreparations(_ count: Int? = nil, reversed: Bool = false) {
+    /// 按发起顺序完成最早的 `count` 个延迟的准备（默认全部），返回按完成顺序排列的事件 ID。
+    ///
+    /// `reversed` 时从最晚发起的开始倒序完成 `count` 个。
+    @discardableResult
+    func completePreparations(_ count: Int? = nil, reversed: Bool = false) -> [String] {
         let count = min(count ?? delayedCompletions.count, delayedCompletions.count)
         let completing: [DelayedCompletion]
         if reversed {
@@ -139,6 +142,7 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
         for item in completing {
             complete(item.preparationID, item.completion)
         }
+        return completing.map(\.eventID)
     }
 
     private func complete(
