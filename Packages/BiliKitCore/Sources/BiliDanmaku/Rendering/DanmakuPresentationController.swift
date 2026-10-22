@@ -89,11 +89,12 @@ extension DanmakuLaneConfiguration {
 public final class DanmakuPresentationController: DanmakuPresentationSink {
     /// 两次对齐之间至少相隔的媒体时长：D 落在 [上次对齐位置, 上次对齐位置 + 它) 里时不对齐。
     ///
-    /// 检查由快照（每 1/30 媒体秒一个）与时钟写入触发，不必每次都 reconcile。上次对齐挂上了进场时间不晚于
-    /// 「上次对齐位置 + `DanmakuMaterializer.lookaheadSeconds`」的弹幕，所以步长加相邻两次检查的间隔必须短于
-    /// 前瞻，余下的时间留给即将进场的弹幕栅格化。检查间隔没有上界：弹幕会话经只保留最新值的 AsyncStream 收
-    /// 快照，主线程忙时快照会被合并，卡顿越过「前瞻 − 步长」时，卡顿期间进场的弹幕在下一次对齐才请求纹理，
-    /// 之后逐条出现。调小增加主线程开销，调大则走完的 layer 留得更久、留给准备纹理的时间更少。
+    /// 检查由周期快照（`PlaybackTimelineSnapshot.periodicSnapshotsPerMediaSecond`）与时钟写入触发，不必每次都
+    /// reconcile。上次对齐挂上了进场时间不晚于「上次对齐位置 + `DanmakuMaterializer.lookaheadSeconds`」的弹幕，
+    /// 所以步长加相邻两次检查的间隔必须短于前瞻，余下的时间留给即将进场的弹幕栅格化；这段余量没有常量，
+    /// 取决于密度。检查间隔没有上界：弹幕会话经只保留最新值的 AsyncStream 收快照，主线程忙时快照会被合并，
+    /// 卡顿越过「前瞻 − 步长」时，卡顿期间进场的弹幕在下一次对齐才请求纹理，之后逐条出现。调小增加主线程
+    /// 开销，调大则走完的 layer 留得更久、留给准备纹理的时间更少。
     static let reconcileStride = 1.0
 
     private let backend: any DanmakuRenderingBackend

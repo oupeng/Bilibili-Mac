@@ -116,6 +116,12 @@ public struct PlaybackTimelineSnapshot: Sendable, Equatable {
         self.discontinuityGeneration = discontinuityGeneration
     }
 
+    /// 播放中周期快照的频率：每媒体秒 30 个，按 item 时间计，倍速下宿主时间的间隔随之缩放。
+    ///
+    /// 实现方按它安装周期观察器。弹幕以快照为检查节拍，步长加一个快照周期必须短于前瞻（见
+    /// docs/ARCHITECTURE.md「弹幕」）。调高增加主线程回合，调低让进度显示与弹幕检查更稀。
+    public static let periodicSnapshotsPerMediaSecond = 30
+
     public static let idle = PlaybackTimelineSnapshot(
         identity: nil,
         positionSeconds: 0,

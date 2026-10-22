@@ -118,7 +118,10 @@ final class AVPlayerTimelineAdapter {
         let interactionTracker = interactionTracker
 
         let periodicTimeObserver = player.addPeriodicTimeObserver(
-            forInterval: CMTime(value: 1, timescale: 30),
+            forInterval: CMTime(
+                value: 1,
+                timescale: CMTimeScale(PlaybackTimelineSnapshot.periodicSnapshotsPerMediaSecond)
+            ),
             queue: .main
         ) { [weak self, weak item] time in
             Task { @MainActor in
