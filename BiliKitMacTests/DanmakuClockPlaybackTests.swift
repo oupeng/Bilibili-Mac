@@ -4,6 +4,7 @@ import AppKit
 import BiliApplication
 import BiliDanmaku
 import BiliModels
+import Synchronization
 import Testing
 
 @testable import BiliKit
@@ -13,57 +14,38 @@ import Testing
 /// 证明的范围：弹幕 layer 挂在宿主的时钟层下，局部时间等于播放 item 的时间，暂停中 seek、开播、两倍速
 /// 与再暂停之后都一致（时钟层在后台队列上异步落地，等到一致为止）；媒体时间
 /// 0 的弹幕用时钟定义的哨兵开始，在真实播放下处于可见区间；暂停中 seek 之后开播，屏上仍是同一组
-/// layer（呈现控制器没有清屏重建）。
+/// layer（呈现控制器没有清屏重建）；反复暂停、恢复与 seek 时，timebase 速率保持大于 0 的区段里弹幕时间
+/// 不后退，与 timebase 的偏差有界、不随轮数增长。
 ///
 /// 依赖：测试宿主能连上窗口服务；用带音轨的本地静音媒体，开播、改速率与暂停时系统会按音频时钟重新锚定
 /// timebase，通知来自真实播放器的内部队列。时间线快照是手工喂给控制器的，不经过 `AVPlayerTimelineAdapter`。
 ///
 /// 不能证明：渲染服务器实际画出来的像素与位置、肉眼是否闪烁、真实 B 站 HLS 与码率切换、PiP 与 detached
-/// 全屏下的同步。
+/// 全屏下的同步。测试宿主的音频输出不一定是有线或蓝牙设备，起播回退的幅度与真机不同。
 @Suite(.serialized, .timeLimit(.minutes(1)))
 @MainActor
 struct DanmakuClockPlaybackTests {
     /// 局部时间与 item 时间的容差（秒）：两者在不同时刻读取，播放中相差约一次读取的间隔。
     private static let timeTolerance = 0.05
+    /// 反复操作的轮数与媒体时长：每轮播放一小段再 seek，落点留出离结尾的余量。
+    private static let repeatedRounds = 50
+    private static let repeatedMediaSeconds = 30.0
+    /// 每轮播放的媒体时长（秒）：够起播等待结束、timebase 稳定推进。
+    private static let playedSecondsPerRound = 0.15
+    /// 同一次采样里先读局部时间、后读 timebase，相邻两次采样的局部时间按浮点比较；只容许舍入误差。
+    private static let monotonicSlack = 1e-6
+    /// 速率大于 0 时局部时间与 timebase 偏差的上界（秒）：大于任何音频输出延迟（蓝牙最多约 0.22 秒），远小于
+    /// 一次 seek 的距离；偏差若随轮数累积会越过它。
+    private static let deviationBound = 0.3
 
     @Test
     func danmakuTimeFollowsTheItemThroughPausedSeekPlayRateChangeAndPause() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("danmaku-sync-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let mediaURL = try writeSilentAudio(seconds: 8, in: directory)
-
-        let renderer = CoreAnimationDanmakuRenderer(
-            beginTimeAtZero: DanmakuTimebaseClock.beginTimeAtMediaZero
-        )
-        let controller = DanmakuPresentationController(backend: renderer)
-        let view = DanmakuPlayerView(
-            renderer: renderer,
-            controller: controller,
-            beginMomentaryPlaybackRate: nil,
-            endMomentaryPlaybackRate: nil
-        )
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 360),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentView = view
-        window.orderFrontRegardless()
-        defer {
-            view.danmakuOverlay.detachSurface()
-            view.stopObservingPlayerItemChanges()
-            view.player = nil
-            window.orderOut(nil)
-        }
-        let item = AVPlayerItem(url: mediaURL)
-        let player = AVPlayer(playerItem: item)
-        player.automaticallyWaitsToMinimizeStalling = false
-        view.player = player
-        view.startObservingPlayerItemChanges()
-        view.layoutSubtreeIfNeeded()
+        let fixture = try PlaybackFixture(mediaSeconds: 8)
+        defer { fixture.tearDown() }
+        let renderer = fixture.renderer
+        let controller = fixture.controller
+        let item = fixture.item
+        let player = fixture.player
         #expect(await waitUntil(timeout: .seconds(10)) { item.status == .readyToPlay })
 
         // 暂停中 seek 到 2 秒，弹幕按 2 秒整屏挂上。
@@ -131,6 +113,55 @@ struct DanmakuClockPlaybackTests {
         await expectLocalTime(of: renderer.rootLayer, matches: item)
     }
 
+    /// 反复「播放一小段 → 暂停 → 暂停中 seek」：后台线程每 1ms 采样弹幕层的局部时间与 item timebase，速率
+    /// 保持大于 0 的相邻两次采样之间局部时间不后退；速率大于 0 时与 timebase 的偏差只来自起播等待（一个音频
+    /// 输出延迟），每轮的上界都在同一个常数以内。
+    @Test
+    func repeatedPauseResumeAndSeekKeepDanmakuTimeMonotonicAndBounded() async throws {
+        let fixture = try PlaybackFixture(mediaSeconds: Self.repeatedMediaSeconds)
+        defer { fixture.tearDown() }
+        let item = fixture.item
+        let player = fixture.player
+        #expect(await waitUntil(timeout: .seconds(10)) { item.status == .readyToPlay })
+        let timebase = try #require(item.timebase)
+        let sampler = TimeSampler(layer: fixture.renderer.rootLayer, timebase: timebase)
+        sampler.start()
+
+        for round in 0..<Self.repeatedRounds {
+            sampler.setRound(round)
+            let started = item.currentTime().seconds
+            player.play()
+            #expect(
+                await waitUntil(timeout: .seconds(5)) {
+                    item.currentTime().seconds > started + Self.playedSecondsPerRound
+                }
+            )
+            player.pause()
+            #expect(await waitUntil(timeout: .seconds(5)) { CMTimebaseGetRate(timebase) == 0 })
+            // 落点在媒体里按黄金分割序列铺开，前后跳都有。
+            let spread = (Double(round) * 0.618_033_988_749_895).truncatingRemainder(dividingBy: 1)
+            let target = 1 + spread * (Self.repeatedMediaSeconds - 4)
+            await player.seek(to: CMTime(seconds: target, preferredTimescale: 600))
+        }
+        let samples = sampler.stop()
+
+        let backward = zip(samples, samples.dropFirst()).filter { earlier, later in
+            earlier.rate > 0 && later.rate > 0 && later.local < earlier.local - Self.monotonicSlack
+        }
+        #expect(backward.isEmpty, "速率大于 0 时弹幕时间后退 \(backward.count) 次")
+        var deviations = Array(repeating: 0.0, count: Self.repeatedRounds)
+        for sample in samples where sample.rate > 0 {
+            let deviation = abs(sample.local - sample.media)
+            deviations[sample.round] = max(deviations[sample.round], deviation)
+        }
+        let early = deviations.prefix(10).max() ?? 0
+        let late = deviations.suffix(10).max() ?? 0
+        #expect(
+            deviations.allSatisfy { $0 < Self.deviationBound },
+            "每轮最大偏差：前 10 轮 \(early)，后 10 轮 \(late)"
+        )
+    }
+
     /// 时钟层由 timebase 通知在后台队列上更新，改变播放状态之后等到局部时间与 item 时间一致。
     private func expectLocalTime(
         of layer: CALayer,
@@ -183,5 +214,115 @@ struct DanmakuClockPlaybackTests {
             colorStyle: .solid,
             weight: 1
         )
+    }
+}
+
+/// 真实播放器、弹幕宿主视图与窗口的一套组装；测试结束时调用 `tearDown`。
+@MainActor
+private struct PlaybackFixture {
+    let renderer: CoreAnimationDanmakuRenderer
+    let controller: DanmakuPresentationController
+    let item: AVPlayerItem
+    let player: AVPlayer
+    private let view: DanmakuPlayerView
+    private let window: NSWindow
+    private let directory: URL
+
+    /// 写一段 `mediaSeconds` 秒的带音轨静音媒体，挂进无边框窗口里的播放器宿主并开始观察 item。
+    init(mediaSeconds: Double) throws {
+        directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("danmaku-sync-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let mediaURL = try writeSilentAudio(seconds: mediaSeconds, in: directory)
+        renderer = CoreAnimationDanmakuRenderer(
+            beginTimeAtZero: DanmakuTimebaseClock.beginTimeAtMediaZero
+        )
+        controller = DanmakuPresentationController(backend: renderer)
+        view = DanmakuPlayerView(
+            renderer: renderer,
+            controller: controller,
+            beginMomentaryPlaybackRate: nil,
+            endMomentaryPlaybackRate: nil
+        )
+        window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 360),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = view
+        window.orderFrontRegardless()
+        item = AVPlayerItem(url: mediaURL)
+        player = AVPlayer(playerItem: item)
+        player.automaticallyWaitsToMinimizeStalling = false
+        view.player = player
+        view.startObservingPlayerItemChanges()
+        view.layoutSubtreeIfNeeded()
+    }
+
+    func tearDown() {
+        player.pause()
+        view.danmakuOverlay.detachSurface()
+        view.stopObservingPlayerItemChanges()
+        view.player = nil
+        window.orderOut(nil)
+        try? FileManager.default.removeItem(at: directory)
+    }
+}
+
+/// 在一条后台线程上每 1ms 采样一次弹幕层的局部时间与 timebase 的时间、速率，直到 `stop`。
+///
+/// 采样线程只读 layer 的时间换算与 timebase，不碰主线程状态；样本与轮次由 `state` 这把锁保护。
+private final class TimeSampler: @unchecked Sendable {
+    struct Sample {
+        let round: Int
+        let local: Double
+        let media: Double
+        let rate: Double
+    }
+
+    /// 采样间隔（秒）。
+    private static let interval = 0.001
+
+    // layer 只用于读时间换算，Core Animation 允许在任意线程读；`@unchecked Sendable` 由此成立，其余可变状态
+    // 都在 `state` 里。
+    private let layer: CALayer
+    private let timebase: CMTimebase
+    private let state = Mutex((round: 0, samples: [Sample](), isStopped: false))
+    private let finished = DispatchSemaphore(value: 0)
+
+    init(layer: CALayer, timebase: CMTimebase) {
+        self.layer = layer
+        self.timebase = timebase
+    }
+
+    func start() {
+        Thread { [self] in
+            while true {
+                let local = layer.convertTime(CACurrentMediaTime(), from: nil)
+                let media = CMTimebaseGetTime(timebase).seconds
+                let rate = CMTimebaseGetRate(timebase)
+                let isStopped = state.withLock { state in
+                    state.samples.append(
+                        Sample(round: state.round, local: local, media: media, rate: rate)
+                    )
+                    return state.isStopped
+                }
+                if isStopped { break }
+                Thread.sleep(forTimeInterval: Self.interval)
+            }
+            finished.signal()
+        }.start()
+    }
+
+    func setRound(_ round: Int) {
+        state.withLock { $0.round = round }
+    }
+
+    /// 停止采样并等采样线程退出，返回全部样本。
+    func stop() -> [Sample] {
+        state.withLock { $0.isStopped = true }
+        finished.wait()
+        return state.withLock { $0.samples }
     }
 }

@@ -56,9 +56,47 @@ struct PlayerHostViewIdentityTests {
         #expect(!view.isAccessibilityHidden())
     }
 
+    /// overlay 释放之后，呈现控制器与时钟（看它的时钟层）也随之释放：控制器接管 surface 时持有时钟，时钟的
+    /// 写入回调只弱引用 overlay，不强持有控制器，没有引用环。
+    @Test
+    @MainActor
+    func releasingTheOverlayReleasesTheControllerAndTheClock() async {
+        weak var releasedController: DanmakuPresentationController?
+        weak var releasedClockLayer: CALayer?
+        do {
+            let renderer = CoreAnimationDanmakuRenderer(
+                beginTimeAtZero: DanmakuTimebaseClock.beginTimeAtMediaZero
+            )
+            let controller = DanmakuPresentationController(backend: renderer)
+            let overlay = DanmakuOverlayView(renderer: renderer, controller: controller)
+            overlay.frame = NSRect(x: 0, y: 0, width: 400, height: 200)
+            let window = NSWindow(
+                contentRect: overlay.frame,
+                styleMask: [.borderless],
+                backing: .buffered,
+                defer: false
+            )
+            window.contentView?.addSubview(overlay)
+            overlay.layoutSubtreeIfNeeded()
+            releasedController = controller
+            releasedClockLayer = renderer.rootLayer.superlayer
+            #expect(releasedClockLayer != nil)
+            overlay.removeFromSuperview()
+        }
+
+        #expect(await waitUntil { releasedController == nil && releasedClockLayer == nil })
+    }
+
+    /// 弹幕位置来自时钟层的显示时间，所以先绑定一个停在媒体时间 0 的 item：时钟从未绑定时读不到时间，
+    /// 什么都不挂。
     @Test
     @MainActor
     func danmakuSurfaceSurvivesTemporaryWindowReparenting() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("danmaku-reparent-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let item = AVPlayerItem(url: try writeSilentAudio(seconds: 4, in: directory))
         let renderer = CoreAnimationDanmakuRenderer(
             beginTimeAtZero: DanmakuTimebaseClock.beginTimeAtMediaZero
         )
@@ -83,6 +121,7 @@ struct PlayerHostViewIdentityTests {
 
         firstWindow.contentView?.addSubview(overlay)
         overlay.layoutSubtreeIfNeeded()
+        overlay.bind(to: item)
         #expect(renderer.rootLayer.superlayer != nil)
 
         let identity = PlaybackItemIdentity(bvid: "fixture", cid: 1)
@@ -118,8 +157,9 @@ struct PlayerHostViewIdentityTests {
         #expect(danmakuLayers(of: renderer).count == 0)
     }
 
-    /// 弹幕时钟不会随 `replaceCurrentItem` 自动换绑：宿主在 `currentItem` 变化时先清屏，再换绑到新 item
-    /// 的 timebase，旧 item 的弹幕不会留在新 item 的时间线上，弹幕的局部时间随即等于新 item 的时间。
+    /// 弹幕时钟不会随 `replaceCurrentItem` 自动换绑：宿主在 `currentItem` 变化时、在这次调用之内先清屏，再
+    /// 换绑到新 item 的 timebase，旧 item 的弹幕不会留在新 item 的时间线上；新 timebase 写入之后弹幕的局部
+    /// 时间等于新 item 的时间，按原布局表挂回。
     ///
     /// 两个 item 用同一段带音轨的本地静音媒体：旧 item 先 seek 到 3 秒，新 item 从 0 开始，两者可区分。
     @Test
@@ -173,9 +213,15 @@ struct PlayerHostViewIdentityTests {
         #expect(await waitUntil { danmakuLayers(of: renderer).count == 1 })
 
         player.replaceCurrentItem(with: second)
+        // currentItem 的 KVO 在 replaceCurrentItem 内部同步触发，宿主在同一次调用里清屏并换绑时钟（overlay 先清屏
+        // 再换绑）：返回时屏已清空，不等下一个主线程回合。
+        #expect(danmakuLayers(of: renderer).isEmpty)
+
+        // 新 item 的快照到达、新 timebase 写入之后，按新 item 的时间挂回同一张布局表。
+        controller.apply(pausedSnapshot(identity: identity, position: 0))
         #expect(
             await waitUntil(timeout: .seconds(5)) {
-                danmakuLayers(of: renderer).isEmpty
+                danmakuLayers(of: renderer).count == 1
                     && localTime(of: renderer.rootLayer, matches: second)
             }
         )

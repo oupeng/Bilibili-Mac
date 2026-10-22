@@ -20,9 +20,15 @@ import Foundation
 ///   重新对齐不拆开它；分段到达引起的布局表替换可以被重新对齐取代。暂存期间的普通 reconcile 只立即移除
 ///   按自己的 placement 已不在取景框里的 layer（窗口缩小或时间推进），其余等提交：提交总按最新的表、
 ///   时间与取景框整屏对齐一次，窗口放大时新露出的部分要等到提交。
-/// - 重新对齐：时间跳变（seek、拖动、回跳、换项后的第一个快照）之后使用，只看此刻的状态在前两者之间
+/// - 重新对齐：时间跳变（seek、拖动、回跳、换项后第一次读到新 item 的 D）之后使用，只看此刻的状态在前两者之间
 ///   选，见 `realign()`。新的对齐取代未完成的暂存提交时，新集合仍需要的在途与已就绪纹理都保留，只作废
 ///   不再需要的。
+///
+/// 媒体时间是宿主时钟层的显示时间 D：reconcile 与 backing scale 变化时由呈现控制器传入它在入口读到的值，
+/// 纹理异步完成时自己经 `currentPosition` 重新读此刻的 D，所以迟到纹理是否挂上、暂存提交按哪一刻整屏对齐、
+/// 腾纹理字节时谁已走完，都与画面同一条时间线。异步完成时读不到 D（时钟换绑或解绑之后；正常到不了，换绑、
+/// 解绑与交还 surface 都先 `clear`，在途完成按 generation 丢弃）就不挂上、不提交，不沿用旧时间：结果照常
+/// 记下，暂存的等待集合照常扣减；等齐了却没能提交的暂存由下一次有 D 的 reconcile 提交，普通 reconcile 也算。
 ///
 /// `preparationGeneration` 在 `clear` 与 backing scale 变化时递增；准备请求带上发起时的值，完成时不等、
 /// 或这条弹幕已不在待准备记录里（不再需要或已换成新的请求），结果就被丢弃。
@@ -90,12 +96,19 @@ final class DanmakuMaterializer {
     private var nextPreparationID: UInt64 = 0
     private var backingScale = DanmakuTextureRasterizer.defaultBackingScale
     private var table: [Int: DanmakuSegmentLayout] = [:]
+    /// 最近一次使用的 D：reconcile 传入的，或异步完成时重新读到的。
     private var position = 0.0
+    /// 读此刻的 D，由呈现控制器提供；读不到时为 nil。
+    private let currentPosition: @MainActor () -> Double?
     /// 最近一次 reconcile 的取景框；暂存提交与迟到的纹理都按它判断可见。
     private var viewport = DanmakuViewport(width: 0, height: 0, displayAreaFraction: 0)
 
-    init(backend: any DanmakuRenderingBackend) {
+    init(
+        backend: any DanmakuRenderingBackend,
+        currentPosition: @escaping @MainActor () -> Double?
+    ) {
         self.backend = backend
+        self.currentPosition = currentPosition
     }
 
     /// 是否有等待中的暂存提交。
@@ -141,6 +154,10 @@ final class DanmakuMaterializer {
             beginStagedCommit(keepsWholeScreen ? .wholeScreen : kind)
         case .realign:
             realign()
+        case .incremental where awaitedByCommit?.isEmpty == true:
+            // 暂存已经等齐，只是纹理完成时读不到 D 没能提交：按这次的 D 提交。不提交的话它永远不会再有完成
+            // 回调来推动，之后的普通 reconcile 都只移除、不挂上。
+            commit()
         case .incremental where isCommitPending:
             // 暂存提交未完成时窗口变了或时间按步长推进：取景框外已挂上的弹幕立即移除，否则锚点已按
             // 新窗口移动，缩小时会露出 N 以外车道的弹幕。只移除、不换 placement，提交前屏上仍是旧表；
@@ -166,19 +183,28 @@ final class DanmakuMaterializer {
         unpreparable.removeAll(keepingCapacity: false)
     }
 
-    /// 纹理按 backing scale 栅格化；scale 变化时作废在途与暂存的纹理，有暂存提交时按最近的表与时间重新开始。
+    /// 纹理按 backing scale 栅格化；scale 变化时作废在途与暂存的纹理，有暂存提交时按最近的表、取景框与
+    /// `position`（呈现控制器在入口读到的 D）重新开始。
     ///
-    /// 已在屏的弹幕不移除，之后的 reconcile 为它们按新 scale 准备纹理并原位替换。
-    func setBackingScale(_ scale: Double) {
+    /// 已在屏的弹幕不移除，之后的 reconcile 为它们按新 scale 准备纹理并原位替换。调用方必须先让 backend 换
+    /// scale（它静默取消在途准备、不回调），再调用这里：反过来的话这里重开发出的请求会被那次取消吞掉。
+    /// `position` 为 nil 时（正常到不了，见类型说明）放弃等待中的暂存，不按旧时间重开，下一次有 D 的
+    /// reconcile 按当时的状态重新决定。
+    func setBackingScale(_ scale: Double, at position: Double?) {
         guard scale != backingScale else { return }
         backingScale = scale
         preparationGeneration &+= 1
         backend.cancelPendingPreparations()
         pending.removeAll(keepingCapacity: false)
         parked.removeAll(keepingCapacity: false)
-        if isCommitPending {
-            beginStagedCommit(stagedCommitKind)
+        guard isCommitPending else { return }
+        guard let position else {
+            awaitedByCommit = nil
+            stagedCommitKind = .supersedable
+            return
         }
+        self.position = position
+        beginStagedCommit(stagedCommitKind)
     }
 
     /// 发起 `kind` 类的暂存提交，见 `StagedCommitKind`。
@@ -201,7 +227,8 @@ final class DanmakuMaterializer {
     /// - 缺得多、没有可取代的暂存（单次跳到没缓存的地方）：暂存，旧画面保留到新纹理齐了一次替换。
     ///
     /// 正在等的是整屏暂存（`StagedCommitKind.wholeScreen`）时，不按上面三条选，只在新集合上继续整屏
-    /// 暂存：否则恢复播放时的微小回跳之类也会把一次整屏替换拆成部分挂上、露出新旧表混在一起的画面。
+    /// 暂存：否则显示时间 D 自己的小幅回跳（速率 0 时往回 seek、在宿主时钟层的等待窗口里暂停）也会把
+    /// 一次整屏替换拆成部分挂上、露出新旧表混在一起的画面。
     private func realign() {
         if isCommitPending, stagedCommitKind == .wholeScreen {
             beginStagedCommit(.wholeScreen)
@@ -364,10 +391,11 @@ final class DanmakuMaterializer {
         }
     }
 
-    /// 准备完成：暂存期间先放着，否则此刻仍在取景框里（车道与时间都按当前取景框）就立即挂上。
+    /// 准备完成：暂存期间先放着，否则此刻仍在取景框里（车道按当前取景框、时间按此刻的 D）就立即挂上。
     ///
-    /// 在 `prepare` 内同步回调（缓存命中、立即拒绝）时只记下结果，由发起请求的调用收尾；异步回调时
-    /// 自己推进暂存提交，或在有被拒绝的请求时重新 reconcile 一次补上它们。
+    /// 在 `prepare` 内同步回调（缓存命中、立即拒绝）时只记下结果，由发起请求的调用收尾，时间就是那次
+    /// reconcile 传入的 D；异步回调时先读此刻的 D，再自己推进暂存提交，或在有被拒绝的请求时重新 reconcile
+    /// 一次补上它们。异步回调读不到 D 时只记下结果、扣减暂存的等待集合，不挂上、不提交（见类型说明）。
     private func completePreparation(
         eventID: String,
         preparationID: UInt64,
@@ -382,11 +410,15 @@ final class DanmakuMaterializer {
             return
         }
         pending[eventID] = nil
+        let now = requestDepth > 0 ? position : currentPosition()
+        if let now {
+            position = now
+        }
         switch result {
         case .ready:
             if awaitedByCommit != nil {
                 parked[eventID] = preparation
-            } else if viewport.shows(preparation.placement, at: position) {
+            } else if let now, viewport.shows(preparation.placement, at: now) {
                 installPrepared(preparation.placement, preparationID: preparationID)
             } else {
                 backend.discardPreparation(preparationID: preparationID)
@@ -400,11 +432,12 @@ final class DanmakuMaterializer {
         if var awaited = awaitedByCommit {
             awaited.remove(eventID)
             awaitedByCommit = awaited
-            if awaited.isEmpty {
+            if awaited.isEmpty, now != nil {
                 commit()
             }
             return
         }
+        guard now != nil else { return }
         if hasRetryableRejections {
             hasRetryableRejections = false
             reconcileNow()

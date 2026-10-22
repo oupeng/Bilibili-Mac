@@ -1,6 +1,7 @@
 import AVFoundation
 import AppKit
 import BiliDanmaku
+import os
 
 /// 将 renderer 的 layer 挂到弹幕时钟层下，放进当前 `AVPlayerView` 的 content overlay，并独占其尺寸更新权。
 ///
@@ -14,7 +15,8 @@ import BiliDanmaku
 /// `rootLayer` 挂在它下面。它不会跟随 `replaceCurrentItem` 自动换绑：播放器宿主在 `currentItem` 变化时
 /// 调用 `bind(to:)`，先让呈现控制器清屏，再换绑到新 item 的 timebase，否则旧弹幕会在新 item 的时间线上
 /// 错位。本视图拥有时钟（释放时随之注销观察），并在主线程负责时钟层的 frame；时钟层的时间属性只由时钟
-/// 自己的队列写。
+/// 自己的队列写。接管 surface 时把时钟交给呈现控制器作为显示时间 D(now) 的唯一来源，时钟每次写入后经
+/// `displayClockDidChange(ownerID:)` 提醒控制器按新的 D 检查一次。
 ///
 /// 这是 layer-backed 视图加自定义 layer（先 `wantsLayer` 再设 `layer`），不是 layer-hosting；视图本身
 /// 从不绘制。暂停时增删弹幕 layer 由系统照常合成，不需要主动请求重新合成。
@@ -37,6 +39,11 @@ final class DanmakuOverlayView: NSView {
     private var isSurfaceAttached = false
     /// 是否已登记换屏与屏幕参数通知；进入窗口时登记一次，离开窗口时按名字整体注销，不依赖窗口引用。
     private var isObservingScreenChanges = false
+    /// 进入窗口后还没检查过时钟层的祖先；检查时 layer 链能走到窗口的根 layer 才判定并清掉。
+    ///
+    /// 进入窗口与第一次布局时 AppKit 往往还没把本视图的 layer 接进窗口的 layer 树，那时链上只有本视图自己，
+    /// 查了等于没查；之后的布局与时钟写入回调（都在主线程）再查。
+    private var needsAncestorCheck = false
 
     init(
         renderer: CoreAnimationDanmakuRenderer,
@@ -52,6 +59,13 @@ final class DanmakuOverlayView: NSView {
         clock.layer.actions = ["bounds": NSNull(), "position": NSNull()]
         clock.layer.anchorPoint = .zero
         layer?.addSublayer(clock.layer)
+        // 只弱引用本视图、经它取控制器：控制器接管 surface 后持有时钟，回调若捕获控制器（包括 init 的同名
+        // 参数）就成环，overlay 释放后控制器与时钟都留着。
+        clock.setWriteHandler { [weak self] in
+            guard let self else { return }
+            self.controller.displayClockDidChange(ownerID: self.ownerID)
+            self.checkClockAncestorsIfNeeded()
+        }
     }
 
     @available(*, unavailable)
@@ -69,6 +83,8 @@ final class DanmakuOverlayView: NSView {
         if let window {
             startObservingScreenChanges(of: window)
             attachSurfaceIfNeeded()
+            needsAncestorCheck = true
+            checkClockAncestorsIfNeeded()
         }
     }
 
@@ -76,6 +92,7 @@ final class DanmakuOverlayView: NSView {
         super.layout()
         clock.layer.frame = bounds
         updateSurfaceIfNeeded()
+        checkClockAncestorsIfNeeded()
     }
 
     /// 时钟换绑到 `item` 的 timebase（nil 表示没有 item）；持有 surface 时先让呈现控制器清屏。
@@ -84,6 +101,9 @@ final class DanmakuOverlayView: NSView {
     /// `AVPlayerItem` 创建后 `timebase` 就不是 nil，换 item 之后是另一个对象，所以按 timebase 判断换绑。
     func bind(to item: AVPlayerItem?) {
         let timebase = item?.timebase
+        if item != nil, timebase == nil {
+            DanmakuClockPrecondition.missingTimebase.report()
+        }
         guard boundTimebase !== timebase else { return }
         if isSurfaceAttached {
             controller.playerItemWillChange(ownerID: ownerID)
@@ -177,6 +197,29 @@ final class DanmakuOverlayView: NSView {
         )
     }
 
+    /// 检查时钟层的祖先都没有改时间属性。
+    ///
+    /// 时钟按 `CACurrentMediaTime()` 写时钟层的 `beginTime`，祖先的时间属性恒等时父层的本地时间才等于宿主
+    /// 时间；普通窗口、原生全屏、detached 全屏与画中画下都成立。每次进入窗口（含 AVKit 把画面移到别的窗口）
+    /// 之后检查一次：layer 链还没接到窗口的根 layer 时不判定，留到下一次布局或时钟写入；判定后不成立时只
+    /// 报告，不尝试换算。
+    private func checkClockAncestorsIfNeeded() {
+        guard needsAncestorCheck, let window else { return }
+        let contentView = window.contentView
+        let roots = [contentView?.superview?.layer, contentView?.layer].compactMap { $0 }
+        var chain: [CALayer] = []
+        var ancestor = clock.layer.superlayer
+        while let layer = ancestor {
+            chain.append(layer)
+            ancestor = layer.superlayer
+        }
+        guard chain.contains(where: { layer in roots.contains { $0 === layer } }) else { return }
+        needsAncestorCheck = false
+        if !chain.allSatisfy({ $0.speed == 1 && $0.timeOffset == 0 && $0.beginTime == 0 }) {
+            DanmakuClockPrecondition.ancestorTiming.report()
+        }
+    }
+
     @objc private func screenDidChange(_ notification: Notification) {
         updateSurfaceIfNeeded()
     }
@@ -184,7 +227,7 @@ final class DanmakuOverlayView: NSView {
     private func attachSurfaceIfNeeded() {
         guard !isSurfaceAttached else { return }
         isSurfaceAttached = true
-        controller.attachSurface(ownerID: ownerID)
+        controller.attachSurface(ownerID: ownerID, clock: clock)
         clock.layer.addSublayer(renderer.rootLayer)
         previousSize = nil
         previousScreenSize = nil
@@ -192,3 +235,21 @@ final class DanmakuOverlayView: NSView {
         updateSurfaceIfNeeded()
     }
 }
+
+/// 弹幕时钟依赖、但不能自己保证的平台前提；不成立时弹幕时间与画面错开。
+///
+/// DEBUG 下断言失败；Release 下只记一条固定分类的日志，不含时间、位置或内容身份（docs/SECURITY-MODEL.md §8）。
+private enum DanmakuClockPrecondition: String {
+    case ancestorTiming = "danmaku clock ancestor layer has non-identity timing"
+    case missingTimebase = "player item has no timebase for the danmaku clock"
+
+    private static let log = Logger(subsystem: "com.shiinayane.BiliKit", category: "DanmakuClock")
+
+    func report() {
+        assertionFailure(rawValue)
+        Self.log.error("\(rawValue, privacy: .public)")
+    }
+}
+
+/// 时钟层发布的弹幕时间就是 `BiliDanmaku` 的显示时间；`displayTime()` 的实现与线程规则见 `DanmakuTimebaseClock`。
+extension DanmakuTimebaseClock: DanmakuDisplayClock {}
