@@ -53,10 +53,11 @@ final class DanmakuOverlayView: NSView {
         clock.layer.actions = ["bounds": NSNull(), "position": NSNull()]
         clock.layer.anchorPoint = .zero
         layer?.addSublayer(clock.layer)
-        // 只弱引用本视图、经它取控制器：控制器接管 surface 后持有时钟，回调若直接捕获控制器会成环。
+        // 只弱引用本视图、经它取控制器：控制器接管 surface 后持有时钟，回调若捕获控制器（包括 init 的同名
+        // 参数）就成环，overlay 释放后控制器与时钟都留着。
         clock.setWriteHandler { [weak self] in
             guard let self else { return }
-            controller.displayClockDidChange(ownerID: ownerID)
+            self.controller.displayClockDidChange(ownerID: self.ownerID)
         }
     }
 

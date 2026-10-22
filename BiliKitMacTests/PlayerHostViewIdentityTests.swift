@@ -56,6 +56,37 @@ struct PlayerHostViewIdentityTests {
         #expect(!view.isAccessibilityHidden())
     }
 
+    /// overlay 释放之后，呈现控制器与时钟（看它的时钟层）也随之释放：控制器接管 surface 时持有时钟，时钟的
+    /// 写入回调只弱引用 overlay，不强持有控制器，没有引用环。
+    @Test
+    @MainActor
+    func releasingTheOverlayReleasesTheControllerAndTheClock() async {
+        weak var releasedController: DanmakuPresentationController?
+        weak var releasedClockLayer: CALayer?
+        do {
+            let renderer = CoreAnimationDanmakuRenderer(
+                beginTimeAtZero: DanmakuTimebaseClock.beginTimeAtMediaZero
+            )
+            let controller = DanmakuPresentationController(backend: renderer)
+            let overlay = DanmakuOverlayView(renderer: renderer, controller: controller)
+            overlay.frame = NSRect(x: 0, y: 0, width: 400, height: 200)
+            let window = NSWindow(
+                contentRect: overlay.frame,
+                styleMask: [.borderless],
+                backing: .buffered,
+                defer: false
+            )
+            window.contentView?.addSubview(overlay)
+            overlay.layoutSubtreeIfNeeded()
+            releasedController = controller
+            releasedClockLayer = renderer.rootLayer.superlayer
+            #expect(releasedClockLayer != nil)
+            overlay.removeFromSuperview()
+        }
+
+        #expect(await waitUntil { releasedController == nil && releasedClockLayer == nil })
+    }
+
     /// 弹幕位置来自时钟层的显示时间，所以先绑定一个停在媒体时间 0 的 item：时钟从未绑定时读不到时间，
     /// 什么都不挂。
     @Test
