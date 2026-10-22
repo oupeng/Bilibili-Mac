@@ -156,6 +156,9 @@ struct DanmakuTimebaseClockTests {
 
     /// 换走再换回同一个 timebase（A→B→A），期间 A 在播放中被移到更早的位置：换回是新纪元，不沿用 A 上次的
     /// 下限，立即跟随。
+    ///
+    /// 这是防御性修正的护栏，不是反例：BiliKit 每次换 item 都新建 `AVPlayerItem`，A→B→A 目前不可达；按
+    /// timebase 对象判断的旧写法只在换到 B 的同步还没执行就换回 A 时才会出错，这里能否撞上取决于调度。
     @Test
     func rebindingBackToTheSameTimebaseDoesNotKeepItsFloor() async throws {
         let first = try makeTimebase(time: 100, rate: 1)
@@ -196,7 +199,8 @@ struct DanmakuTimebaseClockTests {
             #expect(
                 zip(samples, samples.dropFirst()).allSatisfy { $0 <= $1 + Self.monotonicSlack }
             )
-            let settled = start + Self.settleOffset
+            // 写入若晚于 start 落地（调度延迟），时钟层是严格跟随、从写入时刻起走，所以在两者较晚的那一刻之后比对。
+            let settled = max(start, clock.layer.beginTime) + Self.settleOffset
             let local = clock.layer.convertTime(settled, from: nil)
             errors.append(abs(local - timebaseTime(timebase, at: settled)))
 
