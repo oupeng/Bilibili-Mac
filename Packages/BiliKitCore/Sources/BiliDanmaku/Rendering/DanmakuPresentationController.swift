@@ -86,7 +86,8 @@ extension DanmakuLaneConfiguration {
 /// 只在推进满 `reconcileStride` 时普通对齐；越出区间（向前跳出或回跳）时重新对齐，暂存与否由
 /// materializer 按缺纹理的情况决定（见 `DanmakuMaterializer.realign()`）。恢复播放与向前的 timebase 重锚
 /// 时 D 还在区间里，什么都不做；起播与卡顿恢复时 timebase 后退一个音频输出延迟，D 随之回跳，触发一次重新
-/// 对齐，纹理都在缓存里，一次调用里完成。弹幕不隐藏也不清屏，屏上的 layer 一直跟随媒体时间。
+/// 对齐：纹理都在缓存里时一次调用里完成，若此时还有分段到达的可取代暂存在等纹理，就会部分提交、其余逐条
+/// 出现。弹幕不隐藏也不清屏，屏上的 layer 一直跟随媒体时间。
 @MainActor
 public final class DanmakuPresentationController: DanmakuPresentationSink {
     /// 播放中两次普通 reconcile 之间至少推进的媒体时长。
@@ -286,10 +287,11 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     /// 宿主的时钟层即将换绑到另一个播放 item：先清屏，再由宿主换绑；只接受当前 owner。
     ///
     /// 时钟层换绑后时间立刻按新 item 走，旧 layer 留着会在新时间线上错位，所以必须先清。布局表保留
-    /// （同一视频换线路或清晰度时仍然有效）。最近快照与上次对齐位置一并清掉：旧 item 的位置在新时间线上
-    /// 没有意义，留着的话新 item 第一个快照之前的 resize 或布局表替换会按它对齐，新位置又可能落在它的
-    /// 覆盖区间里，清空的屏就不再挂上。宿主随后换绑时钟，新 timebase 第一次写入之前读不到 D；新 item 的快照
-    /// 与新纪元的 D 都有了之后（哪个后到由哪个触发检查）按 D 重新对齐，纹理多半还在缓存里，一次整屏挂上。
+    /// （同一视频换线路或清晰度时仍然有效）。上次对齐位置清掉，新 item 有 D 之后的第一次检查一定重新对齐。
+    /// 最近快照也清掉，等新 item 自己的快照来确认 identity：换的若是另一个视频，旧快照的 identity 仍是旧视频，
+    /// 留着的话新 item 的 D 一到就会把旧视频的布局表按新视频的时刻挂上，要等新视频的快照到达、换 identity
+    /// 时才清掉。宿主随后换绑时钟，新 timebase 第一次写入之前读不到 D；新 item 的快照与新纪元的 D 都有了之后
+    /// （哪个后到由哪个触发检查）按 D 重新对齐，纹理多半还在缓存里，一次整屏挂上。
     public func playerItemWillChange(ownerID: UUID) {
         guard surfaceOwnerID == ownerID else { return }
         materializer.clear()
