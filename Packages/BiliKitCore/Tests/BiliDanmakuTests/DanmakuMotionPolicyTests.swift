@@ -15,14 +15,14 @@ struct DanmakuMotionPolicyTests {
         ] as [(Double, Double)]
     )
     func fasterSpeedLevelsMoveLongAndShortTextFaster(
-        surfaceWidth: Double,
+        planningWidth: Double,
         textWidth: Double
     ) {
         let durations = DanmakuSpeedLevel.allCases.map {
             DanmakuMotionPolicy.duration(
                 for: .scrolling,
                 textWidth: textWidth,
-                surfaceWidth: surfaceWidth,
+                planningWidth: planningWidth,
                 speedLevel: $0
             )
         }
@@ -36,7 +36,7 @@ struct DanmakuMotionPolicyTests {
             DanmakuMotionPolicy.duration(
                 for: .scrolling,
                 textWidth: 1,
-                surfaceWidth: 1,
+                planningWidth: 1,
                 speedLevel: .five
             ) == 1.5
         )
@@ -44,7 +44,7 @@ struct DanmakuMotionPolicyTests {
             DanmakuMotionPolicy.duration(
                 for: .scrolling,
                 textWidth: 4_000,
-                surfaceWidth: 10_000,
+                planningWidth: 10_000,
                 speedLevel: .one
             ) == 60
         )
@@ -52,7 +52,7 @@ struct DanmakuMotionPolicyTests {
             DanmakuMotionPolicy.duration(
                 for: .top,
                 textWidth: 123,
-                surfaceWidth: 1_100,
+                planningWidth: 1_100,
                 speedLevel: .five
             ) == 4
         )
@@ -76,7 +76,7 @@ struct DanmakuMotionPolicyTests {
         let clamped = DanmakuMotionPolicy.duration(
             for: .scrolling,
             textWidth: 1,
-            surfaceWidth: 1,
+            planningWidth: 1,
             speedLevel: .five
         )
         #expect(
