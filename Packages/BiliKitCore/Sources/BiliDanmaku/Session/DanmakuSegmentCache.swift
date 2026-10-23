@@ -31,20 +31,20 @@ struct DanmakuSegmentCache: Sendable {
     /// 最近一个快照的位置与时长，拖动中随每一步更新。
     ///
     /// 淘汰时保护这个位置需要的分段。
-    private var positionSeconds: Double?
+    private var snapshotPosition: Double?
     private var durationSeconds: Double?
 
     mutating func begin(for identity: PlaybackItemIdentity) {
         self.identity = identity
         segments.removeAll(keepingCapacity: false)
-        positionSeconds = nil
+        snapshotPosition = nil
         durationSeconds = nil
     }
 
     mutating func reset() {
         identity = nil
         segments.removeAll(keepingCapacity: false)
-        positionSeconds = nil
+        snapshotPosition = nil
         durationSeconds = nil
     }
 
@@ -55,7 +55,7 @@ struct DanmakuSegmentCache: Sendable {
     /// 记下当前 identity 的快照位置；拖动中也要更新，否则拖到远处时落点分段一到就被淘汰。
     mutating func observe(_ snapshot: PlaybackTimelineSnapshot) {
         guard snapshot.identity == identity else { return }
-        positionSeconds = snapshot.positionSeconds
+        snapshotPosition = snapshot.positionSeconds
         durationSeconds = snapshot.durationSeconds
     }
 
@@ -110,14 +110,16 @@ struct DanmakuSegmentCache: Sendable {
     /// 受保护的分段；距离相同时先淘汰分段号大的。
     private mutating func trim(displayTime: Double?) {
         guard segments.count > Self.maximumCachedSegments else { return }
-        let observed = positionSeconds ?? 0
-        var protected = Set(Self.desiredSegmentIndices(at: observed, duration: durationSeconds))
+        let snapshotPosition = self.snapshotPosition ?? 0
+        var protected = Set(
+            Self.desiredSegmentIndices(at: snapshotPosition, duration: durationSeconds)
+        )
         if let displayTime {
             protected.formUnion(
                 Self.desiredSegmentIndices(at: displayTime, duration: durationSeconds)
             )
         }
-        let centre = Self.segmentIndex(at: displayTime ?? observed)
+        let centre = Self.segmentIndex(at: displayTime ?? snapshotPosition)
         let evictable = segments.keys
             .filter { !protected.contains($0) }
             .sorted {
