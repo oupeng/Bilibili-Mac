@@ -228,8 +228,8 @@ D(now) 决定，时间线快照只用来确认 identity、作检查节拍与决�
     - 在等待窗口里暂停时 D 会后退（有线约 5pt，蓝牙最多约 31pt）：暂停按速率 0 严格跟随。
     - 队列的提交会把主线程在时钟层上设了但还没提交的 frame 与子层增删提前带上屏。时钟层不裁剪、不绘制，
       frame 提前没有可见影响；子层只在接管与交还 surface 时增删，那时屏上本来就为空。
-  - 播放器宿主关闭 AVKit 的画面分析（`allowsVideoFrameAnalysis`），减少暂停时的主线程阻塞：它在
-    `pause()` 内的 rate KVO 回调里于主线程读取 `currentTime`，多挡约 20ms。
+  - 播放器宿主保留 AVKit 的画面分析（`allowsVideoFrameAnalysis`，实况文本）。它在 `pause()` 内的 rate KVO
+    回调里于主线程读取 `currentTime`，暂停时主线程多挡约 20ms；时钟层不经过主线程，弹幕暂停时不因此回退。
 
 ### 弹幕
 
