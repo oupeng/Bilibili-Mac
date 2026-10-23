@@ -6,8 +6,7 @@ import Testing
 @testable import BiliDanmaku
 
 /// 固定布局表 owner 的契约：设置变化后在后台整张重排、一次替换；过期设置的结果被丢弃；晚到的上一段
-/// 排进来后，表与从头连续排一致；每次替换说明原因：设置引起的整张重排是 relayout，分段到达（含第一次
-/// 布局）是 segmentsAdded。
+/// 排进来后，表与从头连续排一致。
 @Suite(.timeLimit(.minutes(1)))
 @MainActor
 struct DanmakuLayoutCoordinatorTests {
@@ -95,22 +94,6 @@ struct DanmakuLayoutCoordinatorTests {
         #expect(late.layouts[2]?.placements == continuous.layouts[2]?.placements)
     }
 
-    @Test
-    func tableChangesNameTheirCause() async throws {
-        let coordinator = DanmakuLayoutCoordinator()
-        let changes = TableChangeRecorder(coordinator)
-        let first = denseEvents(segment: 1, count: 120, seed: 7)
-        coordinator.setParameters(parameters(width: 800))
-        coordinator.setSegments([1: first])
-        try await changes.wait(until: 1)
-        coordinator.setSegments([1: first, 2: denseEvents(segment: 2, count: 120, seed: 8)])
-        try await changes.wait(until: 2)
-        coordinator.setParameters(parameters(width: 1_200))
-        try await changes.wait(until: 3)
-
-        #expect(changes.causes == [.segmentsAdded, .segmentsAdded, .relayout])
-    }
-
     private func parameters(width: Double) -> DanmakuLayoutParameters {
         DanmakuLayoutParameters(
             configuration: configuration(surfaceWidth: width),
@@ -121,17 +104,15 @@ struct DanmakuLayoutCoordinatorTests {
     }
 }
 
-/// 记录布局表的每次替换、原因及当时的设置，可等替换次数达到某个值。
+/// 记录布局表的每次替换及当时的设置，可等替换次数达到某个值。
 @MainActor
 final class TableChangeRecorder {
     private(set) var parameters: [DanmakuLayoutParameters?] = []
-    private(set) var causes: [DanmakuLayoutTableChange] = []
     private let counter = TestEventCounter()
 
     init(_ coordinator: DanmakuLayoutCoordinator) {
-        coordinator.tableDidChange = { [weak self, weak coordinator] change in
+        coordinator.tableDidChange = { [weak self, weak coordinator] in
             self?.parameters.append(coordinator?.layoutParameters)
-            self?.causes.append(change)
             Task { await self?.counter.signal() }
         }
     }

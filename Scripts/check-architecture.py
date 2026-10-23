@@ -153,7 +153,7 @@ EXTRA_ALLOWED = {
     "BiliKitMac/Platform/AppUpdater.swift": {"Sparkle"},
     # 弹幕 overlay 按播放 item 换绑时钟，并把 renderer 的 layer 挂在时钟层下；时钟层由 item timebase 的
     # 通知在后台队列上驱动，弹幕动画随它运行。
-    "BiliKitMac/Platform/DanmakuOverlayHostView.swift": {"AVFoundation", "BiliDanmaku"},
+    "BiliKitMac/Platform/DanmakuOverlayView.swift": {"AVFoundation", "BiliDanmaku"},
     "BiliKitMac/Platform/DanmakuTimebaseClock.swift": {"CoreMedia", "QuartzCore"},
     "BiliKitMac/Platform/NativeVideoImageLoadingPorts.swift": {"BiliVideoCollectionUI"},
     "BiliKitMac/Platform/NativeVideoImagePipeline.swift": {"BiliNetworking"},
@@ -188,9 +188,13 @@ SUBTREE_DENIED = {
         {"AppKit", "QuartzCore", "CoreText", "Accelerate"},
         "弹幕会话是纯逻辑，渲染框架只在 Rendering/",
     ),
-    f"{SOURCES}/BiliDanmaku/Scheduling": (
+    f"{SOURCES}/BiliDanmaku/Layout": (
         {"AppKit", "QuartzCore", "CoreText", "Accelerate"},
-        "弹幕调度是纯逻辑，渲染框架只在 Rendering/",
+        "车道布局是纯逻辑，渲染框架只在 Rendering/",
+    ),
+    f"{SOURCES}/BiliDanmaku/Presentation": (
+        {"AppKit", "QuartzCore", "CoreText", "Accelerate"},
+        "呈现与对齐是纯逻辑，渲染框架只在 Rendering/",
     ),
 }
 

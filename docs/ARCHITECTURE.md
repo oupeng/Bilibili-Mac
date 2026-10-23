@@ -48,7 +48,7 @@ BiliNetworking 不依赖任何 Bili 模块
 | `BiliAPI` | endpoint DTO、WBI、解码、protobuf wire、远端错误映射，并实现 Application 仓库 port | `BiliAuth`（只接受注入的授权器） |
 | `BiliAuth` | Web QR 状态机、Cookie envelope、Keychain store、请求授权器，实现 `AuthenticationServicing` | `BiliAPI`、`BiliPlayback`、`BiliDanmaku`、Feature、UI 框架 |
 | `BiliPlayback` | DASH→HLS bridge、loopback server、SIDX、`AVPlayerEngine`、线路偏好与测速、响度 tap | `BiliAPI`、`BiliAuth` |
-| `BiliDanmaku` | 弹幕会话与分段缓存、确定性车道布局、按媒体时间的 materializer、Core Animation renderer | `BiliAPI`、`BiliAuth`、`BiliNetworking`、`BiliPlayback`、Feature、SwiftUI |
+| `BiliDanmaku` | 弹幕会话与分段缓存、确定性车道布局、按媒体时间的 materializer、Core Animation renderer。按目录分工：`Session/` 是会话与分段缓存，`Layout/` 是过滤、车道布局、车道配置与运动策略，`Presentation/` 是呈现控制、materializer、取景框与 renderer port，`Rendering/` 是 Core Animation renderer 与纹理准备；前三个目录是纯逻辑，渲染框架只在 `Rendering/`（由 `Scripts/check-architecture.py` 检查） | `BiliAPI`、`BiliAuth`、`BiliNetworking`、`BiliPlayback`、Feature、SwiftUI |
 | `Bili*Feature` | SwiftUI View 与 `@MainActor` ViewModel；Browse（Feed/Search，含推荐、热门、搜索的原生网格、热搜图标的取图 port `TrendingSearchIconLoading`、搜索会话 `VideoSearchSession`（草稿、排序与筛选、提交，以及来源到工作集的激活 `BrowseActivation`））、Library（观看历史、稍后再看与收藏夹：三者共用登录门槛、工具栏控件与刷新的外壳 `LibrarySourceShell`、账户复核进度 `LibraryAccountRevalidation` 与不可用原因的文字 `LibraryUnavailabilityFormatting`；观看历史与稍后再看共用资料库列表 ViewModel `LibraryVideoListModel` 与原生网格，各来源只给出读取、翻页策略、文案与卡片映射；稍后再看与收藏夹的不可用条目映射为不可用卡片；稍后再看的排序、筛选与关键词在每个窗口一份的会话 `WatchLaterSession`；收藏夹按页整体替换，不走 `PagedVideoList`：侧栏的收藏夹列表 `FavoriteFolderListModel` 与夹内页面 `FavoriteFolderViewModel`（选中的收藏夹、排序与关键词），以及侧栏分段视图 `FavoriteFolderSidebarSection`）、Auth（扫码登录、登出与账户投影的来源），播放页见下一行。共享的 AppKit 卡片与网格经 `BiliVideoCollectionUI` 渲染 | adapter target、其他 Feature、直接 import AppKit/AVKit/AVFoundation（播放页的例外见下一行） |
 | `BiliVideoDetailFeature` | 播放页（VideoDetail）与侧栏上下文层 UP 主空间（UploaderSpace）：视频与分 P 意图、续播与链接起播、相关推荐与 UP 主名片（`VideoViewModel`；导航给出的 `PlaybackSelectionIntent` 怎样落到当前视频——就地换分 P、链接 `t=` 原地跳转或重新加载——以及失败后由模型重试还是交回导航，也只在这里），合集选集的分 P（`CollectionEpisodePagesController`），评论（`PlaybackCommentsViewModel`），弹幕设置，空间投稿列表（`UploaderSpaceViewModel`），以及主区布局、骨架、相关推荐横排与选集、评论、投稿行的呈现投影；播放页失败（`VideoLoadFailure`）的标题、说明与是否可重试只在这里。这些页面的 AppKit 视图也在这里：播放侧栏（`NativePlaybackSidebarView`，含评论原生 item）、评论图片预览与保存（`NativeCommentImagePreviewView`、`NativeCommentImageSaver`、动图播放）、相关推荐横排（`RelatedNativeShelfView`）与空间列表（`UploaderSpaceSidebarView`）。取图 port `VideoDetailImageLoading`（头像、封面、表情、评论图片与预览；结果含图、可选的动图数据 `NativeAnimatedImage` 与是否淡入，评论图片另可取原图数据；相关推荐横排是共享卡片，仍走卡片 port `NativeVideoImageLoading`，不为本 Feature 的其他用途放宽它），App 构造的评论资源地址闭包`CommentAssetURLResolver`，以及 App 键盘控制器检查的 `PlayerKeyboardFocusOwner`。拥有自己的字符串目录；App 用到的类型为 `public`，有 library product | 同其他 Feature，但可直接 import AppKit、CoreText（评论正文排版）与 ImageIO（动图逐帧解码）；横排卡片与集合视图支撑经 `BiliVideoCollectionUI`；不依赖 AVKit/AVFoundation、网络与 adapter；下载、来源与响应校验、首帧解码、动图播放门槛和缓存只在 App 管线，本 target 只对管线按门槛放行的 `NativeAnimatedImage` 数据逐帧解码播放 |
 | `BiliUI` | Feature 共享的 SwiftUI 呈现层：卡片几何、网格、骨架、加载过渡、刷新与分页状态胶囊、按页整体替换的列表底部悬浮的页码条（`PageNumberPager`，几何与列表为它留出的高度在 `PageNumberPagerGeometry`）、整页失败视图，只按账户读取的来源共用的登录门槛（`AccountGateView`，形态映射为 `AccountGatePhase`），`ContentApplicationError` 的失败文案（`ContentFailureText`），计数、时长与日期格式化，视频卡片的 B 站图片缩略地址；拥有自己的字符串目录。默认 `package` 访问级别，App 直接使用的卡片几何、时长格式化、播放器加载转圈、单行失败说明（`ContentFailureText.message`）、头像图片的像素边长（`BiliAvatarImageSize`：卡片、评论与侧栏账号头像的请求框、图片管线的头像解码上限都取它）与头像缩略地址（`BiliImageThumbnail` 的头像尺寸，侧栏账号头像请求前经它改写）为 `public`；AppKit target `BiliVideoCollectionUI` 也经 `package` 接口取用它的文案（卡片选中与不可播放的读屏值 `VideoCardAccessibilityText`）。无 library product | 除 Foundation、SwiftUI、BiliApplication 外的任何模块（含 BiliModels、AppKit 与其他 Feature） |
@@ -162,8 +162,8 @@ D(now) 决定，时间线快照只用来确认 identity、作检查节拍与决�
 - 时间轴与交互记录器在 item 开始时得知起播位置：就绪时据此标记一次 discontinuity；落在起播位置的系统
   time-jump 不算用户操作，否则会拒绝自动开播。
 - `discontinuityGeneration` 由 engine 的 seek 收尾与 `AVPlayerItem` 的 time-jump 通知推进，Now Playing
-  用它决定何时重新发布已播时长；原生拖动的每一步都会推进它。观看进度与弹幕不读它：弹幕只按 D 是否越出
-  上次对齐的覆盖区间决定何时对齐（见「弹幕」）。一次 seek 的落点记录在播放位置仍在落点附近时吞掉
+  用它决定何时重新发布已播时长；原生拖动的每一步都会推进它。观看进度与弹幕不读它：弹幕只按 D 是否离开
+  上次对齐后的一个步长决定何时对齐（见「弹幕」）。一次 seek 的落点记录在播放位置仍在落点附近时吞掉
   落在它附近的重复跳变（例如暂停中 seek 后开播时系统再报一次），播放离开落点、新 seek、外部跳变、换项或
   clear 之后不再吞；这样同一次 seek 只推进一次，Now Playing 依赖它。每次从暂停恢复播放，系统都会报一次
   原地的时间跳变（刚在原处 seek 过、落点还在吞的除外），它推进一次不连续代号。周期回调的位置照常写入。
@@ -194,7 +194,7 @@ D(now) 决定，时间线快照只用来确认 identity、作检查节拍与决�
     新 timebase 第一次写入之前读不到。解绑只把时钟层停住、不发布：没有 item 就没有 D，否则解绑后紧接着换
     视频时，新视频的弹幕会按旧视频停住的时刻挂上、冻结在黑屏上。发布之后经一个合并标志向主线程投递一次写入
     通知（主线程先清标志再读发布值，同一时间最多排一个，不丢唤醒），宿主据此让呈现控制器按新的 D 检查一次：
-    暂停中 seek 没有后续快照，靠它重新对齐。
+    暂停中 seek 没有后续快照，靠它对齐。
   - 绑定：`bind` 注销旧 timebase 的观察并登记新的，再主动同步一次（状态不变时没有通知）；解绑时时钟层
     停在当前本地时间、速率 0。宿主在 `currentItem` 变化时先让呈现控制器清屏再换绑，两步在
     `replaceCurrentItem` 之内同步完成：调用方只在主线程，`currentItem` 的 KVO 在调用内部同步触发，回调确认在
@@ -254,17 +254,16 @@ D(now) 决定，时间线快照只用来确认 identity、作检查节拍与决�
     时，结果才与从头连续排一致，否则差异只出现在分段开头、两份占用收敛之前（实测多在一两条弹幕的最长时长
     之内）；缓存不为此扩大。上一段晚到时以它为种子重排本段（屏上少数弹幕可能换一次车道），末尾占用变了
     才继续重排下一段。设置（类型显隐、速度、显示区域、密度、规划尺寸、backing scale）变化时后台整张
-    重排，generation 丢弃过期结果，完成后在一次整屏暂存里瞬时替换整屏。coordinator 每次换表都给出原因
-    （`DanmakuLayoutTableChange`）：设置引起的整张重排且旧表有布局时是 `relayout`，其余（新分段、晚到的
-    上一段、表原本为空时的第一次布局）是 `segmentsAdded`。画面尚未布局（尺寸为 0）时不布局。
+    重排，generation 丢弃过期结果，完成后一次替换布局表。画面尚未布局（尺寸为 0）时不布局。
   - materializer（`DanmakuMaterializer`）：时刻 t 在屏的 layer 是布局表里已进场、还在取景框里，或 2 秒内要
     进场、且车道落在取景框里的弹幕；纹理提前准备，以将来的开始时间挂上，迟到的纹理挂上后直接出现在中途
-    应在的位置。播放中时间每推进 1 秒普通对齐一次；布局表替换、打开弹幕、接管 surface 时暂存提交：缺的
-    纹理全部有结果后，在一次调用里按此刻完成整屏的移除、换车道与挂上，挂上按 (时间, ID) 顺序。暂存分两类
-    （`StagedCommitKind`）：设置、规划尺寸或 backing scale 引起的重排、打开弹幕、接管 surface 是整屏暂存；
-    分段到达引起的换表与重新对齐自己发起的暂存可被之后的重新对齐取代。时间越出
-    上次对齐的覆盖区间时重新对齐，暂存与否见下文 seek 一条。窗口换到 backing scale 不同的屏幕时，已在屏
-    的弹幕也当作缺纹理重新准备，提交时原位换纹理，不先移除。
+    应在的位置。时间推进、跳变、布局表替换（整张重排与分段到达）、打开弹幕与接管 surface 都是同一种对齐：
+    缺纹理的弹幕各自就绪、此刻仍应在屏就立即挂上，不为等别的弹幕扣住；缓存命中的纹理在发起请求的调用里
+    同步就绪，同一次调用挂上。纹理与车道无关，布局表替换时在屏的弹幕在同一次调用里原位换车道，屏上的
+    placement 总出自当前布局表，任何时刻不新旧混排；新表里新出现、没命中缓存的弹幕逐条出现。纹理按旧
+    backing scale 栅格化的弹幕也立即换到新 placement（旧纹理按新尺寸拉伸）。窗口换到 backing scale 不同的
+    屏幕时，已在屏的弹幕也当作缺纹理重新准备，就绪一条原位换一条，不先移除；新纹理被纹理字节上限拒绝的
+    那几条一直用旧纹理到离场。纹理字节吃紧时哪几条缺席取决于纹理完成的先后。
   - 渲染：`rootLayer` 挂在播放器宿主（`DanmakuOverlayView`）的时钟层下（见「媒体时间轴」），子树的局部
     时间就是播放 item 的时间。动画 `beginTime` 是弹幕的时间点（0 写成时钟层定义的正数哨兵，由 App 注入：
     Core Animation 把 0 当作「现在」），`removedOnCompletion` 为 false；fillMode 保持默认，
@@ -283,10 +282,9 @@ D(now) 决定，时间线快照只用来确认 identity、作检查节拍与决�
     t_i ≤ t < t_i + 时长 × (窗口宽 + w) / (规划宽 + w)，即右缘（尾缘）还没越过窗口左边界。
   - renderer 把弹幕挂在三个零尺寸锚点层下：滚动弹幕锚在右边缘，从 x = +w/2 走到 −(规划宽 + w/2)；顶部
     弹幕锚在顶边中点，底部弹幕锚在底边中点、在其上方。窗口 resize 时不重排、不去抖、不整屏替换、字号不变：
-    锚点用 `actions` 关掉隐式动画后移动，弹幕动画一条不改，随后按新取景框普通对齐——放大时补上新露出的、
+    锚点用 `actions` 关掉隐式动画后移动，弹幕动画一条不改，随后按新取景框对齐——放大时补上新露出的、
     正在飞的弹幕，缩小时移除被裁掉的。锚点移动与纹理已就绪的增删落在同一次隐式提交里；缺纹理的弹幕就绪后
-    再出现。暂存提交（布局表替换、seek 等）还在等纹理时 resize：取景框外已挂上的弹幕立即移除，新露出的
-    部分等提交按最新取景框挂上，这期间那块区域是空的。
+    再出现。
   - 成立前提，改策略时不要不知不觉弄坏：
     1. `DanmakuMotionPolicy` 是恒定速度（基准 130pt/s × 档位 × 长度加成），与画面宽度无关，时长 =
        (画布宽 + w) / v，所以滚动弹幕相对右边缘的轨迹与窗口宽度无关。时长上限 60 秒只在最慢档、短文字、
@@ -299,39 +297,27 @@ D(now) 决定，时间线快照只用来确认 identity、作检查节拍与决�
   - 已知妥协：追尾检查按规划宽度算，窄窗口里偏保守；最高密度档先用满隐藏车道再叠放，所以小窗口里叠放
     变少、同屏比按小窗口排的更稀；换到更大的屏幕时整张重排一次；窗口跨屏大于屏幕时，拖动中每次变大都是
     规划尺寸变化，逐次重排。暂态：窗口比旧规划尺寸大（换到更大的屏幕、跨屏拖大）时，新表排好之前滚动弹幕
-    在 x = 窗口宽 − 旧规划宽处提前消失，新表排好后整屏替换。
+    在 x = 窗口宽 − 旧规划宽处提前消失，新表排好后原位换车道。
 - seek 不隐藏也不清屏，屏上的 layer 一直跟随媒体时间：拖到远处时它们都落在动画区间之外，画面自然为空。
-  这里的「位置」一律是时钟层的显示时间 D(now)，每个入口只读一次、作为参数传下去：在屏集合、对齐位置、覆盖
-  区间、迟到纹理是否挂上、暂存提交的整屏对齐与腾纹理字节都按它算。快照与 D 分开（seek 起播时领先、卡顿时
+  这里的「位置」一律是时钟层的显示时间 D(now)，每个入口只读一次、作为参数传下去：在屏集合、对齐位置、步长、
+  迟到纹理是否挂上与腾纹理字节都按它算。快照与 D 分开（seek 起播时领先、卡顿时
   速率仍为 1、未缓冲拖动时领先几十秒、4x 跳变风暴时回跳）时不影响在屏集合；快照与时钟写入通知都只触发
   一次检查。读不到 D（时钟从未绑定、换绑后新 timebase 还没写入、没有接管 surface 的时钟）时什么都不做。
   主线程按 D 删掉「已走完」的弹幕要晚一到几帧才上屏，这期间时钟若被往回改写（速率 0 时往回 seek、换绑），
-  这些弹幕会提前缺席，直到唤醒触发的重新对齐补回来；已挂上的 layer 只在自己的动画区间里可见，所以不会
+  这些弹幕会提前缺席，直到唤醒触发的下一次对齐补回来；已挂上的 layer 只在自己的动画区间里可见，所以不会
   错位或多余。
-  何时对齐只看位置，不识别 seek 或拖动：上次对齐挂上了进场时间不晚于「对齐位置 + 2 秒」的弹幕，位置落在
-  [对齐位置, 对齐位置 + 1.5 秒) 里时屏上已是此刻应有的集合，只在推进满 1 秒时普通对齐；越出这个区间
-  （向前跳出或回跳）时重新对齐。恢复播放、向前的 timebase 重锚与缓冲恢复时 D 仍在区间里，什么都不做（起播
-  与卡顿恢复时 timebase 的后退由时钟层原地等待吸收，D 不回跳）。有未完成
-  的暂存提交时，区间内的步长对齐只移除取景框外的 layer，其余等它提交；提交总按最新的位置整屏对齐一次。
-  区间 = 前瞻 − 0.5 秒准备余量；快照经只保留最新值的 AsyncStream 送达，主线程忙时会被合并，合并后的
-  落点越过区间时按重新对齐处理，越过前瞻且弹幕密集时会整屏暂存一次。
-- 重新对齐先发起缺的纹理准备（缓存命中当场就绪），再只按此刻的状态选择上屏方式。正在等的是整屏暂存
-  （设置或屏幕引起的重排、打开弹幕、接管 surface）时，重新对齐不拆开它，只在新集合上继续整屏暂存：这些
-  替换会让屏上弹幕换车道，拆开就是新旧表混排，连 D 极小的回跳（速率 0 时往回 seek、在时钟层的等待窗口里
-  暂停）也不例外。分段到达引起的换表不受这层保护：它
-  替换的主要是原本空着的区域，拆开也不会新旧混排；若也受保护，拖进未缓存区域时分段陆续到达、每段都发起
-  一次不可拆的暂存，而拖动中要等的集合一直在换，画面会一直停着。其余情况：
-  - 已进场而缺纹理的不超过 8 条：当场移除、替换并挂上已就绪的，缺的各自就绪后出现。跳到纹理已缓存的地方
-    因此仍是一次调用里的整屏替换。
-  - 缺得更多、且没有未完成的暂存（单次跳到没缓存的地方）：暂存，旧画面保留到新纹理齐了一次替换。
-  - 缺得更多、且取代了还没完成的可取代暂存（上一步重新对齐或分段到达发起的）：已就绪的当场挂上、不再应在
-    的当场移除，其余仍暂存、齐了一次挂上。原生拖动中越出区间的每一步（回拖、一步超过 1.5 秒）都取代上一步
-    的暂存，拖进未缓存区域时陆续到达的分段也一样，所以画面随已就绪的纹理持续跟随，停下后剩下的在一次提交
-    里补齐；向前慢拖、每步不足 1.5 秒时按步长对齐（有未完成的暂存时等它提交）。
-  新的对齐只作废新集合不再需要的在途与已就绪准备（排队中的栅格化随之取消，不拖慢下一步），仍需要的保留。
-  落点分段未到时对齐为空，分段到达后整屏挂上。清屏只在换 item、换视频、关闭弹幕与交接 surface 时出现；
-  换 item 后新 item 的快照与新纪元的 D 都有了才重新对齐（哪个后到由哪个触发），关闭弹幕保留布局表，打开时
-  按当前时刻整屏挂上。
+  何时对齐只看位置，不识别 seek 或拖动：位置落在 [对齐位置, 对齐位置 + 1 秒) 里时屏上已是此刻应有的集合，
+  什么都不做；落在这之外（按步长推进、向前跳出或回跳）都是同一次对齐。恢复播放、向前的 timebase 重锚与
+  缓冲恢复时 D 仍在步长里，什么都不做（起播与卡顿恢复时 timebase 的后退由时钟层原地等待吸收，D 不回跳）。
+  步长与 2 秒前瞻之间没有分类阈值，只有一条不等式：步长加相邻两次检查的间隔必须短于前瞻，余下的时间留给
+  即将进场的弹幕栅格化。快照经只保留最新值的 AsyncStream 送达，主线程忙时会被合并，卡顿越过「前瞻 − 步长」
+  时，卡顿期间进场的弹幕到下一次对齐才请求纹理，之后逐条出现。
+- 跳变与拖动：跳变之后旧 layer 在新时刻都落在自己的动画区间外，「保留旧画面」就是空屏，扣住新纹理只会让
+  画面空得更久。跳到纹理已缓存的地方是一次调用里的整屏替换（纹理缓存装不下的部分按未命中算），没命中的
+  逐条出现。原生拖动的每一步都是一次对齐，已就绪的立即挂上；新的对齐只作废新集合不再需要的在途与已就绪
+  准备（排队中的栅格化随之取消，不拖慢下一步），仍需要的保留。落点分段未到时对齐为空，分段到达后挂上。
+  清屏只在换 item、换视频、关闭弹幕与交接 surface 时出现；换 item 后新 item 的快照与新纪元的 D 都有了才对齐
+  （哪个后到由哪个触发），关闭弹幕保留布局表，打开时按当前时刻挂上。
 - 分段缓存（`DanmakuSegmentCache`）按最近快照的位置 h 请求分段：位置在分段开头 60 秒（滚动弹幕的最长时长）
   内时一并请求上一段，未到结尾时请求下一段。暂停、缓冲时没有新快照，一个分段加载完腾出名额后，会话按时间线
   当前的快照继续请求（先让缓存观察它）。超过三段时淘汰：h 与此刻的显示时间 D 两边各自需要的分段（同一个
