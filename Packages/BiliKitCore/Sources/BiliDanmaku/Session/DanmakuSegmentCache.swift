@@ -61,16 +61,16 @@ struct DanmakuSegmentCache: Sendable {
 
     /// 缓存一个分段，超出上限时按类型说明淘汰；identity 不符或分段号无效时返回 false。
     ///
-    /// `displayPosition` 是呈现端此刻的显示时间 D，读不到时为 nil。
+    /// `displayTime` 是呈现端此刻的显示时间 D，读不到时为 nil。
     @discardableResult
     mutating func store(
         _ segment: DanmakuSegment,
         for identity: PlaybackItemIdentity,
-        displayPosition: Double?
+        displayTime: Double?
     ) -> Bool {
         guard self.identity == identity, segment.index > 0 else { return false }
         segments[segment.index] = segment.events
-        trim(displayPosition: displayPosition)
+        trim(displayTime: displayTime)
         return true
     }
 
@@ -108,16 +108,16 @@ struct DanmakuSegmentCache: Sendable {
 
     /// 超出上限时，从不受保护的分段里按离中心（D，读不到时为快照位置）由远到近淘汰，直到不超出上限或只剩
     /// 受保护的分段；距离相同时先淘汰分段号大的。
-    private mutating func trim(displayPosition: Double?) {
+    private mutating func trim(displayTime: Double?) {
         guard segments.count > Self.maximumCachedSegments else { return }
         let observed = positionSeconds ?? 0
         var protected = Set(Self.desiredSegmentIndices(at: observed, duration: durationSeconds))
-        if let displayPosition {
+        if let displayTime {
             protected.formUnion(
-                Self.desiredSegmentIndices(at: displayPosition, duration: durationSeconds)
+                Self.desiredSegmentIndices(at: displayTime, duration: durationSeconds)
             )
         }
-        let centre = Self.segmentIndex(at: displayPosition ?? observed)
+        let centre = Self.segmentIndex(at: displayTime ?? observed)
         let evictable = segments.keys
             .filter { !protected.contains($0) }
             .sorted {

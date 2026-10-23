@@ -185,7 +185,7 @@ public final class DanmakuSession: DanmakuPresentationControlling {
                 if self.segmentCache.store(
                     segment,
                     for: identity,
-                    displayPosition: self.presentationSink?.displayTime()
+                    displayTime: self.presentationSink?.displayTime()
                 ) {
                     self.presentationSink?.setSegments(self.segmentCache.segments, for: identity)
                 }
