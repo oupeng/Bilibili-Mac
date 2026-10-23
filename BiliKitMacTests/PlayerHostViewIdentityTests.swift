@@ -14,7 +14,7 @@ struct PlayerHostViewIdentityTests {
     @MainActor
     func nativePlayerViewLeavesNowPlayingOwnershipToProcessController() {
         let renderer = CoreAnimationDanmakuRenderer(
-            beginTimeAtZero: DanmakuTimebaseClock.beginTimeAtMediaZero
+            beginTimeAtMediaZero: DanmakuTimebaseClock.beginTimeAtMediaZero
         )
         let controller = DanmakuPresentationController(backend: renderer)
         let view = DanmakuPlayerView(
@@ -31,7 +31,7 @@ struct PlayerHostViewIdentityTests {
     @MainActor
     func playbackPreparationBlocksNativePlayerInputAndAccessibility() {
         let renderer = CoreAnimationDanmakuRenderer(
-            beginTimeAtZero: DanmakuTimebaseClock.beginTimeAtMediaZero
+            beginTimeAtMediaZero: DanmakuTimebaseClock.beginTimeAtMediaZero
         )
         let controller = DanmakuPresentationController(backend: renderer)
         let view = DanmakuPlayerView(
@@ -65,7 +65,7 @@ struct PlayerHostViewIdentityTests {
         weak var releasedClockLayer: CALayer?
         do {
             let renderer = CoreAnimationDanmakuRenderer(
-                beginTimeAtZero: DanmakuTimebaseClock.beginTimeAtMediaZero
+                beginTimeAtMediaZero: DanmakuTimebaseClock.beginTimeAtMediaZero
             )
             let controller = DanmakuPresentationController(backend: renderer)
             let overlay = DanmakuOverlayView(renderer: renderer, controller: controller)
@@ -98,7 +98,7 @@ struct PlayerHostViewIdentityTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let item = AVPlayerItem(url: try writeSilentAudio(seconds: 4, in: directory))
         let renderer = CoreAnimationDanmakuRenderer(
-            beginTimeAtZero: DanmakuTimebaseClock.beginTimeAtMediaZero
+            beginTimeAtMediaZero: DanmakuTimebaseClock.beginTimeAtMediaZero
         )
         let controller = DanmakuPresentationController(backend: renderer)
         let overlay = DanmakuOverlayView(
@@ -166,7 +166,7 @@ struct PlayerHostViewIdentityTests {
     @MainActor
     func danmakuClockFollowsTheCurrentItemAndClearsOnReplacement() async throws {
         let renderer = CoreAnimationDanmakuRenderer(
-            beginTimeAtZero: DanmakuTimebaseClock.beginTimeAtMediaZero
+            beginTimeAtMediaZero: DanmakuTimebaseClock.beginTimeAtMediaZero
         )
         let controller = DanmakuPresentationController(backend: renderer)
         let view = DanmakuPlayerView(

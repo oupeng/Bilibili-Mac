@@ -235,7 +235,7 @@ private struct PlaybackFixture {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let mediaURL = try writeSilentAudio(seconds: mediaSeconds, in: directory)
         renderer = CoreAnimationDanmakuRenderer(
-            beginTimeAtZero: DanmakuTimebaseClock.beginTimeAtMediaZero
+            beginTimeAtMediaZero: DanmakuTimebaseClock.beginTimeAtMediaZero
         )
         controller = DanmakuPresentationController(backend: renderer)
         view = DanmakuPlayerView(

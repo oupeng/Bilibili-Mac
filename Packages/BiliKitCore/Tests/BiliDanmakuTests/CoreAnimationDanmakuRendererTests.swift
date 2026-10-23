@@ -14,7 +14,7 @@ import Testing
 @Suite(.timeLimit(.minutes(1)))
 struct CoreAnimationDanmakuRendererTests {
     /// 注入 renderer 的媒体时间 0 哨兵；任何可忽略的正数都行。
-    private static let beginTimeAtZero: CFTimeInterval = 1e-100
+    private static let beginTimeAtMediaZero: CFTimeInterval = 1e-100
 
     @Test
     func rendererAppliesUserOpacityAtRootAndReleasesTextureBytes() async throws {
@@ -290,7 +290,7 @@ struct CoreAnimationDanmakuRendererTests {
                 as? CABasicAnimation
         )
 
-        #expect(scrollingAnimation.beginTime == Self.beginTimeAtZero)
+        #expect(scrollingAnimation.beginTime == Self.beginTimeAtMediaZero)
         #expect(topAnimation.beginTime == 12.5)
         #expect(!scrollingAnimation.isRemovedOnCompletion)
         #expect(!topAnimation.isRemovedOnCompletion)
@@ -520,7 +520,7 @@ struct CoreAnimationDanmakuRendererTests {
 
     private func makeRenderer() -> CoreAnimationDanmakuRenderer {
         let renderer = CoreAnimationDanmakuRenderer(
-            beginTimeAtZero: Self.beginTimeAtZero
+            beginTimeAtMediaZero: Self.beginTimeAtMediaZero
         )
         renderer.updateSurfaceSize(width: 800, height: 240, backingScale: 2)
         return renderer
