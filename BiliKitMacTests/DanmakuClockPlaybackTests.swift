@@ -224,7 +224,7 @@ private struct PlaybackFixture {
     let controller: DanmakuPresentationController
     let item: AVPlayerItem
     let player: AVPlayer
-    private let view: DanmakuPlayerView
+    private let view: NativePlayerHostView
     private let window: NSWindow
     private let directory: URL
 
@@ -238,7 +238,7 @@ private struct PlaybackFixture {
             beginTimeAtMediaZero: DanmakuTimebaseClock.beginTimeAtMediaZero
         )
         controller = DanmakuPresentationController(backend: renderer)
-        view = DanmakuPlayerView(
+        view = NativePlayerHostView(
             renderer: renderer,
             controller: controller,
             beginMomentaryPlaybackRate: nil,
