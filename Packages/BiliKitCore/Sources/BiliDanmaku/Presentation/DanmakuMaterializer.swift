@@ -117,7 +117,7 @@ final class DanmakuMaterializer {
     /// 移除全部 layer 并作废在途准备。
     func clear() {
         preparationGeneration &+= 1
-        backend.cancelPendingPreparations()
+        backend.cancelAllPreparations()
         backend.clearAll()
         installed.removeAll(keepingCapacity: false)
         installedScales.removeAll(keepingCapacity: false)
@@ -136,7 +136,7 @@ final class DanmakuMaterializer {
         guard scale != backingScale else { return }
         backingScale = scale
         preparationGeneration &+= 1
-        backend.cancelPendingPreparations()
+        backend.cancelAllPreparations()
         pending.removeAll(keepingCapacity: false)
         unpreparable.removeAll(keepingCapacity: false)
     }

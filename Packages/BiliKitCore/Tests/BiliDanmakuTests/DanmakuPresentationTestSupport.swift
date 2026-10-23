@@ -191,8 +191,10 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
         delayedCompletions.removeAll { $0.preparationID == preparationID }
     }
 
-    func cancelPendingPreparations() {
-        cancelAllPreparations()
+    /// 与 renderer 一样：取消的准备不再回调，已就绪未取走的记录一并丢弃。
+    func cancelAllPreparations() {
+        delayedCompletions.removeAll()
+        heldPreparationIDs.removeAll()
     }
 
     func remove(eventID: String) {
@@ -231,12 +233,6 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
         installed.removeAll()
         textureScales.removeAll()
         notifyWaiters()
-    }
-
-    /// 与 renderer 一样：取消的准备不再回调，已就绪未取走的记录一并丢弃。
-    private func cancelAllPreparations() {
-        delayedCompletions.removeAll()
-        heldPreparationIDs.removeAll()
     }
 
     /// 等到状态满足 `isSatisfied`；每次在屏集合变化或收到延迟的准备请求时检查。

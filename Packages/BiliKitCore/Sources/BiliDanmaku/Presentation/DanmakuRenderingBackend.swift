@@ -76,7 +76,7 @@ public protocol DanmakuRenderingBackend: AnyObject {
     /// 丢弃一条没有上屏的准备记录；对未知 ID 是空操作。
     func discardPreparation(preparationID: UInt64)
     /// 取消全部在途与已就绪未上屏的准备，被取消的请求不再回调。
-    func cancelPendingPreparations()
+    func cancelAllPreparations()
     func remove(eventID: String)
     func clearAll()
     func setOpacity(_ opacity: DanmakuOpacity)

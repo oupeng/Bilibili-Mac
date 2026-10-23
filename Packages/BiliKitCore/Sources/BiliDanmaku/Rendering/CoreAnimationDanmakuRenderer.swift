@@ -218,7 +218,7 @@ public final class CoreAnimationDanmakuRenderer:
         preparationOwner.discard(preparationID: preparationID)
     }
 
-    public func cancelPendingPreparations() {
+    public func cancelAllPreparations() {
         preparationOwner.cancelAllPreparations()
     }
 
