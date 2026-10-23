@@ -140,7 +140,7 @@ enum DanmakuLayoutPlanner {
             let duration = DanmakuMotionPolicy.duration(
                 for: event.mode,
                 textWidth: metrics.width,
-                surfaceWidth: parameters.configuration.surfaceWidth,
+                surfaceWidth: parameters.configuration.planningWidth,
                 speedLevel: parameters.speedLevel
             )
             let request = DanmakuLaneRequest(

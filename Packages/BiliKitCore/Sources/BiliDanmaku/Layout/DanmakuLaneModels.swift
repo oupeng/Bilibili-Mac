@@ -3,9 +3,9 @@ import BiliModels
 import Foundation
 
 /// 车道分配的几何参数，由 `DanmakuPresentationController` 按规划画布尺寸、显示区域与密度推导
-/// （`init(surfaceWidth:surfaceHeight:displayArea:density:)`），经车道布局交给 `DanmakuLaneAllocator`。
+/// （`init(planningWidth:planningHeight:displayArea:density:)`），经车道布局交给 `DanmakuLaneAllocator`。
 ///
-/// 这里的 surface 是规划画布而不是窗口；窗口只决定露出哪一部分（`DanmakuViewport`）。
+/// 这里的宽高是规划画布而不是窗口；窗口只决定露出哪一部分（`DanmakuViewport`）。
 ///
 /// 车道高度与同屏上限是产品常量，不随设置变化。任一参数变化，布局表都按新参数整张重排；`isValid`
 /// 不成立时 allocator 拒绝全部请求，画面尚未布局时也就不布局。
@@ -28,8 +28,8 @@ struct DanmakuLaneConfiguration: Sendable, Equatable {
     /// 不复用 `hardMaximumActiveCount`。
     static let maximumLaneCount = 4_096
 
-    let surfaceWidth: Double
-    let surfaceHeight: Double
+    let planningWidth: Double
+    let planningHeight: Double
     /// 同一车道前后两条滚动弹幕之间的最小水平间距（point），由密度决定。
     let minimumHorizontalGap: Double
     /// 可放弹幕的画面高度比例（0...1），车道数按画面高度乘以它计算；滚动与顶部弹幕从顶边往下排，
@@ -39,14 +39,14 @@ struct DanmakuLaneConfiguration: Sendable, Equatable {
     let maximumOverlapDepth: Int
 
     init(
-        surfaceWidth: Double,
-        surfaceHeight: Double,
+        planningWidth: Double,
+        planningHeight: Double,
         minimumHorizontalGap: Double,
         displayAreaFraction: Double,
         maximumOverlapDepth: Int = 1
     ) {
-        self.surfaceWidth = surfaceWidth
-        self.surfaceHeight = surfaceHeight
+        self.planningWidth = planningWidth
+        self.planningHeight = planningHeight
         self.minimumHorizontalGap = minimumHorizontalGap
         self.displayAreaFraction = displayAreaFraction
         self.maximumOverlapDepth = maximumOverlapDepth
@@ -71,10 +71,10 @@ struct DanmakuLaneConfiguration: Sendable, Equatable {
 
     /// 叠放层数只来自密度策略，校验上限取策略允许的最大层数。
     var isValid: Bool {
-        let values = [surfaceWidth, surfaceHeight, minimumHorizontalGap, displayAreaFraction]
+        let values = [planningWidth, planningHeight, minimumHorizontalGap, displayAreaFraction]
         guard values.allSatisfy(\.isFinite),
-            surfaceWidth > 0,
-            surfaceHeight > 0,
+            planningWidth > 0,
+            planningHeight > 0,
             minimumHorizontalGap >= 0,
             maximumOverlapDepth > 0,
             maximumOverlapDepth <= DanmakuDensityAdmissionPolicy.overlappingDepth
@@ -88,7 +88,7 @@ struct DanmakuLaneConfiguration: Sendable, Equatable {
 /// 弹幕密度到车道准入参数的映射：同车道滚动弹幕的最小水平间距（point）与可叠放层数。
 ///
 /// 只有显示区域为全屏时才采用用户选的密度，其余显示区域按普通密度（见
-/// `DanmakuLaneConfiguration.init(surfaceWidth:surfaceHeight:displayArea:density:)`）。
+/// `DanmakuLaneConfiguration.init(planningWidth:planningHeight:displayArea:density:)`）。
 /// 间距越小、层数越多，同屏弹幕越多，也越容易互相遮挡。
 struct DanmakuDensityAdmissionPolicy: Sendable, Equatable {
     /// 普通密度：同车道前后两条滚动弹幕至少隔 64pt。
@@ -119,15 +119,15 @@ struct DanmakuDensityAdmissionPolicy: Sendable, Equatable {
 extension DanmakuLaneConfiguration {
     /// 由规划画布尺寸、显示区域与密度推导车道配置；呈现控制器每次设置或规划尺寸变化都经它重建。
     init(
-        surfaceWidth: Double,
-        surfaceHeight: Double,
+        planningWidth: Double,
+        planningHeight: Double,
         displayArea: DanmakuDisplayArea,
         density: DanmakuDensity
     ) {
         let policy = DanmakuDensityAdmissionPolicy(displayArea == .full ? density : .normal)
         self.init(
-            surfaceWidth: surfaceWidth,
-            surfaceHeight: surfaceHeight,
+            planningWidth: planningWidth,
+            planningHeight: planningHeight,
             minimumHorizontalGap: policy.minimumHorizontalGap,
             displayAreaFraction: displayArea.fraction,
             maximumOverlapDepth: policy.maximumOverlapDepth

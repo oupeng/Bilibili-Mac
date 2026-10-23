@@ -81,8 +81,8 @@ struct DanmakuMaterializerTests {
     func jumpShowsCachedTexturesAtOnceAndTheRestAsEachBecomesReady() throws {
         let table = layoutTable(
             [1: denseEvents(segment: 1, count: 2_000, seed: 121)],
-            surfaceWidth: 1_200,
-            surfaceHeight: 720
+            planningWidth: 1_200,
+            planningHeight: 720
         )
         let largeViewport = viewport(width: 1_200, height: 720)
         let backend = RecordingRenderingBackend()
@@ -128,8 +128,8 @@ struct DanmakuMaterializerTests {
     @Test
     func replacedTableMovesTheScreenToItsLanesInOneCall() {
         let events = denseEvents(segment: 1, count: 400, seed: 51)
-        let narrow = layoutTable([1: events], surfaceWidth: 800)
-        let wide = layoutTable([1: events], surfaceWidth: 1_400)
+        let narrow = layoutTable([1: events], planningWidth: 800)
+        let wide = layoutTable([1: events], planningWidth: 1_400)
         let wideViewport = viewport(width: 1_400)
         let backend = RecordingRenderingBackend()
         let materializer = StoppedClockMaterializer(backend: backend)
@@ -221,8 +221,8 @@ struct DanmakuMaterializerTests {
     func resizingMatchesStartingWithTheNewWindow() {
         let table = layoutTable(
             [1: denseEvents(segment: 1, count: 900, seed: 101)],
-            surfaceWidth: 1_200,
-            surfaceHeight: 720
+            planningWidth: 1_200,
+            planningHeight: 720
         )
         let large = viewport(width: 1_200, height: 720)
         let small = viewport(width: 500, height: 200)

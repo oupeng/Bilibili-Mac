@@ -96,7 +96,7 @@ struct DanmakuLayoutCoordinatorTests {
 
     private func parameters(width: Double) -> DanmakuLayoutParameters {
         DanmakuLayoutParameters(
-            configuration: configuration(surfaceWidth: width),
+            configuration: configuration(planningWidth: width),
             speedLevel: .default,
             backingScale: 2,
             filter: DanmakuFilter()

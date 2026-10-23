@@ -298,8 +298,8 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     /// （尺寸为 0）时不布局。
     private func updateLayoutParameters() {
         let configuration = DanmakuLaneConfiguration(
-            surfaceWidth: planningWidth,
-            surfaceHeight: planningHeight,
+            planningWidth: planningWidth,
+            planningHeight: planningHeight,
             displayArea: displayArea,
             density: density
         )

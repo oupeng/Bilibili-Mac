@@ -7,12 +7,12 @@ import Testing
 
 /// 呈现测试的车道配置：默认 800 × 360pt（10 条车道）、12pt 间距、全屏显示区域、不叠放。
 func configuration(
-    surfaceWidth: Double = 800,
-    surfaceHeight: Double = 360
+    planningWidth: Double = 800,
+    planningHeight: Double = 360
 ) -> DanmakuLaneConfiguration {
     DanmakuLaneConfiguration(
-        surfaceWidth: surfaceWidth,
-        surfaceHeight: surfaceHeight,
+        planningWidth: planningWidth,
+        planningHeight: planningHeight,
         minimumHorizontalGap: 12,
         displayAreaFraction: 1
     )
@@ -44,10 +44,10 @@ func timedEvent(
 /// 用测试测量把分段排成布局表；设置取 `configuration()` 与默认速度。
 func layoutTable(
     _ segments: [Int: [DanmakuEvent]],
-    surfaceWidth: Double = 800,
-    surfaceHeight: Double = 360
+    planningWidth: Double = 800,
+    planningHeight: Double = 360
 ) -> [Int: DanmakuSegmentLayout] {
-    let lanes = configuration(surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+    let lanes = configuration(planningWidth: planningWidth, planningHeight: planningHeight)
     return DanmakuLayoutPlanner.layouts(
         for: segments,
         reusing: [:],

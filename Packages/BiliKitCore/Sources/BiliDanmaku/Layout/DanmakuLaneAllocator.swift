@@ -1,7 +1,7 @@
 import BiliModels
 import Foundation
 
-/// 在固定 surface 与活动数量上限内分配弹幕轨道，并阻止滚动弹幕追尾。
+/// 在固定规划画布与活动数量上限内分配弹幕轨道，并阻止滚动弹幕追尾。
 ///
 /// 高于一个 lane 基元的文本会占用连续 lane，避免大字号重叠；小字号仍只占一个基元。
 ///
@@ -114,9 +114,9 @@ struct DanmakuLaneAllocator: Sendable {
             return nil
         }
         let displayHeight =
-            configuration.surfaceHeight * configuration.displayAreaFraction
+            configuration.planningHeight * configuration.displayAreaFraction
         let laneCount = DanmakuLaneConfiguration.laneCount(
-            surfaceHeight: configuration.surfaceHeight,
+            surfaceHeight: configuration.planningHeight,
             displayAreaFraction: configuration.displayAreaFraction
         )
         guard laneCount > 0,
@@ -180,7 +180,7 @@ struct DanmakuLaneAllocator: Sendable {
         let placement = DanmakuLanePlacement(
             request: request,
             laneIndex: laneIndex,
-            planningWidth: configuration.surfaceWidth,
+            planningWidth: configuration.planningWidth,
             admittedAtSeconds: playbackTime,
             expiresAtSeconds: playbackTime + request.durationSeconds,
             overlapDepth: overlapDepth
@@ -282,21 +282,21 @@ struct DanmakuLaneAllocator: Sendable {
         let previousRequest = previous.request
         let elapsed = playbackTime - previous.admittedAtSeconds
         guard elapsed >= 0 else { return false }
-        let surfaceWidth = configuration.surfaceWidth
+        let planningWidth = configuration.planningWidth
         let previousSpeed = DanmakuMotionPolicy.scrollingSpeed(
             textWidth: previousRequest.width,
-            planningWidth: surfaceWidth,
+            planningWidth: planningWidth,
             durationSeconds: previousRequest.durationSeconds
         )
         let newSpeed = DanmakuMotionPolicy.scrollingSpeed(
             textWidth: request.width,
-            planningWidth: surfaceWidth,
+            planningWidth: planningWidth,
             durationSeconds: request.durationSeconds
         )
         let previousRightEdge =
-            surfaceWidth - previousSpeed * elapsed
+            planningWidth - previousSpeed * elapsed
             + previousRequest.width
-        let availableGap = surfaceWidth - previousRightEdge
+        let availableGap = planningWidth - previousRightEdge
         guard availableGap >= configuration.minimumHorizontalGap else {
             return false
         }
