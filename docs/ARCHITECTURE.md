@@ -175,14 +175,14 @@ D(now) 决定，时间线快照只用来确认 identity、作检查节拍与决�
     相对宿主时钟的最新速率与锚点，外推到此刻 `now`，在显式 `CATransaction` 里写 `beginTime`、`timeOffset`
     与 `speed`（速率）：通常是 `beginTime = now`、`timeOffset` 为此刻的媒体时间，即严格跟随。旧 timebase
     迟到的通知只会让当前绑定多同步一次，结果相同。
-  - 单调下限：同一绑定纪元里播放中（速率 r > 0）timebase 此刻低于弹幕时间 D 时不往回跳，写
+  - 单调下限：同一绑定纪元里播放中（速率 r > 0）timebase 此刻低于显示时间 D 时不往回跳，写
     `beginTime = now + (D − tb)/r`、`timeOffset = D`、`speed = r`，原地停在 D，到 timebase 的直线追上的那一刻
     起两者重合，没有滤波状态；`fillMode` 固定 `.backwards`，否则 `beginTime` 在未来的那段时间里时钟层不活跃、
     整屏消失；设了之后渲染服务器上同样停在 `timeOffset`，到 `beginTime` 不需要再提交就自行恢复运动。速率为 0
     时的任何跳变一律严格跟随：seek、拖动与暂停都发生在速率为 0 时（AVKit 的往回 seek，含原生进度条拖动与
     键盘，都先经过速率 0），所以不需要识别 seek。换绑后的第一次同步也严格跟随：旧时间线上的 D 对新 item 没有
     意义，这一条是为等待补的；纪元按每次 `bind` 递增，换回同一个 timebase 也算换绑。
-    D 只由 `DanmakuClockWrite.mediaTime` 一个纯函数计算。
+    D 只由 `DanmakuClockWrite.displayTime(at:)` 一个纯函数计算。
   - 原子写入：三个时间属性的赋值在 `CATransaction.lock()` 内完成，提交在锁外。主线程同一轮改过时钟层本身
     （布局时的 frame、接管 surface 时的子层）时，它的提交会带上这个 layer 当时的全部属性，不加锁可能把写到
     一半的三元组推上屏。提交不能放进锁里：提交先取 Core Animation 的 context 锁再取这把全局锁，持着全局锁
@@ -190,7 +190,7 @@ D(now) 决定，时间线快照只用来确认 identity、作检查节拍与决�
     几微秒。
   - 发布：每次写入之后，在锁里连同绑定纪元发布这次写入的直线（`DanmakuClockWrite`，速率与 `CALayer.speed`
     同为 Float），`bind` 递增纪元并作废发布值，期间换绑的旧同步不发布。任意线程经 `displayTime()`
-    （`BiliDanmaku.DanmakuDisplayClock`）用同一个纯函数求此刻的弹幕时间 D；从未绑定过、解绑之后、或换绑后
+    （`BiliDanmaku.DanmakuDisplayClock`）用同一个纯函数求此刻的显示时间 D；从未绑定过、解绑之后、或换绑后
     新 timebase 第一次写入之前读不到。解绑只把时钟层停住、不发布：没有 item 就没有 D，否则解绑后紧接着换
     视频时，新视频的弹幕会按旧视频停住的时刻挂上、冻结在黑屏上。发布之后经一个合并标志向主线程投递一次写入
     通知（主线程先清标志再读发布值，同一时间最多排一个，不丢唤醒），宿主据此让呈现控制器按新的 D 检查一次：

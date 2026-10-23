@@ -236,7 +236,7 @@ final class DanmakuOverlayView: NSView {
     }
 }
 
-/// 弹幕时钟依赖、但不能自己保证的平台前提；不成立时弹幕时间与画面错开。
+/// 弹幕时钟依赖、但不能自己保证的平台前提；不成立时显示时间与画面错开。
 ///
 /// DEBUG 下断言失败；Release 下只记一条固定分类的日志，不含时间、位置或内容身份（docs/SECURITY-MODEL.md §8）。
 private enum DanmakuClockPrecondition: String {
@@ -251,5 +251,5 @@ private enum DanmakuClockPrecondition: String {
     }
 }
 
-/// 时钟层发布的弹幕时间就是 `BiliDanmaku` 的显示时间；`displayTime()` 的实现与线程规则见 `DanmakuTimebaseClock`。
+/// 时钟层发布的就是 `BiliDanmaku` 的显示时间 D；`displayTime()` 的实现与线程规则见 `DanmakuTimebaseClock`。
 extension DanmakuTimebaseClock: DanmakuDisplayClock {}
