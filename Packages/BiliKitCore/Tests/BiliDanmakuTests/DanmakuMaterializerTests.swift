@@ -26,7 +26,7 @@ struct DanmakuMaterializerTests {
         for position in stride(from: 0.0, through: 360, by: 11.3) {
             materializer.reconcile(
                 table: table,
-                position: position,
+                displayTime: position,
                 viewport: fullViewport
             )
             let expected = table[1]?.placements.filter {
@@ -52,22 +52,22 @@ struct DanmakuMaterializerTests {
         ) {
             continuous.reconcile(
                 table: table,
-                position: position,
+                displayTime: position,
                 viewport: fullViewport
             )
         }
         continuous.reconcile(
             table: table,
-            position: target,
+            displayTime: target,
             viewport: fullViewport
         )
 
         let seekingBackend = RecordingRenderingBackend()
         let seeking = StoppedClockMaterializer(backend: seekingBackend)
-        seeking.reconcile(table: table, position: 600, viewport: fullViewport)
+        seeking.reconcile(table: table, displayTime: 600, viewport: fullViewport)
         seeking.reconcile(
             table: table,
-            position: target,
+            displayTime: target,
             viewport: fullViewport
         )
 
@@ -89,7 +89,7 @@ struct DanmakuMaterializerTests {
         let materializer = StoppedClockMaterializer(backend: backend)
         materializer.reconcile(
             table: table,
-            position: 60,
+            displayTime: 60,
             viewport: largeViewport
         )
         #expect(!backend.installed.isEmpty)
@@ -111,7 +111,7 @@ struct DanmakuMaterializerTests {
 
         materializer.reconcile(
             table: table,
-            position: 200,
+            displayTime: 200,
             viewport: largeViewport
         )
         #expect(backend.installedEventIDs == cached)
@@ -133,7 +133,7 @@ struct DanmakuMaterializerTests {
         let wideViewport = viewport(width: 1_400)
         let backend = RecordingRenderingBackend()
         let materializer = StoppedClockMaterializer(backend: backend)
-        materializer.reconcile(table: narrow, position: 120, viewport: fullViewport)
+        materializer.reconcile(table: narrow, displayTime: 120, viewport: fullViewport)
         let before = backend.installed
         #expect(!before.isEmpty)
 
@@ -150,7 +150,7 @@ struct DanmakuMaterializerTests {
             expectNothingWithheld(on: backend, table: wide, viewport: wideViewport, at: 120)
         }
 
-        materializer.reconcile(table: wide, position: 120, viewport: wideViewport)
+        materializer.reconcile(table: wide, displayTime: 120, viewport: wideViewport)
         #expect(backend.cachedEventIDs.isSubset(of: backend.installedEventIDs))
         expectOnlyTheNewLanes()
         while backend.pendingPreparationCount > 0 {
@@ -168,7 +168,7 @@ struct DanmakuMaterializerTests {
         let materializer = StoppedClockMaterializer(backend: backend)
         materializer.reconcile(
             table: table,
-            position: 200,
+            displayTime: 200,
             viewport: fullViewport
         )
         #expect(backend.installed.isEmpty)
@@ -176,7 +176,7 @@ struct DanmakuMaterializerTests {
         // 纹理到达时媒体时间已推进，弹幕仍按自己的时间点挂上，出现在中途应在的位置。
         materializer.reconcile(
             table: table,
-            position: 200.5,
+            displayTime: 200.5,
             viewport: fullViewport
         )
         backend.completePreparations()
@@ -200,7 +200,7 @@ struct DanmakuMaterializerTests {
         let materializer = StoppedClockMaterializer(backend: backend)
         materializer.reconcile(
             table: table,
-            position: 90,
+            displayTime: 90,
             viewport: fullViewport
         )
         let before = backend.installed
@@ -209,7 +209,7 @@ struct DanmakuMaterializerTests {
         #expect(backend.installed.isEmpty)
         materializer.reconcile(
             table: table,
-            position: 90,
+            displayTime: 90,
             viewport: fullViewport
         )
         #expect(backend.installed == before)
@@ -230,7 +230,7 @@ struct DanmakuMaterializerTests {
             let backend = RecordingRenderingBackend()
             StoppedClockMaterializer(backend: backend).reconcile(
                 table: table,
-                position: 150,
+                displayTime: 150,
                 viewport: viewport
             )
             return backend.installed
@@ -239,19 +239,19 @@ struct DanmakuMaterializerTests {
         let materializer = StoppedClockMaterializer(backend: backend)
         materializer.reconcile(
             table: table,
-            position: 150,
+            displayTime: 150,
             viewport: small
         )
         #expect(backend.installed == direct(small))
 
-        materializer.reconcile(table: table, position: 150, viewport: large)
+        materializer.reconcile(table: table, displayTime: 150, viewport: large)
         #expect(backend.installed == direct(large))
         let revealedInFlight = backend.installed.values.filter {
             $0.admittedAtSeconds < 150 && !small.showsLanes(of: $0)
         }
         #expect(!revealedInFlight.isEmpty)
 
-        materializer.reconcile(table: table, position: 150, viewport: small)
+        materializer.reconcile(table: table, displayTime: 150, viewport: small)
         #expect(backend.installed == direct(small))
         #expect(!backend.removedHistory.isEmpty)
     }
@@ -265,7 +265,7 @@ struct DanmakuMaterializerTests {
         let materializer = StoppedClockMaterializer(backend: backend)
         materializer.reconcile(
             table: table,
-            position: 200,
+            displayTime: 200,
             viewport: fullViewport
         )
         #expect(backend.pendingPreparationCount > 0)
@@ -285,7 +285,7 @@ struct DanmakuMaterializerTests {
         let backend = RecordingRenderingBackend()
         backend.delaysPreparation = true
         let materializer = StoppedClockMaterializer(backend: backend)
-        materializer.reconcile(table: table, position: 120, viewport: fullViewport)
+        materializer.reconcile(table: table, displayTime: 120, viewport: fullViewport)
         backend.completePreparations(backend.pendingPreparationCount / 2)
         let installedBefore = backend.installed
         #expect(!installedBefore.isEmpty)
@@ -295,7 +295,7 @@ struct DanmakuMaterializerTests {
         #expect(backend.installed == installedBefore)
         #expect(backend.heldPreparationCount == 0)
 
-        materializer.reconcile(table: table, position: 120.4, viewport: fullViewport)
+        materializer.reconcile(table: table, displayTime: 120.4, viewport: fullViewport)
         backend.completePreparations()
         let expected = DanmakuMaterializer.desiredPlacements(
             in: table,
@@ -313,10 +313,10 @@ struct DanmakuMaterializerTests {
         let table = layoutTable([1: denseEvents(segment: 1, count: 300, seed: 64)])
         let backend = RecordingRenderingBackend()
         let materializer = StoppedClockMaterializer(backend: backend)
-        materializer.reconcile(table: table, position: 150, viewport: fullViewport)
+        materializer.reconcile(table: table, displayTime: 150, viewport: fullViewport)
         #expect(!backend.installed.isEmpty)
         backend.delaysPreparation = true
-        materializer.reconcile(table: table, position: 155, viewport: fullViewport)
+        materializer.reconcile(table: table, displayTime: 155, viewport: fullViewport)
         #expect(backend.pendingPreparationCount > 0)
 
         if backendFirst {
@@ -328,7 +328,7 @@ struct DanmakuMaterializerTests {
         }
         #expect(backend.pendingPreparationCount == 0)
 
-        materializer.reconcile(table: table, position: 155, viewport: fullViewport)
+        materializer.reconcile(table: table, displayTime: 155, viewport: fullViewport)
         backend.completePreparations()
         let expected = placementsByID(
             DanmakuMaterializer.desiredPlacements(in: table, at: 155, viewport: fullViewport)
@@ -352,21 +352,21 @@ struct DanmakuMaterializerTests {
             materializer.setBackingScale(scale)
         }
         setBackingScale(1)
-        materializer.reconcile(table: table, position: 100.5, viewport: fullViewport)
+        materializer.reconcile(table: table, displayTime: 100.5, viewport: fullViewport)
         try #require(backend.textureScales[long.id] == 1)
 
         // 新 scale 的表落地之前，旧表按新 scale 对齐：2x 纹理被拒，这一 scale 下只请求一次。
         setBackingScale(2)
         let requestsBefore = backend.preparationHistory.count
-        materializer.reconcile(table: table, position: 100.5, viewport: fullViewport)
-        materializer.reconcile(table: table, position: 100.6, viewport: fullViewport)
+        materializer.reconcile(table: table, displayTime: 100.5, viewport: fullViewport)
+        materializer.reconcile(table: table, displayTime: 100.6, viewport: fullViewport)
         #expect(backend.preparationHistory.dropFirst(requestsBefore) == [long.id])
         // 2x 的表测量时排除了它。
-        materializer.reconcile(table: [:], position: 100.6, viewport: fullViewport)
+        materializer.reconcile(table: [:], displayTime: 100.6, viewport: fullViewport)
         #expect(backend.installed.isEmpty)
 
         setBackingScale(1)
-        materializer.reconcile(table: table, position: 100.7, viewport: fullViewport)
+        materializer.reconcile(table: table, displayTime: 100.7, viewport: fullViewport)
         #expect(backend.textureScales[long.id] == 1)
     }
 
@@ -394,11 +394,11 @@ private final class StoppedClockMaterializer {
 
     func reconcile(
         table: [Int: DanmakuSegmentLayout],
-        position: Double,
+        displayTime: Double,
         viewport: DanmakuViewport
     ) {
-        clock.time = position
-        materializer.reconcile(table: table, position: position, viewport: viewport)
+        clock.time = displayTime
+        materializer.reconcile(table: table, displayTime: displayTime, viewport: viewport)
     }
 
     func setBackingScale(_ scale: Double) {

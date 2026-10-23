@@ -283,7 +283,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     private func reconcile(at position: Double) {
         guard canAlign else { return }
         alignedPosition = position
-        materializer.reconcile(table: layoutTable, position: position, viewport: viewport)
+        materializer.reconcile(table: layoutTable, displayTime: position, viewport: viewport)
     }
 
     /// 换 identity 或停止：丢弃布局表与时间线状态并清屏。

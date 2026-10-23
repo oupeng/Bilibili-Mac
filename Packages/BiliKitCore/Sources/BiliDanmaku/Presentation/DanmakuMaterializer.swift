@@ -66,7 +66,7 @@ final class DanmakuMaterializer {
     private var backingScale = DanmakuTextureRasterizer.defaultBackingScale
     private var table: [Int: DanmakuSegmentLayout] = [:]
     /// 最近一次使用的 D：reconcile 传入的，或异步完成时重新读到的。
-    private var position = 0.0
+    private var displayTime = 0.0
     /// 读此刻的 D，由呈现控制器提供；读不到时为 nil。
     private let currentDisplayTime: @MainActor () -> Double?
     /// 最近一次 reconcile 的取景框；迟到的纹理按它判断可见。
@@ -102,14 +102,14 @@ final class DanmakuMaterializer {
         Dictionary(placements.map { ($0.request.event.id, $0) }) { first, _ in first }
     }
 
-    /// 按布局表、媒体时间与取景框对齐 backend：立即移除不再应在屏的、原位换车道，缺纹理的发起准备。
+    /// 按布局表、显示时间 D 与取景框对齐 backend：立即移除不再应在屏的、原位换车道，缺纹理的发起准备。
     func reconcile(
         table: [Int: DanmakuSegmentLayout],
-        position: Double,
+        displayTime: Double,
         viewport: DanmakuViewport
     ) {
         self.table = table
-        self.position = position
+        self.displayTime = displayTime
         self.viewport = viewport
         reconcileNow()
     }
@@ -143,7 +143,7 @@ final class DanmakuMaterializer {
 
     /// 按最近一次的表、时间与取景框立即移除与替换，缺纹理的发起准备。
     private func reconcileNow() {
-        let desired = Self.desiredPlacements(in: table, at: position, viewport: viewport)
+        let desired = Self.desiredPlacements(in: table, at: displayTime, viewport: viewport)
         let desiredByID = Self.byEventID(desired)
         removeInstalled(notIn: desiredByID)
         discardPreparations(notIn: desiredByID)
@@ -237,9 +237,9 @@ final class DanmakuMaterializer {
             return
         }
         pending[eventID] = nil
-        let now = requestDepth > 0 ? position : currentDisplayTime()
+        let now = requestDepth > 0 ? displayTime : currentDisplayTime()
         if let now {
-            position = now
+            displayTime = now
         }
         switch result {
         case .ready:
@@ -263,7 +263,7 @@ final class DanmakuMaterializer {
         let result = backend.install(
             placement,
             preparationID: preparationID,
-            at: position
+            at: displayTime
         )
         for eventID in result.evictedEventIDs {
             installed[eventID] = nil
