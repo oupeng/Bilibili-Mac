@@ -158,9 +158,8 @@ struct NativeVideoGridTests {
             NativeVideoGridAnchorRetention.targetOffsetY(
                 itemOriginY: 10,
                 offsetFromViewportTop: 40,
-                minimumOffsetY: -52,
                 maximumOffsetY: 2_000
-            ) == -30
+            ) == 0
         )
     }
 
