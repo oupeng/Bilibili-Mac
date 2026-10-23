@@ -10,7 +10,8 @@ import Testing
 /// 其余各自就绪即出现，不为等别的弹幕扣住；布局表替换在同一次调用里把在屏的全部换到新车道；迟到的纹理
 /// 补上原 placement，是否挂上按纹理到达那一刻的显示时间判断，读不到显示时间时不挂上并交还；清屏之后重新
 /// 挂上同一屏；换取景框的结果与一开始就用它相同；换 backing scale 时 materializer 自己不发请求，与 backend
-/// 谁先换都收敛到全部新 scale 的纹理。
+/// 谁先换都收敛到全部新 scale 的纹理；在某个 scale 下纹理超限的弹幕在该 scale 下不反复请求，换到放得下它
+/// 的 scale 后照常出现。
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct DanmakuMaterializerTests {
@@ -334,6 +335,39 @@ struct DanmakuMaterializerTests {
         )
         #expect(backend.installed == expected)
         #expect(backend.textureScales.values.allSatisfy { $0 == 3 })
+    }
+
+    /// 纹理超限按像素算、与 backing scale 有关：在 2x 下被拒的长弹幕，同一 scale 下不再请求；换到放得下它的
+    /// 1x 后，布局表一含它就重新请求并出现。
+    @Test
+    func oversizedTextureIsRequestedAgainAtAScaleThatFitsIt() throws {
+        let long = longTextEvent(id: "long", time: 100)
+        try #require(fitsTexture(long, backingScale: 1))
+        try #require(!fitsTexture(long, backingScale: 2))
+        let table = layoutTable([1: [long]])
+        let backend = RecordingRenderingBackend()
+        let materializer = StoppedClockMaterializer(backend: backend)
+        func setBackingScale(_ scale: Double) {
+            backend.updateSurfaceSize(width: 800, height: 360, backingScale: scale)
+            materializer.setBackingScale(scale)
+        }
+        setBackingScale(1)
+        materializer.reconcile(table: table, position: 100.5, viewport: fullViewport)
+        try #require(backend.textureScales[long.id] == 1)
+
+        // 新 scale 的表落地之前，旧表按新 scale 对齐：2x 纹理被拒，这一 scale 下只请求一次。
+        setBackingScale(2)
+        let requestsBefore = backend.preparationHistory.count
+        materializer.reconcile(table: table, position: 100.5, viewport: fullViewport)
+        materializer.reconcile(table: table, position: 100.6, viewport: fullViewport)
+        #expect(backend.preparationHistory.dropFirst(requestsBefore) == [long.id])
+        // 2x 的表测量时排除了它。
+        materializer.reconcile(table: [:], position: 100.6, viewport: fullViewport)
+        #expect(backend.installed.isEmpty)
+
+        setBackingScale(1)
+        materializer.reconcile(table: table, position: 100.7, viewport: fullViewport)
+        #expect(backend.textureScales[long.id] == 1)
     }
 
     private func placementsByID(
