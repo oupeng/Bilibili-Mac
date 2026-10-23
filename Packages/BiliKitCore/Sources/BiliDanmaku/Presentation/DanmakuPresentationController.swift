@@ -2,56 +2,6 @@ import BiliApplication
 import BiliModels
 import Foundation
 
-/// 弹幕密度到车道准入参数的映射：同车道滚动弹幕的最小水平间距（point）与可叠放层数。
-///
-/// 只有显示区域为全屏时才采用用户选的密度，其余显示区域按普通密度（见
-/// `DanmakuLaneConfiguration.init(surfaceWidth:surfaceHeight:displayArea:density:)`）。
-/// 间距越小、层数越多，同屏弹幕越多，也越容易互相遮挡。
-struct DanmakuDensityAdmissionPolicy: Sendable, Equatable {
-    /// 普通密度：同车道前后两条滚动弹幕至少隔 64pt。
-    private static let normalGap = 64.0
-    /// 增加密度：间距减半为 32pt，仍不叠放。
-    private static let increasedGap = 32.0
-    /// 允许叠放：不留间距，没有完全空闲的车道时同一车道最多叠 3 层；也是车道配置校验的层数上限。
-    static let overlappingDepth = 3
-
-    let minimumHorizontalGap: Double
-    let maximumOverlapDepth: Int
-
-    init(_ density: DanmakuDensity) {
-        switch density {
-        case .normal:
-            minimumHorizontalGap = Self.normalGap
-            maximumOverlapDepth = 1
-        case .increased:
-            minimumHorizontalGap = Self.increasedGap
-            maximumOverlapDepth = 1
-        case .overlapping:
-            minimumHorizontalGap = 0
-            maximumOverlapDepth = Self.overlappingDepth
-        }
-    }
-}
-
-extension DanmakuLaneConfiguration {
-    /// 由规划画布尺寸、显示区域与密度推导车道配置；呈现控制器每次设置或规划尺寸变化都经它重建。
-    init(
-        surfaceWidth: Double,
-        surfaceHeight: Double,
-        displayArea: DanmakuDisplayArea,
-        density: DanmakuDensity
-    ) {
-        let policy = DanmakuDensityAdmissionPolicy(displayArea == .full ? density : .normal)
-        self.init(
-            surfaceWidth: surfaceWidth,
-            surfaceHeight: surfaceHeight,
-            minimumHorizontalGap: policy.minimumHorizontalGap,
-            displayAreaFraction: displayArea.fraction,
-            maximumOverlapDepth: policy.maximumOverlapDepth
-        )
-    }
-}
-
 /// 弹幕呈现端：把会话给出的分段、设置与时间线快照变成 backend 上的画面。
 ///
 /// 同一组已缓存分段与设置下，画面是媒体时间与窗口尺寸的纯函数：布局表（`DanmakuLayoutCoordinator`）
