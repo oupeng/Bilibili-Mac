@@ -7,6 +7,12 @@ import Testing
 @testable import BiliUI
 
 struct WatchHistoryCardFormattingTests {
+    /// 固定的观看时刻 2023-11-14 22:13:20 UTC，与执行日期相隔多年。
+    ///
+    /// 比较两份展示的读屏文字时，两份各自按构造时的 now 格式化时间；这个时刻在任何 now 下都落在「更早、跨年」
+    /// 分支，两份相同。用 `.now` 时两次构造若跨过本地午夜，「今天」与「昨天」不同，比较就会失败。
+    private static let fixedViewedAt = Date(timeIntervalSince1970: 1_700_000_000)
+
     /// 日期前按观看设备显示图标，读屏在最后读出设备；设备未知时都不显示。
     @Test(arguments: [
         (WatchHistoryDevice?.some(.phone), "smartphone" as String?),
@@ -27,7 +33,7 @@ struct WatchHistoryCardFormattingTests {
             owner: VideoOwner(id: 7, name: "历史作者"),
             progressSeconds: 65,
             durationSeconds: 600,
-            viewedAt: .now,
+            viewedAt: Self.fixedViewedAt,
             device: device
         )
         let presentation = WatchHistoryCardPresentation(item: item, locale: locale)

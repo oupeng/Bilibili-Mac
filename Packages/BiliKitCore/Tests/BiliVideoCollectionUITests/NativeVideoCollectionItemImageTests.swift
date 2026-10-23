@@ -5,7 +5,7 @@ import Testing
 
 @testable import BiliVideoCollectionUI
 
-/// 卡片取图：缓存命中在配置当帧上图且不淡入；未命中时异步结果按是否刚从网络到达决定淡入。
+/// 卡片取图：缓存命中在配置当帧上图且不淡入；未命中时异步结果在之后的主线程回合写回封面。
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct NativeVideoCollectionItemImageTests {
@@ -27,7 +27,7 @@ struct NativeVideoCollectionItemImageTests {
     }
 
     @Test(arguments: [true, false])
-    func loadedCoverFadesOnlyWhenItArrivedFromTheNetwork(fadesIn: Bool) async throws {
+    func loadedCoverIsWrittenBackAfterTheAsyncLoad(fadesIn: Bool) async throws {
         let image = try #require(Self.makeImage())
         let item = NativeVideoCollectionItem()
         item.configure(
@@ -39,15 +39,12 @@ struct NativeVideoCollectionItemImageTests {
             activation: { _ in }
         )
         #expect(Self.layer(showing: image, in: item.view) == nil)
-        // 取图结果要等下一轮主线程才写回；先冻结图层时间，淡入动画停在开头、不会在等待期间播完被移除，
-        // 断言不依赖淡入时长与调度快慢。
-        for root in ([item.view] + Self.descendants(of: item.view)).compactMap(\.layer) {
-            root.speed = 0
-        }
 
-        let layer = try #require(await Self.waitForLayer(showing: image, in: item.view))
-        let expectsFade = fadesIn && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        #expect((layer.animationKeys()?.isEmpty == false) == expectsFade)
+        // 这里只断言写回，不读淡入动画表，也不读由淡入结束回调撤下的占位：卡片不在窗口里，layer 树没有渲染
+        // 上下文，Core Animation 在下一次事务提交时就摘掉动画、随后触发结束回调，冻结图层时间也拦不住。这次提交
+        // 是否落在写回与断言之间取决于 run loop 调度，读到的结果随之变化。淡入与否的决定由
+        // `NativeImageFadeAnimationTests` 固定。
+        #expect(await Self.waitForLayer(showing: image, in: item.view) != nil)
     }
 
     private static let presentation = NativeVideoCardPresentation(
@@ -72,12 +69,13 @@ struct NativeVideoCollectionItemImageTests {
 
     /// 让出主线程直到取图 Task 把结果写回；时长只作超时。
     private static func waitForLayer(showing image: CGImage, in view: NSView) async -> CALayer? {
+        // 先看条件再看截止时刻：主线程被挡住超过时限时，超时前仍会再看一次已经写回的结果。
         let deadline = ContinuousClock.now.advanced(by: .seconds(2))
-        while ContinuousClock.now < deadline {
+        while true {
             if let layer = layer(showing: image, in: view) { return layer }
+            guard ContinuousClock.now < deadline else { return nil }
             await Task.yield()
         }
-        return nil
     }
 
     private static func descendants(of view: NSView) -> [NSView] {
