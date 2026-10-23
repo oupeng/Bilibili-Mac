@@ -251,7 +251,7 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
     }
 }
 
-/// 呈现测试唯一的显示时间替身：测试直接设定宿主时钟层发布的 D；`time` 为 nil 表示读不到（从未绑定、换绑后
+/// 呈现测试唯一的显示时间替身：测试直接设定时钟层发布的 D；`time` 为 nil 表示读不到（从未绑定、换绑后
 /// 新纪元还没写入）。
 final class ManualDisplayClock: DanmakuDisplayClock, @unchecked Sendable {
     // 只在 MainActor 上的测试里读写，不跨线程；`@unchecked` 只为满足 port 的 Sendable 要求。

@@ -7,7 +7,7 @@ import Testing
 
 @testable import BiliDanmaku
 
-/// 固定 Core Animation renderer 的契约：弹幕动画按媒体时间开始、模型值不可见，位置只由宿主时钟层给出的
+/// 固定 Core Animation renderer 的契约：弹幕动画按媒体时间开始、模型值不可见，位置只由时钟层给出的
 /// 媒体时间决定；窗口尺寸变化只移动锚定边；纹理准备有界、内存压力与无效文本失败关闭；用户透明度在根层，
 /// 改动不带隐式过渡。
 @MainActor
@@ -302,7 +302,7 @@ struct CoreAnimationDanmakuRendererTests {
         #expect(topAnimation.fromValue as? Double == 1)
     }
 
-    /// 在模拟宿主时钟层的父层下，弹幕 layer 的局部时间就是父层给出的媒体时间。
+    /// 在模拟时钟层的父层下，弹幕 layer 的局部时间就是父层给出的媒体时间。
     ///
     /// 暂停时冻结、seek 时跳到新时间、倍速时按倍率推进。renderer 不改 `rootLayer` 的时间属性，动画开始于
     /// 弹幕的媒体时间，所以位置只取决于父层给出的媒体时间；插值本身由 Core Animation 完成，这里不重算。

@@ -6,7 +6,7 @@ import Foundation
 ///
 /// 同一组已缓存分段与设置下，画面是媒体时间与窗口尺寸的纯函数：布局表（`DanmakuLayoutCoordinator`）
 /// 给出每条弹幕的车道与时长，`DanmakuMaterializer` 让 backend 上的 layer 等于此刻取景框里应有的集合，
-/// layer 的运动由宿主的时钟层按播放 item 的 timebase 驱动。暂停、倍速与缓冲都不需要这里处理。
+/// layer 的运动由时钟层按播放 item 的 timebase 驱动。暂停、倍速与缓冲都不需要这里处理。
 ///
 /// 单一时间源：在屏集合、何时对齐、步长、迟到纹理与腾纹理字节都按时钟层此刻的显示时间 D(now)
 /// （`DanmakuDisplayClock`，宿主接管 surface 时交来）计算，与画面上弹幕运动的是同一条线。时间线快照与时钟层
@@ -34,7 +34,7 @@ import Foundation
 /// [上次对齐时的 D, 它 + `reconcileStride`) 里时，屏上已挂的就是此刻应有的，什么都不做；落在这之外
 /// （按步长推进、向前跳出或回跳）都是同一次对齐，缓存命中的纹理在同一次调用里挂上，其余各自就绪时出现。
 /// 恢复播放、向前的 timebase 重锚与缓冲恢复时 D 还在步长里，什么都不做（起播与卡顿恢复时 timebase 的后退由
-/// 宿主时钟层原地等待吸收，D 不回跳）。弹幕不隐藏也不清屏，屏上的 layer 一直跟随媒体时间。
+/// 时钟层原地等待吸收，D 不回跳）。弹幕不隐藏也不清屏，屏上的 layer 一直跟随媒体时间。
 @MainActor
 public final class DanmakuPresentationController: DanmakuPresentationSink {
     /// 两次对齐之间至少相隔的媒体时长：D 落在 [上次对齐时的 D, 上次对齐时的 D + 它) 里时不对齐。
@@ -214,7 +214,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         return true
     }
 
-    /// 宿主的时钟层即将换绑到另一个播放 item：先清屏，再由宿主换绑；只接受当前 owner。
+    /// 时钟层即将换绑到另一个播放 item：先清屏，再由宿主换绑；只接受当前 owner。
     ///
     /// 时钟层换绑后时间立刻按新 item 走，旧 layer 留着会在新时间线上错位，所以必须先清。布局表保留
     /// （同一视频换线路或清晰度时仍然有效）。上次对齐时的 D 清掉，新 item 有 D 之后的第一次检查一定对齐。

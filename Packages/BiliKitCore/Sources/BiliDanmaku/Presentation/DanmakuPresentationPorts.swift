@@ -8,7 +8,7 @@ import BiliModels
 @MainActor
 public protocol DanmakuPresentationSink: AnyObject {
     /// 每个快照都要送达：呈现端靠它得知 identity，并把它当作「该检查一下了」的节拍；在屏集合与何时对齐
-    /// 按宿主时钟层的显示时间（`DanmakuDisplayClock`）决定，不按快照位置。
+    /// 按时钟层的显示时间（`DanmakuDisplayClock`）决定，不按快照位置。
     func apply(_ snapshot: PlaybackTimelineSnapshot)
     /// 此刻的弹幕显示时间 D；没有接管 surface 的时钟、或时钟还读不到当前 item 的时间时为 nil。会话淘汰分段时
     /// 保护 D 需要的分段（屏上弹幕正在那里运动）。
@@ -28,7 +28,7 @@ public protocol DanmakuPresentationSink: AnyObject {
     func stopPresentation()
 }
 
-/// 弹幕的显示时间来源：宿主时钟层此刻的本地时间 D(now)，弹幕 layer 正按它运动。
+/// 弹幕的显示时间来源：时钟层此刻的本地时间 D(now)，弹幕 layer 正按它运动。
 ///
 /// 实现是 App 的 `DanmakuTimebaseClock`，D 与 Core Animation 渲染时钟层用的是同一条直线。任意线程可调用、
 /// 不阻塞；时钟从未绑定过 timebase、或换绑到另一个 timebase 之后新 timebase 第一次写入之前返回 nil，这时

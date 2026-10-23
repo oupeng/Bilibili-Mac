@@ -150,8 +150,8 @@ session path，提供内存中生成的 master／media playlist，并把 AVPlaye
 `BiliApplication.PlaybackTimelineProviding` 是弹幕、Now Playing 与观看进度的唯一时间来源，由
 `BiliPlayback` 用 AVPlayer observation 与 item 通知实现，表达 item identity、位置、速率、状态与
 discontinuity generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CMTime`／KVO；各自 timer 无法正确
-表达卡顿、暂停、倍速和 seek。唯一的例外是弹幕动画本身：弹幕 layer 挂在播放器宿主的时钟层下，由 item
-timebase 直接驱动（见下文「弹幕时钟层」与「弹幕」）；哪些弹幕在屏上、何时对齐也按时钟层发布的显示时间
+表达卡顿、暂停、倍速和 seek。唯一的例外是弹幕动画本身：弹幕 layer 挂在弹幕 overlay 的时钟层下，由 item
+timebase 直接驱动（见下文的弹幕时钟层一条与「弹幕」）；哪些弹幕在屏上、何时对齐也按时钟层发布的显示时间
 D(now) 决定，时间线快照只用来确认 identity、作检查节拍与决定请求哪些分段。`BiliDanmaku` 经
 `DanmakuDisplayClock` 读 D，不接触 AVFoundation 与 Core Media。字幕作为原生 subtitle rendition 进入同一 `AVPlayerItem`，由系统字幕
 菜单选择。
@@ -218,7 +218,7 @@ D(now) 决定，时间线快照只用来确认 identity、作检查节拍与决�
     timebase 向前的跳变照样跟随，不做平滑追赶：从暂停恢复时前跳约 20～40ms，松开长按倍速时前跳约
     100～160ms，画面同样跳。以上是在 macOS 27 上实测的系统行为。
   - 已知边界：
-    - 时钟层只在速率变化与时间跳变时与 timebase 对齐，两次之间按当时的速率外推。timebase 相对宿主时钟有
+    - 时钟层只在速率变化与时间跳变时与 timebase 同步，两次之间按当时的速率外推。timebase 相对宿主时钟有
       微小漂移且不为此发通知，长时间不暂停、不 seek 时会累积每小时几十毫秒量级的偏差（实测约 38ms/小时），
       下一次变化时消除。蓝牙输出下 timebase 还会无通知地静默重锚（实测最多 ±49ms），同样只在下一次通知时
       纠正，暂停或卡顿时表现为一次几 pt 的跳动。不做周期性重新同步。
@@ -264,7 +264,7 @@ D(now) 决定，时间线快照只用来确认 identity、作检查节拍与决�
     backing scale 栅格化的弹幕也立即换到新 placement（旧纹理按新尺寸拉伸）。窗口换到 backing scale 不同的
     屏幕时，已在屏的弹幕也当作缺纹理重新准备，就绪一条原位换一条，不先移除；新纹理被纹理字节上限拒绝的
     那几条一直用旧纹理到离场。纹理字节吃紧时哪几条缺席取决于纹理完成的先后。
-  - 渲染：`rootLayer` 挂在播放器宿主（`DanmakuOverlayView`）的时钟层下（见「媒体时间轴」），子树的局部
+  - 渲染：`rootLayer` 挂在弹幕 overlay（`DanmakuOverlayView`）的时钟层下（见「媒体时间轴」），子树的局部
     时间就是播放 item 的时间。动画 `beginTime` 是弹幕的时间点（0 写成时钟层定义的正数哨兵，由 App 注入：
     Core Animation 把 0 当作「现在」），`removedOnCompletion` 为 false；fillMode 保持默认，
     动画区间外呈现回到模型值，所以模型值本身不可见（滚动弹幕在画面左外侧，顶部底部弹幕不透明度为 0），

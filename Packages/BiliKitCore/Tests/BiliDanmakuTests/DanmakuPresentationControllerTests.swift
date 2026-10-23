@@ -5,7 +5,7 @@ import Testing
 
 @testable import BiliDanmaku
 
-/// 固定呈现控制器的契约：位置一律是宿主时钟层的显示时间 D，快照只是检查节拍，时钟写入不等快照也会
+/// 固定呈现控制器的契约：时刻一律是时钟层的显示时间 D，快照只是检查节拍，时钟写入不等快照也会
 /// 重新检查，读不到 D 时什么都不挂；画面在分段布局完成后按 D 出现，看得见的集合与布局表在 D 时刻一致；
 /// D 离开上次对齐后的一个步长（含回跳）就对齐，步长内什么都不做，步长加一个快照周期短于前瞻；跳到纹理已
 /// 缓存的地方在一次调用里整屏换成那一刻的样子；连续拖动时已就绪的纹理每一步都挂上、不被扣留，拖进未缓存
@@ -20,7 +20,7 @@ import Testing
 @Suite(.timeLimit(.minutes(1)))
 struct DanmakuPresentationControllerTests {
     private let identity = PlaybackItemIdentity(bvid: "BV1Controller", cid: 1)
-    /// 宿主时钟层发布的 D，每个测试一份；`move` 让它与快照位置一致，分歧测试单独让两者分开。
+    /// 时钟层发布的 D，每个测试一份；`move` 让它与快照位置一致，分歧测试单独让两者分开。
     private let clock = ManualDisplayClock()
 
     @Test
