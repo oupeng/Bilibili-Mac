@@ -91,7 +91,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     }
 
     /// 当前布局表；reconcile 按它挂上弹幕。
-    var layoutTable: [Int: DanmakuSegmentLayout] { coordinator.layouts }
+    var layoutTable: [Int: DanmakuSegmentLayout] { coordinator.table }
 
     /// 当前窗口在规划画布上的取景框；可见车道数与规划车道数用同一个显示区域比例。
     var viewport: DanmakuViewport {
