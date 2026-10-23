@@ -467,9 +467,11 @@ D(now) 决定，时间线快照只用来确认 identity、作检查节拍与决�
   `evaluatingBufferingRate` 再转为 `toMinimizeStalls`，都是在等数据；HLS 源播完后再调用播放会一直停在
   `toMinimizeStalls` 却已缓冲充足，不算。暂停中 seek、AVKit 原生进度条的点击与拖动（AVKit 先把速率设为
   0，在后台线程 seek，落地后才恢复速率）、progressive 源的 seek（期间仍是 playing）都只能从 seek 调用
-  看出，所以窗口播放器是记录在途 seek 的 `AVPlayer` 子类 `SeekTrackingPlayer`。等待持续
-  `PlayerLoadingPolicy.presentationDelay` 才呈现；还没呈现时又发起新的 seek 重新计时（连续拖动已缓冲
-  区间时每次 seek 都很快落地），已呈现后新的 seek 不打断；等待结束立即撤下。
+  看出，所以窗口播放器是记录在途 seek 的 `AVPlayer` 子类 `SeekTrackingPlayer`：按 token 登记并绑定发起时的
+  item，换 item 时清空，非有限时间不登记（对失败的 item 或非有限时间 seek，AVFoundation 永远不回调）。
+  计时起点是最近一次画面更新：等待持续 `PlayerLoadingPolicy.presentationDelay` 才呈现，还没呈现时有
+  seek 落地就重新计时（拖动已缓冲区间时每次 seek 都很快落地，不转；未缓冲区连按快捷键时旧 seek 被打断、
+  不算落地，从第一次按下起计时），已呈现后不打断；等待结束立即撤下。
 - 播放器上的滚轮不再拦截，交给 AVKit 原生处理。键盘快捷键以 content overlay 中弹幕层所在窗口为准；
   AVKit detached 全屏只携带 content overlay，锚点必须是其中的视图。
 - 播放态侧栏替换导航侧栏，不另开右侧 inspector：播放期间导航使用率低，双栏把宽度留给视频。两种状态

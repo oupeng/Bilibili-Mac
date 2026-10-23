@@ -389,7 +389,7 @@ final class DanmakuPlayerView: AVPlayerView {
     /// 跳回主线程期间状态又变了也以最新的为准。
     private func updatePlaybackActivity() {
         let item = player?.currentItem
-        let seekActivity = observedPlayer?.seekActivity ?? PlayerSeekActivity()
+        let seekActivity = observedPlayer?.seekActivity ?? .idle
         overlayModel.setPreparationActivity(
             isPreparing: blocksNativePlaybackInteraction,
             hasCurrentItem: item != nil
@@ -402,7 +402,7 @@ final class DanmakuPlayerView: AVPlayerView {
                 timeControlStatus: player?.timeControlStatus ?? .paused,
                 isPlaybackLikelyToKeepUp: item?.isPlaybackLikelyToKeepUp ?? false
             ),
-            seekGeneration: seekActivity.generation
+            landedSeekCount: seekActivity.landedSeekCount
         )
     }
 
@@ -502,7 +502,7 @@ final class DanmakuPlayerView: AVPlayerView {
                 self?.updatePlaybackActivity()
             }
         }
-        // AVKit 原生进度条在后台线程 seek，通知也在那里发出；观察集合把回调排到主队列。
+        // seek 可能在任何线程发起与完成，通知由播放器异步投递到主队列，回调里读最新快照。
         playerSeekActivityObservers.observe(
             SeekTrackingPlayer.activityDidChangeNotification,
             object: player

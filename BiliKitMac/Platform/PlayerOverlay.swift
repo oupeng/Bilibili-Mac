@@ -284,13 +284,14 @@ final class PlayerOverlayModel {
     private(set) var showsPreparationActivity = false
     /// 当前这次等画面的 identity，不在等待时为 nil。
     ///
-    /// 呈现计时以它为 `.task` id。等待结束后再开始，或转圈还没呈现时又发起了新的 seek，都生成新 id
-    /// 重新计时：拖动已缓冲的区间时 AVKit 一次接一次地 seek，每次都很快落地，不算一次长等待。转圈已经呈现后
-    /// 新的 seek 沿用原 id，转圈不闪。
+    /// 呈现计时以它为 `.task` id，计时起点是用户最近一次看到画面更新：等待开始时，或转圈还没呈现时又有 seek
+    /// 落地（新位置的画面出来了），都生成新 id 重新计时。拖动已缓冲区间时 AVKit 一次接一次地 seek，每次都很快
+    /// 落地，不会转；在未缓冲区连按快捷键时旧 seek 被打断而没有落地，画面一直停在原处，从第一次按下起计时。
+    /// 转圈已经呈现后再落地沿用原 id，转圈不闪。
     private(set) var loadingID: UUID?
     private(set) var showsLoadingActivity = false
-    /// 最近一次 `setWaitingForPicture` 带来的 seek 序号，只用来判断是否又发起了新的 seek。
-    @ObservationIgnored private var loadingSeekGeneration: UInt64 = 0
+    /// 最近一次 `setWaitingForPicture` 带来的 seek 落地次数，只用来判断画面是否又更新过。
+    @ObservationIgnored private var loadingLandedSeekCount: UInt64 = 0
     @ObservationIgnored private(set) var restartFromBeginning: () -> Void = {}
     @ObservationIgnored private var dismissedResumeToken: PlaybackResumeToken?
     @ObservationIgnored fileprivate var resumeButtonFrame: CGRect?
@@ -372,11 +373,11 @@ final class PlayerOverlayModel {
 
     /// 等待结束立即撤下转圈；进入等待只记录，呈现由视图在延迟后调用 `presentLoading(id:)`。
     ///
-    /// 由播放器宿主在播放器、item 或在途 seek 任一变化后按最新状态调用；`seekGeneration` 是
-    /// `PlayerSeekActivity.generation`。
-    func setWaitingForPicture(_ waiting: Bool, seekGeneration: UInt64) {
-        let isNewSeek = seekGeneration != loadingSeekGeneration
-        loadingSeekGeneration = seekGeneration
+    /// 由播放器宿主在播放器、item 或 seek 登记任一变化后按最新状态调用；`landedSeekCount` 是
+    /// `PlayerSeekActivity.landedSeekCount`。
+    func setWaitingForPicture(_ waiting: Bool, landedSeekCount: UInt64) {
+        let pictureUpdated = landedSeekCount != loadingLandedSeekCount
+        loadingLandedSeekCount = landedSeekCount
         guard waiting else {
             guard loadingID != nil else { return }
             loadingID = nil
@@ -386,7 +387,7 @@ final class PlayerOverlayModel {
             }
             return
         }
-        guard loadingID == nil || (isNewSeek && !showsLoadingActivity) else { return }
+        guard loadingID == nil || (pictureUpdated && !showsLoadingActivity) else { return }
         loadingID = UUID()
     }
 
@@ -434,7 +435,7 @@ struct PlayerOverlayView: View {
     private var loadingActivity: some View {
         if model.showsLoadingActivity {
             PlayerLoadingIndicator()
-                .accessibilityLabel(AppStrings.localized("正在缓冲"))
+                .accessibilityLabel(AppStrings.localized("正在加载"))
                 .transition(reduceMotion ? .identity : .opacity)
         }
     }

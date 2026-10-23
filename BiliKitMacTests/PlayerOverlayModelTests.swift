@@ -170,22 +170,22 @@ struct PlayerOverlayModelTests {
     func loadingActivityAppearsOnlyForTheWaitStillInProgress() throws {
         let model = PlayerOverlayModel()
 
-        model.setWaitingForPicture(true, seekGeneration: 0)
+        model.setWaitingForPicture(true, landedSeekCount: 0)
         let finished = try #require(model.loadingID)
         #expect(!model.showsLoadingActivity)
-        model.setWaitingForPicture(false, seekGeneration: 0)
+        model.setWaitingForPicture(false, landedSeekCount: 0)
         model.presentLoading(id: finished)
         #expect(!model.showsLoadingActivity)
 
-        model.setWaitingForPicture(true, seekGeneration: 0)
+        model.setWaitingForPicture(true, landedSeekCount: 0)
         let shown = try #require(model.loadingID)
         model.presentLoading(id: shown)
         #expect(model.showsLoadingActivity)
 
-        model.setWaitingForPicture(false, seekGeneration: 0)
+        model.setWaitingForPicture(false, landedSeekCount: 0)
         #expect(!model.showsLoadingActivity)
         #expect(model.loadingID == nil)
-        model.setWaitingForPicture(true, seekGeneration: 0)
+        model.setWaitingForPicture(true, landedSeekCount: 0)
         let again = try #require(model.loadingID)
         #expect(again != shown)
         model.presentLoading(id: shown)
@@ -194,16 +194,17 @@ struct PlayerOverlayModelTests {
         #expect(model.showsLoadingActivity)
     }
 
-    /// 还没呈现时又发起新的 seek 重新计时（连续拖动已缓冲区间不转）；已经呈现后新的 seek 不让转圈闪一下。
+    /// 计时起点是最近一次画面更新：还没呈现时有 seek 落地就重新计时（拖动已缓冲区间不转），没落地的新 seek
+    /// 不重新计时（未缓冲区连按照常转）；已经呈现后再落地也不让转圈闪一下。
     @Test
-    func newSeekRestartsTheDelayOnlyBeforeTheActivityIsShown() throws {
+    func landedSeekRestartsTheDelayOnlyBeforeTheActivityIsShown() throws {
         let model = PlayerOverlayModel()
 
-        model.setWaitingForPicture(true, seekGeneration: 1)
+        model.setWaitingForPicture(true, landedSeekCount: 1)
         let first = try #require(model.loadingID)
-        model.setWaitingForPicture(true, seekGeneration: 1)
+        model.setWaitingForPicture(true, landedSeekCount: 1)
         #expect(model.loadingID == first)
-        model.setWaitingForPicture(true, seekGeneration: 2)
+        model.setWaitingForPicture(true, landedSeekCount: 2)
         let second = try #require(model.loadingID)
         #expect(second != first)
         model.presentLoading(id: first)
@@ -211,7 +212,7 @@ struct PlayerOverlayModelTests {
 
         model.presentLoading(id: second)
         #expect(model.showsLoadingActivity)
-        model.setWaitingForPicture(true, seekGeneration: 3)
+        model.setWaitingForPicture(true, landedSeekCount: 3)
         #expect(model.loadingID == second)
         #expect(model.showsLoadingActivity)
     }
