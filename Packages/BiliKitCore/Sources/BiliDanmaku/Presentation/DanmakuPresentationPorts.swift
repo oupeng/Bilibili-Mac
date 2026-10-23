@@ -12,7 +12,7 @@ public protocol DanmakuPresentationSink: AnyObject {
     func apply(_ snapshot: PlaybackTimelineSnapshot)
     /// 此刻的弹幕显示时间 D；没有接管 surface 的时钟、或时钟还读不到当前 item 的时间时为 nil。会话淘汰分段时
     /// 保护 D 需要的分段（屏上弹幕正在那里运动）。
-    func displayPosition() -> Double?
+    func displayTime() -> Double?
     /// 会话当前缓存的全部分段（按分段号）；分段到达或被淘汰时整份重新给出。identity 与呈现端当前的
     /// 不一致时忽略。
     func setSegments(

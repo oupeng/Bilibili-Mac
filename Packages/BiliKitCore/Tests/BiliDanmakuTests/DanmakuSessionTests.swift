@@ -353,7 +353,7 @@ struct DanmakuSessionTests {
             }
         }
 
-        sink.displayPositionSeconds = 400
+        sink.currentDisplayTime = 400
         session.start(for: identity)
         publish(400)
         try await waitForCachedSegments([1, 2, 3])
@@ -364,7 +364,7 @@ struct DanmakuSessionTests {
         #expect(requested.filter { $0 == 7 }.count == 1)
         #expect(requested.filter { $0 == 8 }.count == 1)
 
-        sink.displayPositionSeconds = 2_300
+        sink.currentDisplayTime = 2_300
         publish(2_530)
         try await waitForCachedSegments([7, 8, 9])
         #expect(await repository.requestedIndices(for: identity).sorted() == [1, 2, 3, 7, 8, 9])

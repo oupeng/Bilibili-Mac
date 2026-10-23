@@ -115,7 +115,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         evaluate()
     }
 
-    public func displayPosition() -> Double? {
+    public func displayTime() -> Double? {
         clockBox.clock?.displayTime()
     }
 
