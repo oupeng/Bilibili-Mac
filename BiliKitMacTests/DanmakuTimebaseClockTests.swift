@@ -126,7 +126,8 @@ struct DanmakuTimebaseClockTests {
             timebase,
             time: CMTime(seconds: before - 1, preferredTimescale: 1_000_000_000)
         )
-        #expect(await waitUntil { clock.layer.beginTime > CACurrentMediaTime() })
+        // 以跳之前取的 host 判断写入已落地，不与当前时刻比较：等待窗口只有 0.5 秒，测试机慢时检查前就已过完。
+        #expect(await waitUntil { clock.layer.beginTime > host })
 
         // 往回跳 1 秒、速率 2：停在跳之前的值，0.5 秒后追上，之后与 timebase 重合。
         let held = clock.layer.convertTime(host, from: nil)
