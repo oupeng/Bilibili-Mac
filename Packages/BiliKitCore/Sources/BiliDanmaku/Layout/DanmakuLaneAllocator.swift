@@ -1,9 +1,9 @@
 import BiliModels
 import Foundation
 
-/// 在固定 surface 与活动数量上限内分配弹幕轨道，并阻止滚动弹幕追尾。
+/// 在固定规划画布与活动数量上限内分配弹幕车道，并阻止滚动弹幕追尾。
 ///
-/// 高于一个 lane 基元的文本会占用连续 lane，避免大字号重叠；小字号仍只占一个基元。
+/// 高于一个车道基元的文本会占用连续多条车道，避免大字号重叠；小字号仍只占一个基元。
 ///
 /// allocator 只使用媒体时间计算占用与过期，输入顺序与宽高确定时结果就确定；车道布局按弹幕自己的时间点
 /// 逐条准入，复制一份就是某一时刻的车道占用。
@@ -40,7 +40,7 @@ struct DanmakuLaneAllocator: Sendable {
 
     /// 两份占用对之后的准入是否完全等价：活动 placement 相同，且每个滚动槽位最后进入的是同一条。
     ///
-    /// 车道布局用它判断上一段重新布局后末尾的占用是否变了：不变时下一段的布局原样有效，变了才需要
+    /// 车道布局用它判断上一段重排后末尾的占用是否变了：不变时下一段的布局原样有效，变了才需要
     /// 从新的种子重排。顶部／底部槽位与车道计数都由活动 placement 决定，不必另比；滚动槽位的尾巴不行，
     /// 尾巴到期移除后，同槽位更早进入、仍在走的那条不会补回尾巴。
     func hasSameOccupancy(as other: Self) -> Bool {
@@ -114,9 +114,9 @@ struct DanmakuLaneAllocator: Sendable {
             return nil
         }
         let displayHeight =
-            configuration.surfaceHeight * configuration.displayAreaFraction
+            configuration.planningHeight * configuration.displayAreaFraction
         let laneCount = DanmakuLaneConfiguration.laneCount(
-            surfaceHeight: configuration.surfaceHeight,
+            height: configuration.planningHeight,
             displayAreaFraction: configuration.displayAreaFraction
         )
         guard laneCount > 0,
@@ -180,7 +180,7 @@ struct DanmakuLaneAllocator: Sendable {
         let placement = DanmakuLanePlacement(
             request: request,
             laneIndex: laneIndex,
-            planningWidth: configuration.surfaceWidth,
+            planningWidth: configuration.planningWidth,
             admittedAtSeconds: playbackTime,
             expiresAtSeconds: playbackTime + request.durationSeconds,
             overlapDepth: overlapDepth
@@ -282,21 +282,21 @@ struct DanmakuLaneAllocator: Sendable {
         let previousRequest = previous.request
         let elapsed = playbackTime - previous.admittedAtSeconds
         guard elapsed >= 0 else { return false }
-        let surfaceWidth = configuration.surfaceWidth
+        let planningWidth = configuration.planningWidth
         let previousSpeed = DanmakuMotionPolicy.scrollingSpeed(
             textWidth: previousRequest.width,
-            planningWidth: surfaceWidth,
+            planningWidth: planningWidth,
             durationSeconds: previousRequest.durationSeconds
         )
         let newSpeed = DanmakuMotionPolicy.scrollingSpeed(
             textWidth: request.width,
-            planningWidth: surfaceWidth,
+            planningWidth: planningWidth,
             durationSeconds: request.durationSeconds
         )
         let previousRightEdge =
-            surfaceWidth - previousSpeed * elapsed
+            planningWidth - previousSpeed * elapsed
             + previousRequest.width
-        let availableGap = surfaceWidth - previousRightEdge
+        let availableGap = planningWidth - previousRightEdge
         guard availableGap >= configuration.minimumHorizontalGap else {
             return false
         }

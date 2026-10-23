@@ -14,7 +14,7 @@ struct DanmakuTextMeasureKey: Hashable, Sendable {
 
 /// 一行弹幕文字的排版结果与纹理像素尺寸。
 ///
-/// 车道布局的测量与纹理栅格化都从这里取尺寸：布局用的宽高与上屏纹理的宽高因此逐像素一致，滚动弹幕的
+/// 车道布局的测量与纹理栅格化都从这里取尺寸：布局用的宽高与在屏纹理的宽高因此逐像素一致，滚动弹幕的
 /// 速度与追尾判断不会因两边各算一份而漂移。
 struct DanmakuTextLineLayout {
     let line: CTLine
@@ -138,7 +138,7 @@ struct DanmakuTextMeasurementCache: Sendable {
     /// 缓存的条目上限，超出时整份清空重来。
     ///
     /// 三个满载分段约 6 万条弹幕，其中重复文字很多；这个上限足够覆盖缓存的分段，每条只占几十字节。
-    /// 调小会让设置变化后的重新布局更常重新排版，调大只多占内存。
+    /// 调小会让设置变化后的重排更常重新排版，调大只多占内存。
     static let maximumEntryCount = 65_536
 
     private var metricsByKey: [DanmakuTextMeasureKey: DanmakuTextMetrics?] = [:]

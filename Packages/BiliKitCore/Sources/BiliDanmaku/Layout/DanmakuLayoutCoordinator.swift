@@ -14,11 +14,11 @@ import Foundation
 /// 尺寸，见 `DanmakuPresentationController`），所以拖动窗口边缘不会到这里。`deinit` 与 `reset` 取消任务。
 @MainActor
 final class DanmakuLayoutCoordinator {
-    /// 布局表被替换（整张重排、新分段排进表里、设置变为不可用而清空）后在主线程调用；调用时 `layouts` 已是新表。
+    /// 布局表被替换（整张重排、新分段排进表里、设置变为不可用而清空）后在主线程调用；调用时 `table` 已是新表。
     var tableDidChange: (@MainActor () -> Void)?
     /// 当前布局表：按分段号，只含已缓存的分段，全部按 `layoutParameters` 计算。
-    private(set) var layouts: [Int: DanmakuSegmentLayout] = [:]
-    /// `layouts` 对应的设置；还没有布局表时为 nil。
+    private(set) var table: [Int: DanmakuSegmentLayout] = [:]
+    /// `table` 对应的设置；还没有布局表时为 nil。
     private(set) var layoutParameters: DanmakuLayoutParameters?
 
     private var segments: [Int: [DanmakuEvent]] = [:]
@@ -41,7 +41,7 @@ final class DanmakuLayoutCoordinator {
     func setSegments(_ segments: [Int: [DanmakuEvent]]) {
         let previous = self.segments
         self.segments = segments
-        layouts = layouts.filter { index, _ in
+        table = table.filter { index, _ in
             segments[index].map { $0 == previous[index] } ?? false
         }
         startIfNeeded()
@@ -55,7 +55,7 @@ final class DanmakuLayoutCoordinator {
         job?.cancel()
         needsFullRelayout = true
         if parameters == nil, layoutParameters != nil {
-            layouts.removeAll(keepingCapacity: false)
+            table.removeAll(keepingCapacity: false)
             layoutParameters = nil
             tableDidChange?()
         }
@@ -67,7 +67,7 @@ final class DanmakuLayoutCoordinator {
         generation &+= 1
         job?.cancel()
         segments.removeAll(keepingCapacity: false)
-        layouts.removeAll(keepingCapacity: false)
+        table.removeAll(keepingCapacity: false)
         layoutParameters = nil
         needsFullRelayout = false
     }
@@ -78,11 +78,11 @@ final class DanmakuLayoutCoordinator {
             let parameters,
             let cache = measurementCache,
             !segments.isEmpty,
-            needsFullRelayout || segments.keys.contains(where: { layouts[$0] == nil })
+            needsFullRelayout || segments.keys.contains(where: { table[$0] == nil })
         else {
             return
         }
-        let existing = needsFullRelayout ? [:] : layouts
+        let existing = needsFullRelayout ? [:] : table
         needsFullRelayout = false
         measurementCache = nil
         let jobGeneration = generation
@@ -137,7 +137,7 @@ final class DanmakuLayoutCoordinator {
         measurementCache = cache
         if let result, jobGeneration == generation {
             // 任务期间被淘汰或换了内容的分段不进布局表；换了内容的随后由下一个任务重排。
-            layouts = result.filter { index, _ in
+            table = result.filter { index, _ in
                 segments[index].map { $0 == jobSegments[index] } ?? false
             }
             layoutParameters = parameters

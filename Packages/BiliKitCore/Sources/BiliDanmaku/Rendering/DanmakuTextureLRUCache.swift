@@ -3,14 +3,14 @@ import Foundation
 /// 按字节成本有界的 LRU 弹幕纹理缓存，让文本、字号、颜色与 scale 都相同的弹幕复用已栅格化的像素。
 ///
 /// 只由 `DanmakuTexturePreparationOwner` 在 MainActor 上访问，自身不加锁。
-/// 已就绪待上屏的纹理也只存在这里，在上屏前被淘汰时 renderer 取不到像素，这条弹幕不上屏。
+/// 已就绪待挂上的纹理也只存在这里，在挂上前被淘汰时 renderer 取不到像素，这条弹幕不挂上。
 final class DanmakuTextureLRUCache {
     /// 缓存的单项与总字节上限；超过单项上限的纹理不入缓存。
     struct Limits: Sendable, Equatable {
         /// 单项上限等于栅格化器的 8 MiB 纹理上限；总量 32 MiB 至少能放下四个最大纹理，
-        /// 也低于已上屏纹理的 64 MiB 上限。
+        /// 也低于在屏纹理的 64 MiB 上限。
         ///
-        /// 调大总量提高重复文本的命中率、已就绪纹理也更少在上屏前被淘汰，但常驻内存随之增加；
+        /// 调大总量提高重复文本的命中率、已就绪纹理也更少在挂上前被淘汰，但常驻内存随之增加；
         /// 调小则更常重新栅格化。
         static let production = Limits(
             maximumItemCost: DanmakuTextureRasterizer.maximumTextureByteCost,

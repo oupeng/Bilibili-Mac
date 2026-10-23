@@ -132,7 +132,7 @@ struct DanmakuPresentationRandomOperationTests {
                 controller.playerItemWillChange(ownerID: owner)
                 clock.time = nil
             default:
-                // 逐条完成至多一半，每完成一条就检查：在途的纹理常常跨越好几步，与回跳、重排交错；逐条上屏的
+                // 逐条完成至多一半，每完成一条就检查：在途的纹理常常跨越好几步，与回跳、重排交错；逐条挂上的
                 // 新旧混排与扣留也看得见。
                 let count = Int(sequence.next() % UInt64(backend.pendingPreparationCount / 2 + 1))
                 for _ in 0..<count {

@@ -21,7 +21,7 @@ struct DanmakuLayoutCoordinatorTests {
         coordinator.setParameters(parameters(width: 1_200))
         try await changes.wait(until: 2)
 
-        let placements = try #require(coordinator.layouts[1]?.placements)
+        let placements = try #require(coordinator.table[1]?.placements)
         #expect(!placements.isEmpty)
         #expect(placements.allSatisfy { $0.planningWidth == 1_200 })
     }
@@ -67,7 +67,7 @@ struct DanmakuLayoutCoordinatorTests {
         coordinator.setSegments([1: replacement])
         try await changes.wait(until: 2)
 
-        let ids = try #require(coordinator.layouts[1]?.placements.map(\.request.event.id))
+        let ids = try #require(coordinator.table[1]?.placements.map(\.request.event.id))
         #expect(!ids.isEmpty)
         #expect(ids.allSatisfy { $0.hasPrefix("replacement-") })
     }
@@ -90,13 +90,13 @@ struct DanmakuLayoutCoordinatorTests {
         continuous.setSegments([1: first, 2: second])
         try await continuousChanges.wait(until: 1)
 
-        #expect(late.layouts[1]?.placements == continuous.layouts[1]?.placements)
-        #expect(late.layouts[2]?.placements == continuous.layouts[2]?.placements)
+        #expect(late.table[1]?.placements == continuous.table[1]?.placements)
+        #expect(late.table[2]?.placements == continuous.table[2]?.placements)
     }
 
     private func parameters(width: Double) -> DanmakuLayoutParameters {
         DanmakuLayoutParameters(
-            configuration: configuration(surfaceWidth: width),
+            configuration: configuration(planningWidth: width),
             speedLevel: .default,
             backingScale: 2,
             filter: DanmakuFilter()

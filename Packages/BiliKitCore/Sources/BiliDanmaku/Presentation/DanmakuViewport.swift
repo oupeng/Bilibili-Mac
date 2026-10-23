@@ -19,7 +19,7 @@ struct DanmakuViewport: Sendable, Equatable {
     init(width: Double, height: Double, displayAreaFraction: Double) {
         self.width = width.isFinite ? max(width, 0) : 0
         visibleLaneCount = DanmakuLaneConfiguration.laneCount(
-            surfaceHeight: height.isFinite ? max(height, 0) : 0,
+            height: height.isFinite ? max(height, 0) : 0,
             displayAreaFraction: displayAreaFraction
         )
     }

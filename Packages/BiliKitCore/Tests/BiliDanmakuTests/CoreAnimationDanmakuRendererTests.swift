@@ -7,14 +7,14 @@ import Testing
 
 @testable import BiliDanmaku
 
-/// 固定 Core Animation renderer 的契约：弹幕动画按媒体时间开始、模型值不可见，位置只由宿主时钟层给出的
+/// 固定 Core Animation renderer 的契约：弹幕动画按媒体时间开始、模型值不可见，位置只由时钟层给出的
 /// 媒体时间决定；窗口尺寸变化只移动锚定边；纹理准备有界、内存压力与无效文本失败关闭；用户透明度在根层，
 /// 改动不带隐式过渡。
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct CoreAnimationDanmakuRendererTests {
     /// 注入 renderer 的媒体时间 0 哨兵；任何可忽略的正数都行。
-    private static let beginTimeAtZero: CFTimeInterval = 1e-100
+    private static let beginTimeAtMediaZero: CFTimeInterval = 1e-100
 
     @Test
     func rendererAppliesUserOpacityAtRootAndReleasesTextureBytes() async throws {
@@ -77,7 +77,7 @@ struct CoreAnimationDanmakuRendererTests {
         #expect(counter.count == 2)
     }
 
-    /// 内存压力只拒绝当时在途的准备；之后重新准备同一事件仍能上屏。
+    /// 内存压力只拒绝当时在途的准备；之后重新准备同一事件仍能挂上。
     @Test
     func memoryPressureRejectsInflightPreparationWithoutBlockingLaterRender() async throws {
         let renderer = makeRenderer()
@@ -290,7 +290,7 @@ struct CoreAnimationDanmakuRendererTests {
                 as? CABasicAnimation
         )
 
-        #expect(scrollingAnimation.beginTime == Self.beginTimeAtZero)
+        #expect(scrollingAnimation.beginTime == Self.beginTimeAtMediaZero)
         #expect(topAnimation.beginTime == 12.5)
         #expect(!scrollingAnimation.isRemovedOnCompletion)
         #expect(!topAnimation.isRemovedOnCompletion)
@@ -302,7 +302,7 @@ struct CoreAnimationDanmakuRendererTests {
         #expect(topAnimation.fromValue as? Double == 1)
     }
 
-    /// 在模拟宿主时钟层的父层下，弹幕 layer 的局部时间就是父层给出的媒体时间。
+    /// 在模拟时钟层的父层下，弹幕 layer 的局部时间就是父层给出的媒体时间。
     ///
     /// 暂停时冻结、seek 时跳到新时间、倍速时按倍率推进。renderer 不改 `rootLayer` 的时间属性，动画开始于
     /// 弹幕的媒体时间，所以位置只取决于父层给出的媒体时间；插值本身由 Core Animation 完成，这里不重算。
@@ -352,7 +352,7 @@ struct CoreAnimationDanmakuRendererTests {
         #expect(abs(localTime(atHostTime: now + 0.5) - 13) < 0.001)
     }
 
-    /// 重新布局后就地换成新的车道，复用纹理，不重新准备。
+    /// 重排后原位换成新的车道，复用纹理，不重新准备。
     @Test
     func updateMovesAnInstalledLayerToItsNewPlacement() async throws {
         let renderer = makeRenderer()
@@ -490,7 +490,7 @@ struct CoreAnimationDanmakuRendererTests {
         #expect(abs(frame(bottom).maxY - (480 - laneHeight)) < 0.001)
     }
 
-    /// 上屏、移除、子层与几何变化不带隐式过渡：弹幕 layer、锚点层与 rootLayer 都禁用这些动作。
+    /// 挂上、移除、子层与几何变化不带隐式过渡：弹幕 layer、锚点层与 rootLayer 都禁用这些动作。
     @Test
     func renderedLayersAndRootDisableImplicitOrderingActions() async throws {
         let renderer = makeRenderer()
@@ -520,7 +520,7 @@ struct CoreAnimationDanmakuRendererTests {
 
     private func makeRenderer() -> CoreAnimationDanmakuRenderer {
         let renderer = CoreAnimationDanmakuRenderer(
-            beginTimeAtZero: Self.beginTimeAtZero
+            beginTimeAtMediaZero: Self.beginTimeAtMediaZero
         )
         renderer.updateSurfaceSize(width: 800, height: 240, backingScale: 2)
         return renderer

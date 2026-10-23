@@ -106,8 +106,8 @@ struct DanmakuLayoutPlannerTests {
     @Test
     func capacityDropsTheSameLaterEventsEveryTime() throws {
         let lanes = DanmakuLaneConfiguration(
-            surfaceWidth: 800,
-            surfaceHeight: DanmakuLaneConfiguration.laneHeight * 1_000,
+            planningWidth: 800,
+            planningHeight: DanmakuLaneConfiguration.laneHeight * 1_000,
             minimumHorizontalGap: 12,
             displayAreaFraction: 1
         )
@@ -180,13 +180,13 @@ struct DanmakuLayoutPlannerTests {
         let planned = try #require(
             layouts(
                 [1: events],
-                configuration: BiliDanmakuTests.configuration(surfaceHeight: planningHeight)
+                configuration: BiliDanmakuTests.configuration(planningHeight: planningHeight)
             )?[1]?.placements
         )
         let direct = try #require(
             layouts(
                 [1: events],
-                configuration: BiliDanmakuTests.configuration(surfaceHeight: windowHeight)
+                configuration: BiliDanmakuTests.configuration(planningHeight: windowHeight)
             )?[1]?.placements
         )
         let viewport = BiliDanmakuTests.viewport(height: windowHeight)

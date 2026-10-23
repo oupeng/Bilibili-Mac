@@ -7,12 +7,12 @@ import Testing
 
 /// 呈现测试的车道配置：默认 800 × 360pt（10 条车道）、12pt 间距、全屏显示区域、不叠放。
 func configuration(
-    surfaceWidth: Double = 800,
-    surfaceHeight: Double = 360
+    planningWidth: Double = 800,
+    planningHeight: Double = 360
 ) -> DanmakuLaneConfiguration {
     DanmakuLaneConfiguration(
-        surfaceWidth: surfaceWidth,
-        surfaceHeight: surfaceHeight,
+        planningWidth: planningWidth,
+        planningHeight: planningHeight,
         minimumHorizontalGap: 12,
         displayAreaFraction: 1
     )
@@ -44,10 +44,10 @@ func timedEvent(
 /// 用测试测量把分段排成布局表；设置取 `configuration()` 与默认速度。
 func layoutTable(
     _ segments: [Int: [DanmakuEvent]],
-    surfaceWidth: Double = 800,
-    surfaceHeight: Double = 360
+    planningWidth: Double = 800,
+    planningHeight: Double = 360
 ) -> [Int: DanmakuSegmentLayout] {
-    let lanes = configuration(surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+    let lanes = configuration(planningWidth: planningWidth, planningHeight: planningHeight)
     return DanmakuLayoutPlanner.layouts(
         for: segments,
         reusing: [:],
@@ -66,7 +66,7 @@ func layoutTable(
 /// 记录在屏弹幕的 placement 与纹理 scale、清屏与画面尺寸，可延迟纹理准备由测试逐个完成；在屏集合变化或
 /// 收到延迟的准备请求时检查等待条件。与 renderer 一样：backing scale 变化时静默取消在途准备，交还的准备不再
 /// 回调；纹理已在缓存里的弹幕即使延迟准备也在请求内同步就绪；在当前 scale 下生成不了纹理的弹幕在请求内同步
-/// 拒绝；安装被纹理字节上限拒绝的弹幕保留原有的纹理与 placement；已就绪的准备要么被挂上、要么被交还，
+/// 拒绝；挂上时被纹理字节上限拒绝的弹幕保留原有的纹理与 placement；已就绪的准备要么被挂上、要么被交还，
 /// 否则一直占着名额。
 @MainActor
 final class RecordingRenderingBackend: DanmakuRenderingBackend {
@@ -87,7 +87,7 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
     var delaysPreparation = false
     /// 纹理已在缓存里的弹幕：即使 `delaysPreparation` 也在 `prepare` 内同步就绪。
     var cachedEventIDs: Set<String> = []
-    /// 安装时像纹理字节超出上限那样被拒绝的弹幕：已在屏的保留原有的纹理与 placement。
+    /// 挂上时像纹理字节超出上限那样被拒绝的弹幕：已在屏的保留原有的纹理与 placement。
     var rejectedEventIDs: Set<String> = []
     private typealias DelayedCompletion = (
         eventID: String,
@@ -191,8 +191,10 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
         delayedCompletions.removeAll { $0.preparationID == preparationID }
     }
 
-    func cancelPendingPreparations() {
-        cancelAllPreparations()
+    /// 与 renderer 一样：取消的准备不再回调，已就绪未取走的记录一并丢弃。
+    func cancelAllPreparations() {
+        delayedCompletions.removeAll()
+        heldPreparationIDs.removeAll()
     }
 
     func remove(eventID: String) {
@@ -233,12 +235,6 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
         notifyWaiters()
     }
 
-    /// 与 renderer 一样：取消的准备不再回调，已就绪未取走的记录一并丢弃。
-    private func cancelAllPreparations() {
-        delayedCompletions.removeAll()
-        heldPreparationIDs.removeAll()
-    }
-
     /// 等到状态满足 `isSatisfied`；每次在屏集合变化或收到延迟的准备请求时检查。
     func waitUntil(_ isSatisfied: @escaping @MainActor () -> Bool) async {
         guard !isSatisfied() else { return }
@@ -255,7 +251,7 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
     }
 }
 
-/// 呈现测试唯一的显示时间替身：测试直接设定宿主时钟层发布的 D；`time` 为 nil 表示读不到（从未绑定、换绑后
+/// 呈现测试唯一的显示时间替身：测试直接设定时钟层发布的 D；`time` 为 nil 表示读不到（从未绑定、换绑后
 /// 新纪元还没写入）。
 final class ManualDisplayClock: DanmakuDisplayClock, @unchecked Sendable {
     // 只在 MainActor 上的测试里读写，不跨线程；`@unchecked` 只为满足 port 的 Sendable 要求。

@@ -46,7 +46,7 @@ struct DanmakuSegmentCacheTests {
         var cache = DanmakuSegmentCache()
         cache.begin(for: identity)
         for index in 1...3 {
-            store(index, in: &cache, displayPosition: nil)
+            store(index, in: &cache, displayTime: nil)
         }
 
         // 拖动到第 6 段附近：落点分段到达时不因离起拖位置远而被淘汰。
@@ -56,7 +56,7 @@ struct DanmakuSegmentCacheTests {
         cache.store(
             DanmakuSegment(index: 6, events: [timedEvent(id: "far", time: 1_900)]),
             for: identity,
-            displayPosition: nil
+            displayTime: nil
         )
 
         #expect(cache.contains(index: 6))
@@ -74,18 +74,18 @@ struct DanmakuSegmentCacheTests {
         cache.begin(for: identity)
         cache.observe(longSnapshot(position: 400))
         for index in 1...3 {
-            store(index, in: &cache, displayPosition: 400)
+            store(index, in: &cache, displayTime: 400)
         }
 
         cache.observe(longSnapshot(position: 2_300))
         for index in [7, 8] {
-            store(index, in: &cache, displayPosition: 400)
+            store(index, in: &cache, displayTime: 400)
         }
         #expect(cache.segments.keys.sorted() == [1, 2, 3, 7, 8])
 
         cache.observe(longSnapshot(position: 2_530))
         #expect(cache.segments.keys.sorted() == [1, 2, 3, 7, 8])
-        store(9, in: &cache, displayPosition: 2_300)
+        store(9, in: &cache, displayTime: 2_300)
         #expect(cache.segments.keys.sorted() == [7, 8, 9])
     }
 
@@ -104,7 +104,7 @@ struct DanmakuSegmentCacheTests {
                 cache.observe(longSnapshot(position: observed))
             }
             let index = 1 + Int(sequence.next() % 12)
-            store(index, in: &cache, displayPosition: nil)
+            store(index, in: &cache, displayTime: nil)
             reference.insert(index)
             let current = DanmakuSegmentCache.segmentIndex(at: observed)
             reference = Set(
@@ -126,12 +126,12 @@ struct DanmakuSegmentCacheTests {
         let storedOther = cache.store(
             DanmakuSegment(index: 1, events: []),
             for: otherIdentity,
-            displayPosition: nil
+            displayTime: nil
         )
         let storedInvalid = cache.store(
             DanmakuSegment(index: 0, events: []),
             for: identity,
-            displayPosition: nil
+            displayTime: nil
         )
 
         #expect(!storedOther)
@@ -143,12 +143,12 @@ struct DanmakuSegmentCacheTests {
     private func store(
         _ index: Int,
         in cache: inout DanmakuSegmentCache,
-        displayPosition: Double?
+        displayTime: Double?
     ) {
         cache.store(
             DanmakuSegment(index: index, events: []),
             for: identity,
-            displayPosition: displayPosition
+            displayTime: displayTime
         )
     }
 

@@ -16,7 +16,7 @@ struct DanmakuTextureCacheKey: Hashable, Sendable {
 /// 栅格化好的不可变像素：sRGB、预乘 alpha、按字节 RGBA 排列，由 renderer 在 MainActor 上包成
 /// `CGImage`。
 ///
-/// `byteCost` 计入缓存与已上屏纹理的字节上限；`metrics` 是含留白的 point 尺寸。
+/// `byteCost` 计入缓存与在屏纹理的字节上限；`metrics` 是含留白的 point 尺寸。
 struct DanmakuTexturePayload: Sendable, Equatable {
     let pixels: Data
     let widthPixels: Int

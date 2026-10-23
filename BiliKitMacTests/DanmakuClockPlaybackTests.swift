@@ -9,12 +9,12 @@ import Testing
 
 @testable import BiliKit
 
-/// 固定弹幕时间来自真实播放器的契约。
+/// 固定显示时间来自真实播放器的契约。
 ///
-/// 证明的范围：弹幕 layer 挂在宿主的时钟层下，局部时间等于播放 item 的时间，暂停中 seek、开播、两倍速
+/// 证明的范围：弹幕 layer 挂在弹幕 overlay 的时钟层下，局部时间等于播放 item 的时间，暂停中 seek、开播、两倍速
 /// 与再暂停之后都一致（时钟层在后台队列上异步落地，等到一致为止）；媒体时间
 /// 0 的弹幕用时钟定义的哨兵开始，在真实播放下处于可见区间；暂停中 seek 之后开播，屏上仍是同一组
-/// layer（呈现控制器没有清屏重建）；反复暂停、恢复与 seek 时，timebase 速率保持大于 0 的区段里弹幕时间
+/// layer（呈现控制器没有清屏重建）；反复暂停、恢复与 seek 时，timebase 速率保持大于 0 的区段里显示时间
 /// 不后退，与 timebase 的偏差有界、不随轮数增长。
 ///
 /// 依赖：测试宿主能连上窗口服务；用带音轨的本地静音媒体，开播、改速率与暂停时系统会按音频时钟重新锚定
@@ -148,7 +148,7 @@ struct DanmakuClockPlaybackTests {
         let backward = zip(samples, samples.dropFirst()).filter { earlier, later in
             earlier.rate > 0 && later.rate > 0 && later.local < earlier.local - Self.monotonicSlack
         }
-        #expect(backward.isEmpty, "速率大于 0 时弹幕时间后退 \(backward.count) 次")
+        #expect(backward.isEmpty, "速率大于 0 时显示时间后退 \(backward.count) 次")
         var deviations = Array(repeating: 0.0, count: Self.repeatedRounds)
         for sample in samples where sample.rate > 0 {
             let deviation = abs(sample.local - sample.media)
@@ -235,7 +235,7 @@ private struct PlaybackFixture {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let mediaURL = try writeSilentAudio(seconds: mediaSeconds, in: directory)
         renderer = CoreAnimationDanmakuRenderer(
-            beginTimeAtZero: DanmakuTimebaseClock.beginTimeAtMediaZero
+            beginTimeAtMediaZero: DanmakuTimebaseClock.beginTimeAtMediaZero
         )
         controller = DanmakuPresentationController(backend: renderer)
         view = DanmakuPlayerView(

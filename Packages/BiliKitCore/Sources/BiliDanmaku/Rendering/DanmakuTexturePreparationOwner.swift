@@ -3,7 +3,7 @@ import Foundation
 
 /// 弹幕纹理的有界准备 owner：拥有后台栅格化队列、在途请求、已准备待消费的记录与 LRU 纹理缓存。
 ///
-/// 不拥有 layer 与上屏（交给 `CoreAnimationDanmakuRenderer`），也不自己监听系统内存压力：监听由
+/// 不拥有 layer 与挂上（交给 `CoreAnimationDanmakuRenderer`），也不自己监听系统内存压力：监听由
 /// App 的窗口 adapter（`WindowAdapters.live`）持有，经 renderer 转到 `handleMemoryPressure()`。
 /// 状态只在 MainActor 上读写；栅格化在后台队列执行，结果经 `Task { @MainActor }` 交回，同一 key
 /// 的并发请求共用一个 operation。作废的准备由调用方按准备 ID 丢弃（准备 ID 单调递增、不复用），

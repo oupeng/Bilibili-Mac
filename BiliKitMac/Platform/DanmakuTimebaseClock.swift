@@ -5,14 +5,14 @@ import Synchronization
 
 /// 弹幕的时钟层：一个普通 `CALayer`，本地时间跟随绑定的播放 item timebase 的媒体时间。
 ///
-/// 时钟层在 timebase 每次速率变化或时间跳变时与它对齐；两次之间按当时的速率外推。timebase 相对宿主时钟
+/// 时钟层在 timebase 每次速率变化或时间跳变时与它同步；两次之间按当时的速率外推。timebase 相对宿主时钟
 /// 有微小漂移且不为此发通知，长时间不暂停、不 seek 时会累积每小时几十毫秒量级的偏差，下一次变化时消除。
 ///
-/// 单调下限：同一纪元里播放中（速率 > 0）弹幕时间 D 只进不退，timebase 此刻低于 D 时原地等它追上，规则见
+/// 单调下限：同一纪元里播放中（速率 > 0）显示时间 D 只进不退，timebase 此刻低于 D 时原地等它追上，规则见
 /// `DanmakuClockWrite.following`。等待没有上限：播放中真的往回跳（4x HLS 的跳变风暴）也原地等到追上。
 ///
 /// 发布：每次写入时钟层之后，把这次写入的直线（`DanmakuClockWrite`）连同绑定纪元发布出去，任意线程经
-/// `displayTime()` 用同一个 `DanmakuClockWrite.mediaTime(at:)` 求出此刻的弹幕时间 D，与 Core Animation 渲染的是
+/// `displayTime()` 用同一个 `DanmakuClockWrite.displayTime(at:)` 求出此刻的显示时间 D，与 Core Animation 渲染的是
 /// 同一条线。发布之后向主线程投递一次写入通知（`setWriteHandler`），同一时间最多排一个。
 ///
 /// 拥有时钟层、一个私有串行队列与当前 timebase 的两个通知观察（速率变化、时间跳变）；不拥有 timebase
@@ -89,7 +89,7 @@ final class DanmakuTimebaseClock: @unchecked Sendable {
         layer.speed = 0
         layer.timeOffset = 0
         // 原地等待时 `beginTime` 在未来：不设 backwards 的话，时钟层在开始之前不活跃，本地时间按 0 算，
-        // 整屏弹幕会消失；设了之后开始之前停在 `timeOffset`，与 `DanmakuClockWrite.mediaTime` 一致。
+        // 整屏弹幕会消失；设了之后开始之前停在 `timeOffset`，与 `DanmakuClockWrite.displayTime(at:)` 一致。
         layer.fillMode = .backwards
     }
 
@@ -130,11 +130,11 @@ final class DanmakuTimebaseClock: @unchecked Sendable {
         binding.withLock { $0.writeHandler = handler }
     }
 
-    /// 此刻（`CACurrentMediaTime()`）的弹幕时间 D；没有绑定 timebase、或当前纪元还没有写入过时为 nil。
+    /// 此刻（`CACurrentMediaTime()`）的显示时间 D；没有绑定 timebase、或当前纪元还没有写入过时为 nil。
     ///
     /// 任意线程可调用，只取一次 `binding`，不阻塞在队列上。
     func displayTime() -> Double? {
-        binding.withLock { $0.published }?.mediaTime(at: CACurrentMediaTime())
+        binding.withLock { $0.published }?.displayTime(at: CACurrentMediaTime())
     }
 
     /// 登记速率变化与时间跳变通知。
@@ -165,7 +165,7 @@ final class DanmakuTimebaseClock: @unchecked Sendable {
         }
     }
 
-    /// 只在 `queue` 上执行：把时钟层平移到此刻、当前绑定的 timebase 的状态（播放中不低于此刻的弹幕时间），
+    /// 只在 `queue` 上执行：把时钟层平移到此刻、当前绑定的 timebase 的状态（播放中不低于此刻的显示时间），
     /// 再发布这次写入；解绑时只停住时钟层，不发布（见 `Binding.published`）。
     ///
     /// 读完绑定、写入之前可能又有一次 `bind`，这时写入的是旧 timebase，发布因纪元不符被丢弃，新绑定投递的
@@ -180,7 +180,7 @@ final class DanmakuTimebaseClock: @unchecked Sendable {
             write(
                 DanmakuClockWrite(
                     beginTime: now,
-                    timeOffset: written.mediaTime(at: now),
+                    timeOffset: written.displayTime(at: now),
                     speed: 0
                 )
             )
@@ -194,7 +194,7 @@ final class DanmakuTimebaseClock: @unchecked Sendable {
         let next = DanmakuClockWrite.following(
             timebaseTime: anchor.mediaTime + (now - anchor.hostTime) * anchor.rate,
             speed: Float(anchor.rate),
-            floor: syncedEpoch == epoch ? written.mediaTime(at: now) : nil,
+            floor: syncedEpoch == epoch ? written.displayTime(at: now) : nil,
             at: now
         )
         write(next)

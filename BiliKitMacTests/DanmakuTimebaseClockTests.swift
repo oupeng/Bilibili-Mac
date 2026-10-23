@@ -8,10 +8,10 @@ import Testing
 @testable import BiliKit
 
 /// 固定弹幕时钟层的契约：每次速率变化或时间跳变之后本地时间与绑定 timebase 的时间一致（播放、暂停、跳
-/// 时间、倍速）；同一纪元里播放中弹幕时间只进不退，timebase 低于它时原地停住、等直线追上后重合，反复
+/// 时间、倍速）；同一纪元里播放中显示时间只进不退，timebase 低于它时原地停住、等直线追上后重合，反复
 /// 起播、暂停与 seek 误差不累积，换绑后立即严格跟随；主线程被挡住时照样停下，绑定时不等通知就同步，换绑
-/// 后旧 timebase 的变化不影响时钟层，解绑后停在速率 0、读不到弹幕时间；与其他线程的 Core Animation 提交
-/// 并发时不死锁；其他线程按发布值求出的弹幕时间与 Core Animation 换算的本地时间是同一条线，从未绑定时
+/// 后旧 timebase 的变化不影响时钟层，解绑后停在速率 0、读不到显示时间；与其他线程的 Core Animation 提交
+/// 并发时不死锁；其他线程按发布值求出的显示时间与 Core Animation 换算的本地时间是同一条线，从未绑定时
 /// 读不到，换绑立即作废旧发布值，每次写入之后都会唤醒主线程读到它。
 ///
 /// 用以宿主时钟为源的真实 `CMTimebase`，它的通知与播放器 item 的 timebase 走同一条路径。时钟层的更新
@@ -244,7 +244,7 @@ struct DanmakuTimebaseClockTests {
         #expect(DanmakuTimebaseClock().displayTime() == nil)
     }
 
-    /// 发布值求出的弹幕时间夹在读取前后两个宿主时间的 Core Animation 本地时间之间。
+    /// 发布值求出的显示时间夹在读取前后两个宿主时间的 Core Animation 本地时间之间。
     @Test
     func publishedDisplayTimeIsTheClockLayersLine() async throws {
         let timebase = try makeTimebase(time: 20, rate: 0)
@@ -258,7 +258,7 @@ struct DanmakuTimebaseClockTests {
         #expect(await waitUntil { publishedTimeMatchesTheLayer(clock) })
     }
 
-    /// 解绑之后没有 item 也就没有弹幕时间：时钟层停住，发布值一直读不到，不会冒充下一个视频的时间。
+    /// 解绑之后没有 item 也就没有显示时间：时钟层停住，发布值一直读不到，不会冒充下一个视频的时间。
     @Test
     func unbindingLeavesNoDisplayTime() async throws {
         let timebase = try makeTimebase(time: 300, rate: 1)
@@ -383,7 +383,7 @@ struct DanmakuTimebaseClockTests {
         }
     }
 
-    /// 记录每次写入通知时读到的弹幕时间。
+    /// 记录每次写入通知时读到的显示时间。
     @MainActor
     private final class WakeRecorder {
         private(set) var lastSeen: Double?

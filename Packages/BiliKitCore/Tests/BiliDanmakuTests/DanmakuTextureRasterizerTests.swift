@@ -128,7 +128,7 @@ struct DanmakuTextureRasterizerTests {
         }
     }
 
-    /// 车道布局只测量、不栅格化，得到的尺寸必须与上屏纹理逐像素一致，否则滚动速度与追尾判断会漂移。
+    /// 车道布局只测量、不栅格化，得到的尺寸必须与在屏纹理逐像素一致，否则滚动速度与追尾判断会漂移。
     @Test(arguments: [1.0, 2.0, 3.0])
     func measurementMatchesTheRasterizedTexture(backingScale: Double) throws {
         let events = [

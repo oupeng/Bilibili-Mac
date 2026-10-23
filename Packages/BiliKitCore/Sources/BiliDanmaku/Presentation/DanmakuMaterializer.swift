@@ -20,8 +20,8 @@ import Foundation
 ///   原位换车道，命中缓存的新弹幕同时出现，没命中的逐条出现；屏上的 placement 因此总出自当前布局表，任何
 ///   时刻都不新旧混排。
 ///
-/// 媒体时间是宿主时钟层的显示时间 D：reconcile 时由呈现控制器传入它在入口读到的值，纹理异步完成时自己经
-/// `currentPosition` 重新读此刻的 D，所以迟到纹理是否挂上、腾纹理字节时谁已走完，都与画面同一条时间线。
+/// 媒体时间是时钟层的显示时间 D：reconcile 时由呈现控制器传入它在入口读到的值，纹理异步完成时自己经
+/// `currentDisplayTime` 重新读此刻的 D，所以迟到纹理是否挂上、腾纹理字节时谁已走完，都与画面同一条时间线。
 /// 异步完成时读不到 D（时钟换绑或解绑之后；正常到不了，换绑、解绑与交还 surface 都先 `clear`，在途完成按
 /// generation 丢弃）就不挂上、交还 backend，不沿用旧时间；下一次有 D 的 reconcile 按当时的状态重来。
 ///
@@ -66,18 +66,18 @@ final class DanmakuMaterializer {
     private var backingScale = DanmakuTextureRasterizer.defaultBackingScale
     private var table: [Int: DanmakuSegmentLayout] = [:]
     /// 最近一次使用的 D：reconcile 传入的，或异步完成时重新读到的。
-    private var position = 0.0
+    private var displayTime = 0.0
     /// 读此刻的 D，由呈现控制器提供；读不到时为 nil。
-    private let currentPosition: @MainActor () -> Double?
+    private let currentDisplayTime: @MainActor () -> Double?
     /// 最近一次 reconcile 的取景框；迟到的纹理按它判断可见。
     private var viewport = DanmakuViewport(width: 0, height: 0, displayAreaFraction: 0)
 
     init(
         backend: any DanmakuRenderingBackend,
-        currentPosition: @escaping @MainActor () -> Double?
+        currentDisplayTime: @escaping @MainActor () -> Double?
     ) {
         self.backend = backend
-        self.currentPosition = currentPosition
+        self.currentDisplayTime = currentDisplayTime
     }
 
     /// 布局表在 `position` 时刻、`viewport` 取景框下应在 backend 上的 placement，按 (时间, ID) 排序。
@@ -102,14 +102,14 @@ final class DanmakuMaterializer {
         Dictionary(placements.map { ($0.request.event.id, $0) }) { first, _ in first }
     }
 
-    /// 按布局表、媒体时间与取景框对齐 backend：立即移除不再应在屏的、原位换车道，缺纹理的发起准备。
+    /// 按布局表、显示时间 D 与取景框对齐 backend：立即移除不再应在屏的、原位换车道，缺纹理的发起准备。
     func reconcile(
         table: [Int: DanmakuSegmentLayout],
-        position: Double,
+        displayTime: Double,
         viewport: DanmakuViewport
     ) {
         self.table = table
-        self.position = position
+        self.displayTime = displayTime
         self.viewport = viewport
         reconcileNow()
     }
@@ -117,7 +117,7 @@ final class DanmakuMaterializer {
     /// 移除全部 layer 并作废在途准备。
     func clear() {
         preparationGeneration &+= 1
-        backend.cancelPendingPreparations()
+        backend.cancelAllPreparations()
         backend.clearAll()
         installed.removeAll(keepingCapacity: false)
         installedScales.removeAll(keepingCapacity: false)
@@ -136,14 +136,14 @@ final class DanmakuMaterializer {
         guard scale != backingScale else { return }
         backingScale = scale
         preparationGeneration &+= 1
-        backend.cancelPendingPreparations()
+        backend.cancelAllPreparations()
         pending.removeAll(keepingCapacity: false)
         unpreparable.removeAll(keepingCapacity: false)
     }
 
     /// 按最近一次的表、时间与取景框立即移除与替换，缺纹理的发起准备。
     private func reconcileNow() {
-        let desired = Self.desiredPlacements(in: table, at: position, viewport: viewport)
+        let desired = Self.desiredPlacements(in: table, at: displayTime, viewport: viewport)
         let desiredByID = Self.byEventID(desired)
         removeInstalled(notIn: desiredByID)
         discardPreparations(notIn: desiredByID)
@@ -154,7 +154,7 @@ final class DanmakuMaterializer {
         }
     }
 
-    /// 移除不再需要的 layer；仍需要但 placement 变了的（重新布局）就地换成新 placement。
+    /// 移除不再需要的 layer；仍需要但 placement 变了的（重排）原位换成新 placement。
     ///
     /// 纹理按旧 backing scale 栅格化的也立即换：旧纹理按新 placement 拉伸，新纹理就绪后原位替换，所以屏上的
     /// placement 总出自当前布局表。新纹理被 backend 的纹理字节上限拒绝时，这条弹幕一直用旧纹理到离场，但车道
@@ -237,9 +237,9 @@ final class DanmakuMaterializer {
             return
         }
         pending[eventID] = nil
-        let now = requestDepth > 0 ? position : currentPosition()
+        let now = requestDepth > 0 ? displayTime : currentDisplayTime()
         if let now {
-            position = now
+            displayTime = now
         }
         switch result {
         case .ready:
@@ -263,7 +263,7 @@ final class DanmakuMaterializer {
         let result = backend.install(
             placement,
             preparationID: preparationID,
-            at: position
+            at: displayTime
         )
         for eventID in result.evictedEventIDs {
             installed[eventID] = nil

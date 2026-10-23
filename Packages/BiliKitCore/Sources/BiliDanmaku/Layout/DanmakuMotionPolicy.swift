@@ -19,7 +19,7 @@ enum DanmakuMotionPolicy {
     static func duration(
         for mode: DanmakuPresentationMode,
         textWidth: Double,
-        surfaceWidth: Double,
+        planningWidth: Double,
         speedLevel: DanmakuSpeedLevel
     ) -> Double {
         switch mode {
@@ -28,8 +28,8 @@ enum DanmakuMotionPolicy {
         case .scrolling:
             guard textWidth.isFinite,
                 textWidth > 0,
-                surfaceWidth.isFinite,
-                surfaceWidth > 0
+                planningWidth.isFinite,
+                planningWidth > 0
             else {
                 return .nan
             }
@@ -39,7 +39,7 @@ enum DanmakuMotionPolicy {
                 * speedMultiplier(for: speedLevel)
                 * (1 + lengthBonus)
             let rawDuration =
-                scrollingTravel(textWidth: textWidth, planningWidth: surfaceWidth)
+                scrollingTravel(textWidth: textWidth, planningWidth: planningWidth)
                 / mediaPointSpeed
             return min(
                 max(rawDuration, minimumScrollingSeconds),

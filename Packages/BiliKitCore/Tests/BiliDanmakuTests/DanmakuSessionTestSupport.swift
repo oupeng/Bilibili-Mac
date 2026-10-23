@@ -48,10 +48,10 @@ final class SessionPresentationSink: DanmakuPresentationSink {
     }
 
     /// 呈现端此刻的显示时间，由测试设定；默认读不到。
-    var displayPositionSeconds: Double?
+    var currentDisplayTime: Double?
 
-    func displayPosition() -> Double? {
-        displayPositionSeconds
+    func displayTime() -> Double? {
+        currentDisplayTime
     }
 
     func setSegments(

@@ -33,7 +33,7 @@ struct DanmakuLaneAllocatorTests {
     @Test
     func modesCanOverlapWhileSameModeStillOccupiesItsLane() {
         var allocator = DanmakuLaneAllocator(
-            configuration: configuration(surfaceHeight: 36)
+            configuration: configuration(planningHeight: 36)
         )
         let admission = admit(
             &allocator,
@@ -72,7 +72,7 @@ struct DanmakuLaneAllocatorTests {
     func overlappingScrollingUsesSafeVerticalLaneBeforeAnotherDepth() {
         var allocator = DanmakuLaneAllocator(
             configuration: configuration(
-                surfaceHeight: 72,
+                planningHeight: 72,
                 maximumOverlapDepth: 3
             )
         )
@@ -130,7 +130,7 @@ struct DanmakuLaneAllocatorTests {
     @Test
     func scrollingLaneRejectsUnsafeEntryAndCatchUp() throws {
         var allocator = DanmakuLaneAllocator(
-            configuration: configuration(surfaceHeight: 36)
+            configuration: configuration(planningHeight: 36)
         )
         let first = admit(
             &allocator,
@@ -147,7 +147,7 @@ struct DanmakuLaneAllocatorTests {
         #expect(tooEarly.isEmpty)
 
         allocator = DanmakuLaneAllocator(
-            configuration: configuration(surfaceHeight: 36)
+            configuration: configuration(planningHeight: 36)
         )
         _ = admit(
             &allocator,
@@ -172,7 +172,7 @@ struct DanmakuLaneAllocatorTests {
     @Test
     func fixedLaneRemainsOccupiedUntilExpiration() {
         var allocator = DanmakuLaneAllocator(
-            configuration: configuration(surfaceHeight: 36)
+            configuration: configuration(planningHeight: 36)
         )
         _ = admit(
             &allocator,
@@ -198,7 +198,7 @@ struct DanmakuLaneAllocatorTests {
     @Test
     func scrollingLaneCanBeReusedImmediatelyAfterAutomaticExpiration() {
         var allocator = DanmakuLaneAllocator(
-            configuration: configuration(surfaceHeight: 36)
+            configuration: configuration(planningHeight: 36)
         )
         _ = admit(
             &allocator,
@@ -221,7 +221,7 @@ struct DanmakuLaneAllocatorTests {
         let maximum = DanmakuLaneConfiguration.hardMaximumActiveCount
         var allocator = DanmakuLaneAllocator(
             configuration: configuration(
-                surfaceHeight: DanmakuLaneConfiguration.laneHeight * Double(maximum + 10)
+                planningHeight: DanmakuLaneConfiguration.laneHeight * Double(maximum + 10)
             )
         )
         let admission = admit(
@@ -245,7 +245,7 @@ struct DanmakuLaneAllocatorTests {
         let maximumActiveCount =
             DanmakuLaneConfiguration.hardMaximumActiveCount
         var allocator = DanmakuLaneAllocator(
-            configuration: configuration(surfaceHeight: .greatestFiniteMagnitude)
+            configuration: configuration(planningHeight: .greatestFiniteMagnitude)
         )
         let requests = (0...maximumActiveCount).map {
             request(id: "extreme-\($0)", mode: .top, height: 1)
@@ -259,7 +259,7 @@ struct DanmakuLaneAllocatorTests {
     @Test
     func extremeFiniteRequestHeightDoesNotOverflowLaneSpanConversion() {
         var allocator = DanmakuLaneAllocator(
-            configuration: configuration(surfaceHeight: .greatestFiniteMagnitude)
+            configuration: configuration(planningHeight: .greatestFiniteMagnitude)
         )
 
         let admission = admit(
@@ -341,7 +341,7 @@ struct DanmakuLaneAllocatorTests {
     ) {
         var allocator = DanmakuLaneAllocator(
             configuration: configuration(
-                surfaceHeight: 144,
+                planningHeight: 144,
                 displayAreaFraction: fraction
             )
         )
@@ -366,7 +366,7 @@ struct DanmakuLaneAllocatorTests {
     func displayAreaLevelLimitsAvailableLaneCount(area: DanmakuDisplayArea) {
         var allocator = DanmakuLaneAllocator(
             configuration: configuration(
-                surfaceHeight: 720,
+                planningHeight: 720,
                 displayAreaFraction: area.fraction
             )
         )
@@ -408,14 +408,14 @@ struct DanmakuLaneAllocatorTests {
 
     /// 1000pt 宽、20pt 间距；默认高 108pt，即三条车道。
     private func configuration(
-        surfaceWidth: Double = 1_000,
-        surfaceHeight: Double = 108,
+        planningWidth: Double = 1_000,
+        planningHeight: Double = 108,
         displayAreaFraction: Double = 1,
         maximumOverlapDepth: Int = 1
     ) -> DanmakuLaneConfiguration {
         DanmakuLaneConfiguration(
-            surfaceWidth: surfaceWidth,
-            surfaceHeight: surfaceHeight,
+            planningWidth: planningWidth,
+            planningHeight: planningHeight,
             minimumHorizontalGap: 20,
             displayAreaFraction: displayAreaFraction,
             maximumOverlapDepth: maximumOverlapDepth
