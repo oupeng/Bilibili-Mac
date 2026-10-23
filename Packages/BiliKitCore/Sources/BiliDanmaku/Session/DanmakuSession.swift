@@ -16,7 +16,7 @@ import Foundation
 /// 由呈现端按媒体时间决定。暂停、缓冲时没有后续快照，一个分段加载完腾出名额后，按时间线当前的快照
 /// 继续请求还缺的分段。会话不自建计时器。
 @MainActor
-public final class DanmakuSession: DanmakuPresentationControlling {
+public final class DanmakuSession: DanmakuSessionControlling {
     /// 同时在途的分段请求上限。
     ///
     /// 一次最多要当前、上一（位置在分段开头时）与下一分段，当前分段总排在最前，两个名额让当前分段与

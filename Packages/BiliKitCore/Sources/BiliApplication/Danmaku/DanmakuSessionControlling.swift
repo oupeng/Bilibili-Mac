@@ -58,7 +58,7 @@ public struct DanmakuOpacity: Sendable, Equatable {
 ///
 /// 实现是 BiliDanmaku 的 `DanmakuSession`，调用方是播放页的 `DanmakuControlsViewModel`。
 @MainActor
-public protocol DanmakuPresentationControlling: AnyObject {
+public protocol DanmakuSessionControlling: AnyObject {
     /// 弹幕分段读取发现凭据失效时回调；由弹幕控制 ViewModel 创建时登记一次，用于请求窗口复核账户。
     func setAuthenticationInvalidationHandler(
         _ handler: @escaping @MainActor () -> Void

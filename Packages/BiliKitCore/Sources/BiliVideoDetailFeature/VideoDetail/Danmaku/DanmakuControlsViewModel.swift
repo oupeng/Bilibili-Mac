@@ -22,7 +22,7 @@ public final class DanmakuControlsViewModel: AccountRevalidationParticipant {
     }
 
     @ObservationIgnored
-    private let presentation: any DanmakuPresentationControlling
+    private let presentation: any DanmakuSessionControlling
     @ObservationIgnored
     private let saveSpeedLevel: @MainActor (DanmakuSpeedLevel) -> Void
     @ObservationIgnored
@@ -33,7 +33,7 @@ public final class DanmakuControlsViewModel: AccountRevalidationParticipant {
     private let saveDensity: @MainActor (DanmakuDensity) -> Void
 
     public init(
-        presentation: any DanmakuPresentationControlling,
+        presentation: any DanmakuSessionControlling,
         initialSpeedLevel: DanmakuSpeedLevel = .default,
         initialOpacity: DanmakuOpacity = .fullyOpaque,
         initialDisplayArea: DanmakuDisplayArea = .default,
