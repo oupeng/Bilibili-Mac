@@ -10,6 +10,9 @@ import Testing
 
 @Suite(.serialized, .timeLimit(.minutes(1)))
 struct PlayerHostViewIdentityTests {
+    /// 局部时间与 item 时间的容差（秒）：两者按同一个宿主时刻换算，只差浮点与 CMTime 取整误差。
+    private static let localTimeTolerance = 1e-3
+
     @Test
     @MainActor
     func nativePlayerViewLeavesNowPlayingOwnershipToProcessController() {
@@ -228,10 +231,13 @@ struct PlayerHostViewIdentityTests {
         #expect(renderer.rootLayer.superlayer != nil)
     }
 
-    /// 弹幕层的局部时间与 item 时间相差不到 0.05 秒（两者在不同时刻读取）。
+    /// 弹幕层的局部时间与 item 时间在同一个宿主时刻相差不到 `localTimeTolerance`；item 还没有 timebase 时不算一致。
     @MainActor
     private func localTime(of layer: CALayer, matches item: AVPlayerItem) -> Bool {
-        abs(layer.convertTime(CACurrentMediaTime(), from: nil) - item.currentTime().seconds) < 0.05
+        guard let timebase = item.timebase else { return false }
+        let host = CACurrentMediaTime()
+        return abs(layer.convertTime(host, from: nil) - mediaTime(of: timebase, atHost: host))
+            < Self.localTimeTolerance
     }
 
     private func danmakuEvent(

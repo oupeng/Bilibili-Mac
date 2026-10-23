@@ -21,6 +21,18 @@ func danmakuLayers(of renderer: CoreAnimationDanmakuRenderer) -> [CALayer] {
     (renderer.rootLayer.sublayers ?? []).flatMap { $0.sublayers ?? [] }
 }
 
+/// `timebase` 在宿主时刻 `host`（与 `CACurrentMediaTime()` 同为 mach 时间的秒数）的媒体时间。
+///
+/// 与 `CALayer.convertTime(host, from: nil)` 按同一个宿主时刻比较，结果与读取的先后和间隔无关；分两次各取
+/// 此刻时，两次读取之间的抢占会按速率变成偏差。
+func mediaTime(of timebase: CMTimebase, atHost host: Double) -> Double {
+    CMSyncConvertTime(
+        CMTime(seconds: host, preferredTimescale: 1_000_000_000),
+        from: CMClockGetHostTimeClock(),
+        to: timebase
+    ).seconds
+}
+
 /// 在 `directory` 写一段静音的 PCM 音频：有音轨，播放器按音频时钟驱动 item 的 timebase。
 func writeSilentAudio(seconds: Double, in directory: URL) throws -> URL {
     let url = directory.appendingPathComponent("silence-\(UUID().uuidString).caf")
