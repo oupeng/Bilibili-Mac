@@ -116,7 +116,7 @@ struct DanmakuLaneAllocator: Sendable {
         let displayHeight =
             configuration.planningHeight * configuration.displayAreaFraction
         let laneCount = DanmakuLaneConfiguration.laneCount(
-            surfaceHeight: configuration.planningHeight,
+            height: configuration.planningHeight,
             displayAreaFraction: configuration.displayAreaFraction
         )
         guard laneCount > 0,

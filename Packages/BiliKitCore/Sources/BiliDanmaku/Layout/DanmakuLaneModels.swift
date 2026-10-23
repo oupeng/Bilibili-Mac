@@ -52,12 +52,12 @@ struct DanmakuLaneConfiguration: Sendable, Equatable {
         self.maximumOverlapDepth = maximumOverlapDepth
     }
 
-    /// 显示区域内的车道数：画面高度乘以比例，按车道高度向下取整，封顶 `maximumLaneCount`。
+    /// 显示区域内的车道数：`height`（规划画布或窗口的高度）乘以比例，按车道高度向下取整，封顶 `maximumLaneCount`。
     ///
     /// 规划画布用它得到布局的车道数，取景框用它得到窗口里可见的车道数；两边必须是同一个计算，车道号
     /// 才能直接比较。
-    static func laneCount(surfaceHeight: Double, displayAreaFraction: Double) -> Int {
-        let uncapped = floor(surfaceHeight * displayAreaFraction / laneHeight)
+    static func laneCount(height: Double, displayAreaFraction: Double) -> Int {
+        let uncapped = floor(height * displayAreaFraction / laneHeight)
         guard uncapped.isFinite, uncapped > 0 else { return 0 }
         return Int(min(uncapped, Double(maximumLaneCount)))
     }
