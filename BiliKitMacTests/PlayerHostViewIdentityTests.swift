@@ -17,7 +17,7 @@ struct PlayerHostViewIdentityTests {
             beginTimeAtMediaZero: DanmakuTimebaseClock.beginTimeAtMediaZero
         )
         let controller = DanmakuPresentationController(backend: renderer)
-        let view = DanmakuPlayerView(
+        let view = NativePlayerHostView(
             renderer: renderer,
             controller: controller,
             beginMomentaryPlaybackRate: nil,
@@ -34,7 +34,7 @@ struct PlayerHostViewIdentityTests {
             beginTimeAtMediaZero: DanmakuTimebaseClock.beginTimeAtMediaZero
         )
         let controller = DanmakuPresentationController(backend: renderer)
-        let view = DanmakuPlayerView(
+        let view = NativePlayerHostView(
             renderer: renderer,
             controller: controller,
             beginMomentaryPlaybackRate: nil,
@@ -169,7 +169,7 @@ struct PlayerHostViewIdentityTests {
             beginTimeAtMediaZero: DanmakuTimebaseClock.beginTimeAtMediaZero
         )
         let controller = DanmakuPresentationController(backend: renderer)
-        let view = DanmakuPlayerView(
+        let view = NativePlayerHostView(
             renderer: renderer,
             controller: controller,
             beginMomentaryPlaybackRate: nil,

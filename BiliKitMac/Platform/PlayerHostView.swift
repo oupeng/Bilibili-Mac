@@ -130,8 +130,8 @@ private struct AVPlayerContainerView: NSViewRepresentable {
     let toggleSubtitles: (() async -> NativeSubtitleToggleResult)?
     let focusIdentity: String?
 
-    func makeNSView(context: Context) -> DanmakuPlayerView {
-        let view = DanmakuPlayerView(
+    func makeNSView(context: Context) -> NativePlayerHostView {
+        let view = NativePlayerHostView(
             renderer: renderer,
             controller: controller,
             beginMomentaryPlaybackRate: beginMomentaryPlaybackRate,
@@ -155,7 +155,7 @@ private struct AVPlayerContainerView: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ view: DanmakuPlayerView, context: Context) {
+    func updateNSView(_ view: NativePlayerHostView, context: Context) {
         view.setPlaybackPreparationBlocked(blocksNativePlaybackInteraction)
         view.requestMomentaryPlaybackRate = beginMomentaryPlaybackRate
         view.finishMomentaryPlaybackRate = endMomentaryPlaybackRate
@@ -178,7 +178,7 @@ private struct AVPlayerContainerView: NSViewRepresentable {
 
     /// 在 SwiftUI 销毁宿主时先撤销弹幕 surface，再断开 AVPlayer，避免旧 host 继续呈现。
     static func dismantleNSView(
-        _ view: DanmakuPlayerView,
+        _ view: NativePlayerHostView,
         coordinator: ()
     ) {
         view.setResumeNotice(nil, restartFromBeginning: {})
@@ -195,7 +195,7 @@ private struct AVPlayerContainerView: NSViewRepresentable {
 
 /// 播放准备期间（换视频、切分 P、准备播放）不显示 AVKit 原生控制条。
 ///
-/// 与 `DanmakuPlayerView` 在同一状态下屏蔽命中测试、第一响应者、快捷键与读屏一起，
+/// 与 `NativePlayerHostView` 在同一状态下屏蔽命中测试、第一响应者、快捷键与读屏一起，
 /// 阻止操作正在被替换的播放。
 enum PlayerPlaybackPreparationPolicy {
     static func controlsStyle(
@@ -219,7 +219,7 @@ enum PlayerPlaybackPreparationPolicy {
 /// `momentaryRatePressID` 记录当前临时倍速对应的按压，结束回调按它比对，旧按压迟到的结束不影响新的
 /// 临时倍速。
 @MainActor
-final class DanmakuPlayerView: AVPlayerView {
+final class NativePlayerHostView: AVPlayerView {
     let danmakuOverlay: DanmakuOverlayView
     private let keyboardShortcuts = PlayerKeyboardShortcutController()
     private let overlayModel = PlayerOverlayModel()
@@ -685,7 +685,7 @@ final class DanmakuPlayerView: AVPlayerView {
     }
 }
 
-extension DanmakuPlayerView: AVPlayerViewDelegate {
+extension NativePlayerHostView: AVPlayerViewDelegate {
     func playerViewWillEnterFullScreen(_ playerView: AVPlayerView) {
         isPresentingFullScreen = true
     }
