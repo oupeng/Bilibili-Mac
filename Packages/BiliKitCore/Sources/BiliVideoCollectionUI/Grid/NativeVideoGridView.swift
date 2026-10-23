@@ -129,17 +129,20 @@ package struct NativeVideoGridView: NSViewRepresentable {
         private var documentLayoutNeedsInvalidation = true
         /// 内容身份变化的每次快照与 `reset()` 都推进；快照完成回调只在仍是最新一次时执行。
         private var updateEpoch = NativeVideoGridOperationEpoch()
-        /// 用户最后看到的视野首卡，宽度变化、高度变化与整体替换都按它恢复位置，恢复后不重新捕获（理由见
-        /// ARCHITECTURE「网格的视口锚点」）。
+        /// 用户最后看到的视野首卡，视口尺寸变化与整体替换都按它恢复位置，恢复后不重新捕获（理由见
+        /// ARCHITECTURE「原生 AppKit 集合视图」的视口锚点条目）。
         ///
-        /// 捕获点：记录到一次滚动（不在宽度过渡或重排 document 中）、应用待恢复偏移、整体替换没能按它恢复，
+        /// 捕获点：记录到一次滚动（不在视口尺寸过渡或重排 document 中）、应用待恢复偏移、整体替换没能按它恢复，
         /// 以及它缺失或卡片已不在内容里时在重排结束后补捕。`reset()` 清空。
         private var viewportAnchor: NativeVideoGridViewportAnchor?
         /// 整体替换要按 `viewportAnchor` 恢复时记下的 `scrollGeneration`；快照完成时只在其间没再滚动、也不在
         /// 实时滚动时恢复，否则重新捕获锚点。
+        ///
+        /// 实测不做差异动画的快照完成回调同步执行，代次比对目前恒成立；AppKit 不保证同步，回调延后时其间的
+        /// 滚动不能被锚点恢复覆盖，所以保留比对。
         private var pendingAnchorScrollGeneration: UInt64?
         /// 不在程序设置偏移、也没有待恢复偏移时，每记录一次 bounds 变化就加一（含用户滚动、重排 document 时
-        /// AppKit 的夹取与 `reset()` 时的记录；宽度过渡中的 bounds 变化不记录）；锚点恢复与 `topPin` 用它判断其间是否又有滚动。
+        /// AppKit 的夹取与 `reset()` 时的记录；视口尺寸过渡中的 bounds 变化不记录）；锚点恢复与 `topPin` 用它判断其间是否又有滚动。
         private var scrollGeneration: UInt64 = 0
         private var topPin = NativeVideoGridTopPin()
         /// 程序设置偏移期间为 true，让随之而来的 bounds 通知不被记成用户滚动。
@@ -222,9 +225,10 @@ package struct NativeVideoGridView: NSViewRepresentable {
             scrollView.drawsBackground = false
             scrollView.contentView.postsBoundsChangedNotifications = true
             scrollView.onViewportLayout = { [weak self] in
-                self?.resizeDocument()
-                self?.restorePendingOffsetIfPossible()
-                self?.viewportDidChange()
+                guard let self, self.pendingViewportChange.any else { return }
+                self.resizeDocument()
+                self.restorePendingOffsetIfPossible()
+                self.viewportDidChange()
             }
             scrollView.onContentInsetsChange = { [weak self] oldInsets, newInsets in
                 self?.contentInsetsDidChange(from: oldInsets, to: newInsets)
@@ -463,14 +467,10 @@ package struct NativeVideoGridView: NSViewRepresentable {
             isResizingDocument = true
             defer { isResizingDocument = false }
             let width = viewportSize.width
-            let widthChanged = isAwaitingWidthLayout
-            let heightChanged =
-                lastViewportSize.map {
-                    abs($0.height - viewportSize.height) > 0.5
-                } ?? true
+            let change = pendingViewportChange
             let shouldInvalidateLayout =
-                !restoringViewport || documentLayoutNeedsInvalidation || widthChanged
-            guard shouldInvalidateLayout || heightChanged else { return }
+                !restoringViewport || documentLayoutNeedsInvalidation || change.width
+            guard shouldInvalidateLayout || change.height else { return }
 
             lastViewportSize = viewportSize
             documentLayoutNeedsInvalidation = false
@@ -488,14 +488,21 @@ package struct NativeVideoGridView: NSViewRepresentable {
             if viewportAnchor.map({ contents[$0.id] == nil }) ?? true {
                 viewportAnchor = captureViewportAnchor()
             }
+            // 重排中视口又变了（传统滚动条随内容高度出现或消失）：AppKit 不会为此再排一次，主动要下一轮 layout。
+            if pendingViewportChange.any { scrollView.needsLayout = true }
         }
 
-        /// 视口宽度与最近一次排版不同（或还没有排版）：AppKit 已在 `onViewportLayout` 之前按新宽度、旧卡片尺寸
-        /// 重排了集合视图，`resizeDocument` 按新宽度重排之前排版与偏移都不可信。
-        private var isAwaitingWidthLayout: Bool {
-            lastViewportSize.map {
-                abs($0.width - scrollView.contentSize.width) > 0.5
-            } ?? true
+        /// 当前视口与最近一次排版（`lastViewportSize`）在宽、高上是否不同（容差半点）；还没有排版时都算不同。
+        ///
+        /// 视口尺寸是否变化只按这一份基准判断：滚动视图每次 layout 都回调，由这里决定要不要重排。宽度一变，AppKit
+        /// 在回调之前就已按新宽度、旧卡片尺寸重排了集合视图；高度一变，它可能已夹取偏移。重排之前排版与偏移都是
+        /// 过渡态，其间的 bounds 变化不记录、不捕获锚点。
+        private var pendingViewportChange: (width: Bool, height: Bool, any: Bool) {
+            let size = scrollView.contentSize
+            guard let lastViewportSize else { return (true, true, true) }
+            let width = abs(lastViewportSize.width - size.width) > 0.5
+            let height = abs(lastViewportSize.height - size.height) > 0.5
+            return (width, height, width || height)
         }
 
         private var currentScrollOffsetY: CGFloat {
@@ -522,8 +529,8 @@ package struct NativeVideoGridView: NSViewRepresentable {
                 )
             else { return }
             hover.updateForCurrentPointerLocation(in: collectionView)
-            // 宽度过渡中的 bounds 变化不记录、不捕获锚点、不判断翻页，随后的 `onViewportLayout` 按锚点恢复。
-            guard !isAwaitingWidthLayout else { return }
+            // 视口尺寸过渡中的 bounds 变化不记录、不捕获锚点、不判断翻页，随后的 `onViewportLayout` 按锚点恢复。
+            guard !pendingViewportChange.any else { return }
             // 重排 document 时 AppKit 的夹取照常记录，但锚点留给随后的恢复，不从重排中的排版捕获。
             if recordCurrentScrollOffset(requireAttachedWindow: true), !isResizingDocument {
                 viewportAnchor = captureViewportAnchor()
@@ -568,33 +575,26 @@ package struct NativeVideoGridView: NSViewRepresentable {
                 physicalOffset: scrollView.contentView.bounds.origin.y,
                 leadingInset: oldInsets.top
             )
-            applyLogicalScrollOffset(logicalOffset, synchronizingBinding: false)
+            applyLogicalScrollOffset(logicalOffset)
             retainedScrollOffset.markPersisted(logicalOffset)
         }
 
-        /// 从当前排版读出视野首卡；宽度过渡中（`isAwaitingWidthLayout`）读不出可信的首卡，返回 nil。
+        /// 从当前排版读出视野首卡（`NativeVideoCollectionView.firstVisibleItem()`）；视口尺寸过渡中
+        /// （`pendingViewportChange`）读不出可信的首卡，返回 nil。
         private func captureViewportAnchor() -> NativeVideoGridViewportAnchor? {
             guard
                 !contents.orderedIDs.isEmpty,
-                !isAwaitingWidthLayout,
+                !pendingViewportChange.any,
                 NativeVideoGridGeometry.isRenderableViewport(
                     width: collectionView.bounds.width
-                )
-            else { return nil }
-            // 直接问排版视野里有哪些卡片：跳转后的视野可能还没有准备好的卡片。同一行按序号取最靠前的一张，
-            // 同一视野总是得到同一个锚点。
-            let candidates = layout.layoutAttributesForElements(in: collectionView.visibleRect)
-                .filter { $0.representedElementCategory == .item }
-                .compactMap { attributes -> (item: Int, minY: CGFloat)? in
-                    attributes.indexPath.map { ($0.item, attributes.frame.minY) }
-                }
-            guard
-                let first = candidates.min(by: { ($0.minY, $0.item) < ($1.minY, $1.item) }),
-                contents.orderedIDs.indices.contains(first.item)
+                ),
+                let first = collectionView.firstVisibleItem(),
+                let item = first.indexPath?.item,
+                contents.orderedIDs.indices.contains(item)
             else { return nil }
             return NativeVideoGridViewportAnchor(
-                id: contents.orderedIDs[first.item],
-                offsetFromViewportTop: first.minY - currentScrollOffsetY
+                id: contents.orderedIDs[item],
+                offsetFromViewportTop: first.frame.minY - currentScrollOffsetY
             )
         }
 
@@ -606,17 +606,7 @@ package struct NativeVideoGridView: NSViewRepresentable {
                     at: IndexPath(item: index, section: 0)
                 )
             else { return }
-            let target = NativeVideoGridAnchorRetention.targetOffsetY(
-                itemOriginY: attributes.frame.minY,
-                offsetFromViewportTop: anchor.offsetFromViewportTop,
-                maximumOffsetY: maximumLogicalScrollOffsetY
-            )
-            applyPhysicalScrollOffset(
-                NativeVideoScrollCoordinateSpace.physicalOffset(
-                    logicalOffset: target,
-                    leadingInset: scrollView.contentInsets.top
-                )
-            )
+            applyLogicalScrollOffset(attributes.frame.minY - anchor.offsetFromViewportTop)
         }
 
         private func restorePendingOffsetIfPossible() {
@@ -628,8 +618,7 @@ package struct NativeVideoGridView: NSViewRepresentable {
                 ),
                 let pendingRestoreOffsetY
             else { return }
-            let target = min(pendingRestoreOffsetY, maximumLogicalScrollOffsetY)
-            applyLogicalScrollOffset(target, synchronizingBinding: false)
+            let target = applyLogicalScrollOffset(pendingRestoreOffsetY)
             self.pendingRestoreOffsetY = nil
             viewportAnchor = captureViewportAnchor()
             if target <= 0 {
@@ -643,18 +632,18 @@ package struct NativeVideoGridView: NSViewRepresentable {
             }
         }
 
-        private func applyLogicalScrollOffset(
-            _ target: CGFloat,
-            synchronizingBinding: Bool
-        ) {
+        /// 把逻辑偏移夹在可滚动范围内后设到 clip view，返回实际设置的逻辑偏移；不改记录的滚动位置，由调用方决定
+        /// 是否标记为已同步。
+        @discardableResult
+        private func applyLogicalScrollOffset(_ target: CGFloat) -> CGFloat {
             let logicalTarget = min(max(0, target), maximumLogicalScrollOffsetY)
-            let physicalTarget = NativeVideoScrollCoordinateSpace.physicalOffset(
-                logicalOffset: logicalTarget,
-                leadingInset: scrollView.contentInsets.top
+            applyPhysicalScrollOffset(
+                NativeVideoScrollCoordinateSpace.physicalOffset(
+                    logicalOffset: logicalTarget,
+                    leadingInset: scrollView.contentInsets.top
+                )
             )
-            applyPhysicalScrollOffset(physicalTarget)
-            retainedScrollOffset.markPersisted(logicalTarget)
-            if synchronizingBinding { synchronizeBinding(to: logicalTarget) }
+            return logicalTarget
         }
 
         private func synchronizeBinding(to offsetY: CGFloat) {

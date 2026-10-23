@@ -4,7 +4,8 @@ import Testing
 
 @testable import BiliVideoCollectionUI
 
-/// 视口宽度变化（含侧栏收起、展开动画中的连续变化）前后，网格的首张可见卡片不变。
+/// 视口尺寸变化（含侧栏收起、展开动画中的连续变化）前后与其后的原地刷新中，网格的首张可见卡片不变；尺寸变化之后滚进
+/// 近尾阈值仍会请求下一页。
 @Suite(.serialized, .timeLimit(.minutes(1)))
 @MainActor
 struct NativeVideoGridResizeAnchorTests {
@@ -22,7 +23,7 @@ struct NativeVideoGridResizeAnchorTests {
         for width in Self.sidebarAnimationWidths.dropFirst()
             + Self.sidebarAnimationWidths.reversed().dropFirst()
         {
-            grid.setViewportWidth(width)
+            grid.setViewport(width: width)
             let card = try #require(grid.card(original.id))
             #expect(
                 abs(card.offsetFromViewportTop - original.offsetFromViewportTop) <= 1,
@@ -34,20 +35,63 @@ struct NativeVideoGridResizeAnchorTests {
 
     @Test
     func narrowingNearTheEndReturnsToTheSameFirstVisibleCard() async throws {
-        let grid = try await GridHarness(initialWidth: 1_120)
+        let grid = try await GridHarness(width: 1_120)
         grid.scroll(toLogicalOffset: grid.maximumLogicalOffset - 120)
         let original = try #require(grid.firstVisibleCard())
 
         for width in Self.sidebarAnimationWidths.reversed().dropFirst()
             + Self.sidebarAnimationWidths.dropFirst()
         {
-            grid.setViewportWidth(width)
+            grid.setViewport(width: width)
         }
         #expect(grid.firstVisibleCard() == original)
     }
+
+    @Test
+    func heightChangeAtTheEndReturnsToTheSameFirstVisibleCard() async throws {
+        let grid = try await GridHarness()
+        grid.scroll(toLogicalOffset: grid.maximumLogicalOffset)
+        let original = try #require(grid.firstVisibleCard())
+
+        grid.setViewport(height: 1_000)
+        grid.setViewport(height: GridHarness.defaultHeight)
+
+        #expect(grid.firstVisibleCard() == original)
+    }
+
+    @Test
+    func inPlaceRefreshAfterWidthChangeKeepsTheFirstVisibleCard() async throws {
+        let grid = try await GridHarness()
+        grid.scroll(toLogicalOffset: 6_000)
+        let original = try #require(grid.firstVisibleCard())
+        for width in Self.sidebarAnimationWidths.dropFirst() {
+            grid.setViewport(width: width)
+        }
+
+        grid.replaceItems(with: (0..<10).map { "NEW\($0)" } + grid.ids)
+
+        let card = try #require(grid.card(original.id))
+        #expect(abs(card.offsetFromViewportTop - original.offsetFromViewportTop) <= 1)
+    }
+
+    /// 后一组是半点抖动：宽度变化不超过半点时不重排，其间在 layout 之外的追加照常重排。
+    @Test(arguments: [(CGFloat(1_120), CGFloat(800)), (800.5, 799.5)])
+    func scrollingIntoTheThresholdAfterResizingLoadsTheNextPage(
+        widths: (beforeAppend: CGFloat, afterAppend: CGFloat)
+    ) async throws {
+        let grid = try await GridHarness()
+        grid.setViewport(width: widths.beforeAppend)
+        grid.replaceItems(with: grid.ids + (300..<330).map { "BV\($0)" })
+        grid.setViewport(width: widths.afterAppend)
+        let requestsBeforeScrolling = grid.nearEndRequests
+
+        grid.scroll(toLogicalOffset: grid.maximumLogicalOffset)
+
+        #expect(grid.nearEndRequests == requestsBeforeScrolling + 1)
+    }
 }
 
-/// 带工具栏（顶部 contentInsets）的真实窗口里驱动网格 Coordinator，宽度变化经窗口布局同步送达。
+/// 带工具栏（顶部 contentInsets）的真实窗口里驱动网格 Coordinator；视口尺寸直接设到滚动视图上，经窗口布局同步送达。
 @MainActor
 private final class GridHarness {
     struct VisibleCard: Equatable {
@@ -55,30 +99,31 @@ private final class GridHarness {
         let offsetFromViewportTop: CGFloat
     }
 
-    private static let itemCount = 300
-    private static let viewportHeight: CGFloat = 700
+    static let defaultHeight: CGFloat = 700
+    private static let windowSize = NSSize(width: 1_200, height: 1_100)
 
+    private(set) var ids = (0..<300).map { "BV\($0)" }
+    private(set) var nearEndRequests = 0
+    /// 每次换内容都换尾标，让每一页都可以请求下一页。
+    private var tailIdentity: UInt64 = 1
     private let coordinator: NativeVideoGridView.Coordinator
     private let window: NSWindow
     private let scrollView: NSScrollView
     private let collectionView: NSCollectionView
 
-    init(initialWidth: CGFloat = 800) async throws {
-        coordinator = NativeVideoGridView.Coordinator(
-            items: (0..<Self.itemCount).map { index in
-                NativeVideoCardPresentation(
-                    id: "BV\(index)",
-                    title: "视频 \(index)",
-                    coverURL: nil,
-                    avatarURL: nil,
-                    showsAvatar: false,
-                    footerLeadingText: "UP",
-                    accessibilityLabel: "视频 \(index)"
-                )
-            },
+    init(width: CGFloat = 800) async throws {
+        window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: Self.windowSize),
+            styleMask: [.titled, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.toolbar = NSToolbar(identifier: "GridHarness")
+        let coordinator = NativeVideoGridView.Coordinator(
+            items: Self.presentations(for: ids),
             initialScrollOffsetY: 0,
             accessibilityLabel: "网格",
-            tailState: .end,
+            tailState: Self.tailState(tailIdentity),
             bottomInset: 0,
             scrollResetRequestID: 0,
             acknowledgedScrollResetRequestID: 0,
@@ -88,20 +133,14 @@ private final class GridHarness {
             onNearEnd: {},
             onSelect: { _ in }
         )
-        window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: initialWidth, height: Self.viewportHeight),
-            styleMask: [.titled, .resizable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        window.toolbar = NSToolbar(identifier: "GridHarness")
+        self.coordinator = coordinator
         scrollView = coordinator.makeScrollView()
         let contentView = try #require(window.contentView)
-        scrollView.frame = contentView.bounds
-        scrollView.autoresizingMask = [.width, .height]
         contentView.addSubview(scrollView)
         collectionView = try #require(scrollView.documentView as? NSCollectionView)
-        contentView.layoutSubtreeIfNeeded()
+        // 先换上计数的翻页回调，再排版，首次排版的翻页判断也算在内。
+        replaceItems(with: ids)
+        setViewport(width: width, height: Self.defaultHeight)
         // makeScrollView 把首次排版与恢复排到下一轮主队列；等它跑完再开始操作。
         await withCheckedContinuation { continuation in
             DispatchQueue.main.async { continuation.resume() }
@@ -133,15 +172,44 @@ private final class GridHarness {
         window.contentView?.layoutSubtreeIfNeeded()
     }
 
-    func setViewportWidth(_ width: CGFloat) {
-        window.setContentSize(NSSize(width: width, height: Self.viewportHeight))
+    /// 滚动视图贴着窗口顶边（工具栏之下），只改它自己的尺寸。
+    func setViewport(width: CGFloat? = nil, height: CGFloat? = nil) {
+        let size = NSSize(
+            width: width ?? scrollView.frame.width,
+            height: height ?? scrollView.frame.height
+        )
+        scrollView.frame = NSRect(
+            x: 0,
+            y: Self.windowSize.height - size.height,
+            width: size.width,
+            height: size.height
+        )
         window.contentView?.layoutSubtreeIfNeeded()
     }
 
-    /// 与视野相交的最上一行里最靠前的卡片。
+    /// 像来源刷新或翻页一样整体换内容（含严格尾部追加），并换上新尾标。
+    func replaceItems(with ids: [String]) {
+        self.ids = ids
+        tailIdentity += 1
+        coordinator.update(
+            items: Self.presentations(for: ids),
+            accessibilityLabel: "网格",
+            tailState: Self.tailState(tailIdentity),
+            bottomInset: 0,
+            scrollResetRequestID: 0,
+            requestedScrollOffsetY: 0,
+            onScroll: { _ in },
+            onAcknowledgeScrollReset: { _ in },
+            onNearEnd: { [weak self] in self?.nearEndRequests += 1 },
+            onSelect: { _ in }
+        )
+        window.contentView?.layoutSubtreeIfNeeded()
+    }
+
+    /// 与视野相交的最上一行里序号最小的卡片（独立于网格自己的取法）。
     func firstVisibleCard() -> VisibleCard? {
         let visible = collectionView.visibleRect
-        return (0..<collectionView.numberOfItems(inSection: 0))
+        return ids.indices
             .compactMap { item -> (Int, NSRect)? in
                 guard
                     let frame = collectionView.collectionViewLayout?
@@ -151,13 +219,13 @@ private final class GridHarness {
                 return (item, frame)
             }
             .min { ($0.1.minY, $0.0) < ($1.1.minY, $1.0) }
-            .flatMap { card("BV\($0.0)") }
+            .flatMap { card(ids[$0.0]) }
     }
 
     /// 卡片顶边到视口逻辑顶边（工具栏下沿）的距离。
     func card(_ id: String) -> VisibleCard? {
         guard
-            let item = Int(id.dropFirst(2)),
+            let item = ids.firstIndex(of: id),
             let frame = collectionView.collectionViewLayout?
                 .layoutAttributesForItem(at: IndexPath(item: item, section: 0))?.frame
         else { return nil }
@@ -166,5 +234,23 @@ private final class GridHarness {
             leadingInset: scrollView.contentInsets.top
         )
         return VisibleCard(id: id, offsetFromViewportTop: frame.minY - logicalTop)
+    }
+
+    private static func presentations(for ids: [String]) -> [NativeVideoCardPresentation] {
+        ids.map { id in
+            NativeVideoCardPresentation(
+                id: id,
+                title: "视频 \(id)",
+                coverURL: nil,
+                avatarURL: nil,
+                showsAvatar: false,
+                footerLeadingText: "UP",
+                accessibilityLabel: "视频 \(id)"
+            )
+        }
+    }
+
+    private static func tailState(_ identity: UInt64) -> NativeVideoGridTailState {
+        NativeVideoGridTailState(canLoadMore: true, tailIdentity: identity, isLoading: false)
     }
 }

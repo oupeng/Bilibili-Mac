@@ -138,31 +138,6 @@ struct NativeVideoGridTests {
         #expect(!laterGridReplaysAcknowledgedRequest)
     }
 
-    @Test
-    func anchorRetentionPreservesItemOffsetAndClampsBounds() {
-        #expect(
-            NativeVideoGridAnchorRetention.targetOffsetY(
-                itemOriginY: 1_200,
-                offsetFromViewportTop: 40,
-                maximumOffsetY: 2_000
-            ) == 1_160
-        )
-        #expect(
-            NativeVideoGridAnchorRetention.targetOffsetY(
-                itemOriginY: 2_400,
-                offsetFromViewportTop: 20,
-                maximumOffsetY: 2_000
-            ) == 2_000
-        )
-        #expect(
-            NativeVideoGridAnchorRetention.targetOffsetY(
-                itemOriginY: 10,
-                offsetFromViewportTop: 40,
-                maximumOffsetY: 2_000
-            ) == 0
-        )
-    }
-
     /// 纵向 toolbar inset（网格）与横向侧栏 inset（shelf）共用同一逻辑坐标换算。
     @Test(arguments: [
         (physical: CGFloat(-52), inset: CGFloat(52), logical: CGFloat(0)),

@@ -103,17 +103,6 @@ struct NativeVideoGridViewportAnchor: Equatable {
     let offsetFromViewportTop: CGFloat
 }
 
-/// 按锚点卡片的新位置算出目标逻辑偏移，夹在可滚动范围内。
-enum NativeVideoGridAnchorRetention {
-    static func targetOffsetY(
-        itemOriginY: CGFloat,
-        offsetFromViewportTop: CGFloat,
-        maximumOffsetY: CGFloat
-    ) -> CGFloat {
-        min(max(0, maximumOffsetY), max(0, itemOriginY - offsetFromViewportTop))
-    }
-}
-
 /// 网格最近观察到的滚动位置，与已同步给 binding 的位置分开记：用户滚动时只记录、不逐帧写回 SwiftUI，
 /// 实时滚动结束或拆除时才把超过半点的差异同步出去。
 struct NativeVideoScrollOffsetRetention {
