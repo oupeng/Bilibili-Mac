@@ -277,10 +277,10 @@ final class NativePlayerHostView: AVPlayerView {
         // 系统 Now Playing 只由进程级 `SystemNowPlayingController` 发布，AVKit
         // 自动更新会与它争写同一份信息。
         updatesNowPlayingInfoCenter = false
-        // 暂停时 AVKit 的画面分析会在 `pause()` 内的 rate KVO 回调里于主线程读取 `currentTime`，
-        // 等播放器为音频暂停握手持有的锁，多挡主线程约 20ms。弹幕时钟不经过主线程，不受它影响；关掉它是为了
-        // 减少暂停时的主线程阻塞。弹幕层盖在画面上，暂停帧上的文字选取与查询本就用不上。
-        allowsVideoFrameAnalysis = false
+        // 保留 AVKit 的画面分析（实况文本），暂停帧上可以选取与查询文字。代价是它在 `pause()` 内的 rate KVO
+        // 回调里于主线程读取 `currentTime`，等播放器为音频暂停握手持有的锁，暂停时主线程多挡约 20ms；弹幕时钟
+        // 在自己的队列上跟随 timebase、不经过主线程，暂停时照样当场冻结，不受这段阻塞影响。
+        allowsVideoFrameAnalysis = true
         overlayHostingView.sizingOptions = []
         // 浮层与 content overlay 等大；不按窗口安全区缩进，否则播放器滚到工具栏下或全屏时提示位置
         // 与“从头播放”的点击区域会偏移。
