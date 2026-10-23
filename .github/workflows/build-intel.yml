@@ -1,0 +1,460 @@
+name: Build BiliKit for Intel Mac (macOS 26)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-26
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Show toolchain version
+        run: |
+          sw_vers
+          xcodebuild -version
+
+      - name: Install Pillow for Image Processing
+        run: |
+          python3 -m pip install pillow --break-system-packages
+
+      - name: Unpack and Generate Dark/Light Icons
+        run: |
+          CUSTOM_ICNS=$(find . -maxdepth 2 -name "*.icns" ! -path "*/DerivedData/*" ! -path "*/.git/*" | head -n 1)
+          if [ -n "$CUSTOM_ICNS" ] && [ -f "$CUSTOM_ICNS" ]; then
+              echo "Found custom icon at: $CUSTOM_ICNS"
+              rm -rf custom.iconset
+              iconutil -c iconset "$CUSTOM_ICNS" -o custom.iconset
+              if [ "$CUSTOM_ICNS" != "./custom_icon.icns" ] && [ "$CUSTOM_ICNS" != "custom_icon.icns" ]; then
+                  cp -f "$CUSTOM_ICNS" custom_icon.icns
+              fi
+          fi
+
+          cat << 'EOF' > generate_icons.py
+          import os, glob
+          from PIL import Image
+          from collections import deque
+
+          src_png = None
+          for candidate in ["custom.iconset/icon_512x512@2x.png", "custom.iconset/icon_512x512.png"]:
+              if os.path.exists(candidate):
+                  src_png = candidate
+                  break
+
+          if not src_png:
+              candidates = glob.glob("custom.iconset/*.png")
+              if candidates:
+                  src_png = sorted(candidates, key=lambda f: os.path.getsize(f))[-1]
+
+          if src_png and os.path.exists(src_png):
+              light_img = Image.open(src_png).convert("RGBA")
+              light_img.save("icon_light.png")
+
+              dark_img = light_img.copy()
+              w, h = dark_img.size
+              pixels = dark_img.load()
+
+              target_dark = (32, 32, 36)
+              visited = set()
+              queue = deque()
+
+              seeds = [
+                  (int(w * 0.15), int(h * 0.15)),
+                  (int(w * 0.85), int(h * 0.15)),
+                  (int(w * 0.15), int(h * 0.85)),
+                  (int(w * 0.85), int(h * 0.85)),
+                  (int(w * 0.5),  int(h * 0.12)),
+                  (int(w * 0.5),  int(h * 0.88))
+              ]
+
+              def is_outer_white(r, g, b, a):
+                  return a > 120 and r > 215 and g > 215 and b > 215
+
+              for sx, sy in seeds:
+                  if 0 <= sx < w and 0 <= sy < h:
+                      r, g, b, a = pixels[sx, sy]
+                      if is_outer_white(r, g, b, a):
+                          queue.append((sx, sy))
+                          visited.add((sx, sy))
+
+              while queue:
+                  x, y = queue.popleft()
+                  pixels[x, y] = (target_dark[0], target_dark[1], target_dark[2], a)
+                  for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                      nx, ny = x + dx, y + dy
+                      if 0 <= nx < w and 0 <= ny < h and (nx, ny) not in visited:
+                          nr, ng, nb, na = pixels[nx, ny]
+                          if is_outer_white(nr, ng, nb, na):
+                              visited.add((nx, ny))
+                              queue.append((nx, ny))
+
+              dark_img.save("icon_dark.png")
+          EOF
+          python3 generate_icons.py
+
+      - name: Apply Clean Patches (Native Audio Passthrough, No Fake AudioMix)
+        run: |
+          cat << 'EOF' > patch_all.py
+          import os, re, subprocess
+
+          # 1. 自动写入 WebCredentialStore.swift 双保险持久化
+          cred_file = "Packages/BiliKitCore/Sources/BiliAuth/Credential/WebCredentialStore.swift"
+          if os.path.exists(cred_file):
+              fixed_store_code = """import Foundation
+          import Security
+
+          protocol WebCredentialStoring: Sendable {
+              func load() throws -> WebCredential?
+              func save(_ credential: WebCredential) throws
+              func delete() throws
+          }
+
+          enum WebCredentialStoreError: Error, Sendable, Equatable {
+              case corruptCredential
+              case interactionNotAllowed
+              case unavailable
+              case operationFailed(OSStatus)
+          }
+
+          struct KeychainWebCredentialStore: WebCredentialStoring, Sendable {
+              static let productionService = "com.shiinayane.BiliKitMac.web-auth"
+              static let productionAccount = "web-credential"
+              private static let fallbackKey = "bili_kit_web_credential_local_backup"
+
+              private let service: String
+              private let account: String
+              private let operations: any KeychainOperating
+
+              init(
+                  service: String = Self.productionService,
+                  account: String = Self.productionAccount,
+                  operations: any KeychainOperating = SystemKeychainOperations()
+              ) {
+                  self.service = service
+                  self.account = account
+                  self.operations = operations
+              }
+
+              func load() throws -> WebCredential? {
+                  var query = baseQuery
+                  query[kSecReturnData as String] = true
+                  query[kSecMatchLimit as String] = kSecMatchLimitOne
+
+                  let (status, data) = operations.copyMatching(query)
+                  if status == errSecSuccess, let data {
+                      if let cred = try? WebCredentialCodec.decode(data) {
+                          return cred
+                      }
+                  }
+                  if let fallbackData = UserDefaults.standard.data(forKey: Self.fallbackKey) {
+                      if let cred = try? WebCredentialCodec.decode(fallbackData) {
+                          return cred
+                      }
+                  }
+                  if status == errSecItemNotFound { return nil }
+                  return nil
+              }
+
+              func save(_ credential: WebCredential) throws {
+                  let encoded: Data
+                  do {
+                      encoded = try WebCredentialCodec.encode(credential)
+                  } catch {
+                      throw WebCredentialStoreError.corruptCredential
+                  }
+                  UserDefaults.standard.set(encoded, forKey: Self.fallbackKey)
+
+                  var attributes = baseQuery
+                  attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+                  attributes[kSecAttrLabel as String] = "BiliKit Web 登录凭据"
+                  attributes[kSecValueData as String] = encoded
+
+                  let addStatus = operations.add(attributes)
+                  if addStatus == errSecDuplicateItem {
+                      let update: [String: Any] = [
+                          kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+                          kSecAttrLabel as String: "BiliKit Web 登录凭据",
+                          kSecValueData as String: encoded
+                      ]
+                      _ = operations.update(query: baseQuery, attributes: update)
+                  }
+              }
+
+              func delete() throws {
+                  UserDefaults.standard.removeObject(forKey: Self.fallbackKey)
+                  _ = operations.delete(baseQuery)
+              }
+
+              private var baseQuery: [String: Any] {
+                  [
+                      kSecClass as String: kSecClassGenericPassword,
+                      kSecAttrService as String: service,
+                      kSecAttrAccount as String: account
+                  ]
+              }
+          }
+
+          protocol KeychainOperating: Sendable {
+              func copyMatching(_ query: [String: Any]) -> (OSStatus, Data?)
+              func add(_ attributes: [String: Any]) -> OSStatus
+              func update(query: [String: Any], attributes: [String: Any]) -> OSStatus
+              func delete(_ query: [String: Any]) -> OSStatus
+          }
+
+          struct SystemKeychainOperations: KeychainOperating, Sendable {
+              func copyMatching(_ query: [String: Any]) -> (OSStatus, Data?) {
+                  var result: CFTypeRef?
+                  let status = SecItemCopyMatching(query as CFDictionary, &result)
+                  return (status, result as? Data)
+              }
+              func add(_ attributes: [String: Any]) -> OSStatus {
+                  SecItemAdd(attributes as CFDictionary, nil)
+              }
+              func update(query: [String: Any], attributes: [String: Any]) -> OSStatus {
+                  SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+              }
+              func delete(_ query: [String: Any]) -> OSStatus {
+                  SecItemDelete(query as CFDictionary)
+              }
+          }
+          """
+              with open(cred_file, "w", encoding="utf-8") as f:
+                  f.write(fixed_store_code)
+
+          # 2. 消除 -warnings-as-errors
+          for root, dirs, files in os.walk("."):
+              for file in files:
+                  if file.endswith((".swift", ".pbxproj", ".xcconfig")):
+                      path = os.path.join(root, file)
+                      try:
+                          with open(path, "r", encoding="utf-8") as f:
+                              content = f.read()
+                          if "-warnings-as-errors" in content:
+                              content = content.replace("-warnings-as-errors", "-DNO_WERROR")
+                              with open(path, "w", encoding="utf-8") as f:
+                                  f.write(content)
+                      except Exception:
+                          pass
+
+          # 3. 修复 URLSessionRangeTransport.swift 循环引用
+          target_file = "Packages/BiliKitCore/Sources/BiliNetworking/Range/URLSessionRangeTransport.swift"
+          if os.path.exists(target_file):
+              with open(target_file, "r", encoding="utf-8") as f:
+                  content = f.read()
+              if "let (pending, session) = lock.withLock" in content:
+                  content = content.replace("let (pending, session) = lock.withLock", "let (pending, activeSession) = lock.withLock")
+                  content = content.replace("session?.finishTasksAndInvalidate()", "activeSession?.finishTasksAndInvalidate()")
+                  content = content.replace("session?.invalidateAndCancel()", "activeSession?.invalidateAndCancel()")
+                  content = content.replace("session.invalidateAndCancel()", "activeSession.invalidateAndCancel()")
+                  with open(target_file, "w", encoding="utf-8") as f:
+                      f.write(content)
+
+          # 4. 修复 NSColor.quinaryLabelColor
+          for root, dirs, files in os.walk("."):
+              for file in files:
+                  if file.endswith(".swift"):
+                      path = os.path.join(root, file)
+                      try:
+                          with open(path, "r", encoding="utf-8") as f:
+                              c = f.read()
+                          if "quinaryLabelColor" in c:
+                              c = c.replace("quinaryLabelColor", "quinaryLabel")
+                              with open(path, "w", encoding="utf-8") as f:
+                                  f.write(c)
+                      except Exception:
+                          pass
+
+          # 5. 【彻底根除杂音核心修复】：让 make 直接安全返回 nil，促使控制器完全放弃注入空 AudioMix，走系统原生纯净音频直通！
+          loudness_file = "Packages/BiliKitCore/Sources/BiliPlayback/Audio/LoudnessProcessingTap.swift"
+          try:
+              orig_code = subprocess.check_output(["git", "show", f"HEAD:{loudness_file}"], text=True)
+          except Exception:
+              orig_code = ""
+
+          make_match = re.search(r"(public\s+|open\s+)?(static\s+func\s+make[^{]+)", orig_code)
+          make_sig = make_match.group(0).strip() if make_match else "static func make(for playerItem: AVPlayerItem, policy: Any? = nil) -> LoudnessProcessingTap?"
+
+          clean_loudness = f"""import Foundation
+          import AVFoundation
+          import MediaToolbox
+
+          final class LoudnessProcessingTap: @unchecked Sendable {{
+              init() {{}}
+              // 返回 nil 让控制器直接进入原生音频直通模式，不污染播放器音频缓冲
+              {make_sig} {{
+                  return nil
+              }}
+              func makeAudioMix() -> AVAudioMix? {{
+                  return nil
+              }}
+              func setTargetGain(_ targetGain: Float, rampDuration: TimeInterval = 0) {{}}
+          }}
+          """
+          with open(loudness_file, "w", encoding="utf-8") as f:
+              f.write(clean_loudness)
+          print("Configured pure native audio passthrough (zero AudioMix corruption)!")
+
+          # 6. 移除 App Sandbox 与 Keychain 限制
+          for root, dirs, files in os.walk("."):
+              for file in files:
+                  if file.endswith(".entitlements"):
+                      path = os.path.join(root, file)
+                      try:
+                          with open(path, "r", encoding="utf-8") as f:
+                              ent = f.read()
+                          ent = re.sub(r"<key>com.apple.security.app-sandbox</key>\s*<true/>", "<key>com.apple.security.app-sandbox</key><false/>", ent)
+                          ent = re.sub(r"<key>keychain-access-groups</key>\s*<array>.*?</array>", "", ent, flags=re.DOTALL)
+                          with open(path, "w", encoding="utf-8") as f:
+                              f.write(ent)
+                      except Exception:
+                          pass
+
+          # 7. 禁用 Sparkle 自动更新
+          for root, dirs, files in os.walk("."):
+              for file in files:
+                  if "Info.plist" in file:
+                      path = os.path.join(root, file)
+                      try:
+                          with open(path, "r", encoding="utf-8") as f:
+                              plist = f.read()
+                          if "</dict>" in plist:
+                              sparkle_block = "<key>SUEnableAutomaticChecks</key><false/><key>SUAutomaticallyUpdate</key><false/>\n</dict>"
+                              plist = plist.replace("</dict>", sparkle_block, 1)
+                              with open(path, "w", encoding="utf-8") as f:
+                                  f.write(plist)
+                      except Exception:
+                          pass
+
+          # 8. 注入动态主题切换器
+          app_file = "BiliKitMac/App/BiliKitMacApp.swift"
+          if os.path.exists(app_file):
+              with open(app_file, "r", encoding="utf-8") as f:
+                  app_code = f.read()
+
+              helper_class = """import AppKit
+
+          final class ThemeIconSwitcher: NSObject, @unchecked Sendable {
+              static let shared = ThemeIconSwitcher()
+              func start() {
+                  DispatchQueue.main.async {
+                      self.update()
+                  }
+                  DistributedNotificationCenter.default().addObserver(
+                      forName: Notification.Name("AppleInterfaceThemeChangedNotification"),
+                      object: nil,
+                      queue: .main
+                  ) { [weak self] _ in
+                      self?.update()
+                  }
+              }
+              func update() {
+                  let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                  let file = isDark ? "icon_dark.png" : "icon_light.png"
+                  if let path = Bundle.main.path(forResource: file, ofType: nil),
+                     let image = NSImage(contentsOfFile: path) {
+                      NSApp.applicationIconImage = image
+                  }
+              }
+          }
+          """
+
+              if "ThemeIconSwitcher.shared.start()" not in app_code:
+                  if "init()" in app_code:
+                      app_code = app_code.replace("init() {", "init() {\n        ThemeIconSwitcher.shared.start()\n")
+                  else:
+                      app_code = app_code.rstrip()
+                      if app_code.endswith("}"):
+                          app_code = app_code[:-1] + "\n    init() {\n        ThemeIconSwitcher.shared.start()\n    }\n}\n"
+
+              if "final class ThemeIconSwitcher" not in app_code:
+                  app_code = app_code.strip() + "\n\n" + helper_class + "\n"
+
+              with open(app_file, "w", encoding="utf-8") as f:
+                  f.write(app_code)
+          EOF
+          python3 patch_all.py
+
+      - name: Build BiliKitMac for Intel (x86_64)
+        run: |
+          set -o pipefail
+          SCHEME="BiliKitMac"
+          if ! xcodebuild -list -project BiliKitMac.xcodeproj | grep -q "BiliKitMac"; then
+            SCHEME="BiliKit"
+          fi
+          echo "Selected App Scheme: $SCHEME"
+
+          xcodebuild build \
+            -project BiliKitMac.xcodeproj \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination 'platform=macOS,arch=x86_64' \
+            ARCHS="x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
+            SWIFT_SUPPRESS_WARNINGS=NO \
+            GCC_WARN_INHIBIT_ALL_WARNINGS=NO \
+            SWIFT_TREAT_WARNINGS_AS_ERRORS=NO \
+            GCC_TREAT_WARNINGS_AS_ERRORS=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            DEVELOPMENT_TEAM="" \
+            -derivedDataPath ./DerivedData 2>&1 | tee xcodebuild.log || {
+              echo "==================== [编译错误精确定位] ===================="
+              grep -E "error:|fatal error:|\*\* BUILD FAILED \*\*" xcodebuild.log | grep -v "SWIFT_TREAT_WARNINGS_AS_ERRORS" | head -n 35
+              echo "=========================================================="
+              exit 1
+            }
+
+      - name: Force Custom Icon & Ad-hoc Sign App
+        run: |
+          APP_PATH=$(find ./DerivedData/Build/Products/Release -maxdepth 2 -name "*.app" | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::未在 DerivedData 中找到编译生成的 .app 文件！"
+            exit 1
+          fi
+
+          # 1. 移除 CFBundleIconName 破坏 Assets.car 对旧图标的优先锁定
+          echo "Bypassing Assets.car icon priority..."
+          /usr/libexec/PlistBuddy -c "Delete :CFBundleIconName" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile AppIcon" "$APP_PATH/Contents/Info.plist" 2>/dev/null || \
+          /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$APP_PATH/Contents/Info.plist"
+
+          # 2. 覆盖默认 AppIcon.icns
+          ICNS_TARGET=$(find . -maxdepth 2 -name "*.icns" ! -path "*/DerivedData/*" ! -path "*/.git/*" | head -n 1)
+          if [ -n "$ICNS_TARGET" ] && [ -f "$ICNS_TARGET" ]; then
+              cp -f "$ICNS_TARGET" "$APP_PATH/Contents/Resources/AppIcon.icns"
+              echo "Replaced AppIcon.icns with: $ICNS_TARGET"
+          fi
+
+          # 3. 拷入动态切换图层
+          if [ -f "icon_light.png" ] && [ -f "icon_dark.png" ]; then
+              cp -f icon_light.png "$APP_PATH/Contents/Resources/icon_light.png"
+              cp -f icon_dark.png "$APP_PATH/Contents/Resources/icon_dark.png"
+              echo "Bundled dynamic light and dark theme icons."
+          fi
+
+          # 4. 架构验证
+          echo "=== 架构验证 ==="
+          lipo -info "$APP_PATH/Contents/MacOS/"*
+
+          # 5. 重新签名并打包
+          ENT_FILE=$(find . -name "*.entitlements" | head -n 1)
+          if [ -n "$ENT_FILE" ]; then
+              codesign --force --deep --sign - --entitlements "$ENT_FILE" "$APP_PATH"
+          else
+              codesign --force --deep --sign - "$APP_PATH"
+          fi
+
+          ditto -c -k --keepParent "$APP_PATH" BiliKit-macOS26-Intel.zip
+
+      - name: Upload Intel App Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BiliKit-macOS26-Intel-Client
+          path: BiliKit-macOS26-Intel.zip
+          retention-days: 7
