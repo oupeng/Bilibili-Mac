@@ -13,7 +13,7 @@ import SwiftUI
 /// 主动断开 player 并释放弹幕 surface ownership。
 struct PlayerHostView: View {
     @State private var previewEndedNotice: String?
-    let player: AVPlayer
+    let player: SeekTrackingPlayer
     let danmakuRenderer: CoreAnimationDanmakuRenderer
     let danmakuController: DanmakuPresentationController
     let videoModel: VideoViewModel?
@@ -27,7 +27,7 @@ struct PlayerHostView: View {
     let timelineUpdates: (() -> AsyncStream<PlaybackTimelineSnapshot>)?
 
     init(
-        player: AVPlayer,
+        player: SeekTrackingPlayer,
         danmakuRenderer: CoreAnimationDanmakuRenderer,
         danmakuController: DanmakuPresentationController,
         videoModel: VideoViewModel? = nil,
@@ -114,7 +114,7 @@ struct PlayerHostView: View {
 }
 
 private struct AVPlayerContainerView: NSViewRepresentable {
-    let player: AVPlayer
+    let player: SeekTrackingPlayer
     let renderer: CoreAnimationDanmakuRenderer
     let controller: DanmakuPresentationController
     let blocksNativePlaybackInteraction: Bool
@@ -142,8 +142,7 @@ private struct AVPlayerContainerView: NSViewRepresentable {
             toggleDanmaku: toggleDanmaku,
             toggleSubtitles: toggleSubtitles
         )
-        view.player = player
-        view.startObservingPlayerItemChanges()
+        view.attachPlayer(player)
         view.setPlaybackPreparationBlocked(blocksNativePlaybackInteraction)
         view.showsFullScreenToggleButton = true
         view.allowsPictureInPicturePlayback = true
@@ -173,8 +172,7 @@ private struct AVPlayerContainerView: NSViewRepresentable {
         view.requestInitialKeyboardFocus(for: focusIdentity)
         if view.player !== player {
             view.cancelMomentaryPlaybackRate()
-            view.player = player
-            view.startObservingPlayerItemChanges()
+            view.attachPlayer(player)
         }
     }
 
@@ -212,8 +210,9 @@ enum PlayerPlaybackPreparationPolicy {
 ///
 /// 用 AppKit：原生控制条、画中画与全屏都来自 `AVPlayerView`，弹幕与浮层要放进它的 content overlay
 /// 才能随 detached 全屏一起移动，见 docs/ARCHITECTURE.md「播放页布局」。拥有键盘快捷键
-/// controller（本地 key monitor）、浮层模型、player 的三个 KVO 观察、item
-/// 时间跳转观察与失焦通知观察；不拥有 player、弹幕 renderer 与弹幕 controller，它们由窗口组装持有。
+/// controller（本地 key monitor）、浮层模型、player 的三个 KVO 观察与在途 seek 通知观察、当前 item 的
+/// 两个 KVO 观察与时间跳转观察，以及失焦通知观察；不拥有 player、弹幕 renderer 与弹幕 controller，它们由
+/// 窗口组装持有。
 /// 拆除由 `AVPlayerContainerView.dismantleNSView` 按顺序进行：清除提示、撤销弹幕 surface、
 /// 解开弹幕时钟与 item timebase 的绑定、停止失焦与 player 观察、停止键盘监听、结束临时倍速，最后断开
 /// player。`currentItem` 变化时先让弹幕 overlay 换绑时钟（见 `DanmakuOverlayView.bind(to:)`）。
@@ -229,10 +228,12 @@ final class DanmakuPlayerView: AVPlayerView {
     private var isPresentingFullScreen = false
     private var momentaryRateSessionID: UUID?
     private var momentaryRatePressID: UUID?
-    private weak var observedPlayer: AVPlayer?
+    private weak var observedPlayer: SeekTrackingPlayer?
     private var playerItemObservation: NSKeyValueObservation?
     private var playerTimeControlObservation: NSKeyValueObservation?
     private var playerWaitingReasonObservation: NSKeyValueObservation?
+    private var playerSeekActivityObservers = NativeVideoNotificationObservers()
+    private var currentItemObservations: [NSKeyValueObservation] = []
     private var playerItemTimeJumpObservers = NativeVideoNotificationObservers()
     private var blocksNativePlaybackInteraction = false
     private var lastInitialFocusIdentity: String?
@@ -384,19 +385,24 @@ final class DanmakuPlayerView: AVPlayerView {
         overlayModel.setPreviewEndedMessage(message)
     }
 
+    /// 按播放器的最新状态重算两种转圈；每个观察回调回到主线程后都调用它，只读当下状态，不用回调带来的值，
+    /// 跳回主线程期间状态又变了也以最新的为准。
     private func updatePlaybackActivity() {
         let item = player?.currentItem
+        let seekActivity = observedPlayer?.seekActivity ?? PlayerSeekActivity()
         overlayModel.setPreparationActivity(
             isPreparing: blocksNativePlaybackInteraction,
             hasCurrentItem: item != nil
         )
-        overlayModel.setStalled(
-            PlayerStallPolicy.isStalled(
+        overlayModel.setWaitingForPicture(
+            PlayerLoadingPolicy.isWaitingForPicture(
                 isPreparing: blocksNativePlaybackInteraction,
                 isItemReady: item?.status == .readyToPlay,
+                hasPendingSeek: seekActivity.hasPendingSeek,
                 timeControlStatus: player?.timeControlStatus ?? .paused,
-                reasonForWaitingToPlay: player?.reasonForWaitingToPlay
-            )
+                isPlaybackLikelyToKeepUp: item?.isPlaybackLikelyToKeepUp ?? false
+            ),
+            seekGeneration: seekActivity.generation
         )
     }
 
@@ -444,10 +450,11 @@ final class DanmakuPlayerView: AVPlayerView {
         }
     }
 
-    func startObservingPlayerItemChanges() {
+    /// 挂上窗口播放器并开始观察；同一个播放器重复调用不重复注册。
+    func attachPlayer(_ player: SeekTrackingPlayer) {
+        self.player = player
         guard observedPlayer !== player else { return }
         stopObservingPlayerItemChanges()
-        guard let player else { return }
         observedPlayer = player
         playerItemObservation = player.observe(\.currentItem, options: [.new]) {
             [weak self] _, _ in
@@ -467,7 +474,7 @@ final class DanmakuPlayerView: AVPlayerView {
             Task { @MainActor in
                 self?.cancelMomentaryPlaybackRate()
                 self?.overlayModel.clearResumeNotice(markDismissed: true)
-                self?.startObservingCurrentItemTimeJumps()
+                self?.startObservingCurrentItem()
                 self?.updatePlaybackActivity()
             }
         }
@@ -495,14 +502,39 @@ final class DanmakuPlayerView: AVPlayerView {
                 self?.updatePlaybackActivity()
             }
         }
+        // AVKit 原生进度条在后台线程 seek，通知也在那里发出；观察集合把回调排到主队列。
+        playerSeekActivityObservers.observe(
+            SeekTrackingPlayer.activityDidChangeNotification,
+            object: player
+        ) { [weak self] in
+            self?.updatePlaybackActivity()
+        }
         danmakuOverlay.bind(to: player.currentItem)
-        startObservingCurrentItemTimeJumps()
+        startObservingCurrentItem()
         updatePlaybackActivity()
     }
 
-    private func startObservingCurrentItemTimeJumps() {
+    /// 观察当前 item 的就绪、“可能跟得上”与时间跳转；换 item 时由 `currentItem` 观察重新调用。
+    ///
+    /// 就绪与“可能跟得上”的变化不一定伴随 `timeControlStatus` 变化（例如等数据期间缓冲补足），转圈要靠它们
+    /// 撤下或出现。
+    private func startObservingCurrentItem() {
+        for observation in currentItemObservations { observation.invalidate() }
+        currentItemObservations = []
         playerItemTimeJumpObservers.removeAll()
         guard let item = player?.currentItem else { return }
+        currentItemObservations = [
+            item.observe(\.status, options: []) { [weak self] _, _ in
+                Task { @MainActor in
+                    self?.updatePlaybackActivity()
+                }
+            },
+            item.observe(\.isPlaybackLikelyToKeepUp, options: []) { [weak self] _, _ in
+                Task { @MainActor in
+                    self?.updatePlaybackActivity()
+                }
+            }
+        ]
         playerItemTimeJumpObservers.observe(
             AVPlayerItem.timeJumpedNotification,
             object: item
@@ -520,6 +552,9 @@ final class DanmakuPlayerView: AVPlayerView {
         playerTimeControlObservation = nil
         playerWaitingReasonObservation?.invalidate()
         playerWaitingReasonObservation = nil
+        playerSeekActivityObservers.removeAll()
+        for observation in currentItemObservations { observation.invalidate() }
+        currentItemObservations = []
         playerItemTimeJumpObservers.removeAll()
         observedPlayer = nil
     }

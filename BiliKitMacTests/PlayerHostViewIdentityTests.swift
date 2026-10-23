@@ -191,9 +191,8 @@ struct PlayerHostViewIdentityTests {
         let mediaURL = try writeSilentAudio(seconds: 8, in: directory)
         let first = AVPlayerItem(url: mediaURL)
         let second = AVPlayerItem(url: mediaURL)
-        let player = AVPlayer(playerItem: first)
-        view.player = player
-        view.startObservingPlayerItemChanges()
+        let player = SeekTrackingPlayer(playerItem: first)
+        view.attachPlayer(player)
         defer { view.stopObservingPlayerItemChanges() }
         #expect(await waitUntil(timeout: .seconds(10)) { first.status == .readyToPlay })
         await player.seek(to: CMTime(seconds: 3, preferredTimescale: 600))

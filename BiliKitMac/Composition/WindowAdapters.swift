@@ -76,7 +76,8 @@ extension WindowAdapters {
             accountReadAllowedPaths: LiveAPIClients.accountSessionValidationAllowedPaths,
             additionalSessionInvalidators: [process.accountSession]
         )
-        let player = AVPlayer()
+        // 记录在途 seek 的子类：播放器浮层据此在 seek 未落地时转圈，见 `SeekTrackingPlayer`。
+        let player = SeekTrackingPlayer()
         // 窗口播放器的音量、静音与倍速偏好（KVO 持久化）：与弹幕一样是本窗口的具名 live 对象，由 `close`
         // 显式停止，音量快捷键也经它调整。
         let playbackPreferences = PlaybackPreferencesController(player: player)
@@ -130,7 +131,7 @@ extension WindowAdapters {
             makePlayerContent: { videoModel, danmakuModel in
                 AnyView(
                     PlayerHostView(
-                        player: playerEngine.player,
+                        player: player,
                         danmakuRenderer: danmaku.renderer,
                         danmakuController: danmaku.controller,
                         videoModel: videoModel,

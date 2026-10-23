@@ -460,10 +460,16 @@ D(now) 决定，时间线快照只用来确认 identity、作检查节拍与决�
   F 键静默无效、全屏按钮不受影响；是否全屏由公开的 `AVPlayerViewDelegate` 回调记录，不读私有状态。
 - 加载转圈分三处衔接：首次打开、详情未到时是骨架上的转圈；已有详情页面而 player 还没挂上 item 时
   （换视频、切分 P 的请求期间，以及准备播放时桥接读取索引、等字幕目录）由播放器浮层画同款转圈；
-  item 挂上到就绪之间由 AVKit 自己的转圈接手。AVKit 只在“有 item 且未就绪”时画转圈，不受
-  `controlsStyle` 影响，没有 item 时只是黑屏，开播后缓冲卡住也不画。
-- 开播后缓冲卡住由浮层转圈：只认 AVPlayer 为减少卡顿而等待（`toMinimizeStalls`），开播与
-  seek 时的短暂评估等待不算；卡住持续 `PlayerStallPolicy.presentationDelay` 才呈现，恢复播放立即撤下。
+  item 挂上到就绪之间由 AVKit 自己的转圈接手。AVKit 只在“有 item 且未就绪”时画转圈，item 挂上后
+  约 1.5 秒才出现，不受 `controlsStyle` 影响；没有 item 时只是黑屏，开播后的 seek 与缓冲卡住也不画。
+- 开播后用户在等画面时由浮层转圈（`PlayerLoadingPolicy`）：一次 seek 还没落地，或播放器要播却停着
+  等数据（`waitingToPlayAtSpecifiedRate` 且 item 不再“可能跟得上”）。不看等待原因：seek 后先是
+  `evaluatingBufferingRate` 再转为 `toMinimizeStalls`，都是在等数据；HLS 源播完后再调用播放会一直停在
+  `toMinimizeStalls` 却已缓冲充足，不算。暂停中 seek、AVKit 原生进度条的点击与拖动（AVKit 先把速率设为
+  0，在后台线程 seek，落地后才恢复速率）、progressive 源的 seek（期间仍是 playing）都只能从 seek 调用
+  看出，所以窗口播放器是记录在途 seek 的 `AVPlayer` 子类 `SeekTrackingPlayer`。等待持续
+  `PlayerLoadingPolicy.presentationDelay` 才呈现；还没呈现时又发起新的 seek 重新计时（连续拖动已缓冲
+  区间时每次 seek 都很快落地），已呈现后新的 seek 不打断；等待结束立即撤下。
 - 播放器上的滚轮不再拦截，交给 AVKit 原生处理。键盘快捷键以 content overlay 中弹幕层所在窗口为准；
   AVKit detached 全屏只携带 content overlay，锚点必须是其中的视图。
 - 播放态侧栏替换导航侧栏，不另开右侧 inspector：播放期间导航使用率低，双栏把宽度留给视频。两种状态
