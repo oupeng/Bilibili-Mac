@@ -77,7 +77,7 @@ struct CoreAnimationDanmakuRendererTests {
         #expect(counter.count == 2)
     }
 
-    /// 内存压力只拒绝当时在途的准备；之后重新准备同一事件仍能上屏。
+    /// 内存压力只拒绝当时在途的准备；之后重新准备同一事件仍能挂上。
     @Test
     func memoryPressureRejectsInflightPreparationWithoutBlockingLaterRender() async throws {
         let renderer = makeRenderer()
@@ -490,7 +490,7 @@ struct CoreAnimationDanmakuRendererTests {
         #expect(abs(frame(bottom).maxY - (480 - laneHeight)) < 0.001)
     }
 
-    /// 上屏、移除、子层与几何变化不带隐式过渡：弹幕 layer、锚点层与 rootLayer 都禁用这些动作。
+    /// 挂上、移除、子层与几何变化不带隐式过渡：弹幕 layer、锚点层与 rootLayer 都禁用这些动作。
     @Test
     func renderedLayersAndRootDisableImplicitOrderingActions() async throws {
         let renderer = makeRenderer()

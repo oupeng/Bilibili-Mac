@@ -165,7 +165,7 @@ public struct DanmakuLaneRequest: Sendable, Equatable {
     }
 }
 
-/// allocator 准入后的车道位置与占用时段，交给 renderer 安装 layer。
+/// allocator 准入后的车道位置与占用时段，交给 renderer 挂上 layer。
 ///
 /// 公开只因为 `DanmakuRenderingBackend` 的签名用到它；只在本模块构造。
 ///

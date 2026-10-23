@@ -588,7 +588,7 @@ struct DanmakuPresentationControllerTests {
         return (controller, backend)
     }
 
-    /// D 与快照都停在 `position`、第一段已布局并挂上屏的控制器。
+    /// D 与快照都停在 `position`、第一段已布局并挂上的控制器。
     private func laidOutController(
         at position: Double,
         surfaceOwner: UUID? = nil,

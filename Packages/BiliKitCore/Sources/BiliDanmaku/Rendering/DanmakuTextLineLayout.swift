@@ -14,7 +14,7 @@ struct DanmakuTextMeasureKey: Hashable, Sendable {
 
 /// 一行弹幕文字的排版结果与纹理像素尺寸。
 ///
-/// 车道布局的测量与纹理栅格化都从这里取尺寸：布局用的宽高与上屏纹理的宽高因此逐像素一致，滚动弹幕的
+/// 车道布局的测量与纹理栅格化都从这里取尺寸：布局用的宽高与在屏纹理的宽高因此逐像素一致，滚动弹幕的
 /// 速度与追尾判断不会因两边各算一份而漂移。
 struct DanmakuTextLineLayout {
     let line: CTLine

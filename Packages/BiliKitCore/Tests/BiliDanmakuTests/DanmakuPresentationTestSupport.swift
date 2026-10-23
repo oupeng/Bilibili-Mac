@@ -66,7 +66,7 @@ func layoutTable(
 /// 记录在屏弹幕的 placement 与纹理 scale、清屏与画面尺寸，可延迟纹理准备由测试逐个完成；在屏集合变化或
 /// 收到延迟的准备请求时检查等待条件。与 renderer 一样：backing scale 变化时静默取消在途准备，交还的准备不再
 /// 回调；纹理已在缓存里的弹幕即使延迟准备也在请求内同步就绪；在当前 scale 下生成不了纹理的弹幕在请求内同步
-/// 拒绝；安装被纹理字节上限拒绝的弹幕保留原有的纹理与 placement；已就绪的准备要么被挂上、要么被交还，
+/// 拒绝；挂上时被纹理字节上限拒绝的弹幕保留原有的纹理与 placement；已就绪的准备要么被挂上、要么被交还，
 /// 否则一直占着名额。
 @MainActor
 final class RecordingRenderingBackend: DanmakuRenderingBackend {
@@ -87,7 +87,7 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
     var delaysPreparation = false
     /// 纹理已在缓存里的弹幕：即使 `delaysPreparation` 也在 `prepare` 内同步就绪。
     var cachedEventIDs: Set<String> = []
-    /// 安装时像纹理字节超出上限那样被拒绝的弹幕：已在屏的保留原有的纹理与 placement。
+    /// 挂上时像纹理字节超出上限那样被拒绝的弹幕：已在屏的保留原有的纹理与 placement。
     var rejectedEventIDs: Set<String> = []
     private typealias DelayedCompletion = (
         eventID: String,

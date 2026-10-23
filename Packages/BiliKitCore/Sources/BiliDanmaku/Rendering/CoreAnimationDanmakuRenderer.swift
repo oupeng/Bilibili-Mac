@@ -4,10 +4,10 @@ import BiliModels
 import Foundation
 import QuartzCore
 
-/// Core Animation 弹幕 backend：纹理准备与按媒体时间安装的弹幕 layer。
+/// Core Animation 弹幕 backend：纹理准备与按媒体时间挂上的弹幕 layer。
 ///
 /// Core Text shaping、整行 union mask、vImage 阴影与 RGBA 合成都由有界 preparation owner
-/// 在后台完成。MainActor 只消费不可变像素并安装一个普通 `CALayer`；用户透明度统一落在
+/// 在后台完成。MainActor 只消费不可变像素并挂上一个普通 `CALayer`；用户透明度统一落在
 /// `rootLayer.opacity`，活动 layer 不启用实时 shadow。
 ///
 /// 用 Core Animation 而不用 SwiftUI：每条弹幕是一个由渲染服务器插值的 layer 动画，不需要逐帧驱动（见
@@ -35,8 +35,8 @@ public final class CoreAnimationDanmakuRenderer:
         let textureByteCost: Int
     }
 
-    /// 已上屏 layer（含已挂上、还没进场的前瞻弹幕）的纹理字节总上限；超出时按 `makeRoom` 的顺序腾地方，
-    /// 腾不出来的新弹幕不上屏。
+    /// 在屏 layer（含已挂上、还没进场的前瞻弹幕）的纹理字节总上限；超出时按 `makeRoom` 的顺序腾地方，
+    /// 腾不出来的新弹幕不挂上。
     ///
     /// 只作内存安全阀：同屏数量由布局阶段的 `hardMaximumActiveCount` 决定，这里拒绝的弹幕不归还车道，
     /// 车道布局因此不受它影响。按全部 layer 计算而不是只算已进场的：前瞻弹幕也占着同样的内存；但已进场的
@@ -45,7 +45,7 @@ public final class CoreAnimationDanmakuRenderer:
     static let maximumActiveTextureByteCost = 64 * 1_024 * 1_024
     /// 每个弹幕 layer 上唯一的位移／显隐动画的 key。
     static let animationKey = "danmaku"
-    /// 弹幕 layer、锚点层与 `rootLayer` 上禁用的隐式动画：上屏、移除、子层与几何变化都不带过渡。
+    /// 弹幕 layer、锚点层与 `rootLayer` 上禁用的隐式动画：挂上、移除、子层与几何变化都不带过渡。
     ///
     /// 用 `actions` 逐个 layer 关掉，而不是给改动另包显式事务：顶层显式事务在 commit 时就单独提交，会把
     /// 同一次 reconcile 的增删拆进不同的提交；速率为 0 时移除的淡出过渡还会冻在第一帧。
@@ -71,7 +71,7 @@ public final class CoreAnimationDanmakuRenderer:
     private var entries: [String: Entry] = [:]
     private var surfaceSize = CGSize.zero
     private let preparationOwner: DanmakuTexturePreparationOwner
-    /// 已上屏 layer 的纹理字节合计，对照 `maximumActiveTextureByteCost`。
+    /// 在屏 layer 的纹理字节合计，对照 `maximumActiveTextureByteCost`。
     private(set) var activeTextureByteCost = 0
 
     /// `beginTimeAtMediaZero` 是媒体时间 0 对应的动画开始时间（App 传时钟层定义的哨兵）。
@@ -222,8 +222,8 @@ public final class CoreAnimationDanmakuRenderer:
         preparationOwner.cancelAllPreparations()
     }
 
-    /// 系统内存压力的响应：清空纹理缓存与已准备未上屏的纹理，在途准备以 `.capacity` 拒绝；
-    /// 已上屏的 layer 不受影响。
+    /// 系统内存压力的响应：清空纹理缓存与已准备未挂上的纹理，在途准备以 `.capacity` 拒绝；
+    /// 在屏的 layer 不受影响。
     ///
     /// 由 App 组装层持有的内存压力监听在主线程调用。renderer 刻意不自己安装进程级
     /// DispatchSource：系统事件会同时打到进程内每个实例，监听的取消点应跟随 App 的窗口生命周期。
@@ -296,7 +296,7 @@ public final class CoreAnimationDanmakuRenderer:
         }
     }
 
-    /// 按 placement 设定 layer 在锚点局部坐标里的几何、不可见的模型值与唯一的动画；安装与布局替换共用。
+    /// 按 placement 设定 layer 在锚点局部坐标里的几何、不可见的模型值与唯一的动画；挂上与布局替换共用。
     ///
     /// 局部坐标 y 轴向下（继承 `rootLayer` 的翻转）。滚动弹幕从右边缘外侧（x = +w/2）走完
     /// `DanmakuMotionPolicy.scrollingTravel` 的行程，到规划画布左外侧（x = −(规划宽度 + w/2)）；底部弹幕在底边之上，y 为负。

@@ -18,7 +18,7 @@ public enum DanmakuPreparationRejectionReason: Sendable, Equatable {
     case oversized
 }
 
-/// 一次安装的结果：是否上屏，以及为腾出纹理字节而被移除的弹幕。
+/// 一次挂上的结果：是否挂上，以及为腾出纹理字节而被移除的弹幕。
 public struct DanmakuInstallResult: Sendable, Equatable {
     static let notInstalled = DanmakuInstallResult(isInstalled: false, evictedEventIDs: [])
 
@@ -54,11 +54,11 @@ public protocol DanmakuRenderingBackend: AnyObject {
             ) -> Void
     )
 
-    /// 用已准备好的纹理按 placement 安装一条弹幕；动画在 placement 的媒体时间开始，安装时已过了开始
+    /// 用已准备好的纹理按 placement 挂上一条弹幕；动画在 placement 的媒体时间开始，挂上时已过了开始
     /// 时间的直接出现在中途应在的位置。同一事件 ID 已在屏时原位换上新纹理与 placement。
     ///
     /// `position` 是此刻的媒体时间，纹理字节超限时据此决定腾出谁：先移除已走完的，已进场的弹幕再挤掉
-    /// 还没进场的前瞻弹幕；被移除的 ID 在结果里交回，调用方据此更新记录。没有上屏的原因：纹理字节仍然
+    /// 还没进场的前瞻弹幕；被移除的 ID 在结果里交回，调用方据此更新记录。没有挂上的原因：纹理字节仍然
     /// 超限、画面尺寸为 0、准备已失效或被淘汰，或 CGImage 创建失败；返回前 renderer 已消费或丢弃这条准备
     /// 记录。
     @discardableResult
@@ -73,9 +73,9 @@ public protocol DanmakuRenderingBackend: AnyObject {
     /// 这里复用。
     @discardableResult
     func update(_ placement: DanmakuLanePlacement) -> Bool
-    /// 丢弃一条没有上屏的准备记录；对未知 ID 是空操作。
+    /// 丢弃一条没有挂上的准备记录；对未知 ID 是空操作。
     func discardPreparation(preparationID: UInt64)
-    /// 取消全部在途与已就绪未上屏的准备，被取消的请求不再回调。
+    /// 取消全部在途与已就绪未挂上的准备，被取消的请求不再回调。
     func cancelAllPreparations()
     func remove(eventID: String)
     func clearAll()
