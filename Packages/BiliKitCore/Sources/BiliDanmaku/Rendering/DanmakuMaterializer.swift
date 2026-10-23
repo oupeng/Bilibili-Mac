@@ -52,7 +52,12 @@ final class DanmakuMaterializer {
     private var pending: [String: Preparation] = [:]
     /// 准备因容量被拒绝过；下一次准备完成时重新 reconcile，补上它们。
     private var hasRetryableRejections = false
-    /// 纹理无法生成的弹幕（文本无效、超出尺寸），`clear` 之前不再请求。
+    /// 在当前 backing scale 下纹理无法生成的弹幕（文本无效、超出尺寸），`clear` 或换 scale 之前不再请求，
+    /// 所以超限的弹幕在同一 scale 下只失败一次。
+    ///
+    /// 换 scale 时清空：尺寸上限按像素算，在 2x 下超限的长文本在 1x 下可能放得下。布局表按当前 scale 测量、
+    /// 本不含超限的弹幕，记下它们是因为换 scale 后新表落地之前仍按旧表对齐；不清的话，挪回放得下它的屏幕后
+    /// 新表含它却不再请求。文本无效与 scale 无关，同样不进布局表，清掉最多多请求一次。
     private var unpreparable: Set<String> = []
     private var preparationGeneration: UInt64 = 0
     /// 正在发起准备请求的调用层数；大于 0 时同步回调只记下结果，不嵌套 reconcile。
@@ -121,7 +126,7 @@ final class DanmakuMaterializer {
         unpreparable.removeAll(keepingCapacity: false)
     }
 
-    /// 纹理按 backing scale 栅格化；scale 变化时作废在途准备，自己不发请求。
+    /// 纹理按 backing scale 栅格化；scale 变化时作废在途准备、忘掉在旧 scale 下无法生成的记录，自己不发请求。
     ///
     /// 已在屏的弹幕不移除，之后的 reconcile 为它们按新 scale 准备纹理并原位替换。backend 换 scale 时静默取消
     /// 在途准备、不回调；它与这里之间不得发准备请求：这里不发请求，所以两步谁先谁后都一样，但若先调用这里、
@@ -133,6 +138,7 @@ final class DanmakuMaterializer {
         preparationGeneration &+= 1
         backend.cancelPendingPreparations()
         pending.removeAll(keepingCapacity: false)
+        unpreparable.removeAll(keepingCapacity: false)
     }
 
     /// 按最近一次的表、时间与取景框立即移除与替换，缺纹理的发起准备。

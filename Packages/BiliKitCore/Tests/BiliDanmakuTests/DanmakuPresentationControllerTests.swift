@@ -11,7 +11,8 @@ import Testing
 /// 缓存的地方在一次调用里整屏换成那一刻的样子；连续拖动时已就绪的纹理每一步都挂上、不被扣留，拖进未缓存
 /// 区域、分段陆续到达时也一样，停下后补齐落点（落点分段未到时不留旧画面）；改设置后新表落地的同一次调用
 /// 里在屏的全部换到新车道，与拖动交错时也一样，之后每就绪一条就出现；关闭弹幕清屏、打开恢复；换 backing
-/// scale 时在屏的弹幕逐条原位换纹理，新表落地后换到新车道，新纹理被拒的也换车道；换视频清屏；换 item 只接受当前 owner，清屏后
+/// scale 时在屏的弹幕逐条原位换纹理，新表落地后换到新车道，新纹理被拒的也换车道，在某个 scale 下纹理超限的
+/// 长弹幕换到放得下它的 scale 后重新出现；换视频清屏；换 item 只接受当前 owner，清屏后
 /// 直到新 item 的快照与新时钟纪元的 D 都有了才按原布局表挂回；切视频时旧 item 解绑后、新 item 有时间之前
 /// 什么都不挂；旧 surface owner 的操作与唤醒无效；窗口尺寸变化不重排、立即按新取景框增删，屏幕尺寸变化
 /// 整张重排。
@@ -481,6 +482,35 @@ struct DanmakuPresentationControllerTests {
 
         #expect(backend.installed[eventID] == moved)
         #expect(backend.textureScales[eventID] == 2)
+    }
+
+    /// 窗口从 1x 屏挪到 2x 屏再挪回：新表落地之前旧表按 2x 对齐，在 2x 下纹理超限的长弹幕被拒、同一 scale
+    /// 下不再请求，2x 的新表不含它；挪回 1x、新表落地后它重新出现。
+    @Test
+    func longDanmakuOversizedOnRetinaReappearsBackOnAStandardDisplay() async throws {
+        let owner = UUID()
+        let window = Size(width: 800, height: 360)
+        let long = longTextEvent(id: "long", time: 29.5)
+        try #require(fitsTexture(long, backingScale: 1))
+        try #require(!fitsTexture(long, backingScale: 2))
+        let (controller, backend) = makeController(owner: owner)
+        resize(controller, owner: owner, window: window, screen: window, backingScale: 1)
+        move(controller, to: 30, generation: 1, state: .paused)
+        controller.setSegments([1: [long]], for: identity)
+        await backend.waitUntil { backend.textureScales[long.id] == 1 }
+
+        // 布局任务要回主线程才能交回新表，所以这两次对齐都用旧表。
+        let requestsBefore = backend.preparationHistory.count
+        resize(controller, owner: owner, window: window, screen: window, backingScale: 2)
+        move(controller, to: 30 + Self.dragStep, generation: 1, state: .paused)
+        #expect(backend.preparationHistory.dropFirst(requestsBefore) == [long.id])
+        await backend.waitUntil { backend.installed.isEmpty }
+
+        resize(controller, owner: owner, window: window, screen: window, backingScale: 1)
+        while placementsByEventID(controller.layoutTable)[long.id] == nil {
+            await Task.yield()
+        }
+        #expect(backend.textureScales[long.id] == 1)
     }
 
     /// 换屏重排用的更大屏幕。

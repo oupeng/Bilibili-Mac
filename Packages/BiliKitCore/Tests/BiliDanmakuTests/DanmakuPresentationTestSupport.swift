@@ -65,8 +65,9 @@ func layoutTable(
 ///
 /// 记录在屏弹幕的 placement 与纹理 scale、清屏与画面尺寸，可延迟纹理准备由测试逐个完成；在屏集合变化或
 /// 收到延迟的准备请求时检查等待条件。与 renderer 一样：backing scale 变化时静默取消在途准备，交还的准备不再
-/// 回调；纹理已在缓存里的弹幕即使延迟准备也在请求内同步就绪；安装被纹理字节上限拒绝的弹幕保留原有的纹理与
-/// placement；已就绪的准备要么被挂上、要么被交还，否则一直占着名额。
+/// 回调；纹理已在缓存里的弹幕即使延迟准备也在请求内同步就绪；在当前 scale 下生成不了纹理的弹幕在请求内同步
+/// 拒绝；安装被纹理字节上限拒绝的弹幕保留原有的纹理与 placement；已就绪的准备要么被挂上、要么被交还，
+/// 否则一直占着名额。
 @MainActor
 final class RecordingRenderingBackend: DanmakuRenderingBackend {
     /// 此刻在屏的弹幕与它们的 placement。
@@ -75,6 +76,8 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
     private(set) var textureScales: [String: Double] = [:]
     /// 每次移除的事件 ID，按顺序。
     private(set) var removedHistory: [String] = []
+    /// 每次收到准备请求的事件 ID，按顺序；含被拒绝的。
+    private(set) var preparationHistory: [String] = []
     private(set) var clearCount = 0
     private(set) var stopCount = 0
     /// 每次 `updateSurfaceSize` 收到的宽高，按顺序。
@@ -113,6 +116,12 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
                 DanmakuPreparationResult
             ) -> Void
     ) {
+        preparationHistory.append(event.id)
+        // materializer 对文本无效与超限一视同仁，这里都按超限拒绝。
+        guard fitsTexture(event, backingScale: backingScale) else {
+            completion(.rejected(.oversized))
+            return
+        }
         if delaysPreparation, !cachedEventIDs.contains(event.id) {
             delayedCompletions.append((event.id, preparationID, completion))
             notifyWaiters()
@@ -259,6 +268,26 @@ final class ManualDisplayClock: DanmakuDisplayClock, @unchecked Sendable {
     func displayTime() -> Double? {
         time
     }
+}
+
+/// 在 1x 下纹理放得下、在 2x 下超出像素宽度上限的滚动弹幕：250 个汉字约 6000pt 宽。
+func longTextEvent(id: String, time: Double) -> DanmakuEvent {
+    DanmakuEvent(
+        id: id,
+        timeSeconds: time,
+        mode: .scrolling,
+        text: String(repeating: "弹", count: 250),
+        fontSize: 25,
+        colorRGB: 0xFFFFFF,
+        colorStyle: .solid,
+        weight: 1
+    )
+}
+
+/// `event` 在 `backingScale` 下能否生成纹理：测量与栅格化共用同一份像素上限。
+func fitsTexture(_ event: DanmakuEvent, backingScale: Double) -> Bool {
+    DanmakuTextureRasterizer.measureKey(event: event, backingScale: backingScale)
+        .flatMap(DanmakuTextureRasterizer.measure) != nil
 }
 
 /// 布局表里每条弹幕的 placement，按事件 ID 索引；ID 重复时取先出现的一条。
