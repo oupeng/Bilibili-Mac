@@ -154,7 +154,7 @@ final class DanmakuMaterializer {
         }
     }
 
-    /// 移除不再需要的 layer；仍需要但 placement 变了的（重新布局）就地换成新 placement。
+    /// 移除不再需要的 layer；仍需要但 placement 变了的（重排）原位换成新 placement。
     ///
     /// 纹理按旧 backing scale 栅格化的也立即换：旧纹理按新 placement 拉伸，新纹理就绪后原位替换，所以屏上的
     /// placement 总出自当前布局表。新纹理被 backend 的纹理字节上限拒绝时，这条弹幕一直用旧纹理到离场，但车道

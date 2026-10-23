@@ -138,7 +138,7 @@ struct DanmakuTextMeasurementCache: Sendable {
     /// 缓存的条目上限，超出时整份清空重来。
     ///
     /// 三个满载分段约 6 万条弹幕，其中重复文字很多；这个上限足够覆盖缓存的分段，每条只占几十字节。
-    /// 调小会让设置变化后的重新布局更常重新排版，调大只多占内存。
+    /// 调小会让设置变化后的重排更常重新排版，调大只多占内存。
     static let maximumEntryCount = 65_536
 
     private var metricsByKey: [DanmakuTextMeasureKey: DanmakuTextMetrics?] = [:]

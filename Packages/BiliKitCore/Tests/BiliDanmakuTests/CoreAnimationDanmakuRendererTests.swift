@@ -352,7 +352,7 @@ struct CoreAnimationDanmakuRendererTests {
         #expect(abs(localTime(atHostTime: now + 0.5) - 13) < 0.001)
     }
 
-    /// 重新布局后就地换成新的车道，复用纹理，不重新准备。
+    /// 重排后原位换成新的车道，复用纹理，不重新准备。
     @Test
     func updateMovesAnInstalledLayerToItsNewPlacement() async throws {
         let renderer = makeRenderer()

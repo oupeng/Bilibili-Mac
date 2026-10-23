@@ -72,7 +72,7 @@ enum DanmakuLayoutPlanner {
 
     /// 为 `segments` 里每个分段给出布局；`existing` 是同一组设置下已有的布局，仍有效的原样沿用。
     ///
-    /// 沿用的条件是：分段已有布局，且上一段没有被重新布局成不同的末尾占用。设置变化时调用方传空的
+    /// 沿用的条件是：分段已有布局，且上一段没有被重排成不同的末尾占用。设置变化时调用方传空的
     /// `existing`，全部重排。不在 `segments` 里的分段不出现在结果中。
     static func layouts(
         for segments: [Int: [DanmakuEvent]],

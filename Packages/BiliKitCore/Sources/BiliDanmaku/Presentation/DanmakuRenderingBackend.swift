@@ -67,7 +67,7 @@ public protocol DanmakuRenderingBackend: AnyObject {
         preparationID: UInt64,
         at position: Double
     ) -> DanmakuInstallResult
-    /// 已在屏的弹幕换成新的 placement（重新布局后车道或时长变了），复用原纹理；不在屏时返回 false。
+    /// 已在屏的弹幕换成新的 placement（重排后车道或时长变了），复用原纹理；不在屏时返回 false。
     ///
     /// 纹理是否仍按当前 backing scale 栅格化由 `DanmakuMaterializer` 记录与判断，旧 scale 的纹理不会经
     /// 这里复用。
