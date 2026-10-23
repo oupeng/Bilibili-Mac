@@ -66,7 +66,7 @@ actor CommentRepositoryStub: CommentRepository {
 
 /// 弹幕呈现 port 的唯一测试替身：记录开始与停止。
 @MainActor
-final class RecordingDanmakuPresentation: DanmakuPresentationControlling {
+final class RecordingDanmakuPresentation: DanmakuSessionControlling {
     private(set) var startedIdentities: [PlaybackItemIdentity] = []
     private(set) var stopCount = 0
     private var startWaiters = CountWaiters()

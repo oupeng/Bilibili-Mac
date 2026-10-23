@@ -39,7 +39,7 @@ struct WindowAdapters {
     let playback: any PlaybackControlling
     /// 播放附带的账户读取（字幕目录）发现的凭据失效；每构造一个视频模型调用一次，只有最新的流收到事件。
     let makePlaybackAuthenticationInvalidations: @MainActor () -> AsyncStream<Void>
-    let danmakuPresentation: any DanmakuPresentationControlling
+    let danmakuPresentation: any DanmakuSessionControlling
     let danmakuPreferences: any DanmakuPreferencesStoring
     /// 播放器宿主视图；窗口组装时调用一次，结果随窗口存活。
     let makePlayerContent: @MainActor (VideoViewModel, DanmakuControlsViewModel) -> AnyView

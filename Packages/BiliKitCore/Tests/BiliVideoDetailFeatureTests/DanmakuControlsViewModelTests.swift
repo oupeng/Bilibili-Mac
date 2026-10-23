@@ -93,7 +93,7 @@ private struct ModeValues: Equatable {
 
 @MainActor
 private final class RecordingDanmakuPresentation:
-    DanmakuPresentationControlling
+    DanmakuSessionControlling
 {
     private(set) var startedIdentities: [PlaybackItemIdentity] = []
     private(set) var modeValues: [ModeValues] = []
