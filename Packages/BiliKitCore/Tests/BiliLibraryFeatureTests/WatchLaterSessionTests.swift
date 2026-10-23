@@ -283,20 +283,27 @@ struct WatchLaterSessionTests {
         session.applyFilters(selection)
         await model.waitForCurrentTask()
 
+        // 刷新在内部取此刻解析“今天”；前后各取一次时刻，结果必须是其中之一的明天 0 点。只用事后的时刻比对时，
+        // 刷新与比对之间若跨过本地午夜，两边的“今天”不同就会失败。
+        let before = Date()
         session.refresh()
         await model.waitForCurrentTask()
+        let after = Date()
 
         let requests = await repository.requests
         #expect(requests.count == 3)
         let range = try #require(requests[2].criteria.addedTime)
-        let tomorrow = try #require(
-            Calendar.current.date(
-                byAdding: .day,
-                value: 1,
-                to: Calendar.current.startOfDay(for: Date())
+        let tomorrows = try [before, after].map { moment in
+            let tomorrow = try #require(
+                Calendar.current.date(
+                    byAdding: .day,
+                    value: 1,
+                    to: Calendar.current.startOfDay(for: moment)
+                )
             )
-        )
-        #expect(range.endTimestamp == Int64(tomorrow.timeIntervalSince1970))
+            return Int64(tomorrow.timeIntervalSince1970)
+        }
+        #expect(tomorrows.contains(range.endTimestamp))
         #expect(range.startTimestamp < range.endTimestamp)
     }
 }

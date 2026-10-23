@@ -14,8 +14,8 @@ import Testing
 /// 证明的范围：弹幕 layer 挂在弹幕 overlay 的时钟层下，局部时间等于播放 item 的时间，暂停中 seek、开播、两倍速
 /// 与再暂停之后都一致（时钟层在后台队列上异步落地，等到一致为止）；媒体时间
 /// 0 的弹幕用时钟定义的哨兵开始，在真实播放下处于可见区间；暂停中 seek 之后开播，屏上仍是同一组
-/// layer（呈现控制器没有清屏重建）；反复暂停、恢复与 seek 时，timebase 速率保持大于 0 的区段里显示时间
-/// 不后退，与 timebase 的偏差有界、不随轮数增长。
+/// layer（呈现控制器没有清屏重建）；反复暂停、恢复与 seek 时，同一段播放里显示时间不后退，与 timebase 的
+/// 偏差有界、不随轮数增长。
 ///
 /// 依赖：测试宿主能连上窗口服务；用带音轨的本地静音媒体，开播、改速率与暂停时系统会按音频时钟重新锚定
 /// timebase，通知来自真实播放器的内部队列。时间线快照是手工喂给控制器的，不经过 `AVPlayerTimelineAdapter`。
@@ -25,17 +25,18 @@ import Testing
 @Suite(.serialized, .timeLimit(.minutes(1)))
 @MainActor
 struct DanmakuClockPlaybackTests {
-    /// 局部时间与 item 时间的容差（秒）：两者在不同时刻读取，播放中相差约一次读取的间隔。
-    private static let timeTolerance = 0.05
+    /// 局部时间与 item 时间的容差（秒）：两者按同一个宿主时刻换算，只差浮点与 CMTime 取整误差；起播等待里的
+    /// 差值由 `waitUntil` 等过去，不算进容差。
+    private static let timeTolerance = 1e-3
     /// 反复操作的轮数与媒体时长：每轮播放一小段再 seek，落点留出离结尾的余量。
     private static let repeatedRounds = 50
     private static let repeatedMediaSeconds = 30.0
     /// 每轮播放的媒体时长（秒）：够起播等待结束、timebase 稳定推进。
     private static let playedSecondsPerRound = 0.15
-    /// 同一次采样里先读局部时间、后读 timebase，相邻两次采样的局部时间按浮点比较；只容许舍入误差。
+    /// 同一段播放里相邻两次采样的局部时间按浮点比较；只容许舍入误差。
     private static let monotonicSlack = 1e-6
-    /// 速率大于 0 时局部时间与 timebase 偏差的上界（秒）：大于任何音频输出延迟（蓝牙最多约 0.22 秒），远小于
-    /// 一次 seek 的距离；偏差若随轮数累积会越过它。
+    /// 速率大于 0 时局部时间与 timebase 偏差的上界（秒）：每个样本按同一个宿主时刻换算两边，偏差只来自起播
+    /// 等待；上界大于任何音频输出延迟（蓝牙最多约 0.22 秒），远小于一次 seek 的距离；偏差若随轮数累积会越过它。
     private static let deviationBound = 0.3
 
     @Test
@@ -113,9 +114,9 @@ struct DanmakuClockPlaybackTests {
         await expectLocalTime(of: renderer.rootLayer, matches: item)
     }
 
-    /// 反复「播放一小段 → 暂停 → 暂停中 seek」：后台线程每 1ms 采样弹幕层的局部时间与 item timebase，速率
-    /// 保持大于 0 的相邻两次采样之间局部时间不后退；速率大于 0 时与 timebase 的偏差只来自起播等待（一个音频
-    /// 输出延迟），每轮的上界都在同一个常数以内。
+    /// 反复「播放一小段 → 暂停 → 暂停中 seek」：后台线程每 1ms 采样弹幕层的局部时间与 item timebase，同一段
+    /// 播放里速率大于 0 的相邻两次采样之间局部时间不后退；速率大于 0 时与 timebase 的偏差只来自起播等待（一个
+    /// 音频输出延迟），每轮的上界都在同一个常数以内。
     @Test
     func repeatedPauseResumeAndSeekKeepDanmakuTimeMonotonicAndBounded() async throws {
         let fixture = try PlaybackFixture(mediaSeconds: Self.repeatedMediaSeconds)
@@ -130,12 +131,14 @@ struct DanmakuClockPlaybackTests {
         for round in 0..<Self.repeatedRounds {
             sampler.setRound(round)
             let started = item.currentTime().seconds
+            sampler.beginSegment()
             player.play()
             #expect(
                 await waitUntil(timeout: .seconds(5)) {
                     item.currentTime().seconds > started + Self.playedSecondsPerRound
                 }
             )
+            sampler.beginSegment()
             player.pause()
             #expect(await waitUntil(timeout: .seconds(5)) { CMTimebaseGetRate(timebase) == 0 })
             // 落点在媒体里按黄金分割序列铺开，前后跳都有。
@@ -146,7 +149,8 @@ struct DanmakuClockPlaybackTests {
         let samples = sampler.stop()
 
         let backward = zip(samples, samples.dropFirst()).filter { earlier, later in
-            earlier.rate > 0 && later.rate > 0 && later.local < earlier.local - Self.monotonicSlack
+            earlier.segment == later.segment && earlier.rate > 0 && later.rate > 0
+                && later.local < earlier.local - Self.monotonicSlack
         }
         #expect(backward.isEmpty, "速率大于 0 时显示时间后退 \(backward.count) 次")
         var deviations = Array(repeating: 0.0, count: Self.repeatedRounds)
@@ -163,6 +167,8 @@ struct DanmakuClockPlaybackTests {
     }
 
     /// 时钟层由 timebase 通知在后台队列上更新，改变播放状态之后等到局部时间与 item 时间一致。
+    ///
+    /// 两边按同一个宿主时刻换算：分两次各取此刻时，两倍速下读取之间隔 25ms 就差出 0.05 秒。
     private func expectLocalTime(
         of layer: CALayer,
         matches item: AVPlayerItem,
@@ -171,8 +177,10 @@ struct DanmakuClockPlaybackTests {
         var local = 0.0
         var itemTime = 0.0
         let matched = await waitUntil(timeout: .seconds(5)) {
-            local = layer.convertTime(CACurrentMediaTime(), from: nil)
-            itemTime = item.currentTime().seconds
+            guard let timebase = item.timebase else { return false }
+            let host = CACurrentMediaTime()
+            local = layer.convertTime(host, from: nil)
+            itemTime = mediaTime(of: timebase, atHost: host)
             return abs(local - itemTime) < Self.timeTolerance
         }
         #expect(
@@ -272,10 +280,13 @@ private struct PlaybackFixture {
 
 /// 在一条后台线程上每 1ms 采样一次弹幕层的局部时间与 timebase 的时间、速率，直到 `stop`。
 ///
-/// 采样线程只读 layer 的时间换算与 timebase，不碰主线程状态；样本与轮次由 `state` 这把锁保护。
+/// 采样线程只读 layer 的时间换算与 timebase，不碰主线程状态；样本、轮次与播放段代号由 `state` 这把锁保护。
+/// 每个样本只取一次宿主时刻，局部时间与媒体时间都按它换算，偏差与采样线程何时被抢占无关。
 private final class TimeSampler: @unchecked Sendable {
     struct Sample {
         let round: Int
+        /// 测量时所在的播放段；单调性只在同一段里比较。
+        let segment: Int
         let local: Double
         let media: Double
         let rate: Double
@@ -288,7 +299,7 @@ private final class TimeSampler: @unchecked Sendable {
     // 都在 `state` 里。
     private let layer: CALayer
     private let timebase: CMTimebase
-    private let state = Mutex((round: 0, samples: [Sample](), isStopped: false))
+    private let state = Mutex((round: 0, segment: 0, samples: [Sample](), isStopped: false))
     private let finished = DispatchSemaphore(value: 0)
 
     init(layer: CALayer, timebase: CMTimebase) {
@@ -299,13 +310,24 @@ private final class TimeSampler: @unchecked Sendable {
     func start() {
         Thread { [self] in
             while true {
-                let local = layer.convertTime(CACurrentMediaTime(), from: nil)
-                let media = CMTimebaseGetTime(timebase).seconds
+                let segment = state.withLock { $0.segment }
+                let host = CACurrentMediaTime()
+                let local = layer.convertTime(host, from: nil)
+                let media = mediaTime(of: timebase, atHost: host)
                 let rate = CMTimebaseGetRate(timebase)
                 let isStopped = state.withLock { state in
-                    state.samples.append(
-                        Sample(round: state.round, local: local, media: media, rate: rate)
-                    )
+                    // 测量期间换了段（seqlock）就丢弃这个样本：它可能一半属于上一段、一半属于下一段。
+                    if state.segment == segment {
+                        state.samples.append(
+                            Sample(
+                                round: state.round,
+                                segment: segment,
+                                local: local,
+                                media: media,
+                                rate: rate
+                            )
+                        )
+                    }
                     return state.isStopped
                 }
                 if isStopped { break }
@@ -317,6 +339,14 @@ private final class TimeSampler: @unchecked Sendable {
 
     func setRound(_ round: Int) {
         state.withLock { $0.round = round }
+    }
+
+    /// 进入新的播放段，由测试在 `play()` 与 `pause()` 之前各调用一次。
+    ///
+    /// 采样线程若睡过一整轮「暂停 → 往回 seek → 开播」，前后两个样本的速率都大于 0、局部时间却因 seek 后退；
+    /// 按段号区分后，它们不会被当作同一段播放里的相邻样本。
+    func beginSegment() {
+        state.withLock { $0.segment += 1 }
     }
 
     /// 停止采样并等采样线程退出，返回全部样本。
