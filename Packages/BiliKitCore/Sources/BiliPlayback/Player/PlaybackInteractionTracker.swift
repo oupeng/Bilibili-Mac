@@ -138,7 +138,7 @@ final class PlaybackInteractionTracker: Sendable {
                 return
             }
             if let target = $0.internalSeekTarget,
-                abs(target - positionSeconds) <= 0.5
+                abs(target - positionSeconds) <= SeekPolicy.landingMatchToleranceSeconds
             {
                 return
             }

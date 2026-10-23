@@ -2,16 +2,20 @@ import AppKit
 import BiliUI
 import SwiftUI
 
-/// 首页推荐、热门、搜索与历史共用的原生视频网格，用 AppKit 的理由见 ARCHITECTURE「原生 AppKit 集合视图」。
+/// 首页推荐、热门、搜索、观看历史、稍后再看与收藏夹共用的原生视频网格，用 AppKit 的理由见 ARCHITECTURE「原生 AppKit 集合视图」。
 ///
 /// 调用方是 Browse 与 Library 的网格包装，所以是 `package`。只渲染调用方给的卡片、尾部状态与回顶请求；
 /// 内容、分页与选择的意图归调用方，滚动位置、回顶请求与取图 port 来自 App 窗口的
 /// `NativeVideoGridHostContext`。滚动位置经 binding 双向同步，回顶请求经 `scrollReset` 握手确认。
+/// 不可用卡片（`NativeVideoCardAvailability.unavailable`）不能被鼠标选中或按下高亮，点击、回车、空格与读屏按下都不回调
+/// `onSelect`；键盘方向键仍可把选择停在上面。`bottomInset` 是末行下方为悬浮控件（收藏夹的页码条）额外留出的高度，
+/// 布局与内容高度共用这个值。
 package struct NativeVideoGridView: NSViewRepresentable {
     let items: [NativeVideoCardPresentation]
     @Binding var scrollOffsetY: CGFloat
     let accessibilityLabel: String
     let tailState: NativeVideoGridTailState
+    let bottomInset: CGFloat
     @Binding var scrollReset: NativeVideoGridScrollResetState
     let imagePipeline: any NativeVideoImageLoading
     let onNearEnd: () -> Void
@@ -21,6 +25,7 @@ package struct NativeVideoGridView: NSViewRepresentable {
         items: [NativeVideoCardPresentation],
         accessibilityLabel: String,
         tailState: NativeVideoGridTailState,
+        bottomInset: CGFloat = 0,
         host: NativeVideoGridHostContext,
         onNearEnd: @escaping () -> Void,
         onSelect: @escaping (String) -> Void
@@ -29,6 +34,7 @@ package struct NativeVideoGridView: NSViewRepresentable {
         _scrollOffsetY = host.scrollOffsetY
         self.accessibilityLabel = accessibilityLabel
         self.tailState = tailState
+        self.bottomInset = bottomInset
         _scrollReset = host.scrollReset
         imagePipeline = host.imageLoader
         self.onNearEnd = onNearEnd
@@ -41,6 +47,7 @@ package struct NativeVideoGridView: NSViewRepresentable {
             initialScrollOffsetY: scrollOffsetY,
             accessibilityLabel: accessibilityLabel,
             tailState: tailState,
+            bottomInset: bottomInset,
             scrollResetRequestID: scrollReset.requestID,
             acknowledgedScrollResetRequestID: scrollReset.acknowledgedRequestID,
             imagePipeline: imagePipeline,
@@ -62,6 +69,7 @@ package struct NativeVideoGridView: NSViewRepresentable {
             items: items,
             accessibilityLabel: accessibilityLabel,
             tailState: tailState,
+            bottomInset: bottomInset,
             scrollResetRequestID: scrollReset.requestID,
             requestedScrollOffsetY: scrollOffsetY,
             onScroll: { scrollOffsetY = $0 },
@@ -95,6 +103,8 @@ package struct NativeVideoGridView: NSViewRepresentable {
         private var contents: NativeVideoCardContents
         private var accessibilityLabel: String
         private var tailState: NativeVideoGridTailState
+        /// 末行下方额外留出的高度；变化时重排 document。
+        private var bottomInset: CGFloat
         /// 以已确认的回顶 ID 起步，每个新的 `requestID` 只消费一次：网格重建后仍会执行未确认的请求。
         private var scrollResetGate: NativeVideoGridScrollResetGate
         private var nearEndPagination = NearEndPagination<UInt64>(
@@ -139,6 +149,7 @@ package struct NativeVideoGridView: NSViewRepresentable {
             initialScrollOffsetY: CGFloat,
             accessibilityLabel: String,
             tailState: NativeVideoGridTailState,
+            bottomInset: CGFloat,
             scrollResetRequestID: UInt64,
             acknowledgedScrollResetRequestID: UInt64,
             imagePipeline: any NativeVideoImageLoading,
@@ -150,6 +161,7 @@ package struct NativeVideoGridView: NSViewRepresentable {
             contents = NativeVideoCardContents(items)
             self.accessibilityLabel = accessibilityLabel
             self.tailState = tailState
+            self.bottomInset = bottomInset
             scrollResetGate = NativeVideoGridScrollResetGate(
                 initialRequestID: acknowledgedScrollResetRequestID
             )
@@ -172,22 +184,16 @@ package struct NativeVideoGridView: NSViewRepresentable {
         }
 
         func makeScrollView() -> NSScrollView {
-            let padding = NativeVideoGridGeometry.contentPadding
             layout.minimumInteritemSpacing = NativeVideoGridGeometry.horizontalSpacing
             layout.minimumLineSpacing = NativeVideoGridGeometry.verticalSpacing
-            layout.sectionInset = NSEdgeInsets(
-                top: NativeVideoGridGeometry.topContentPadding,
-                left: padding,
-                bottom: padding,
-                right: padding
-            )
+            layout.sectionInset = sectionInset
             collectionView.collectionViewLayout = layout
             collectionView.delegate = self
             collectionView.isSelectable = true
             collectionView.allowsMultipleSelection = false
             collectionView.backgroundColors = [.clear]
             collectionView.onActivateSelection = { [weak self] id in
-                self?.onSelect(id)
+                self?.activate(id)
             }
             collectionView.register(
                 NativeVideoCollectionItem.self,
@@ -253,6 +259,7 @@ package struct NativeVideoGridView: NSViewRepresentable {
             items: [NativeVideoCardPresentation],
             accessibilityLabel: String,
             tailState: NativeVideoGridTailState,
+            bottomInset: CGFloat,
             scrollResetRequestID: UInt64,
             requestedScrollOffsetY: CGFloat,
             onScroll: @escaping (CGFloat) -> Void,
@@ -266,6 +273,12 @@ package struct NativeVideoGridView: NSViewRepresentable {
             self.onNearEnd = onNearEnd
             self.onSelect = onSelect
             self.tailState = tailState
+            if self.bottomInset != bottomInset {
+                self.bottomInset = bottomInset
+                layout.sectionInset = sectionInset
+                documentLayoutNeedsInvalidation = true
+                resizeDocument()
+            }
             // binding 每次都先交给 bridge：滤掉网格刚同步出去的当前值的回声，以及同一轮更新里交回的、
             // 被它替换掉的上一个值（`supersededOffsetY`）。回顶请求优先于外部偏移。
             let requestedExternalOffset = scrollBindingBridge.takeExternalRequest(
@@ -408,12 +421,31 @@ package struct NativeVideoGridView: NSViewRepresentable {
                 hoverChanged: { [weak self] item, isHovered in
                     self?.item(item, didChangeHover: isHovered)
                 },
-                activation: { [weak self, weak collectionView] selectedID in
-                    if let indexPath = self?.contents.indexPath(of: selectedID) {
-                        collectionView?.selectionIndexPaths = [indexPath]
-                    }
-                    self?.onSelect(selectedID)
+                activation: { [weak self] selectedID in
+                    self?.activate(selectedID, selecting: true)
                 }
+            )
+        }
+
+        /// 网格激活的唯一入口：点击、回车／空格与读屏按下都经这里；不可用或已不在内容里的卡片不回调 `onSelect`。
+        ///
+        /// 读屏按下不经集合视图的选择，`selecting` 为 true 时先把选择移到这张卡片。
+        private func activate(_ id: String, selecting: Bool = false) {
+            guard !isReset, contents.isActivatable(id) else { return }
+            if selecting, let indexPath = contents.indexPath(of: id) {
+                collectionView.selectionIndexPaths = [indexPath]
+            }
+            onSelect(id)
+        }
+
+        /// 集合视图的 section 边距：底边是内容留白加上 `bottomInset`，与 `contentHeight` 同源。
+        private var sectionInset: NSEdgeInsets {
+            let padding = NativeVideoGridGeometry.contentPadding
+            return NSEdgeInsets(
+                top: NativeVideoGridGeometry.topContentPadding,
+                left: padding,
+                bottom: padding + bottomInset,
+                right: padding
             )
         }
 
@@ -450,7 +482,8 @@ package struct NativeVideoGridView: NSViewRepresentable {
             documentLayoutNeedsInvalidation = false
             let contentHeight = NativeVideoGridGeometry.contentHeight(
                 for: width,
-                itemCount: contents.orderedIDs.count
+                itemCount: contents.orderedIDs.count,
+                bottomInset: bottomInset
             )
             collectionView.setFrameSize(
                 NSSize(width: width, height: max(viewportSize.height, contentHeight))
@@ -653,7 +686,8 @@ package struct NativeVideoGridView: NSViewRepresentable {
                     itemCount: contents.orderedIDs.count,
                     width: collectionView.bounds.width,
                     visibleMaximumY: collectionView.visibleRect.maxY,
-                    viewportHeight: collectionView.visibleRect.height
+                    viewportHeight: collectionView.visibleRect.height,
+                    bottomInset: bottomInset
                 )
             if nearEndPagination.shouldLoadMore(
                 isInsideThreshold: isInside,
@@ -678,6 +712,25 @@ package struct NativeVideoGridView: NSViewRepresentable {
             sizeForItemAt indexPath: IndexPath
         ) -> NSSize {
             NativeVideoGridGeometry.itemSize(for: collectionView.bounds.width)
+        }
+
+        /// 鼠标选中只接受可进入播放的卡片；键盘方向键直接设置选择、不经这里，焦点仍可停在不可用卡片上。
+        package func collectionView(
+            _ collectionView: NSCollectionView,
+            shouldSelectItemsAt indexPaths: Set<IndexPath>
+        ) -> Set<IndexPath> {
+            contents.activatableIndexPaths(in: indexPaths)
+        }
+
+        /// 按下高亮只给可进入播放的卡片，其他高亮状态照常。
+        package func collectionView(
+            _ collectionView: NSCollectionView,
+            shouldChangeItemsAt indexPaths: Set<IndexPath>,
+            to highlightState: NSCollectionViewItem.HighlightState
+        ) -> Set<IndexPath> {
+            highlightState == .forSelection
+                ? contents.activatableIndexPaths(in: indexPaths)
+                : indexPaths
         }
 
         package func collectionView(

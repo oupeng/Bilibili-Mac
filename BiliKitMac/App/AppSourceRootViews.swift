@@ -105,6 +105,121 @@ struct SearchTabRoot: View {
     }
 }
 
+/// 稍后再看来源的 App 接线：登录门槛、刷新、加载语义、筛选空态与原生网格在 Library 的 `WatchLaterView`，条件在
+/// Library 的 `WatchLaterSession`。
+///
+/// 这里转交账户呈现状态、窗口级网格依赖、标题与打开登录页的动作，并构造排序菜单与筛选按钮
+/// （`WatchLaterToolbarControls`）交给 Feature：控件挂在 Feature 的 `.toolbar` 里、与刷新同一 primaryAction 组且排在
+/// 刷新之前，只在已登录时出现。这里还挂工具栏尾部的紧凑搜索框（系统 `.searchable`，只在已登录时；回车提交、清空
+/// 恢复全部）与当前条件下总数的副标题。搜索框不放工具栏正中：那是搜索来源的全局搜索框，这里只过滤本列表。
+struct WatchLaterTabRoot: View {
+    @Environment(\.locale) private var locale
+    let title: LocalizedStringResource
+    let model: WatchLaterViewModel
+    @Bindable var session: WatchLaterSession
+    let accountState: AccountPresentationState
+    let gridHost: NativeVideoGridHostContext
+    let onSelect: (String) -> Void
+    let onPresentAuthentication: () -> Void
+
+    var body: some View {
+        WatchLaterView(
+            model: model,
+            session: session,
+            accountState: accountState,
+            gridHost: gridHost,
+            onSelect: onSelect,
+            onPresentAuthentication: onPresentAuthentication,
+            toolbarControls: AnyView(WatchLaterToolbarControls(session: session))
+        )
+        .navigationTitle(Text(title))
+        .navigationSubtitle(LibraryToolbarText.totalCount(model.totalCount, locale: locale))
+        .modifier(
+            LibrarySearchField(
+                accountState: accountState,
+                text: $session.searchDraft,
+                prompt: AppStrings.localized("搜索稍后再看", locale: locale),
+                onSubmit: session.submitSearch
+            )
+        )
+    }
+}
+
+/// 收藏夹来源的 App 接线：登录门槛、刷新、加载语义、空态、页码条与原生网格在 Library 的 `FavoriteFolderView`，选择与条件在
+/// Library 的 `FavoriteFolderViewModel`。
+///
+/// 这里转交账户呈现状态、窗口级网格依赖与打开登录页的动作，构造排序菜单（`FavoritesToolbarControls`，排在刷新之前），
+/// 并挂工具栏尾部的紧凑搜索框（系统 `.searchable`，只在已登录时；只搜当前收藏夹，回车提交、清空恢复）。导航标题是选中的
+/// 收藏夹名称（列表未到时用来源标题），副标题是当前条件下的总数。
+struct FavoritesTabRoot: View {
+    @Environment(\.locale) private var locale
+    let title: LocalizedStringResource
+    @Bindable var model: FavoriteFolderViewModel
+    let accountState: AccountPresentationState
+    let gridHost: NativeVideoGridHostContext
+    let onSelect: (String) -> Void
+    let onPresentAuthentication: () -> Void
+
+    var body: some View {
+        FavoriteFolderView(
+            model: model,
+            accountState: accountState,
+            gridHost: gridHost,
+            onSelect: onSelect,
+            onPresentAuthentication: onPresentAuthentication,
+            toolbarControls: AnyView(FavoritesToolbarControls(model: model))
+        )
+        .navigationTitle(navigationTitle)
+        .navigationSubtitle(LibraryToolbarText.totalCount(model.totalCount, locale: locale))
+        .modifier(
+            LibrarySearchField(
+                accountState: accountState,
+                text: $model.searchDraft,
+                prompt: AppStrings.localized("搜索收藏夹", locale: locale),
+                onSubmit: model.submitSearch
+            )
+        )
+    }
+
+    private var navigationTitle: Text {
+        if let folderTitle = model.selectedFolderTitle {
+            Text(verbatim: folderTitle)
+        } else {
+            Text(title)
+        }
+    }
+}
+
+/// 资料库来源（稍后再看、收藏夹）工具栏尾部的紧凑搜索框：系统 `.searchable`，只在已登录时挂上；回车提交、清空恢复
+/// 全部（清空的规则在来源的模型里）。
+///
+/// 不放工具栏正中：那是搜索来源的全局搜索框，这里只过滤本来源。
+private struct LibrarySearchField: ViewModifier {
+    let accountState: AccountPresentationState
+    @Binding var text: String
+    let prompt: String
+    let onSubmit: () -> Void
+
+    func body(content: Content) -> some View {
+        if case .signedIn = accountState {
+            content
+                .searchable(text: $text, placement: .toolbar, prompt: Text(prompt))
+                .onSubmit(of: .search, onSubmit)
+        } else {
+            content
+        }
+    }
+}
+
+/// 资料库来源工具栏的共用文字。
+private enum LibraryToolbarText {
+    /// 副标题：已有当前条件下的总数时是“共 N 个”，其他时候为空、不显示。
+    static func totalCount(_ count: Int?, locale: Locale) -> String {
+        guard let count else { return "" }
+        return AppStrings.localized("共 \(count) 个", locale: locale)
+    }
+}
+
 /// 观看历史来源的 App 接线：登录门槛、刷新、加载语义与原生网格在 Library 的 `WatchHistoryView`，这里只转交
 /// 账户呈现状态、窗口级网格依赖、标题与打开登录页的动作。
 struct HistoryTabRoot: View {

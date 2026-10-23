@@ -3,12 +3,16 @@ import BiliVideoDetailFeature
 import Foundation
 import Observation
 
-/// 侧栏的平级来源，也是来源描述（`AppSourceDescriptor`）的 id；case 的声明顺序就是侧栏顺序。
+/// 侧栏的平级来源，也是来源描述（`AppSourceDescriptor`）的 id；case 的声明顺序就是同一侧栏分组内的顺序，
+/// 分组之间的顺序由 `AppSourceGroup` 固定。
 enum AppTab: Hashable, CaseIterable {
     case search
     case home
     case popular
+    case watchLater
     case history
+    /// 收藏夹：侧栏「收藏夹」组里每个收藏夹一行（`AppSidebarSelection.item`），选中的收藏夹记在收藏夹模型里。
+    case favorites
 }
 
 /// 播放层在 `NavigationStack` 路径里的唯一元素，只标识播放 surface，不携带视频。

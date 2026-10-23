@@ -43,17 +43,17 @@ BiliNetworking 不依赖任何 Bili 模块
 | target | 拥有 | 不得依赖 |
 | --- | --- | --- |
 | `BiliModels` | 跨层稳定实体与值类型（视频、播放清单、字幕、弹幕、评论、账户投影） | 任何 Bili 模块、SwiftUI、AppKit、AVFoundation、Network |
-| `BiliApplication` | Use Case、port（Feed、视频详情与播放地址、相关推荐、热搜、搜索联想、UP 主资料与投稿、播放控制与时间轴、字幕、弹幕分段与呈现、评论、认证与会话失效、观看历史、观看进度）、窗口账户复核的参与者契约 `AccountRevalidationParticipant`（由 Feature ViewModel 实现、App 窗口汇总，不是 adapter 实现的 port）、应用级错误、界面可用的账户投影（`AccountSessionScope`、`AccountPresentationState`，由窗口的账户会话状态得出），以及 `package` 并发原语（Feature 共用的 `LatestTask`、时间线与播放失败事件共用的多订阅广播 `AsyncBroadcast`）与列表来源共用的分页状态机 `PagedVideoList`；设置界面、样本发现与测速共用的线路测速样本数（`PlaybackRouteBenchmarkPolicy`） | 除 `BiliModels` 外的 Bili 模块、UI/播放/网络框架、DTO、Keychain、Cookie |
+| `BiliApplication` | Use Case、port（Feed、视频详情与播放地址、相关推荐、热搜、搜索联想、UP 主资料与投稿、播放控制与时间轴、字幕、弹幕分段与呈现、评论、认证与会话失效、观看历史、稍后再看、收藏夹、观看进度）、窗口账户复核的参与者契约 `AccountRevalidationParticipant`（由 Feature ViewModel 实现、App 窗口汇总，不是 adapter 实现的 port）、应用级错误、界面可用的账户投影（`AccountSessionScope`、`AccountPresentationState`，由窗口的账户会话状态得出），以及 `package` 并发原语（Feature 共用的 `LatestTask`、时间线与播放失败事件共用的多订阅广播 `AsyncBroadcast`）与列表来源共用的分页状态机 `PagedVideoList`，按页码整体替换的列表共用的翻页状态 `PageReplacementPaging`（总页数只由 BiliModels 的 `PageNumbering` 计算）；设置界面、样本发现与测速共用的线路测速样本数（`PlaybackRouteBenchmarkPolicy`） | 除 `BiliModels` 外的 Bili 模块、UI/播放/网络框架、DTO、Keychain、Cookie |
 | `BiliNetworking` | 无业务语义的 HTTP client、Range client、`HTTPRequestAuthorizing`、URL 形状策略（含 BiliAPI 与 BiliAuth 共用的远端图片地址 HTTPS 升级 `WebImageURL`）与 JSON 响应判定 | Bili 模块、`Security`、UI/播放框架 |
 | `BiliAPI` | endpoint DTO、WBI、解码、protobuf wire、远端错误映射，并实现 Application 仓库 port | `BiliAuth`（只接受注入的授权器） |
 | `BiliAuth` | Web QR 状态机、Cookie envelope、Keychain store、请求授权器，实现 `AuthenticationServicing` | `BiliAPI`、`BiliPlayback`、`BiliDanmaku`、Feature、UI 框架 |
 | `BiliPlayback` | DASH→HLS bridge、loopback server、SIDX、`AVPlayerEngine`、线路偏好与测速、响度 tap | `BiliAPI`、`BiliAuth` |
-| `BiliDanmaku` | 弹幕会话、按媒体时间调度、lane 分配、Core Animation renderer | `BiliAPI`、`BiliAuth`、`BiliNetworking`、`BiliPlayback`、Feature、SwiftUI |
-| `Bili*Feature` | SwiftUI View 与 `@MainActor` ViewModel；Browse（Feed/Search，含推荐、热门、搜索的原生网格、热搜图标的取图 port `TrendingSearchIconLoading`、搜索会话 `VideoSearchSession`（草稿、排序与筛选、提交，以及来源到工作集的激活 `BrowseActivation`））、Library（History，含按账户呈现状态渲染的登录门槛、刷新与原生网格）、Auth（扫码登录、登出与账户投影的来源），播放页见下一行。共享的 AppKit 卡片与网格经 `BiliVideoCollectionUI` 渲染 | adapter target、其他 Feature、直接 import AppKit/AVKit/AVFoundation（播放页的例外见下一行） |
+| `BiliDanmaku` | 弹幕会话与分段缓存、确定性车道布局、按媒体时间的 materializer、Core Animation renderer | `BiliAPI`、`BiliAuth`、`BiliNetworking`、`BiliPlayback`、Feature、SwiftUI |
+| `Bili*Feature` | SwiftUI View 与 `@MainActor` ViewModel；Browse（Feed/Search，含推荐、热门、搜索的原生网格、热搜图标的取图 port `TrendingSearchIconLoading`、搜索会话 `VideoSearchSession`（草稿、排序与筛选、提交，以及来源到工作集的激活 `BrowseActivation`））、Library（观看历史、稍后再看与收藏夹：三者共用登录门槛、工具栏控件与刷新的外壳 `LibrarySourceShell`、账户复核进度 `LibraryAccountRevalidation` 与不可用原因的文字 `LibraryUnavailabilityFormatting`；观看历史与稍后再看共用资料库列表 ViewModel `LibraryVideoListModel` 与原生网格，各来源只给出读取、翻页策略、文案与卡片映射；稍后再看与收藏夹的不可用条目映射为不可用卡片；稍后再看的排序、筛选与关键词在每个窗口一份的会话 `WatchLaterSession`；收藏夹按页整体替换，不走 `PagedVideoList`：侧栏的收藏夹列表 `FavoriteFolderListModel` 与夹内页面 `FavoriteFolderViewModel`（选中的收藏夹、排序与关键词），以及侧栏分段视图 `FavoriteFolderSidebarSection`）、Auth（扫码登录、登出与账户投影的来源），播放页见下一行。共享的 AppKit 卡片与网格经 `BiliVideoCollectionUI` 渲染 | adapter target、其他 Feature、直接 import AppKit/AVKit/AVFoundation（播放页的例外见下一行） |
 | `BiliVideoDetailFeature` | 播放页（VideoDetail）与侧栏上下文层 UP 主空间（UploaderSpace）：视频与分 P 意图、续播与链接起播、相关推荐与 UP 主名片（`VideoViewModel`；导航给出的 `PlaybackSelectionIntent` 怎样落到当前视频——就地换分 P、链接 `t=` 原地跳转或重新加载——以及失败后由模型重试还是交回导航，也只在这里），合集选集的分 P（`CollectionEpisodePagesController`），评论（`PlaybackCommentsViewModel`），弹幕设置，空间投稿列表（`UploaderSpaceViewModel`），以及主区布局、骨架、相关推荐横排与选集、评论、投稿行的呈现投影；播放页失败（`VideoLoadFailure`）的标题、说明与是否可重试只在这里。这些页面的 AppKit 视图也在这里：播放侧栏（`NativePlaybackSidebarView`，含评论原生 item）、评论图片预览与保存（`NativeCommentImagePreviewView`、`NativeCommentImageSaver`、动图播放）、相关推荐横排（`RelatedNativeShelfView`）与空间列表（`UploaderSpaceSidebarView`）。取图 port `VideoDetailImageLoading`（头像、封面、表情、评论图片与预览；结果含图、可选的动图数据 `NativeAnimatedImage` 与是否淡入，评论图片另可取原图数据；相关推荐横排是共享卡片，仍走卡片 port `NativeVideoImageLoading`，不为本 Feature 的其他用途放宽它），App 构造的评论资源地址闭包`CommentAssetURLResolver`，以及 App 键盘控制器检查的 `PlayerKeyboardFocusOwner`。拥有自己的字符串目录；App 用到的类型为 `public`，有 library product | 同其他 Feature，但可直接 import AppKit、CoreText（评论正文排版）与 ImageIO（动图逐帧解码）；横排卡片与集合视图支撑经 `BiliVideoCollectionUI`；不依赖 AVKit/AVFoundation、网络与 adapter；下载、来源与响应校验、首帧解码、动图播放门槛和缓存只在 App 管线，本 target 只对管线按门槛放行的 `NativeAnimatedImage` 数据逐帧解码播放 |
-| `BiliUI` | Feature 共享的 SwiftUI 呈现层：卡片几何、网格、骨架、加载过渡、刷新与分页状态胶囊、整页失败视图，只按账户读取的来源共用的登录门槛（`AccountGateView`，形态映射为 `AccountGatePhase`），`ContentApplicationError` 的失败文案（`ContentFailureText`），计数、时长与日期格式化，视频卡片的 B 站图片缩略地址；拥有自己的字符串目录。默认 `package` 访问级别，App 直接使用的卡片几何、时长格式化、播放器加载转圈、单行失败说明（`ContentFailureText.message`）、头像图片的像素边长（`BiliAvatarImageSize`：卡片、评论与侧栏账号头像的请求框、图片管线的头像解码上限都取它）与头像缩略地址（`BiliImageThumbnail` 的头像尺寸，侧栏账号头像请求前经它改写）为 `public`；AppKit target `BiliVideoCollectionUI` 也经 `package` 接口取用它的文案（卡片选中的读屏值 `VideoCardAccessibilityText`）。无 library product | 除 Foundation、SwiftUI、BiliApplication 外的任何模块（含 BiliModels、AppKit 与其他 Feature） |
-| `BiliVideoCollectionUI` | 浏览网格与横排共用的 AppKit 卡片（`NativeVideoCollectionItem`、封面与文字层）、原生网格 `NativeVideoGridView` 及其状态（回顶握手、锚点、预备区域），集合视图的悬停、键盘与通知观察，卡片与评论图片共用的淡入动画 `NativeImageFadeAnimation`，近尾部分页 `NearEndPagination`，滚动坐标换算，取图 port `NativeVideoImageLoading`（只分封面与头像，结果只含图与是否淡入），来源网格从 App 窗口拿到的依赖 `NativeVideoGridHostContext`（滚动位置、回顶请求、取图 port），以及网格与横排共用的内容差异 `NativeVideoGridUpdatePlan`。App 用到的类型为 `public`（取图 port 及其结果类型、网格依赖 `NativeVideoGridHostContext` 与回顶请求、通知观察集合，以及 SwiftUI 一侧的新图淡入 `NativeImageFadeTransition`：评论图片预览与侧栏账号头像共用，时长与 `NativeImageFadeAnimation` 相同），只有 Package 内 Feature 用到的为 `package`（除上述 `public` 类型外，凡是 Feature 用到的都是），其余为 `internal`，有 library product | 除 BiliUI 外的 Bili 模块（含 BiliNetworking、adapter 与 Feature）；图片下载与缓存只经 port 注入 |
-| App `BiliKitMac` | composition root、导航协调、来源描述、复核汇总与评论链接执行（`Navigation/`）、进程级与窗口级组装（`Composition/` 的 `ProcessComposition`、`WindowComposition`）、`AVPlayerView` 宿主、各来源网格的滚动位置与回顶请求、图片管线（实现卡片、热搜图标与播放页三个取图 port；侧栏账号头像 `AccountAvatarImage` 与管线同在 App，直接按头像用途取图，不另设 port）、Settings、Now Playing、Sparkle | `App/` 与 `Navigation/` 目录不直接 import adapter 或平台框架（`Navigation/` 只依赖 Feature、Application 与 Models），具体实现只在 `Composition/`、`Platform/`、`Settings/` 出现；Application 只在搜索条件或账户投影的使用点 import（`AppRootView`、`AppShellView`、`AppSidebarViews`、`AppSourceRootViews`、`SearchToolbarControls`；成员可见性要求直接 import 定义模块，Feature 不转出 Application）；BiliVideoCollectionUI 在 `Platform/` 只由播放器宿主（通知观察集合）、图片管线（实现卡片取图 port）与侧栏账号头像（SwiftUI 淡入）import，`Composition/` 只有 `WatchProgressWindowConnection`，`App/` 只有构造并转交 `NativeVideoGridHostContext` 的 `AppShellView`、`AppSourceRootViews`；只按账户读取的来源由 Feature 渲染登录门槛，App 只注入账户呈现状态与打开登录页的动作 |
+| `BiliUI` | Feature 共享的 SwiftUI 呈现层：卡片几何、网格、骨架、加载过渡、刷新与分页状态胶囊、按页整体替换的列表底部悬浮的页码条（`PageNumberPager`，几何与列表为它留出的高度在 `PageNumberPagerGeometry`）、整页失败视图，只按账户读取的来源共用的登录门槛（`AccountGateView`，形态映射为 `AccountGatePhase`），`ContentApplicationError` 的失败文案（`ContentFailureText`），计数、时长与日期格式化，视频卡片的 B 站图片缩略地址；拥有自己的字符串目录。默认 `package` 访问级别，App 直接使用的卡片几何、时长格式化、播放器加载转圈、单行失败说明（`ContentFailureText.message`）、头像图片的像素边长（`BiliAvatarImageSize`：卡片、评论与侧栏账号头像的请求框、图片管线的头像解码上限都取它）与头像缩略地址（`BiliImageThumbnail` 的头像尺寸，侧栏账号头像请求前经它改写）为 `public`；AppKit target `BiliVideoCollectionUI` 也经 `package` 接口取用它的文案（卡片选中与不可播放的读屏值 `VideoCardAccessibilityText`）。无 library product | 除 Foundation、SwiftUI、BiliApplication 外的任何模块（含 BiliModels、AppKit 与其他 Feature） |
+| `BiliVideoCollectionUI` | 浏览网格与横排共用的 AppKit 卡片（`NativeVideoCollectionItem`、封面与文字层；调用方可把卡片标为不可用 `NativeVideoCardAvailability.unavailable`：变暗、封面角标写调用方给的原因、不画悬停与按下，网格拒绝鼠标选中，点击、回车、空格与读屏按下都不激活，键盘选择仍可停留，读屏呈现为不可用的按钮）、原生网格 `NativeVideoGridView` 及其状态（回顶握手、锚点、预备区域），集合视图的悬停、键盘与通知观察，卡片与评论图片共用的淡入动画 `NativeImageFadeAnimation`，近尾部分页 `NearEndPagination`，滚动坐标换算，取图 port `NativeVideoImageLoading`（只分封面与头像，结果只含图与是否淡入），来源网格从 App 窗口拿到的依赖 `NativeVideoGridHostContext`（滚动位置、回顶请求、取图 port），以及网格与横排共用的内容差异 `NativeVideoGridUpdatePlan`。App 用到的类型为 `public`（取图 port 及其结果类型、网格依赖 `NativeVideoGridHostContext` 与回顶请求、通知观察集合，以及 SwiftUI 一侧的新图淡入 `NativeImageFadeTransition`：评论图片预览与侧栏账号头像共用，时长与 `NativeImageFadeAnimation` 相同），只有 Package 内 Feature 用到的为 `package`（除上述 `public` 类型外，凡是 Feature 用到的都是），其余为 `internal`，有 library product | 除 BiliUI 外的 Bili 模块（含 BiliNetworking、adapter 与 Feature）；图片下载与缓存只经 port 注入 |
+| App `BiliKitMac` | composition root、导航协调、来源描述、复核汇总与评论链接执行（`Navigation/`）、进程级与窗口级组装（`Composition/` 的 `ProcessComposition`、`WindowComposition`）、`AVPlayerView` 宿主、各来源网格的滚动位置与回顶请求、图片管线（实现卡片、热搜图标与播放页三个取图 port；侧栏账号头像 `AccountAvatarImage` 与管线同在 App，直接按头像用途取图，不另设 port）、Settings、Now Playing、Sparkle | `App/` 与 `Navigation/` 目录不直接 import adapter 或平台框架（`Navigation/` 只依赖 Feature、Application 与 Models），具体实现只在 `Composition/`、`Platform/`、`Settings/` 出现；Application 只在搜索、稍后再看与收藏夹条件或账户投影的使用点 import（`AppRootView`、`AppShellView`、`AppSidebarViews`、`AppSourceRootViews`、`SearchToolbarControls`、`WatchLaterToolbarControls`、`FavoritesToolbarControls`；三者共用的菜单、按钮与弹窗外壳 `ToolbarFilterControls` 不依赖 Application；成员可见性要求直接 import 定义模块，Feature 不转出 Application）；BiliVideoCollectionUI 在 `Platform/` 只由播放器宿主（通知观察集合）、图片管线（实现卡片取图 port）与侧栏账号头像（SwiftUI 淡入）import，`Composition/` 只有 `WatchProgressWindowConnection`，`App/` 只有构造并转交 `NativeVideoGridHostContext` 的 `AppShellView`、`AppSourceRootViews`；只按账户读取的来源由 Feature 渲染登录门槛，App 只注入账户呈现状态与打开登录页的动作；例外是稍后再看另注入排序菜单与筛选按钮（`WatchLaterToolbarControls`）、收藏夹另注入排序菜单（`FavoritesToolbarControls`），由 Feature 放进自己 `.toolbar` 的 primaryAction 组、排在刷新之前，保证同组顺序；侧栏「收藏夹」组的行由 Library 的分段视图渲染，App 只给出带 ID 的选择值与折叠状态 |
 
 补充规则：
 
@@ -63,9 +63,10 @@ BiliNetworking 不依赖任何 Bili 模块
   意图统一用 `LatestTask` 隔离，不各自手写。View 的 `.task(id:)` 只把生命周期意图交给 ViewModel。
 - adapter 必须传播 `CancellationError`，不把取消折叠成网络失败。
 - adapter 只经 `BiliAPIError.Failure`（`domainError`）分类远端错误，各域只把分类对应到自己的 Application
-  错误。内容类读取（Feed、视频、UP 主空间、观看历史）共用
+  错误。内容类读取（Feed、视频、UP 主空间、观看历史、稍后再看、收藏夹）共用
   `BiliAPIError.contentApplicationError(for:)` 映射到 `ContentApplicationError`：认证分无凭据、凭据失效、
-  本地凭据读不到、风控四态，业务码 -404／62002／62004 归为“内容不存在或不可见”。是否复核账户、是否给
+  本地凭据读不到、风控四态，业务码 -404／62002／62004 归为“内容不存在或不可见”。收藏夹 adapter 另有两处专属映射：夹内读取的
+  `data`／`info` 为 null 与业务码 11010 是“内容不存在”（收藏夹已不存在），-403 是凭据失效（访问自己的收藏夹不应被拒）。是否复核账户、是否给
   重试只由 `ContentApplicationError` 的 `requiresAccountRevalidation`／`isRetryable` 决定，Feature 不各自判断。
   评论、字幕与弹幕的 Application 错误不并入内容域，但同样各自提供 `requiresAccountRevalidation`（评论另有
   `isRetryable`，评论列表、分页与楼中楼的失败界面据此决定是否给重试），调用方只读这些属性。
@@ -78,7 +79,7 @@ BiliNetworking 不依赖任何 Bili 模块
   自己的标题。视频卡片封面与头像的缩略参数只由 `BiliImageThumbnail` 追加；评论资源是不透明引用，其图片
   地址与缩略参数只由 BiliAPI 的 resolver 生成。
 - 网格与横排共用的 AppKit 卡片、网格与集合视图支撑放在 `BiliVideoCollectionUI`。各来源把条目映射为卡片的
-  网格包装放在拥有该来源的 Feature（推荐、热门、搜索在 Browse，历史在 Library），Feature 视图直接渲染它们，
+  网格包装放在拥有该来源的 Feature（推荐、热门、搜索在 Browse，观看历史、稍后再看与收藏夹在 Library），Feature 视图直接渲染它们，
   不经 App 填充的泛型内容插槽；相关推荐横排、播放侧栏、评论图片预览与 UP 主空间的 AppKit 视图与它们读取的
   ViewModel、呈现投影都在 `BiliVideoDetailFeature`，横排同样由播放页视图直接渲染、不经插槽；App 只注入窗口级依赖
   （图片管线经卡片与播放页两个取图 port、评论资源地址闭包、保存图片的窗口级 owner）。Browse 与播放页之间的跳转（选卡片进入播放、返回来源）由 App 协调。
@@ -101,8 +102,8 @@ BiliNetworking 不依赖任何 Bili 模块
   失效）、设置与线路测速（测速用自己的 API client，同样登记进账户会话）、系统 Now Playing、本机搜索历史与更新器。
   生产 `BiliAPIClient` 只由 `LiveAPIClients` 构造，账户读取 allowlist 也只在那里声明。
 - 窗口级 `WindowComposition`（`Composition/`，每个窗口一份，由 `AppRootView` 在视图身份首次出现时经
-  `ProcessComposition.makeWindow()` 构造一次）：全部模型（浏览、视频、评论、弹幕、认证、历史、UP 主空间、热搜与
-  联想、搜索会话）、导航协调、来源描述与复核参与者、播放器视图、窗口图片管线、评论短链解析与图片保存、Now
+  `ProcessComposition.makeWindow()` 构造一次）：全部模型（浏览、视频、评论、弹幕、认证、稍后再看、观看历史、收藏夹列表与夹内页面、UP 主空间、
+  热搜与联想、搜索会话、稍后再看会话）、导航协调、来源描述与复核参与者、播放器视图、窗口图片管线、评论短链解析与图片保存、Now
   Playing 与观看进度的连接。它只引用进程级对象，不替它们创建或关闭。具体实现只经 `WindowAdapters`（仓库、
   认证服务、播放控制与播放器视图、弹幕呈现与偏好、Now Playing 与观看进度连接、窗口打开与关闭时 adapter 自己
   的登记与清理）进入；生产由 `WindowAdapters.live(process:)` 一处构造（窗口自己的 API client、`AVPlayerEngine`、
@@ -147,17 +148,88 @@ session path，提供内存中生成的 master／media playlist，并把 AVPlaye
 ### 媒体时间轴
 
 `BiliApplication.PlaybackTimelineProviding` 是弹幕、Now Playing 与观看进度的唯一时间来源，由
-`BiliPlayback` 用 AVPlayer observation 实现，表达 item identity、位置、速率、状态和 discontinuity
-generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CMTime`／KVO；各自 timer 无法正确
-表达卡顿、暂停、倍速和 seek。字幕作为原生 subtitle rendition 进入同一 `AVPlayerItem`，由系统字幕
+`BiliPlayback` 用 AVPlayer observation 与 item 通知实现，表达 item identity、位置、速率、状态与
+discontinuity generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CMTime`／KVO；各自 timer 无法正确
+表达卡顿、暂停、倍速和 seek。唯一的例外是弹幕动画本身：弹幕 layer 挂在播放器宿主的时钟层下，由 item
+timebase 直接驱动（见下文「弹幕时钟层」与「弹幕」）；哪些弹幕在屏上、何时对齐也按时钟层发布的显示时间
+D(now) 决定，时间线快照只用来确认 identity、作检查节拍与决定请求哪些分段。`BiliDanmaku` 经
+`DanmakuDisplayClock` 读 D，不接触 AVFoundation 与 Core Media。字幕作为原生 subtitle rendition 进入同一 `AVPlayerItem`，由系统字幕
 菜单选择。
 
 - 续播位置在 load 时写入 master playlist 的 `#EXT-X-START:TIME-OFFSET=…,PRECISE=YES`，item 就绪即
   精确位于该处，不再“先就绪、再内部 seek”：少一次 seek、少下载开头分段，也没有 seek 期间辨认
   time-jump 来源的竞态。`beginPlayback` 只按就绪位置报告续播或从头开始；“从头播放”仍是 seek 到 0。
-- 时间轴与交互记录器在 item 开始时得知起播位置：就绪时据此标记一次 discontinuity，弹幕从起播位置
-  排起；落在起播位置的系统 time-jump 不算用户操作，否则会拒绝自动开播。
+- 时间轴与交互记录器在 item 开始时得知起播位置：就绪时据此标记一次 discontinuity；落在起播位置的系统
+  time-jump 不算用户操作，否则会拒绝自动开播。
+- `discontinuityGeneration` 由 engine 的 seek 收尾与 `AVPlayerItem` 的 time-jump 通知推进，Now Playing
+  用它决定何时重新发布已播时长；原生拖动的每一步都会推进它。观看进度与弹幕不读它：弹幕只按 D 是否离开
+  上次对齐后的一个步长决定何时对齐（见「弹幕」）。一次 seek 的落点记录在播放位置仍在落点附近时吞掉
+  落在它附近的重复跳变（例如暂停中 seek 后开播时系统再报一次），播放离开落点、新 seek、外部跳变、换项或
+  clear 之后不再吞；这样同一次 seek 只推进一次，Now Playing 依赖它。每次从暂停恢复播放，系统都会报一次
+  原地的时间跳变（刚在原处 seek 过、落点还在吞的除外），它推进一次不连续代号。周期回调的位置照常写入。
 - progressive 单文件（充电试看、没有 DASH 的较早视频）没有 playlist，不续播，一律从头播放。
+- 弹幕时钟层（App `Platform/DanmakuTimebaseClock`，owner 是 `DanmakuOverlayView`）是一个普通
+  `CALayer`，本地时间跟随当前 item `timebase` 的时间，更新不经过主线程：
+  - 驱动：经 `NotificationCenter`（queue 为 nil，同步执行）观察 timebase 的速率变化与时间跳变，回调只向
+    私有串行队列投递一次同步。队列上读当前绑定的 timebase，用 `CMSyncGetRelativeRateAndAnchorTime` 读它
+    相对宿主时钟的最新速率与锚点，外推到此刻 `now`，在显式 `CATransaction` 里写 `beginTime`、`timeOffset`
+    与 `speed`（速率）：通常是 `beginTime = now`、`timeOffset` 为此刻的媒体时间，即严格跟随。旧 timebase
+    迟到的通知只会让当前绑定多同步一次，结果相同。
+  - 单调下限：同一绑定纪元里播放中（速率 r > 0）timebase 此刻低于弹幕时间 D 时不往回跳，写
+    `beginTime = now + (D − tb)/r`、`timeOffset = D`、`speed = r`，原地停在 D，到 timebase 的直线追上的那一刻
+    起两者重合，没有滤波状态；`fillMode` 固定 `.backwards`，否则 `beginTime` 在未来的那段时间里时钟层不活跃、
+    整屏消失；设了之后渲染服务器上同样停在 `timeOffset`，到 `beginTime` 不需要再提交就自行恢复运动。速率为 0
+    时的任何跳变一律严格跟随：seek、拖动与暂停都发生在速率为 0 时（AVKit 的往回 seek，含原生进度条拖动与
+    键盘，都先经过速率 0），所以不需要识别 seek。换绑后的第一次同步也严格跟随：旧时间线上的 D 对新 item 没有
+    意义，这一条是为等待补的；纪元按每次 `bind` 递增，换回同一个 timebase 也算换绑。
+    D 只由 `DanmakuClockWrite.mediaTime` 一个纯函数计算。
+  - 原子写入：三个时间属性的赋值在 `CATransaction.lock()` 内完成，提交在锁外。主线程同一轮改过时钟层本身
+    （布局时的 frame、接管 surface 时的子层）时，它的提交会带上这个 layer 当时的全部属性，不加锁可能把写到
+    一半的三元组推上屏。提交不能放进锁里：提交先取 Core Animation 的 context 锁再取这把全局锁，持着全局锁
+    提交会与其他线程的提交（例如 AppKit 在显示链接线程上推进动画）反序加锁，实测死锁。锁内不取其他锁，只持
+    几微秒。
+  - 发布：每次写入之后，在锁里连同绑定纪元发布这次写入的直线（`DanmakuClockWrite`，速率与 `CALayer.speed`
+    同为 Float），`bind` 递增纪元并作废发布值，期间换绑的旧同步不发布。任意线程经 `displayTime()`
+    （`BiliDanmaku.DanmakuDisplayClock`）用同一个纯函数求此刻的弹幕时间 D；从未绑定过、解绑之后、或换绑后
+    新 timebase 第一次写入之前读不到。解绑只把时钟层停住、不发布：没有 item 就没有 D，否则解绑后紧接着换
+    视频时，新视频的弹幕会按旧视频停住的时刻挂上、冻结在黑屏上。发布之后经一个合并标志向主线程投递一次写入
+    通知（主线程先清标志再读发布值，同一时间最多排一个，不丢唤醒），宿主据此让呈现控制器按新的 D 检查一次：
+    暂停中 seek 没有后续快照，靠它对齐。
+  - 绑定：`bind` 注销旧 timebase 的观察并登记新的，再主动同步一次（状态不变时没有通知）；解绑时时钟层
+    停在当前本地时间、速率 0。宿主在 `currentItem` 变化时先让呈现控制器清屏再换绑，两步在
+    `replaceCurrentItem` 之内同步完成：调用方只在主线程，`currentItem` 的 KVO 在调用内部同步触发，回调确认在
+    主线程后直接换绑（不在主线程时 DEBUG 下断言失败、退回下一个主线程回合），旧弹幕不会在新 item 上多留一个
+    回合。`AVPlayerItem` 创建后 `timebase` 就不是 nil，换 item 后是另一个对象。
+  - 约束：timebase 的通知由播放器的多个内部队列在持有 MediaToolbox 锁的线程上同步发出。回调里调用
+    AVPlayer／AVPlayerItem 的 API（例如 `currentTime()`）必然死锁，回调里的任何等待都会原样延长持锁
+    时间、挡住主线程，所以回调只投递；多个来源的通知到达顺序不保证，所以不用通知的 payload，而在队列上
+    读最新锚点；后台队列没有 runloop，隐式事务不会提交。时钟层的时间属性只由该队列写，frame 与弹幕
+    layer 的增删在主线程。保护绑定与发布值的锁是叶子锁，队列释放 Core Animation 锁之后才取它，主线程可能
+    在 Core Animation 锁内读 `displayTime()`，所以只有「Core Animation 锁 → 绑定锁」一种嵌套。
+  - 前提：`now` 取 `CACurrentMediaTime()`，要求时钟层的祖先都没有修改时间属性（`speed`、`timeOffset`、
+    `beginTime`），父层的本地时间才等于宿主时间；普通窗口、原生全屏、detached 全屏与画中画下实测都成立。
+    overlay 每次进入窗口之后检查一次祖先：进入窗口与第一次布局时它的 layer 往往还没接进窗口的 layer 树，
+    所以等之后的布局或时钟写入回调里 layer 链能走到窗口的根 layer 时才判定。换绑时检查 item 的 `timebase`
+    不为 nil。不成立时 DEBUG 下断言失败，Release 下只记一条固定分类的日志。
+  - 行为：`pause()` 后约 1ms timebase 速率变成 0，冻结点就是调用 `pause()` 的时刻。暂停时播放器持锁
+    等待音频暂停握手（约 30ms）、设置 `rate`（35～135ms）期间主线程被挡住，时钟层仍在 timebase 停下
+    或变速的时刻停下或变速。首播、seek 后起播与卡顿恢复时 timebase 后退一个音频输出延迟（有线约 −37ms，
+    蓝牙 −97～−215ms，一台用户机器上约 −125ms），画面停在目标帧上，时钟层按单调下限原地等待，弹幕不往回缩。
+    timebase 向前的跳变照样跟随，不做平滑追赶：从暂停恢复时前跳约 20～40ms，松开长按倍速时前跳约
+    100～160ms，画面同样跳。以上是在 macOS 27 上实测的系统行为。
+  - 已知边界：
+    - 时钟层只在速率变化与时间跳变时与 timebase 对齐，两次之间按当时的速率外推。timebase 相对宿主时钟有
+      微小漂移且不为此发通知，长时间不暂停、不 seek 时会累积每小时几十毫秒量级的偏差（实测约 38ms/小时），
+      下一次变化时消除。蓝牙输出下 timebase 还会无通知地静默重锚（实测最多 ±49ms），同样只在下一次通知时
+      纠正，暂停或卡顿时表现为一次几 pt 的跳动。不做周期性重新同步。
+    - 等待没有上限：播放中观察到 timebase 往回跳 Δ 就冻结 Δ/r。4x HLS 的跳变风暴里每次约 1 秒，弹幕最多
+      领先画面 4 媒体秒；队列错过 seek 的速率 0 窗口（实测 19～43ms，拖动时 131ms；队列延迟实测不到 1ms）
+      时冻结 seek 的距离，实际几乎不发生。
+    - 在等待窗口里暂停时 D 会后退（有线约 5pt，蓝牙最多约 31pt）：暂停按速率 0 严格跟随。
+    - 队列的提交会把主线程在时钟层上设了但还没提交的 frame 与子层增删提前带上屏。时钟层不裁剪、不绘制，
+      frame 提前没有可见影响；子层只在接管与交还 surface 时增删，那时屏上本来就为空。
+  - 播放器宿主关闭 AVKit 的画面分析（`allowsVideoFrameAnalysis`），减少暂停时的主线程阻塞：它在
+    `pause()` 内的 rate KVO 回调里于主线程读取 `currentTime`，多挡约 20ms。
 
 ### 弹幕
 
@@ -165,18 +237,99 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   `.proto` 自行编写，用同版本 `protoc-gen-swift` 显式生成并提交 `.pb.swift`，不挂 build plugin。
   手写 wire reader 要长期自维护 varint、未知字段和恶意长度边界，成本高于约 1.8 MiB 的体积。
 - wire 类型解码后立即映射为 `BiliModels.DanmakuEvent`；`BiliDanmaku` 只见 Models/Application。
-- renderer 使用 Core Animation layer 与纹理缓存，调度与 lane 分配可用虚拟时间独立测试。系统内存压力时
+- renderer 使用 Core Animation layer 与纹理缓存，车道布局与 materializer 可用虚拟时间独立测试。系统内存压力时
   清空纹理缓存，在途准备以容量不足拒绝；`BiliDanmaku` 不自己监听内存压力，监听由窗口 adapter（`WindowAdapters.live`）持有并在
   窗口关闭时先于会话注销取消，与图片管线共用 `SystemMemoryPressureObserver`。
 - 分段请求会被间歇风控（游客更常见），被 HTTP 412 拒绝的分段由 API 客户端等 2 秒后再请求一次（等待期间
   占一个加载名额）；其余失败与再次被拒的分段在当前视频内不再请求，换视频或重开会话才重来。
-- 补位：seek、续播起点与时间回跳仍先清屏，播放中打开弹幕时从空屏开始；之后第一个播放中的快照补发回看窗口
-  内本应仍在屏上的弹幕（暂停时 seek 等到继续播放才补）。窗口由 `DanmakuMotionPolicy.catchUpWindow` 按画面
-  宽度与速度给出：顶部／底部 4 秒与“和画面等宽的滚动弹幕”跑完全程的时长取较大者。补位弹幕按自己的时间点做
-  车道准入（准备按入队顺序完成，准入时间不倒退）；同批纹理全部准备好后一起上屏，已走过的时长按上屏时刻
-  计算，renderer 把动画开始时间移到过去，从已走过的位置继续；等待期间已走完的丢弃，候选按车道数 × 重叠
-  层数 × 4 取最新的。窗口跨进上一分段时一并请求上一分段，覆盖窗口的分段迟到时再补一次并按 ID 去重。切换
-  弹幕类型显隐仍只清屏、不补位。
+- 在同一组已缓存分段、同一组设置下，画面是媒体时间与窗口尺寸的纯函数：seek（含暂停中）到某一时刻与
+  连续播放到该时刻看到同样的弹幕，之后立即满屏，不需要识别 seek 才能正确显示，也没有投递游标、去重或
+  补位。与「从头连续排」一致只在下文的种子链成立时才保证。三部分：
+  - 车道布局（`DanmakuLayoutPlanner`，后台由 `DanmakuLayoutCoordinator` 串行计算）：每个缓存的分段把
+    通过过滤的事件按 (时间, ID) 排序，在弹幕自己的时间点逐条交给 `DanmakuLaneAllocator` 准入，得到车道、
+    层、纵坐标与运动时长；同屏上限 `hardMaximumActiveCount` 在这里按同一顺序丢弃。宽度来自只排版不栅格化的
+    测量，与纹理共用一份排版计算，按文字、字号与 scale 缓存。相邻分段重复给出的 ID 只在前一段显示，同一段
+    里重复的只取第一条。分段边界以上一段末尾的车道占用为种子，边界处不重叠；上一段不在缓存里时从空占用
+    开始排。因此同一时刻的车道可能因浏览历史不同而不同：只有上一段在缓存、且它的种子链一直能接到第一段
+    时，结果才与从头连续排一致，否则差异只出现在分段开头、两份占用收敛之前（实测多在一两条弹幕的最长时长
+    之内）；缓存不为此扩大。上一段晚到时以它为种子重排本段（屏上少数弹幕可能换一次车道），末尾占用变了
+    才继续重排下一段。设置（类型显隐、速度、显示区域、密度、规划尺寸、backing scale）变化时后台整张
+    重排，generation 丢弃过期结果，完成后一次替换布局表。画面尚未布局（尺寸为 0）时不布局。
+  - materializer（`DanmakuMaterializer`）：时刻 t 在屏的 layer 是布局表里已进场、还在取景框里，或 2 秒内要
+    进场、且车道落在取景框里的弹幕；纹理提前准备，以将来的开始时间挂上，迟到的纹理挂上后直接出现在中途
+    应在的位置。时间推进、跳变、布局表替换（整张重排与分段到达）、打开弹幕与接管 surface 都是同一种对齐：
+    缺纹理的弹幕各自就绪、此刻仍应在屏就立即挂上，不为等别的弹幕扣住；缓存命中的纹理在发起请求的调用里
+    同步就绪，同一次调用挂上。纹理与车道无关，布局表替换时在屏的弹幕在同一次调用里原位换车道，屏上的
+    placement 总出自当前布局表，任何时刻不新旧混排；新表里新出现、没命中缓存的弹幕逐条出现。纹理按旧
+    backing scale 栅格化的弹幕也立即换到新 placement（旧纹理按新尺寸拉伸）。窗口换到 backing scale 不同的
+    屏幕时，已在屏的弹幕也当作缺纹理重新准备，就绪一条原位换一条，不先移除；新纹理被纹理字节上限拒绝的
+    那几条一直用旧纹理到离场。纹理字节吃紧时哪几条缺席取决于纹理完成的先后。
+  - 渲染：`rootLayer` 挂在播放器宿主（`DanmakuOverlayView`）的时钟层下（见「媒体时间轴」），子树的局部
+    时间就是播放 item 的时间。动画 `beginTime` 是弹幕的时间点（0 写成时钟层定义的正数哨兵，由 App 注入：
+    Core Animation 把 0 当作「现在」），`removedOnCompletion` 为 false；fillMode 保持默认，
+    动画区间外呈现回到模型值，所以模型值本身不可见（滚动弹幕在画面左外侧，顶部底部弹幕不透明度为 0），
+    可见区间由动画撑起。暂停、倍速、缓冲停顿、播放结束与暂停中 seek 都由时钟层跟随 timebase，renderer
+    没有时钟；时钟层的更新不经过主线程，主线程卡顿（包括暂停时被播放器挡住）不影响弹幕的停与走。时钟层
+    不随 `replaceCurrentItem` 自动换绑：宿主在 `currentItem` 的 KVO 里同步先让呈现控制器清屏（只接受当前
+    surface owner，布局表保留），再换绑。以上是在 macOS 27 上用本地 HLS 与 mp4 实测的系统行为。
+- 取景框：布局表按规划画布排一次，窗口尺寸不是布局输入，只决定露出表中的哪一部分。规划尺寸逐个维度取
+  承载窗口的屏幕尺寸（`NSScreen.frame`，全屏覆盖整块屏）与窗口尺寸的较大者，由 `DanmakuOverlayView`
+  在尺寸、backing scale、换屏与屏幕参数变化时发布；规划尺寸或 scale 变化走整张重排。显示区域比例与密度
+  仍是规划输入：规划车道数 M = floor(规划高 × 比例 / 36)，窗口可见车道数 N = floor(窗口高 × 比例 / 36)，
+  两者用同一个计算。
+  - 可见集合（`DanmakuViewport`）：车道从各自的锚定边数起（滚动与顶部从顶边、底部从底边），占用的车道
+    全部小于 N 才显示，跨过可见边界的多车道弹幕整条不显示；滚动弹幕另要求
+    t_i ≤ t < t_i + 时长 × (窗口宽 + w) / (规划宽 + w)，即右缘（尾缘）还没越过窗口左边界。
+  - renderer 把弹幕挂在三个零尺寸锚点层下：滚动弹幕锚在右边缘，从 x = +w/2 走到 −(规划宽 + w/2)；顶部
+    弹幕锚在顶边中点，底部弹幕锚在底边中点、在其上方。窗口 resize 时不重排、不去抖、不整屏替换、字号不变：
+    锚点用 `actions` 关掉隐式动画后移动，弹幕动画一条不改，随后按新取景框对齐——放大时补上新露出的、
+    正在飞的弹幕，缩小时移除被裁掉的。锚点移动与纹理已就绪的增删落在同一次隐式提交里；缺纹理的弹幕就绪后
+    再出现。
+  - 成立前提，改策略时不要不知不觉弄坏：
+    1. `DanmakuMotionPolicy` 是恒定速度（基准 130pt/s × 档位 × 长度加成），与画面宽度无关，时长 =
+       (画布宽 + w) / v，所以滚动弹幕相对右边缘的轨迹与窗口宽度无关。时长上限 60 秒只在最慢档、短文字、
+       规划宽度超过约 5400pt 时才触发（下限 1.5 秒在屏幕级宽度上不会触发）；触发时表与渲染仍自洽，只是
+       与直接按窄窗口排的速度不同。
+    2. allocator 第一轮从锚定边起取第一条安全车道，放不下时不占车道，所以前 N 条车道的占用与总车道数无关
+       （前缀稳定）。例外：允许叠放的密度档里，只有 N 条车道的表会把溢出的弹幕叠进前 N 条，规划表则先
+       放进隐藏车道；多车道弹幕（36 号字占两条）可能跨过可见边界，在隐藏中占住边界车道，挤走本可显示在
+       那里的弹幕；同屏上限按全部车道计数，规划表更早触及。
+  - 已知妥协：追尾检查按规划宽度算，窄窗口里偏保守；最高密度档先用满隐藏车道再叠放，所以小窗口里叠放
+    变少、同屏比按小窗口排的更稀；换到更大的屏幕时整张重排一次；窗口跨屏大于屏幕时，拖动中每次变大都是
+    规划尺寸变化，逐次重排。暂态：窗口比旧规划尺寸大（换到更大的屏幕、跨屏拖大）时，新表排好之前滚动弹幕
+    在 x = 窗口宽 − 旧规划宽处提前消失，新表排好后原位换车道。
+- seek 不隐藏也不清屏，屏上的 layer 一直跟随媒体时间：拖到远处时它们都落在动画区间之外，画面自然为空。
+  这里的「位置」一律是时钟层的显示时间 D(now)，每个入口只读一次、作为参数传下去：在屏集合、对齐位置、步长、
+  迟到纹理是否挂上与腾纹理字节都按它算。快照与 D 分开（seek 起播时领先、卡顿时
+  速率仍为 1、未缓冲拖动时领先几十秒、4x 跳变风暴时回跳）时不影响在屏集合；快照与时钟写入通知都只触发
+  一次检查。读不到 D（时钟从未绑定、换绑后新 timebase 还没写入、没有接管 surface 的时钟）时什么都不做。
+  主线程按 D 删掉「已走完」的弹幕要晚一到几帧才上屏，这期间时钟若被往回改写（速率 0 时往回 seek、换绑），
+  这些弹幕会提前缺席，直到唤醒触发的下一次对齐补回来；已挂上的 layer 只在自己的动画区间里可见，所以不会
+  错位或多余。
+  何时对齐只看位置，不识别 seek 或拖动：位置落在 [对齐位置, 对齐位置 + 1 秒) 里时屏上已是此刻应有的集合，
+  什么都不做；落在这之外（按步长推进、向前跳出或回跳）都是同一次对齐。恢复播放、向前的 timebase 重锚与
+  缓冲恢复时 D 仍在步长里，什么都不做（起播与卡顿恢复时 timebase 的后退由时钟层原地等待吸收，D 不回跳）。
+  步长与 2 秒前瞻之间没有分类阈值，只有一条不等式：步长加相邻两次检查的间隔必须短于前瞻，余下的时间留给
+  即将进场的弹幕栅格化。快照经只保留最新值的 AsyncStream 送达，主线程忙时会被合并，卡顿越过「前瞻 − 步长」
+  时，卡顿期间进场的弹幕到下一次对齐才请求纹理，之后逐条出现。
+- 跳变与拖动：跳变之后旧 layer 在新时刻都落在自己的动画区间外，「保留旧画面」就是空屏，扣住新纹理只会让
+  画面空得更久。跳到纹理已缓存的地方是一次调用里的整屏替换（纹理缓存装不下的部分按未命中算），没命中的
+  逐条出现。原生拖动的每一步都是一次对齐，已就绪的立即挂上；新的对齐只作废新集合不再需要的在途与已就绪
+  准备（排队中的栅格化随之取消，不拖慢下一步），仍需要的保留。落点分段未到时对齐为空，分段到达后挂上。
+  清屏只在换 item、换视频、关闭弹幕与交接 surface 时出现；换 item 后新 item 的快照与新纪元的 D 都有了才对齐
+  （哪个后到由哪个触发），关闭弹幕保留布局表，打开时按当前时刻挂上。
+- 分段缓存（`DanmakuSegmentCache`）按最近快照的位置 h 请求分段：位置在分段开头 60 秒（滚动弹幕的最长时长）
+  内时一并请求上一段，未到结尾时请求下一段。暂停、缓冲时没有新快照，一个分段加载完腾出名额后，会话按时间线
+  当前的快照继续请求（先让缓存观察它）。超过三段时淘汰：h 与此刻的显示时间 D 两边各自需要的分段（同一个
+  判断）都受保护，其余按离 D 最远的先淘汰；读不到 D 时只保护 h 那边、按离 h 最远淘汰，即只留最近的三段。
+  远跳到未缓冲区时 h 先到落点、D 还停在原处 0.2～4 秒：落点分段到达后不会被淘汰（只按 D 淘汰会形成「到达即
+  淘汰、再按 h 请求」的循环），屏上那边的分段也留到 D 跟过去之后的下一次存入，所以上限是软的，最多六段。
+- 纹理字节上限（64 MiB）只作内存安全阀，按全部 layer（含前瞻弹幕）计：超限时先移除已走完、还没等到
+  对齐的，再由已进场的弹幕挤掉进场最晚的前瞻弹幕；前瞻弹幕之间不互相挤，超限即被拒。被拒的弹幕缺席，
+  但不影响车道布局。
+- 弹幕由时钟层驱动，暂停时增删 layer 由系统照常合成，不需要主动请求重新合成。弹幕 layer 与 `rootLayer`
+  用 `actions` 禁用上屏、移除、子层与几何变化的隐式动画，增删不另包显式事务（顶层显式事务会单独提交，
+  把同一次对齐拆进不同的提交）。
 - 大会员彩色弹幕：元素字段 24 `colorful` 为 60001 时映射为 `DanmakuColorStyle.vipGradient`，其余类型按普通
   弹幕显示。外观按官方贴图的结论内置：白色填充、0.5pt 描边从文字左缘到右缘按采样色标做横向渐变、阴影
   仍为深色；不下载分段回复 `colorfulSrc` 给的贴图，纹理同步绘制，官方更换贴图时不会跟随。
@@ -189,36 +342,54 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
   正文使用可选择、不可编辑的 `NSTextView`；diffable identity 为 subject + root `CommentID`；
   高度缓存按 identity、宽度桶、内容 revision 做有界 LRU，resize 分批精测并恢复语义 anchor。
   `PlaybackCommentsViewModel` 仍唯一拥有 subject、排序、分页、并发上限与 generation。
-- **浏览网格与 shelf**：首页推荐、热门、搜索、历史的网格和相关推荐 shelf 使用
+  评论状态行与页脚的加载是固定行高的系统转圈（状态行大号、页脚小号）：加载中的状态行与说明行
+  （idle／empty／closed）同高，加载中的页脚与“加载更多”行同高；转圈只在加载中转动，复用即停，不单独读屏。
+- **浏览网格与 shelf**：首页推荐、热门、搜索、观看历史、稍后再看、收藏夹的网格和相关推荐 shelf 使用
   `NSCollectionView` + 复用的原生卡片；卡片与网格在 `BiliVideoCollectionUI`，各来源的网格包装在拥有它的
   Feature，shelf 在 `BiliVideoDetailFeature`。热门 50 卡 A/B 表明 SwiftUI `LazyVGrid`/AttributeGraph 是主要滚动成本；卡片 overlay
   与文字改为持久 `CALayer`／`CATextLayer` 后，同样约 20 秒滚动 cycles 下降约 39%，0 hitch。来源的
   loading／empty／failure 等状态与网格在同一个 Feature 视图里渲染，网格只是已加载状态的呈现。
+  网格加载中的骨架（BiliUI `VideoCardGridSkeleton`）与相关推荐横排的骨架共用卡片骨架 `VideoCardSkeleton`
+  （横排不带头像），张数由可见尺寸与真实网格或横排的同一几何算出（`VideoCardGridGeometry.placeholderCount`、
+  `NativeVideoShelfGeometry.placeholderCount`）并向上取整，露出一部分的行或卡片也画，任何窗口都铺满可见区域。
+  网格骨架的张数取“可见区域能放下的张数”与“来源已知的本页条数”中的较小者，来源不知道条数时铺满，内容少的
+  来源加载完不会突然少掉一大片：收藏夹按侧栏列表里该夹的 `media_count` 与页码算本页条数（有关键词或没有该夹
+  的元数据时不知道）；稍后再看取同一条件上次成功加载的总数、封顶为一页（首次进入与条件变化后不知道）；首页、
+  热门、搜索与观看历史不知道。只用已拿到的数，不另发请求、不缓存。
 - 网格提前准备：AppKit 默认只为视野内创建卡片，封面要等卡片露出来才开始加载。网格的集合视图把准备区域
   设为视野上下各一屏（`prepareContent(in:)`），并在滚动、布局与内容更新时检查余量，不足半屏就主动刷新，
   同时存在的卡片约为三屏；离开准备区域的卡片照常复用并取消封面等待。键盘选择的起点与滚动锚点只取与
   视野相交的卡片，不取准备区域里看不见的卡片。视野底边离内容底部不足 1.5 屏时请求
   下一页；新一页到来时若仍在阈值内（一页可能比阈值矮）立即再布防，保持内容储备，仍是每个尾部一次、
   一次滚动手势最多一页。评论侧栏的阈值比一页矮，保留“先离开阈值再布防”。
-- 首页推荐、热门、搜索与观看历史的分页都由 `PagedVideoList`（BiliApplication）承担；来源只把远端页适配为
-  “条目 + 下一页游标”（Feed 的游标是下一页请求，历史是 adapter 生成的不透明 continuation），Feed 另校验响应
-  属于所请求的页。各来源最多保留 1000 条（`VideoListRetention`），按 BVID 去重后截断（这四个分页来源只在 `PagedVideoList`
+- 首页推荐、热门、搜索、观看历史与稍后再看的分页都由 `PagedVideoList`（BiliApplication）承担；来源只把远端页
+  适配为“条目 + 下一页游标”（Feed 的游标是下一页请求，历史是 adapter 生成的不透明 continuation，稍后再看是条件加页码的完整请求 `WatchLaterRequest`），
+  Feed 与稍后再看另校验响应属于所请求的页（稍后再看：总条数不为负、条数不超过每页条数；`count` 口径未经证实，有条目而总条数不多于前面各页时按最后一页接受，页码衔接在
+  `WatchLaterUseCase`）。稍后再看本页有条目且已请求条数少于接口给的总条数才有下一页，不另设条数上限。各来源最多
+  保留 1000 条（`VideoListRetention`），按 BVID 去重后截断（这五个分页来源只在 `PagedVideoList`
   去重，adapter 映射与网格卡片映射不另做；集合层的 `NativeVideoCardContents` 另按卡片 ID 兜底）；达到上限即收起分页
-  尾标、不再请求下一页。没有新条目的页：推荐、热门与搜索停止翻页；历史保留 continuation、收起尾标，由用户
+  尾标、不再请求下一页。没有新条目的页：推荐、热门、搜索与稍后再看停止翻页；历史保留 continuation、收起尾标，由用户
   点“加载更早的记录”显式继续（空页跳过与游标前进校验在 `WatchHistoryUseCase`）。下一页游标回环（含不前进）
-  按无效响应报告并停止，即使同时达到条目上限。历史一次分页会话最多加载更多 100 页；推荐、热门与搜索每页
+  按无效响应报告并停止，即使同时达到条目上限。历史一次分页会话最多加载更多 100 页；推荐、热门、搜索与稍后再看每页
   至少新增一条，页数已被条目上限封住，不另设页数上限。分页尾标是只在并入新条目时递增的计数。加载更多失败
   保留条目与游标、暂停自动加载（不给尾标），底部重试请求同一游标；被失败或离开页面打断的显式继续仍需显式
   继续，不会变成自动扫描。
-- 首页推荐、热门、搜索与观看历史在已有内容时都原地刷新：网格不卸载，顶部显示共用的 `RefreshStatusCapsule`
+- 收藏夹与 UP 主空间按页整体替换，不走 `PagedVideoList`：翻页状态是 BiliApplication 的 `PageReplacementPaging`
+  （保留上一页的总数与总页数、越界与正在显示／加载的页不请求、失败重试当前页、总数变少时退回最后一页），底部悬浮
+  页码条是 BiliUI 的 `PageNumberPager`。收藏夹每页 40 条，总页数取当前条件下的 `media_count`，越界页给出的 0 不
+  覆盖已知总数（先回第 1 页取新总数再转到最后一页，一次意图里至多改请求两次），是否还有下一页以 `has_more` 为准，
+  某页过滤后为空而还有其他页时说明“本页没有可显示的视频”并保留页码条。网格不做近尾自动加载（尾标为 `.end`），
+  末行下方为页码条留出 `PageNumberPagerGeometry.reservedHeight`（`NativeVideoGridView` 的 `bottomInset`，布局与内容
+  高度同源）；选夹、换夹、翻页、换排序或关键词与刷新每次替换成功，刷新代次都前进、网格回顶。
+- 首页推荐、热门、搜索、观看历史、稍后再看与收藏夹在已有内容时都原地刷新（收藏夹原地重读当前页）：网格不卸载，顶部显示共用的 `RefreshStatusCapsule`
   （BiliUI；结果为空时也显示），成功后整体替换并由刷新代次把该来源的网格滚回顶部；失败保留已显示内容并在
   胶囊里给出原因。底部的加载更多转圈、失败原因与重试，以及历史空页之后的“加载更早的记录”按钮共用
   `PaginationStatusOverlay`（BiliUI）。刷新期间各来源都收起分页尾标（历史的“加载更早的记录”也一并收起），
   结束后重新给出：
   网格对同一尾标只触发一次，刷新中被忽略的近尾事件要靠尾标重新出现才能再布防。账户变化替换所有来源的内容，所有网格都回到顶部。
-  历史在刷新或加载更多遇到凭据缺失或失效时放弃已显示内容、转入失败页并请求账户复核；复核期间显示“正在
-  重新确认”，确认仍登录后自动重载一次（直到下一次加载成功前不再自动重载），复核结束仍失败时给静态说明。
-  离开历史页时停止等待复核，凭据失败页回到初始状态，回来时重新加载。本地凭据读不到与复核失败显示
+  观看历史与稍后再看（同一 `LibraryVideoListModel`）以及收藏夹（复核进度同一份 `LibraryAccountRevalidation`）在
+  刷新或加载更多遇到凭据缺失或失效时放弃已显示内容、转入失败页并请求账户复核；复核期间显示“正在重新确认”，确认仍登录后自动重载一次（直到下一次加载成功前不再自动
+  重载），复核结束仍失败时给静态说明。离开页面时停止等待复核，凭据失败页回到初始状态，回来时重新加载。本地凭据读不到与复核失败显示
   “无法读取登录状态”并可重试。首次加载仍是骨架屏。程序回到顶部后、用户再次滚动前，内容整体
   替换保持在顶部（`NativeVideoGridTopPin`），不按旧内容第一张可见卡片做锚点恢复；锚点卡片已不在新内容里时
   也直接回到顶部，不停在被新内容高度截断的旧偏移上。网格的 snapshot 不做差异动画：动画结束前新卡片不会
@@ -230,6 +401,7 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
 - **UP 主空间列表**：头部（返回、头像、名字、三段排序）与投稿行是同一个 `NSCollectionView` 的原生
   item，随列表滚到工具栏下由系统做边缘模糊。行高固定，不需要测量缓存；加载、空、失败与登录提示
   由 SwiftUI 叠在头部下方，返回按钮始终可点。加载用转圈而不是骨架：投稿数因人而异，占位行会误导数量。
+  评论区同理，首次、重新加载与追加都用转圈：评论长短、图片与楼中楼各不相同，骨架会误导条数与长度。
   列表不接收键盘焦点，方向键、空格留给播放器快捷键。
   悬停由 `NativeVideoHoverTracker` 统一管理（网格卡片与投稿行都实现 `NativeHoverableCollectionItem`）；
   “返回顶部”玻璃按钮与评论区共用 `NativeScrollToTopScrollView`。
@@ -285,9 +457,21 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
 
 ### 动线与侧栏上下文层
 
-- 平级来源（搜索、首页、热门、观看历史）以 `AppTab` 为 id，各由一份 `AppSourceDescriptor` 描述：标题、SF Symbol、
-  是否要求账户、内容整体替换的代次（推荐、热门与搜索只计原地刷新，历史含首次加载）、离开来源时的停用、
-  账户变化的通知、绑定本来源的复核参与者与丢弃内容的 reset。`AppSources` 由 `WindowComposition` 对 `AppTab.allCases` 穷尽构造一次，case 顺序即侧栏顺序；侧栏行、
+- 平级来源（搜索、首页、热门、稍后再看、观看历史、收藏夹）以 `AppTab` 为 id，各由一份 `AppSourceDescriptor` 描述：标题、SF Symbol、
+  所属侧栏分组、在侧栏提供多行时的选中读写、是否要求账户、内容整体替换的代次（推荐、热门与搜索只计原地刷新，稍后再看与观看历史含首次加载，
+  收藏夹计每次整体替换）、离开来源时的停用、账户变化的通知、绑定本来源的复核参与者与丢弃内容的 reset。`AppSources` 由 `WindowComposition` 对
+  `AppTab.allCases` 穷尽构造一次，每个来源必须给出所属的组。侧栏按 `AppSourceGroup` 分段（`Section`）：顶部不带标题的一组（搜索、
+  首页、热门）、带标题的「资料库」（稍后再看、观看历史）与可折叠的「收藏夹」；组的顺序由 `AppSourceGroup` 固定，组内按 case 顺序。分组只决定
+  侧栏的分段、标题、折叠与未登录时是否显示，不改变来源的停用、账户与清理语义。
+- 「收藏夹」组只在已登录时显示，由一个来源（`.favorites`）为每个自己创建的收藏夹提供一行（Apple Music「播放列表」式），
+  点一行直接在右侧显示夹内视频，不进右侧栈。侧栏 `List` 的选择值是 `AppSidebarSelection`：单行来源是 `.source(AppTab)`，
+  收藏夹的行是 `.item(.favorites, id:)`，每行带不同的 tag，避免多行同时高亮、键盘上下错乱；选中的收藏夹记在收藏夹模型里，
+  读写经来源描述的 `itemSelection` 映射，进入、退出播放重建侧栏后照样恢复高亮。组的展开状态只在窗口内存（`AppShellView`
+  的 `@State`，导航侧栏重建不丢失），默认展开、不持久化，组标题不可选中。列表加载中、失败（可重试按钮）与账户 mid 未知
+  （需复核或重新登录）各显示一行说明，说明行不可选中；已有列表时重读保留原有的行，直到新列表到达（普通失败保留旧列表，凭据
+  失败放弃）。没有选中收藏夹时主区按列表状态说明（加载中、可重试的失败、账户未知、请在侧栏选择），工具栏刷新重读列表。列表重新加载后选中的收藏夹不在了就回落到默认收藏夹（按 `attr` 标记
+  识别），没有则第一个；不在收藏夹时只改选择、不读取。在收藏夹时登出（组不再显示）回到首页，换号仍留在收藏夹并选新账户的
+  默认收藏夹。侧栏行、
   刷新回顶、离开停用、账户变化、关窗清理与其他窗口换号时的提前清理（只对要求账户的来源）都遍历它。来源描述的 reset 只丢弃
   本来源自己的内容，推荐、热门与搜索共用的 Browse 工作集关窗时由 `AppSources` 整体丢弃一次。根视图构造与 Browse
   激活依赖各来源自己的类型，仍是 `AppTab` 上的穷尽 switch。
@@ -366,6 +550,40 @@ generation。消费者不自建 wall-clock timer，也不接触 `AVPlayer`／`CM
 - 搜索框只把外部改动（点选词、关窗清空）写回字段，且在输入法组字时不写：直接赋值会丢掉未确认的
   拼音或假名。
 
+### 稍后再看的排序、筛选与搜索
+
+- 条件（排序、观看进度、加入时间、时长与关键词）在每个窗口一份的 `WatchLaterSession`（Library），只在内存里，
+  `reset`（关窗）与账户范围变化恢复默认，工具栏刷新也经会话。游标是完整请求（条件加页码），条件变化以新条件的第一页从空列表重新加载
+  （不原地刷新：旧条件的条目不能留在新条件下显示），成功后刷新代次前进、网格回顶；旧条件的迟到结果由 `LatestTask`
+  丢弃，旧条件的下一页游标与新列表不等而被 `PagedVideoList` 拒收。
+- 番剧／影视、课程与已失效的条目本来就打不开，接口常给不全：这些行缺标题、作者、加入时间或时长时留空（卡片用
+  占位标题，省略作者、头像、时长与加入时间，读屏不读空的部分），不让整页失败；可播放的行仍严格校验。
+- 会话保存未解析的加入时间选项；每次开始新的分页会话（首次加载、应用条件、刷新、复核后重载）时由列表的
+  `firstPageCursor` 按此刻与本地日历重新解析（`WatchLaterAddedTimeRangeResolver`），翻页沿用游标里冻结的区间；
+  刷新时解析出的请求与当前内容不同（如跨过午夜）就清空重载，相同则原地刷新。今天为今天 0 点到明天 0 点，昨天为
+  昨天整日，近一周为现在往前 7 天到明天 0 点，自定义为开始日 0 点到结束日次日 0 点；结束取明天 0 点，午夜不会得到
+  空区间，解析后才加入的视频刷新时也在区间内。语义与搜索的发布日期（整日闭区间、结束日不晚于今天）不同，两者
+  不共用解析；早于 1970 年与空区间的拒绝规则共用 `DateRangeFilterValidation`（`DateRangeFilterError`），两处弹窗据此
+  显示原因并禁用“应用”，日期选择器以 1970-01-01 为下界。时长四档 `VideoDurationFilter` 与搜索共用，秒数边界只在
+  `secondsRange`。
+- 工具栏：排序菜单、筛选按钮、刷新依次在 primaryAction 同一组；搜索框是系统 `.searchable` 在工具栏尾部的紧凑
+  搜索框（回车提交、清空恢复全部），不占工具栏正中的全局搜索位置。排序菜单、筛选按钮（草稿在“应用”前不生效）、
+  弹窗外壳由 App 的 `ToolbarFilterControls` 与搜索共用，时长档标题与日期筛选的错误文案在 `SearchToolbarControls` 一处。副标题是当前条件下接口给的总数；有筛选或
+  关键词而结果为空时空态给出“清除筛选”（清除筛选与关键词，保留排序）。
+
+### 收藏夹的排序与搜索
+
+- 选中的收藏夹、排序（最近收藏 `mtime` 默认、最多播放 `view`、最近投稿 `pubtime`）与关键词在每个窗口一份的
+  `FavoriteFolderViewModel`，只在内存里，`reset`（关窗）与账户范围变化恢复默认。换夹时取消在途请求、回到第 1 页、清空
+  关键词、保留排序。工具栏从左到右是排序菜单（与搜索、稍后再看共用 `ToolbarSortMenu`）、刷新与尾部的紧凑 `.searchable`
+  搜索框（只搜当前收藏夹 `type=0`，回车提交、清空恢复）；不做“全部收藏夹”搜索与分区筛选。导航标题是收藏夹名称，副标题是
+  当前条件下的总数（有关键词时是过滤后的数量）。整个收藏夹为空、搜索无结果（给“清除搜索”）与某页没有可显示的视频是三种
+  不同的空态。
+- 只有 type 2 的普通视频（含 `attr` bit7 仅自己可见）可以播放；合集（type 21）、音频（type 12）、番剧／影视（`ogv` 非空，
+  角标用 `ogv.type_name`，空时写“番剧”）、其他未知类型与已失效（`attr` bit0，或标题为“已失效视频”“该合集已失效”；失效优先）
+  是不可用卡片。不可用原因的角标与占位标题与稍后再看共用 `LibraryUnavailabilityFormatting`；不可用条目字段不全时放宽，
+  普通视频严格校验。
+
 ### 认证
 
 Web QR 协议没有官方稳定文档，按“fixture 固定的外部观察”处理，未知状态一律失败关闭。秘密只在
@@ -377,20 +595,24 @@ Repository adapter 只调用 endpoint 方法，不自行构造 `RequestAccess`�
 [`SECURITY-MODEL.md`](SECURITY-MODEL.md)。
 
 窗口复核契约：凭据失效只由 ViewModel 记录。参与者实现 BiliApplication 的 `@MainActor` 协议
-`AccountRevalidationParticipant`（推荐／热门／搜索、视频、弹幕、评论、UP 主空间、观看历史；字幕目录由
+`AccountRevalidationParticipant`（推荐／热门／搜索、视频、弹幕、评论、UP 主空间、稍后再看、观看历史、收藏夹列表与夹内页面；字幕目录由
 `SubtitleUseCase` 报告给视频模型，播放侧仍把失败的目录当作没有字幕）：发现需要复核的失败时以 `&+=` 递增
 `authenticationRevalidationGeneration`，复核结束的 `authenticationRevalidationSucceeded`／`Failed` 默认不动作。
 参与者集合 `AccountRevalidationParticipants` 由 `WindowComposition` 构造一次，`AppRootView` 只读取各参与者的代次，前后
 不等（不比大小，回绕仍算）就调用一次 `revalidate()`；复核离开 restoring 时把结果交给参与者，绑定来源的参与者
-只在该来源是当前来源时收到（绑定关系只来自来源描述）（观看历史：复核成功后自动重载至多一次、失败时给可重试说明）。Feature 不直接调用
-认证服务，也不经单独回调。heartbeat 写请求例外，不触发复核。
+只在该来源是当前来源时收到（绑定关系只来自来源描述）（稍后再看、观看历史与收藏夹的夹内页面：复核成功后自动重载至多一次、失败时给可重试说明），
+不在本页时不在后台读取账户内容。收藏夹列表是例外：它是侧栏常驻的元数据（名称、私密、默认），按窗口级（不绑定来源）登记，
+窗口已登录就读取、复核结果不论当前来源都交给它；首次读取由导航侧栏出现时按窗口账户范围触发（未解析到已登录不算账户
+变化），mid 只取自窗口账户范围（`AccountSessionScope.signedIn(accountID:)`），adapter 不自己取账户；认证仍在确认、或其他窗口
+换号而本窗口还没复核到（`AccountSessionCoordinator.awaitsRevalidation`）时不读取，外部复核结束后重新对齐。夹内视频仍绑定收藏夹来源。
+Feature 不直接调用认证服务，也不经单独回调。heartbeat 写请求例外，不触发复核。
 
 多窗口共享一个 App 级账户 session coordinator：窗口出现后注册其 API transport，登出／换号／凭据
 失效时先全局推进 authentication epoch，其他窗口再复核 Keychain 并按新 generation 重启依赖账户的
 内容；窗口关闭时注销。账户变化由来源自己处理，App 只经来源描述通知（进程代次、窗口账户范围、是否当前来源）：
-Browse 按代次去重，丢弃三份工作集并重启当前路由；关闭播放之后再通知观看历史：丢弃条目，已登录且是当前
-来源时立即重载。其他窗口
-换号时，本窗口先丢弃要求账户的来源的内容再复核，复核结束后只通知不要求账户的来源，历史由复核得出的范围变化
+Browse 按代次去重，丢弃三份工作集并重启当前路由；关闭播放之后再通知稍后再看、观看历史与收藏夹：丢弃条目，已登录且是当前
+来源时立即重载（收藏夹列表不论是否当前来源都按新账户重读，夹内页面在新列表到达后选默认收藏夹）。其他窗口
+换号时，本窗口先丢弃要求账户的来源的内容再复核，复核结束后只通知不要求账户的来源，稍后再看、观看历史与收藏夹由复核得出的范围变化
 重新加载。
 
 ### 播放线路偏好与测速
@@ -446,6 +668,12 @@ gain 只压低不放大：`min(−18 LUFS − I, 0)`，下限 −12 dB。不放�
 - 第三方 DI、Coordinator 框架、Redux／TCA。
 - 每个模块独立 `Package.swift`；为单一调用方新建 renderer／Shared target。
 - Feature 直接观察 `AVPlayer`；字幕或弹幕独立 timer；弹幕放进 Feature 或在 `BiliDanmaku` 解码 wire。
+- 弹幕按时间线快照自建动画时钟（按快照改 `rootLayer` 的速率与时间）或靠识别 seek 清屏、补位：时钟切换与
+  误判的跳变都会闪，画面也依赖到达顺序；弹幕动画只由时钟层按 item timebase 驱动（见「媒体时间轴」）。
+- 弹幕挂在 `AVSynchronizedLayer` 下：它的速率与时间由 AVFoundation 在主线程更新，暂停时主线程被播放器
+  挡住期间它晚停 30～40ms，弹幕先多走一段再跳回。
+- 弹幕按窗口尺寸布局、resize 后去抖重排并整屏替换：拖动窗口边缘时画面整屏跳变，去抖期间还要为居中、
+  贴底与按旧宽度运动写特判；取景框模型让 resize 只移动锚定边。
 - mpv 等第二播放后端；AVPlayer + loopback 能满足当前需求。
 - `*.bilibili.com` 后缀匹配授权；WKWebView 登录；共享 `HTTPCookieStorage` 或 `URLSession.shared`
   作为登录态。

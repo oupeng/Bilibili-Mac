@@ -2,7 +2,7 @@ import SwiftUI
 
 /// 列表底部的分页状态胶囊：加载更多时转圈，失败时显示原因与可选重试，需要用户显式继续时显示按钮。
 ///
-/// 首页推荐、热门、搜索与观看历史共用同一种样式（与顶部 `RefreshStatusCapsule` 一致的材质胶囊）。
+/// 首页推荐、热门、搜索、观看历史与稍后再看共用同一种样式（与顶部 `RefreshStatusCapsule` 一致的材质胶囊）。
 /// 只负责排版；标签与动作由调用方的 Feature 本地化并提供，是否给重试由调用方按 `isRetryable` 决定。
 package struct PaginationStatusOverlay: View {
     /// 胶囊的状态；`idle` 不显示任何内容。

@@ -277,7 +277,8 @@ struct NativeVideoGridTests {
                 itemCount: 100,
                 width: width,
                 visibleMaximumY: threshold,
-                viewportHeight: viewportHeight
+                viewportHeight: viewportHeight,
+                bottomInset: 0
             )
         )
         #expect(
@@ -285,7 +286,8 @@ struct NativeVideoGridTests {
                 itemCount: 100,
                 width: width,
                 visibleMaximumY: threshold + 1,
-                viewportHeight: viewportHeight
+                viewportHeight: viewportHeight,
+                bottomInset: 0
             )
         )
         #expect(
@@ -293,7 +295,8 @@ struct NativeVideoGridTests {
                 itemCount: 0,
                 width: width,
                 visibleMaximumY: 10_000,
-                viewportHeight: viewportHeight
+                viewportHeight: viewportHeight,
+                bottomInset: 0
             )
         )
     }

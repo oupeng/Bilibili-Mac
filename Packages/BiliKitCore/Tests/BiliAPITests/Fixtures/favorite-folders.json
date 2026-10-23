@@ -1,0 +1,7 @@
+{"code":0,"message":"0","ttl":1,"data":{"count":5,"list":[
+  {"id":3001,"fid":30,"mid":10001,"attr":0,"title":"默认收藏夹","fav_state":0,"media_count":12},
+  {"id":3002,"fid":31,"mid":10001,"attr":3,"title":"私密收藏","fav_state":0,"media_count":3},
+  {"id":3003,"fid":32,"mid":10001,"attr":130,"title":"公开收藏","fav_state":0,"media_count":0},
+  {"id":0,"fid":33,"mid":10001,"attr":2,"title":"无效行","fav_state":0,"media_count":1},
+  {"id":3004,"fid":34,"mid":10001,"title":"缺属性","fav_state":0,"media_count":1}
+]}}

@@ -2,7 +2,7 @@ import Foundation
 
 /// 视频的 UP 主：MID、昵称，以及可选的头像。
 ///
-/// 由热门、推荐、详情、搜索与历史的映射产生，也由空间与评论作者入口按 MID 构造；来自接口的
+/// 由热门、推荐、详情、搜索、观看历史、稍后再看与收藏夹的映射产生，也由空间与评论作者入口按 MID 构造；来自接口的
 /// `avatarURL` 已经 `WebImageURL` 升级为 HTTPS 并过公开 HTTPS 基线（见 SECURITY-MODEL §4）。签名只来自
 /// 名片（`UploaderProfile`）。
 public struct VideoOwner: Sendable, Equatable {

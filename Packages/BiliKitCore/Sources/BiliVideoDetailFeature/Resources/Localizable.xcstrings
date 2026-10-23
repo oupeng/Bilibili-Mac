@@ -113,34 +113,6 @@
         }
       }
     },
-    "%lld月%lld日" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$lld/%2$lld"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$lld月%2$lld日"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$lld月%2$lld日"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$lld月%2$lld日"
-          }
-        }
-      }
-    },
     "IP属地：%@" : {
       "localizations" : {
         "en" : {
@@ -1989,34 +1961,6 @@
         }
       }
     },
-    "时长%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Duration %@"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "長さ %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "时长%@"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "片長 %@"
-          }
-        }
-      }
-    },
     "昨天%@" : {
       "localizations" : {
         "en" : {
@@ -3109,34 +3053,6 @@
         }
       }
     },
-    "第 %lld / %lld 页" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld / %lld"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld / %lld ページ"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "第 %lld / %lld 页"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "第 %lld / %lld 頁"
-          }
-        }
-      }
-    },
     "第 %lld 页，共 %lld 页" : {
       "localizations" : {
         "en" : {
@@ -3949,34 +3865,6 @@
         }
       }
     },
-    "输入页码跳转" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Enter a page number to jump"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ページ番号を入力して移動"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "输入页码跳转"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "輸入頁碼跳轉"
-          }
-        }
-      }
-    },
     "返回来源页并重新选择视频。" : {
       "localizations" : {
         "en" : {
@@ -4421,34 +4309,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "需要登入"
-          }
-        }
-      }
-    },
-    "页码" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Page"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ページ"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "页码"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "頁碼"
           }
         }
       }

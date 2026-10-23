@@ -1,13 +1,17 @@
 import SwiftUI
 
-/// 首载骨架：列数、卡片尺寸、间距与内容边距都取自生产网格的 `VideoCardGridGeometry`。
+/// 首载骨架：列数、卡片尺寸、间距、内容边距与占位卡片数都取自生产网格的 `VideoCardGridGeometry`。
+///
+/// 卡片数按可见尺寸计算（`placeholderCount(for:expectedItemCount:)`），窗口缩放时跟着增减；来源知道本页
+/// 条数时不超过它，否则铺满可见区域。骨架禁用滚动，只画视野内的卡片。
 package struct VideoCardGridSkeleton: View {
-    /// 占位卡片数：铺满常见窗口的首屏即可；骨架禁用滚动，超出视口的部分不会显示，调大只多建视图。
-    private static let placeholderCount = 12
     private let loadingLabel: String
+    private let expectedItemCount: Int?
 
-    package init(loadingLabel: String) {
+    /// `expectedItemCount` 是来源已知的本页条数（收藏夹按夹的总数与页码、稍后再看按同条件上次的总数），不知道时为 nil。
+    package init(loadingLabel: String, expectedItemCount: Int? = nil) {
         self.loadingLabel = loadingLabel
+        self.expectedItemCount = expectedItemCount
     }
 
     package var body: some View {
@@ -25,8 +29,14 @@ package struct VideoCardGridSkeleton: View {
                     alignment: .leading,
                     spacing: VideoCardGridGeometry.verticalSpacing
                 ) {
-                    ForEach(0..<Self.placeholderCount, id: \.self) { _ in
-                        VideoCardSkeleton(size: itemSize)
+                    ForEach(
+                        0..<VideoCardGridGeometry.placeholderCount(
+                            for: geometry.size,
+                            expectedItemCount: expectedItemCount
+                        ),
+                        id: \.self
+                    ) { _ in
+                        VideoCardSkeleton(size: itemSize, showsAvatar: true)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -38,62 +48,5 @@ package struct VideoCardGridSkeleton: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(loadingLabel)
-    }
-}
-
-/// 与原生卡片同一布局：封面、头像、两行标题与 footer 的位置都来自 `VideoCardGeometry`。
-private struct VideoCardSkeleton: View {
-    private static let barCornerRadius: CGFloat = 4
-    private static let titleBarHeight: CGFloat = 18
-    private static let titleBarSpacing: CGFloat = 8
-    private static let secondTitleBarMaximumWidth: CGFloat = 180
-    private static let footerBarHeight: CGFloat = 14
-    private static let footerBarMaximumWidth: CGFloat = 130
-
-    let size: CGSize
-
-    var body: some View {
-        let coverHeight = VideoCardGeometry.coverHeight(forWidth: size.width)
-        let textInset = VideoCardGeometry.textLeadingInset(showsAvatar: true)
-        let textWidth = max(0, size.width - textInset)
-        ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: VideoCardGeometry.coverCornerRadius)
-                .fill(.quaternary)
-                .frame(width: size.width, height: coverHeight)
-            Circle()
-                .fill(.quaternary)
-                .frame(
-                    width: VideoCardGeometry.avatarSize,
-                    height: VideoCardGeometry.avatarSize
-                )
-                .offset(y: coverHeight + VideoCardGeometry.textTopSpacing)
-            VStack(alignment: .leading, spacing: Self.titleBarSpacing) {
-                bar(width: textWidth, height: Self.titleBarHeight)
-                bar(
-                    width: min(textWidth, Self.secondTitleBarMaximumWidth),
-                    height: Self.titleBarHeight
-                )
-            }
-            .frame(height: VideoCardGeometry.titleHeight, alignment: .top)
-            .offset(x: textInset, y: coverHeight + VideoCardGeometry.textTopSpacing)
-            bar(
-                width: min(textWidth, Self.footerBarMaximumWidth),
-                height: Self.footerBarHeight,
-                style: .quinary
-            )
-            .frame(height: VideoCardGeometry.footerHeight)
-            .offset(x: textInset, y: coverHeight + VideoCardGeometry.footerTopOffset)
-        }
-        .frame(width: size.width, height: size.height, alignment: .topLeading)
-    }
-
-    private func bar(
-        width: CGFloat,
-        height: CGFloat,
-        style: HierarchicalShapeStyle = .quaternary
-    ) -> some View {
-        RoundedRectangle(cornerRadius: Self.barCornerRadius)
-            .fill(style)
-            .frame(width: width, height: height)
     }
 }

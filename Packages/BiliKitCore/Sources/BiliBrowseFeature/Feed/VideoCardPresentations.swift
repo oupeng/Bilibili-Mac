@@ -168,9 +168,7 @@ private func videoCardAccessibilityLabel(
             ownerName,
             BrowseFeatureStrings.localized("播放 \(viewCountText)", locale: locale),
             BrowseFeatureStrings.localized("弹幕 \(danmakuCountText)", locale: locale),
-            durationText.map {
-                BrowseFeatureStrings.localized("时长 \($0)", locale: locale)
-            },
+            durationText.map { VideoCardAccessibilityText.duration($0, locale: locale) },
             BrowseFeatureStrings.localized("发布 \(publishedDateText)", locale: locale),
             recommendationReason.map {
                 BrowseFeatureStrings.localized("推荐理由 \($0)", locale: locale)

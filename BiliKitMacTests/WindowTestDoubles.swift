@@ -236,6 +236,7 @@ func makeTestAdapters(
         holdsRequests: false
     ),
     comments: any CommentRepository = CommentRepositoryStub(),
+    favorites: any FavoritesRepository = FavoritesRepositoryStub(),
     authentication: any AuthenticationServicing = AuthenticationServiceStub(
         restoreState: .signedOut
     ),
@@ -258,6 +259,8 @@ func makeTestAdapters(
         uploaderVideoRepository: UnavailableUploaderVideoRepository(),
         commentRepository: comments,
         historyRepository: WatchHistoryRepositoryStub(),
+        watchLaterRepository: WatchLaterRepositoryStub(),
+        favoritesRepository: favorites,
         commentAssetURLResolver: { _, _ in nil },
         commentLinkRouter: { _ in nil },
         authenticationService: authentication,

@@ -11,24 +11,30 @@ enum NativePlaybackCommentsItemMeasurement {
     static let rootVerticalInset: CGFloat = 12
     static let replyPanelLeading: CGFloat = 42
     static let replyPanelPadding: CGFloat = 9
+    /// 状态行放标题与两行说明（暂无评论、已关闭、缺少评论标识）的高度。
+    ///
+    /// 加载中的转圈居中在同样高的行里，加载结束切到这些说明时行高不变、内容不位移。
+    static let stateMessageHeight: CGFloat = 112
+    /// 页脚“加载更多”按钮行的高度。
+    ///
+    /// 追加加载中的转圈居中在同样高的行里：点按钮到下一页到达之间文档高度不变，阅读位置不跳。
+    static let footerLoadMoreHeight: CGFloat = 40
 
     static func state(
         _ kind: NativePlaybackCommentsStateKind,
         width _: CGFloat
     ) -> CGFloat {
         switch kind {
-        case .loading: 244
-        case .idle, .empty, .closed: 112
+        case .loading, .idle, .empty, .closed: stateMessageHeight
         case .failed: 48
         }
     }
 
     static func footer(_ footer: NativePlaybackCommentsFooter) -> CGFloat {
         switch footer {
-        case .loading: 122
+        case .loading, .loadMore: footerLoadMoreHeight
         case .failed, .stopped: 48
         case .end: 32
-        case .loadMore: 40
         }
     }
 

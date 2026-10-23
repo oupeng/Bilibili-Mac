@@ -60,7 +60,8 @@ struct AccountRevalidationParticipantsTests {
         #expect(history.events == (currentRoute == .history ? ["succeeded", "failed"] : []))
     }
 
-    /// 窗口组装登记了全部六个参与者，只有观看历史绑定来源；漏登记会让那一页的凭据失效静默不复核。
+    /// 窗口组装登记了全部九个参与者，只有稍后再看、观看历史与收藏夹的夹内页面绑定来源，收藏夹列表是窗口级；漏登记会让
+    /// 那一页的凭据失效静默不复核。
     @Test
     func windowCompositionRegistersEveryParticipant() {
         let owner = WindowComposition(process: makeTestProcess(), adapters: makeTestAdapters())
@@ -70,7 +71,10 @@ struct AccountRevalidationParticipantsTests {
             (owner.danmakuModel, nil),
             (owner.commentsModel, nil),
             (owner.navigationCoordinator.uploaderSpace, nil),
-            (owner.historyModel, .history)
+            (owner.favoriteFolderList, nil),
+            (owner.watchLaterModel, .watchLater),
+            (owner.historyModel, .history),
+            (owner.favoriteFolders, .favorites)
         ]
         let entries = owner.revalidationParticipants.entries
 

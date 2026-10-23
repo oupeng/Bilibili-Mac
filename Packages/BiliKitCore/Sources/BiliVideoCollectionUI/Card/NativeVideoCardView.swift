@@ -23,6 +23,9 @@ enum NativeVideoCardLayout {
     /// 胶囊再长也给其后的页脚文字保留的宽度；取值没有另行记录的依据，按 13pt 正文约能放下 5 个汉字；
     /// 调大则窄卡片上的胶囊更早截断，调小则长理由会把作者名挤到只剩几个字。
     static let recommendationFooterMinimumLeadingWidth: CGFloat = 72
+    /// 不可用卡片头像与文字的不透明度，与封面暗层一起表达“不能播放”；调高与可播放卡片难以区分，调低则标题
+    /// 难读。
+    static let unavailableContentOpacity: Float = 0.45
 
     static func footerWidths(
         contentWidth: CGFloat,
@@ -330,7 +333,9 @@ package final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHover
 
 /// 卡片视图：封面、头像与文字层的排版，悬停、按下与键盘选中的外观，读屏按钮语义。
 ///
-/// 不取图，图片由 `NativeVideoCollectionItem` 设置；悬停变化经回调交给集合项。
+/// 不取图，图片由 `NativeVideoCollectionItem` 设置；悬停变化经回调交给集合项。不可用卡片
+/// （`NativeVideoCardAvailability.unavailable`）变暗并显示原因角标，不画悬停与按下、不显示手形指针，读屏呈现为
+/// 不可用的按钮且按下不激活；键盘选中框照常显示，焦点可以停在上面。网格另在自己的激活入口拦截。
 @MainActor
 final class NativeVideoCardView: NSView {
     private let cover = NativeVideoMergedCoverView(frame: .zero)
@@ -352,6 +357,7 @@ final class NativeVideoCardView: NSView {
     private var selected = false
     private var showsKeyboardFocus = false
     private var isPressed = false
+    private var isActivatable = true
 
     override var isFlipped: Bool { true }
 
@@ -381,9 +387,17 @@ final class NativeVideoCardView: NSView {
         self.hoverDidChange = hoverDidChange
         showsAvatar = presentation.showsAvatar
         avatar.isHidden = !showsAvatar
+        let badgeText: String?
+        if case .unavailable(let badge) = presentation.availability {
+            badgeText = badge
+        } else {
+            badgeText = nil
+        }
         cover.configure(
             metrics: presentation.coverMetrics,
-            trailingText: presentation.coverTrailingText
+            trailingText: presentation.coverTrailingText,
+            badgeText: badgeText,
+            isDimmed: !presentation.isActivatable
         )
         textRenderer.configure(
             title: presentation.title,
@@ -392,9 +406,10 @@ final class NativeVideoCardView: NSView {
             footerTrailingSymbolName: presentation.footerTrailingSymbolName,
             footerTrailingStyle: presentation.footerTrailingStyle
         )
+        setActivatable(presentation.isActivatable)
         setAccessibilityLabel(presentation.accessibilityLabel)
         setAccessibilityHelp(presentation.accessibilityHelp)
-        setAccessibilityValue(selected ? VideoCardAccessibilityText.selectedValue : nil)
+        updateAccessibilityValue()
         needsLayout = true
     }
 
@@ -408,7 +423,7 @@ final class NativeVideoCardView: NSView {
 
     func setSelected(_ selected: Bool) {
         self.selected = selected
-        setAccessibilityValue(selected ? VideoCardAccessibilityText.selectedValue : nil)
+        updateAccessibilityValue()
         updateInteractionAppearance()
     }
 
@@ -444,6 +459,7 @@ final class NativeVideoCardView: NSView {
         selected = false
         showsKeyboardFocus = false
         isPressed = false
+        setActivatable(true)
         updateInteractionAppearance(animated: false)
         setAccessibilityLabel(nil)
         setAccessibilityHelp(nil)
@@ -583,6 +599,7 @@ final class NativeVideoCardView: NSView {
     }
 
     override func resetCursorRects() {
+        guard isActivatable else { return }
         addCursorRect(bounds, cursor: .pointingHand)
     }
 
@@ -590,14 +607,35 @@ final class NativeVideoCardView: NSView {
     override func mouseExited(with event: NSEvent) { setHovered(false) }
 
     override func accessibilityPerformPress() -> Bool {
-        guard let activation else { return false }
+        guard isActivatable, let activation else { return false }
         activation()
         return true
+    }
+
+    /// 可用性变化时同步变暗、指针与读屏可用状态；外观由 `updateInteractionAppearance` 按它忽略悬停与按下。
+    private func setActivatable(_ activatable: Bool) {
+        let opacity: Float = activatable ? 1 : NativeVideoCardLayout.unavailableContentOpacity
+        textRenderer.setContentOpacity(opacity)
+        avatar.alphaValue = CGFloat(opacity)
+        setAccessibilityEnabled(activatable)
+        guard isActivatable != activatable else { return }
+        isActivatable = activatable
+        window?.invalidateCursorRects(for: self)
+        updateInteractionAppearance(animated: false)
+    }
+
+    private func updateAccessibilityValue() {
+        setAccessibilityValue(
+            VideoCardAccessibilityText.value(isSelected: selected, isActivatable: isActivatable)
+        )
     }
 
     private func updateInteractionAppearance(animated: Bool = true) {
         guard let layer else { return }
         let keyboardSelected = selected && showsKeyboardFocus
+        // 不可用卡片不画悬停与按下：它们暗示点了会有反应；键盘选中框仍画，表示焦点停在这里。
+        let isPressed = isPressed && isActivatable
+        let isHovered = isHovered && isActivatable
         let surfaceOpacity: CGFloat = isPressed ? 0.14 : (isHovered ? 0.08 : 0)
         let showsStroke = isHovered || keyboardSelected
         let targetBackground = NSColor.labelColor

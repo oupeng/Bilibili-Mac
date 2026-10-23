@@ -19,7 +19,11 @@ struct AppShellView: View {
     let commentsModel: PlaybackCommentsViewModel
     let danmakuModel: DanmakuControlsViewModel
     let authenticationModel: AuthenticationViewModel
+    let watchLaterModel: WatchLaterViewModel
+    let watchLaterSession: WatchLaterSession
     let historyModel: WatchHistoryViewModel
+    let favoriteFolderList: FavoriteFolderListModel
+    let favoriteFolders: FavoriteFolderViewModel
     let trendingSearchModel: TrendingSearchViewModel
     let searchSession: VideoSearchSession
     let searchHistory: SearchHistoryStore
@@ -35,11 +39,13 @@ struct AppShellView: View {
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var gridScroll = SourceGridScrollStates()
     @State private var commentImagePreview: NativeCommentImagePreviewRequest?
+    /// 侧栏「收藏夹」组是否展开；只在窗口内存里，默认展开。
+    ///
+    /// 放在这里而不是侧栏里：进入、退出播放时导航侧栏会重建。
+    @State private var isFavoritesExpanded = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        @Bindable var navigationCoordinator = navigationCoordinator
-
         NavigationSplitView(columnVisibility: guardedColumnVisibility) {
             // 侧栏 = 底层（导航或播放详情）+ 可选的上下文层（UP 主空间）。两层并列叠放，
             // 各自按安全区布局；上下文层打开时底层保留状态（关闭后评论位置还在），但不可见、
@@ -51,8 +57,11 @@ struct AppShellView: View {
                         playbackSidebar
                     } else {
                         AppNavigationSidebar(
-                            sources: sources.ordered,
-                            selection: $navigationCoordinator.selectedTab,
+                            sections: sources.sections,
+                            selection: sidebarSelection,
+                            favoriteFolderList: favoriteFolderList,
+                            isFavoritesExpanded: $isFavoritesExpanded,
+                            accountScope: historyAccountScope,
                             accountState: authenticationModel.accountPresentationState,
                             imagePipeline: imagePipeline,
                             onPresentAuthentication: {
@@ -138,7 +147,8 @@ struct AppShellView: View {
             else {
                 return
             }
-            // 账户变化会替换每个来源的内容（Browse 丢弃全部工作集，历史随账户重载），所有网格都回到顶部。
+            // 账户变化会替换每个来源的内容（Browse 丢弃全部工作集，稍后再看、观看历史与收藏夹随账户重载），所有网格都
+            // 回到顶部。
             for tab in AppTab.allCases {
                 scrollToTop(tab)
             }
@@ -149,6 +159,14 @@ struct AppShellView: View {
             guard previousBVID != currentBVID else { return }
             dismissCommentImagePreview(restoringFocus: false)
         }
+    }
+
+    /// 侧栏的选择值：读写都经来源描述映射，选中的条目记在来源自己的模型里，侧栏重建后照样恢复高亮。
+    private var sidebarSelection: Binding<AppSidebarSelection> {
+        Binding(
+            get: { sources.sidebarSelection(for: navigationCoordinator.selectedTab) },
+            set: { sources.select($0, in: navigationCoordinator) }
+        )
     }
 
     private var sidebarContextID: String {
@@ -334,12 +352,35 @@ struct AppShellView: View {
                 gridHost: gridHost(.popular),
                 onSelect: navigationCoordinator.openPlayback
             )
+        case .watchLater:
+            WatchLaterTabRoot(
+                title: sources[.watchLater].title,
+                model: watchLaterModel,
+                session: watchLaterSession,
+                accountState: authenticationModel.accountPresentationState,
+                gridHost: gridHost(.watchLater),
+                onSelect: navigationCoordinator.openPlayback,
+                onPresentAuthentication: {
+                    isAuthenticationPresented = true
+                }
+            )
         case .history:
             HistoryTabRoot(
                 title: sources[.history].title,
                 model: historyModel,
                 accountState: authenticationModel.accountPresentationState,
                 gridHost: gridHost(.history),
+                onSelect: navigationCoordinator.openPlayback,
+                onPresentAuthentication: {
+                    isAuthenticationPresented = true
+                }
+            )
+        case .favorites:
+            FavoritesTabRoot(
+                title: sources[.favorites].title,
+                model: favoriteFolders,
+                accountState: authenticationModel.accountPresentationState,
+                gridHost: gridHost(.favorites),
                 onSelect: navigationCoordinator.openPlayback,
                 onPresentAuthentication: {
                     isAuthenticationPresented = true
@@ -355,7 +396,7 @@ private struct SourceGridScrollState {
     var reset = NativeVideoGridScrollResetState()
 }
 
-/// 四个来源各自独立的网格滚动状态；来源之间不共享可被互相覆盖的位置。
+/// 各来源独立的网格滚动状态；来源之间不共享可被互相覆盖的位置。
 private struct SourceGridScrollStates {
     private var states: [AppTab: SourceGridScrollState] = [:]
 

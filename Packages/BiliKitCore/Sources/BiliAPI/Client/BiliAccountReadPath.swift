@@ -25,6 +25,12 @@ public enum BiliAccountReadPath {
     public static let uploaderCard = "/x/web-interface/card"
     /// 观看历史（只按账户读取）。
     public static let watchHistory = "/x/web-interface/history/cursor"
+    /// 稍后再看（只按账户读取）。
+    public static let watchLater = "/x/v2/history/toview/web"
+    /// 自己创建的收藏夹列表（只按账户读取）。
+    public static let favoriteFolders = "/x/v3/fav/folder/created/list-all"
+    /// 收藏夹内的一页（只按账户读取）。
+    public static let favoriteFolderContent = "/x/v3/fav/resource/list"
     /// 热门。
     public static let popular = "/x/web-interface/popular"
     /// 首页推荐。

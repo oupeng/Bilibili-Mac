@@ -157,6 +157,8 @@ public struct MediaRepresentation: Sendable, Equatable {
 }
 
 /// 用户可选择的一条语义音轨；`representations` 是同一声音内容的媒体候选，而不是独立音轨。
+///
+/// 候选保持 playurl 返回的顺序，不代表码率高低；BiliPlayback 加载时每轨只取码率最高的一条。
 public struct PlaybackAudioTrack: Sendable, Equatable, Identifiable {
     /// 音轨来源：`original` 为原声，`machineGenerated` 为 AI 配音。
     ///

@@ -5,8 +5,8 @@ import Testing
 
 @testable import BiliVideoDetailFeature
 
-/// 相关推荐横排按页滚动并露出下一张，视口通知推迟到布局之后；拆除时清掉横排里的第一响应者，键盘激活按稳定 ID
-/// 找卡片、不依赖可见项实例；换视频时整体替换并作废旧的封面请求。
+/// 相关推荐横排按页滚动并露出下一张，视口通知推迟到布局之后；加载骨架按可见宽度铺满；拆除时清掉横排里的第一
+/// 响应者，键盘激活按稳定 ID 找卡片、不依赖可见项实例；换视频时整体替换并作废旧的封面请求。
 struct NativeVideoShelfTests {
     @Test
     @MainActor
@@ -17,6 +17,26 @@ struct NativeVideoShelfTests {
         #expect(NativeVideoShelfGeometry.nearestIndex(offset: 370, itemCount: 8) == 2)
         #expect(NativeVideoShelfGeometry.documentWidth(itemCount: 0) == 0)
         #expect(NativeVideoShelfGeometry.documentWidth(itemCount: 3) == 784)
+    }
+
+    @Test(arguments: [
+        // 三张完整卡片之外还露出第四张的一截：翻页只算完整的 3 张，骨架画 4 张。
+        (width: CGFloat(784), count: 4),
+        // 第四张的右缘恰好落在可见右缘。
+        (width: 984, count: 4),
+        (width: 1_200, count: 5),
+        (width: 2_560, count: 11),
+        // 窄窗口、零宽与非有限宽度至少画一张。
+        (width: 260, count: 1),
+        (width: 0, count: 1),
+        (width: .infinity, count: 1),
+        (width: .nan, count: 1)
+    ])
+    @MainActor
+    func loadingSkeletonFillsTheVisibleWidth(_ sample: (width: CGFloat, count: Int)) {
+        #expect(
+            NativeVideoShelfGeometry.placeholderCount(viewportWidth: sample.width) == sample.count
+        )
     }
 
     @Test(.timeLimit(.minutes(1)))

@@ -128,6 +128,33 @@ struct DanmakuTextureRasterizerTests {
         }
     }
 
+    /// 车道布局只测量、不栅格化，得到的尺寸必须与上屏纹理逐像素一致，否则滚动速度与追尾判断会漂移。
+    @Test(arguments: [1.0, 2.0, 3.0])
+    func measurementMatchesTheRasterizedTexture(backingScale: Double) throws {
+        let events = [
+            fixtureEvent(id: "mixed", mode: .scrolling, fontSize: 25),
+            fixtureEvent(id: "small", mode: .top, colorRGB: 0x204060, fontSize: 18),
+            DanmakuEvent(
+                id: "vip",
+                timeSeconds: 1,
+                mode: .bottom,
+                text: "大会员 VIP",
+                fontSize: 36,
+                colorRGB: 0x00FF00,
+                colorStyle: .vipGradient,
+                weight: 1
+            )
+        ]
+        var cache = DanmakuTextMeasurementCache()
+        for event in events {
+            let key = try #require(
+                DanmakuTextureRasterizer.key(event: event, backingScale: backingScale)
+            )
+            let texture = try #require(DanmakuTextureRasterizer.rasterize(key: key))
+            #expect(cache.metrics(for: event, backingScale: backingScale) == texture.metrics)
+        }
+    }
+
     /// 大会员彩色弹幕：缓存键与普通弹幕区分，填充固定为白色、不随事件颜色变化。
     @Test
     func vipGradientKeyIsDistinctAndAlwaysWhite() throws {

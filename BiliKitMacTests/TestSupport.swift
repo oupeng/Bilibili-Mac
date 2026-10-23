@@ -1,5 +1,7 @@
+import AVFoundation
 import AppKit
 import BiliApplication
+import BiliDanmaku
 import BiliModels
 import BiliVideoCollectionUI
 import BiliVideoDetailFeature
@@ -12,6 +14,24 @@ import Testing
 @testable import BiliKit
 
 /// App 测试 target 共用的等待与记录替身；各测试文件不再各自复制。
+
+/// renderer 挂在滚动、顶部、底部三个锚点层下的全部弹幕 layer，按锚点顺序、各自按挂上的先后。
+@MainActor
+func danmakuLayers(of renderer: CoreAnimationDanmakuRenderer) -> [CALayer] {
+    (renderer.rootLayer.sublayers ?? []).flatMap { $0.sublayers ?? [] }
+}
+
+/// 在 `directory` 写一段静音的 PCM 音频：有音轨，播放器按音频时钟驱动 item 的 timebase。
+func writeSilentAudio(seconds: Double, in directory: URL) throws -> URL {
+    let url = directory.appendingPathComponent("silence-\(UUID().uuidString).caf")
+    let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2))
+    let file = try AVAudioFile(forWriting: url, settings: format.settings)
+    let frameCount = AVAudioFrameCount(seconds * format.sampleRate)
+    let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount))
+    buffer.frameLength = frameCount
+    try file.write(from: buffer)
+    return url
+}
 
 /// 在一次性的 UserDefaults suite 中执行；前后都清空，测试之间、测试与真实偏好互不影响。
 func withIsolatedDefaults(_ body: (UserDefaults) throws -> Void) rethrows {
@@ -172,6 +192,66 @@ struct WatchHistoryRepositoryStub: WatchHistoryRepository {
     ) async throws -> WatchHistoryPage {
         if let error { throw error }
         return WatchHistoryPage(items: [], continuation: nil)
+    }
+}
+
+/// 稍后再看 port 的唯一测试替身：给了 `error` 时每次读取都失败，否则返回所请求页的空页。
+struct WatchLaterRepositoryStub: WatchLaterRepository {
+    var error: ContentApplicationError?
+
+    func watchLater(request: WatchLaterRequest) async throws -> WatchLaterPage {
+        if let error { throw error }
+        return WatchLaterPage(
+            items: [],
+            pageNumber: request.page,
+            nextPageNumber: nil,
+            totalCount: 0
+        )
+    }
+}
+
+/// 收藏夹 port 的唯一测试替身：返回固定的收藏夹列表（含默认收藏夹）与所请求页的空页，并记录列表请求的 mid；给了
+/// `error` 时每次读取都失败。
+actor FavoritesRepositoryStub: FavoritesRepository {
+    private let error: ContentApplicationError?
+    private(set) var folderOwnerIDs: [Int64] = []
+    private var folderRequestWaiters = CountWaiters()
+
+    init(error: ContentApplicationError? = nil) {
+        self.error = error
+    }
+
+    func waitForFolderRequestCount(_ target: Int) async {
+        await withCheckedContinuation {
+            folderRequestWaiters.add($0, until: target, current: folderOwnerIDs.count)
+        }
+    }
+
+    func favoriteFolders(ownerID: Int64) async throws -> [FavoriteFolder] {
+        folderOwnerIDs.append(ownerID)
+        folderRequestWaiters.resume(reaching: folderOwnerIDs.count)
+        if let error { throw error }
+        return [
+            FavoriteFolder(
+                id: 10,
+                title: "默认收藏夹",
+                mediaCount: 0,
+                isPrivate: false,
+                isDefault: true
+            ),
+            FavoriteFolder(id: 20, title: "私密收藏", mediaCount: 0, isPrivate: true, isDefault: false)
+        ]
+    }
+
+    func favoriteFolderPage(request: FavoriteFolderRequest) async throws -> FavoriteFolderPage {
+        if let error { throw error }
+        return FavoriteFolderPage(
+            items: [],
+            pageNumber: request.page,
+            pageSize: 40,
+            totalCount: 0,
+            hasMore: false
+        )
     }
 }
 

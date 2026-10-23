@@ -29,6 +29,8 @@ struct WindowAdapters {
     let uploaderVideoRepository: any UploaderVideoRepository
     let commentRepository: any CommentRepository
     let historyRepository: any WatchHistoryRepository
+    let watchLaterRepository: any WatchLaterRepository
+    let favoritesRepository: any FavoritesRepository
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentLinkRouter: CommentLinkRouter
     let authenticationService: any AuthenticationServicing
@@ -111,6 +113,8 @@ extension WindowAdapters {
             uploaderVideoRepository: contentRepository,
             commentRepository: BiliCommentRepository(client: api),
             historyRepository: BiliWatchHistoryRepository(client: api),
+            watchLaterRepository: BiliWatchLaterRepository(client: api),
+            favoritesRepository: BiliFavoritesRepository(client: api),
             commentAssetURLResolver: { reference, box in
                 commentAssetResolver.imageURL(for: reference, fitting: box)
             },
@@ -184,7 +188,7 @@ extension WindowAdapters {
     }
 }
 
-/// 一个窗口的弹幕实现：Core Animation renderer、呈现控制器、按媒体时间调度的会话，以及系统内存压力监听。
+/// 一个窗口的弹幕实现：Core Animation renderer、呈现控制器、加载分段并转发时间线的会话，以及系统内存压力监听。
 ///
 /// 内存压力时清空 renderer 的纹理缓存与在途准备；监听由窗口 adapter 的 `close` 先取消。
 @MainActor
@@ -195,11 +199,11 @@ private struct LiveDanmaku {
     let memoryPressure: SystemMemoryPressureObserver
 
     init(repository: any DanmakuSegmentRepository, timeline: AVPlayerEngine) {
-        let renderer = CoreAnimationDanmakuRenderer()
-        let controller = DanmakuPresentationController(
-            backend: renderer,
-            configuration: .production(surfaceWidth: 0, surfaceHeight: 0)
+        // 弹幕 layer 挂在播放器宿主的时钟层下，本地时间就是媒体时间；时间点 0 用时钟定义的哨兵。
+        let renderer = CoreAnimationDanmakuRenderer(
+            beginTimeAtZero: DanmakuTimebaseClock.beginTimeAtMediaZero
         )
+        let controller = DanmakuPresentationController(backend: renderer)
         self.renderer = renderer
         self.controller = controller
         // 主队列投递，处理在 MainActor 上清空 renderer 的纹理缓存与在途准备。

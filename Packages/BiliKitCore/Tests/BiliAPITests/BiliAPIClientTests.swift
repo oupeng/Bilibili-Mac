@@ -342,6 +342,23 @@ struct AccountReadCase: Sendable, CustomTestStringConvertible {
             path: "/x/web-interface/history/cursor",
             responses: { [try fixtureResponse("history")] },
             call: { _ = try await $0.watchHistory(pageSize: 20) }
+        ),
+        AccountReadCase(
+            path: "/x/v2/history/toview/web",
+            responses: { [try fixtureResponse("nav"), try fixtureResponse("watchlater")] },
+            call: { _ = try await $0.watchLater(request: WatchLaterRequest()) }
+        ),
+        AccountReadCase(
+            path: "/x/v3/fav/folder/created/list-all",
+            responses: { [try fixtureResponse("favorite-folders")] },
+            call: { _ = try await $0.favoriteFolders(ownerID: 10_001) }
+        ),
+        AccountReadCase(
+            path: "/x/v3/fav/resource/list",
+            responses: { [try fixtureResponse("favorite-resources")] },
+            call: {
+                _ = try await $0.favoriteFolderPage(request: FavoriteFolderRequest(folderID: 3001))
+            }
         )
     ]
 

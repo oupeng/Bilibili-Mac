@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 
+@testable import BiliUI
 @testable import BiliVideoDetailFeature
 
 /// 东京时间 2026-08-11 12:00 为参照；显式 zh-Hans 区域与日历时区。
@@ -23,7 +24,7 @@ struct CommentTimeFormatterTests {
         (year: 2026, month: 8, day: 10, hour: 9, minute: 5, expected: localized("昨天\("9:05")")),
         (year: 2026, month: 8, day: 9, hour: 12, minute: 0, expected: localized("\(2)天前")),
         (year: 2026, month: 8, day: 8, hour: 12, minute: 0, expected: localized("\(3)天前")),
-        (year: 2026, month: 7, day: 1, hour: 12, minute: 0, expected: localized("\(7)月\(1)日")),
+        (year: 2026, month: 7, day: 1, hour: 12, minute: 0, expected: monthDay(7, 1)),
         (year: 2025, month: 12, day: 31, hour: 12, minute: 0, expected: "2025年12月31日")
     ])
     func calendarBoundariesDistinguishYesterdayRecentDaysAndYears(
@@ -71,4 +72,9 @@ private let tokyoCalendar: Calendar = {
 
 private func localized(_ key: String.LocalizationValue) -> String {
     String(localized: key, bundle: VideoDetailFeatureStrings.bundle)
+}
+
+/// 同年的「M月D日」只在 BiliUI 的字符串目录里（`DateDisplayFormatting.calendarDate`）。
+private func monthDay(_ month: Int, _ day: Int) -> String {
+    String(localized: "\(month)月\(day)日", bundle: BiliUIStrings.bundle)
 }

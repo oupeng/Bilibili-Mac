@@ -5,8 +5,9 @@ import Foundation
 ///
 /// 高于一个 lane 基元的文本会占用连续 lane，避免大字号重叠；小字号仍只占一个基元。
 ///
-/// allocator 只使用媒体时间计算占用/过期；renderer completion 通过 `remove` 回收相同事件。
-public struct DanmakuLaneAllocator: Sendable {
+/// allocator 只使用媒体时间计算占用与过期，输入顺序与宽高确定时结果就确定；车道布局按弹幕自己的时间点
+/// 逐条准入，复制一份就是某一时刻的车道占用。
+struct DanmakuLaneAllocator: Sendable {
     private struct ActivePlacement: Sendable {
         let placement: DanmakuLanePlacement
         let laneKeys: [LaneKey]
@@ -33,34 +34,35 @@ public struct DanmakuLaneAllocator: Sendable {
     /// 每条车道跨所有层的活动数；顶部与底部弹幕先找计数为 0 的车道。
     private var activeLaneCounts: [LaneKey: Int] = [:]
 
-    public init(configuration: DanmakuLaneConfiguration) {
+    init(configuration: DanmakuLaneConfiguration) {
         self.configuration = configuration
     }
 
-    public var activeCount: Int { active.count }
-
-    /// 更新后续准入使用的 surface；已活动 placement 保留入场时的 geometry 与过期时间。
-    public mutating func updateConfiguration(
-        _ configuration: DanmakuLaneConfiguration
-    ) {
-        self.configuration = configuration
+    /// 两份占用对之后的准入是否完全等价：活动 placement 相同，且每个滚动槽位最后进入的是同一条。
+    ///
+    /// 车道布局用它判断上一段重新布局后末尾的占用是否变了：不变时下一段的布局原样有效，变了才需要
+    /// 从新的种子重排。顶部／底部槽位与车道计数都由活动 placement 决定，不必另比；滚动槽位的尾巴不行，
+    /// 尾巴到期移除后，同槽位更早进入、仍在走的那条不会补回尾巴。
+    func hasSameOccupancy(as other: Self) -> Bool {
+        guard active.count == other.active.count,
+            scrollingLaneTails.count == other.scrollingLaneTails.count
+        else {
+            return false
+        }
+        let sameActive = active.allSatisfy { eventID, value in
+            other.active[eventID]?.placement == value.placement
+        }
+        return sameActive
+            && scrollingLaneTails.allSatisfy { slotKey, tail in
+                other.scrollingLaneTails[slotKey]?.placement.request.event.id
+                    == tail.placement.request.event.id
+            }
     }
 
-    public mutating func clear() -> [DanmakuLanePlacement] {
-        let drained = orderedPlacements(active.values.map(\.placement))
-        active.removeAll(keepingCapacity: false)
-        fixedLaneOccupants.removeAll(keepingCapacity: false)
-        scrollingLaneTails.removeAll(keepingCapacity: false)
-        activeLaneCounts.removeAll(keepingCapacity: false)
-        return drained
-    }
-
-    @discardableResult
-    public mutating func remove(
-        eventID: String
-    ) -> DanmakuLanePlacement? {
+    /// 回收一条到期的 placement 占用的槽位与车道计数。
+    private mutating func remove(eventID: String) {
         guard let removed = active.removeValue(forKey: eventID) else {
-            return nil
+            return
         }
         let placement = removed.placement
         let laneKeys = removed.laneKeys
@@ -89,65 +91,43 @@ public struct DanmakuLaneAllocator: Sendable {
                 activeLaneCounts[laneKey] = nil
             }
         }
-        return placement
     }
 
-    /// 在 `playbackTime` 先回收到期的 placement，再按顺序逐条准入。
+    /// 在 `playbackTime` 先回收到期的 placement，再准入一条；放不下时返回 nil，不排队。
     ///
-    /// 先找完全不叠放也不会追尾的车道；配置允许叠放时，才逐层寻找可用的槽位。
-    public mutating func admit(
-        _ requests: [DanmakuLaneRequest],
-        at playbackTime: Double
-    ) -> DanmakuLaneAdmission {
-        guard playbackTime.isFinite else {
-            return DanmakuLaneAdmission(expired: [], admitted: [])
-        }
-        let expired = expire(at: playbackTime)
-        let admitted = requests.compactMap { request in
-            try? admit(request, at: playbackTime).get()
-        }
-        return DanmakuLaneAdmission(expired: expired, admitted: admitted)
-    }
-
-    private mutating func admit(
+    /// 先找完全不叠放也不会追尾的车道；配置允许叠放时，才逐层寻找可用的槽位。放不下的原因：配置或请求
+    /// 无效、同一事件 ID 仍在活动中、准入时间不是有限值、活动数已达上限，或没有可用车道（显示区域放不下，
+    /// 滚动弹幕在每个可用槽位都会追尾，顶部与底部弹幕的槽位都被占用）。
+    mutating func admit(
         _ request: DanmakuLaneRequest,
         at playbackTime: Double
-    ) -> Result<DanmakuLanePlacement, DanmakuLaneDropReason> {
+    ) -> DanmakuLanePlacement? {
+        guard playbackTime.isFinite else { return nil }
+        expire(at: playbackTime)
         guard configuration.isValid,
             request.isValid,
             active[request.event.id] == nil
         else {
-            return .failure(.invalidRequest)
+            return nil
         }
-        guard active.count < configuration.maximumActiveCount else {
-            return .failure(.capacity)
+        guard active.count < DanmakuLaneConfiguration.hardMaximumActiveCount else {
+            return nil
         }
         let displayHeight =
             configuration.surfaceHeight * configuration.displayAreaFraction
-        let uncappedLaneCount = floor(
-            displayHeight / configuration.laneHeight
-        )
-        let laneCount = Int(
-            min(
-                uncappedLaneCount,
-                Double(DanmakuLaneConfiguration.hardMaximumActiveCount)
-            )
+        let laneCount = DanmakuLaneConfiguration.laneCount(
+            surfaceHeight: configuration.surfaceHeight,
+            displayAreaFraction: configuration.displayAreaFraction
         )
         guard laneCount > 0,
-            request.height <= displayHeight
+            request.height <= displayHeight,
+            let laneSpan = DanmakuLaneConfiguration.laneSpan(forHeight: request.height),
+            laneSpan <= laneCount
         else {
-            return .failure(.noLane)
+            return nil
         }
-        let uncappedLaneSpan = ceil(
-            request.height / configuration.laneHeight
-        )
-        guard uncappedLaneSpan.isFinite,
-            uncappedLaneSpan > 0,
-            uncappedLaneSpan <= Double(laneCount)
-        else {
-            return .failure(.noLane)
-        }
-        let laneSpan = Int(uncappedLaneSpan)
+        // 第一轮从上往下取第一条安全车道，放不下时不占任何车道；所以前 N 条车道的准入只取决于前 N 条
+        // 车道的占用，与总车道数无关（取景框模型依赖这一点，例外见 docs/ARCHITECTURE.md「弹幕」）。
         let candidateLanes = 0...(laneCount - laneSpan)
         if let safeLane = candidateLanes.first(where: {
             laneIsSafeWithoutOverlap(
@@ -157,18 +137,16 @@ public struct DanmakuLaneAllocator: Sendable {
                 at: playbackTime
             )
         }) {
-            return .success(
-                place(
-                    request,
-                    laneIndex: safeLane,
-                    laneSpan: laneSpan,
-                    overlapDepth: 0,
-                    at: playbackTime
-                )
+            return place(
+                request,
+                laneIndex: safeLane,
+                laneSpan: laneSpan,
+                overlapDepth: 0,
+                at: playbackTime
             )
         }
         guard configuration.maximumOverlapDepth > 1 else {
-            return .failure(.noLane)
+            return nil
         }
         for overlapDepth in 0..<configuration.maximumOverlapDepth {
             if let availableLane = candidateLanes.first(where: {
@@ -180,18 +158,16 @@ public struct DanmakuLaneAllocator: Sendable {
                     at: playbackTime
                 )
             }) {
-                return .success(
-                    place(
-                        request,
-                        laneIndex: availableLane,
-                        laneSpan: laneSpan,
-                        overlapDepth: overlapDepth,
-                        at: playbackTime
-                    )
+                return place(
+                    request,
+                    laneIndex: availableLane,
+                    laneSpan: laneSpan,
+                    overlapDepth: overlapDepth,
+                    at: playbackTime
                 )
             }
         }
-        return .failure(.noLane)
+        return nil
     }
 
     private mutating func place(
@@ -204,12 +180,7 @@ public struct DanmakuLaneAllocator: Sendable {
         let placement = DanmakuLanePlacement(
             request: request,
             laneIndex: laneIndex,
-            originY: originY(
-                for: request.event.mode,
-                laneIndex: laneIndex,
-                requestHeight: request.height
-            ),
-            surfaceWidthAtAdmission: configuration.surfaceWidth,
+            planningWidth: configuration.surfaceWidth,
             admittedAtSeconds: playbackTime,
             expiresAtSeconds: playbackTime + request.durationSeconds,
             overlapDepth: overlapDepth
@@ -240,21 +211,6 @@ public struct DanmakuLaneAllocator: Sendable {
             }
         }
         return placement
-    }
-
-    private func originY(
-        for mode: DanmakuPresentationMode,
-        laneIndex: Int,
-        requestHeight: Double
-    ) -> Double {
-        switch mode {
-        case .scrolling, .top:
-            Double(laneIndex) * configuration.laneHeight
-        case .bottom:
-            configuration.surfaceHeight
-                - Double(laneIndex) * configuration.laneHeight
-                - requestHeight
-        }
     }
 
     private func laneIsAvailable(
@@ -315,6 +271,9 @@ public struct DanmakuLaneAllocator: Sendable {
 
     /// 新滚动弹幕能否跟在 `previous` 之后：入场时与前一条右缘的间距不小于最小间距，且新弹幕更快时，
     /// 间距缩小到最小间距之前前一条已经到期。
+    ///
+    /// 一份占用里的 placement 都按同一个配置排出（种子也来自同一组设置），所以两条都用配置的画布宽度。
+    /// 追尾按整张规划画布算，前一条在窗口外的那段也计入，窄窗口里因此偏保守。
     private func scrollingRequest(
         _ request: DanmakuLaneRequest,
         canFollow previous: DanmakuLanePlacement,
@@ -324,20 +283,18 @@ public struct DanmakuLaneAllocator: Sendable {
         let elapsed = playbackTime - previous.admittedAtSeconds
         guard elapsed >= 0 else { return false }
         let surfaceWidth = configuration.surfaceWidth
-        let previousSurfaceWidth = previous.surfaceWidthAtAdmission
-        guard previousSurfaceWidth.isFinite,
-            previousSurfaceWidth > 0
-        else {
-            return false
-        }
-        let previousSpeed =
-            (previousSurfaceWidth + previousRequest.width)
-            / previousRequest.durationSeconds
-        let newSpeed =
-            (surfaceWidth + request.width)
-            / request.durationSeconds
+        let previousSpeed = DanmakuMotionPolicy.scrollingSpeed(
+            textWidth: previousRequest.width,
+            planningWidth: surfaceWidth,
+            durationSeconds: previousRequest.durationSeconds
+        )
+        let newSpeed = DanmakuMotionPolicy.scrollingSpeed(
+            textWidth: request.width,
+            planningWidth: surfaceWidth,
+            durationSeconds: request.durationSeconds
+        )
         let previousRightEdge =
-            previousSurfaceWidth - previousSpeed * elapsed
+            surfaceWidth - previousSpeed * elapsed
             + previousRequest.width
         let availableGap = surfaceWidth - previousRightEdge
         guard availableGap >= configuration.minimumHorizontalGap else {
@@ -352,28 +309,14 @@ public struct DanmakuLaneAllocator: Sendable {
         return catchUpTime >= previousRemainingTime
     }
 
-    private mutating func expire(
-        at playbackTime: Double
-    ) -> [DanmakuLanePlacement] {
+    private mutating func expire(at playbackTime: Double) {
         let expiredIDs = active.compactMap { eventID, activePlacement in
             activePlacement.placement.expiresAtSeconds <= playbackTime
                 ? eventID
                 : nil
         }
-        let expired = expiredIDs.compactMap { eventID in
+        for eventID in expiredIDs {
             remove(eventID: eventID)
-        }
-        return orderedPlacements(expired)
-    }
-
-    private func orderedPlacements(
-        _ placements: [DanmakuLanePlacement]
-    ) -> [DanmakuLanePlacement] {
-        placements.sorted {
-            if $0.admittedAtSeconds != $1.admittedAtSeconds {
-                return $0.admittedAtSeconds < $1.admittedAtSeconds
-            }
-            return $0.request.event.id < $1.request.event.id
         }
     }
 }

@@ -186,6 +186,7 @@ private struct AVPlayerContainerView: NSViewRepresentable {
         view.setResumeNotice(nil, restartFromBeginning: {})
         view.setPreviewEndedNotice(nil)
         view.danmakuOverlay.detachSurface()
+        view.danmakuOverlay.bind(to: nil)
         view.stopObservingFocusLoss()
         view.stopObservingPlayerItemChanges()
         view.stopKeyboardMonitoring()
@@ -214,8 +215,10 @@ enum PlayerPlaybackPreparationPolicy {
 /// controller（本地 key monitor）、浮层模型、player 的三个 KVO 观察、item
 /// 时间跳转观察与失焦通知观察；不拥有 player、弹幕 renderer 与弹幕 controller，它们由窗口组装持有。
 /// 拆除由 `AVPlayerContainerView.dismantleNSView` 按顺序进行：清除提示、撤销弹幕 surface、
-/// 停止失焦与 player 观察、停止键盘监听、结束临时倍速，最后断开 player。`momentaryRatePressID`
-/// 记录当前临时倍速对应的按压，结束回调按它比对，旧按压迟到的结束不影响新的临时倍速。
+/// 解开弹幕时钟与 item timebase 的绑定、停止失焦与 player 观察、停止键盘监听、结束临时倍速，最后断开
+/// player。`currentItem` 变化时先让弹幕 overlay 换绑时钟（见 `DanmakuOverlayView.bind(to:)`）。
+/// `momentaryRatePressID` 记录当前临时倍速对应的按压，结束回调按它比对，旧按压迟到的结束不影响新的
+/// 临时倍速。
 @MainActor
 final class DanmakuPlayerView: AVPlayerView {
     let danmakuOverlay: DanmakuOverlayView
@@ -273,6 +276,10 @@ final class DanmakuPlayerView: AVPlayerView {
         // 系统 Now Playing 只由进程级 `SystemNowPlayingController` 发布，AVKit
         // 自动更新会与它争写同一份信息。
         updatesNowPlayingInfoCenter = false
+        // 暂停时 AVKit 的画面分析会在 `pause()` 内的 rate KVO 回调里于主线程读取 `currentTime`，
+        // 等播放器为音频暂停握手持有的锁，多挡主线程约 20ms。弹幕时钟不经过主线程，不受它影响；关掉它是为了
+        // 减少暂停时的主线程阻塞。弹幕层盖在画面上，暂停帧上的文字选取与查询本就用不上。
+        allowsVideoFrameAnalysis = false
         overlayHostingView.sizingOptions = []
         // 浮层与 content overlay 等大；不按窗口安全区缩进，否则播放器滚到工具栏下或全屏时提示位置
         // 与“从头播放”的点击区域会偏移。
@@ -444,6 +451,19 @@ final class DanmakuPlayerView: AVPlayerView {
         observedPlayer = player
         playerItemObservation = player.observe(\.currentItem, options: [.new]) {
             [weak self] _, _ in
+            // `replaceCurrentItem` 只在主线程调用（`AVPlayerEngine` 是 @MainActor），这个 KVO 在调用内部同步
+            // 触发：弹幕在这里同步清屏并换绑时钟，调用返回时新 item 上已没有旧弹幕，旧时钟也不会再多走一个主线程
+            // 回合。不在主线程（违反前提）时 DEBUG 下断言失败，并退回下一个主线程回合换绑。
+            if Thread.isMainThread {
+                MainActor.assumeIsolated {
+                    self?.danmakuOverlay.bind(to: self?.player?.currentItem)
+                }
+            } else {
+                assertionFailure("player currentItem changed off the main thread")
+                Task { @MainActor in
+                    self?.danmakuOverlay.bind(to: self?.player?.currentItem)
+                }
+            }
             Task { @MainActor in
                 self?.cancelMomentaryPlaybackRate()
                 self?.overlayModel.clearResumeNotice(markDismissed: true)
@@ -451,12 +471,15 @@ final class DanmakuPlayerView: AVPlayerView {
                 self?.updatePlaybackActivity()
             }
         }
+        // 状态直接读播放器，不用 change.newValue：timeControlStatus 是 Objective-C 枚举，KVO 字典里是
+        // NSNumber，Swift 的 KeyPath 观察桥接不成这个枚举，newValue 恒为 nil，暂停就永远取消不了长按倍速。
+        // volume、rate 这类数值与 Bool 属性的 newValue 不受影响。
         playerTimeControlObservation = player.observe(
             \.timeControlStatus,
-            options: [.new]
+            options: []
         ) {
-            [weak self] _, change in
-            let paused = change.newValue == .paused
+            [weak self] player, _ in
+            let paused = player.timeControlStatus == .paused
             Task { @MainActor in
                 if paused {
                     self?.cancelMomentaryPlaybackRate()
@@ -472,6 +495,7 @@ final class DanmakuPlayerView: AVPlayerView {
                 self?.updatePlaybackActivity()
             }
         }
+        danmakuOverlay.bind(to: player.currentItem)
         startObservingCurrentItemTimeJumps()
         updatePlaybackActivity()
     }

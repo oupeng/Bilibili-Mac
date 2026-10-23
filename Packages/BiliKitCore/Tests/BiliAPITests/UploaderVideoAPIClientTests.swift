@@ -24,7 +24,6 @@ struct UploaderVideoAPIClientTests {
         #expect(page.pageNumber == 1)
         #expect(page.pageSize == 30)
         #expect(page.totalCount == 61)
-        #expect(page.hasMore)
 
         let first = page.videos[0]
         #expect(first.title == "投稿 & 一")
@@ -83,7 +82,7 @@ struct UploaderVideoAPIClientTests {
     }
 
     @Test
-    func lastPageReportsNoMore() async throws {
+    func laterPageKeepsTheRequestedPageAndTotal() async throws {
         let body = #"""
             {"code":0,"data":{"list":{"vlist":[{"bvid":"BV1FixtureC3","title":"最后一条","pic":"","length":"00:30","play":1,"video_review":0,"created":1700000000}]},"page":{"count":61}}}
             """#
@@ -96,7 +95,8 @@ struct UploaderVideoAPIClientTests {
         let page = try await client.uploaderVideos(ownerID: 10_001, order: .newest, page: 3)
 
         #expect(page.videos.map(\.bvid) == ["BV1FixtureC3"])
-        #expect(!page.hasMore)
+        #expect(page.pageNumber == 3)
+        #expect(page.totalCount == 61)
     }
 
     @Test

@@ -1,3 +1,4 @@
+import AVFoundation
 import AVKit
 import AppKit
 import BiliApplication
@@ -12,11 +13,10 @@ struct PlayerHostViewIdentityTests {
     @Test
     @MainActor
     func nativePlayerViewLeavesNowPlayingOwnershipToProcessController() {
-        let renderer = CoreAnimationDanmakuRenderer()
-        let controller = DanmakuPresentationController(
-            backend: renderer,
-            configuration: Self.emptyDanmakuConfiguration
+        let renderer = CoreAnimationDanmakuRenderer(
+            beginTimeAtZero: DanmakuTimebaseClock.beginTimeAtMediaZero
         )
+        let controller = DanmakuPresentationController(backend: renderer)
         let view = DanmakuPlayerView(
             renderer: renderer,
             controller: controller,
@@ -30,11 +30,10 @@ struct PlayerHostViewIdentityTests {
     @Test
     @MainActor
     func playbackPreparationBlocksNativePlayerInputAndAccessibility() {
-        let renderer = CoreAnimationDanmakuRenderer()
-        let controller = DanmakuPresentationController(
-            backend: renderer,
-            configuration: Self.emptyDanmakuConfiguration
+        let renderer = CoreAnimationDanmakuRenderer(
+            beginTimeAtZero: DanmakuTimebaseClock.beginTimeAtMediaZero
         )
+        let controller = DanmakuPresentationController(backend: renderer)
         let view = DanmakuPlayerView(
             renderer: renderer,
             controller: controller,
@@ -57,14 +56,51 @@ struct PlayerHostViewIdentityTests {
         #expect(!view.isAccessibilityHidden())
     }
 
+    /// overlay 释放之后，呈现控制器与时钟（看它的时钟层）也随之释放：控制器接管 surface 时持有时钟，时钟的
+    /// 写入回调只弱引用 overlay，不强持有控制器，没有引用环。
+    @Test
+    @MainActor
+    func releasingTheOverlayReleasesTheControllerAndTheClock() async {
+        weak var releasedController: DanmakuPresentationController?
+        weak var releasedClockLayer: CALayer?
+        do {
+            let renderer = CoreAnimationDanmakuRenderer(
+                beginTimeAtZero: DanmakuTimebaseClock.beginTimeAtMediaZero
+            )
+            let controller = DanmakuPresentationController(backend: renderer)
+            let overlay = DanmakuOverlayView(renderer: renderer, controller: controller)
+            overlay.frame = NSRect(x: 0, y: 0, width: 400, height: 200)
+            let window = NSWindow(
+                contentRect: overlay.frame,
+                styleMask: [.borderless],
+                backing: .buffered,
+                defer: false
+            )
+            window.contentView?.addSubview(overlay)
+            overlay.layoutSubtreeIfNeeded()
+            releasedController = controller
+            releasedClockLayer = renderer.rootLayer.superlayer
+            #expect(releasedClockLayer != nil)
+            overlay.removeFromSuperview()
+        }
+
+        #expect(await waitUntil { releasedController == nil && releasedClockLayer == nil })
+    }
+
+    /// 弹幕位置来自时钟层的显示时间，所以先绑定一个停在媒体时间 0 的 item：时钟从未绑定时读不到时间，
+    /// 什么都不挂。
     @Test
     @MainActor
     func danmakuSurfaceSurvivesTemporaryWindowReparenting() async throws {
-        let renderer = CoreAnimationDanmakuRenderer()
-        let controller = DanmakuPresentationController(
-            backend: renderer,
-            configuration: Self.emptyDanmakuConfiguration
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("danmaku-reparent-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let item = AVPlayerItem(url: try writeSilentAudio(seconds: 4, in: directory))
+        let renderer = CoreAnimationDanmakuRenderer(
+            beginTimeAtZero: DanmakuTimebaseClock.beginTimeAtMediaZero
         )
+        let controller = DanmakuPresentationController(backend: renderer)
         let overlay = DanmakuOverlayView(
             renderer: renderer,
             controller: controller
@@ -85,59 +121,128 @@ struct PlayerHostViewIdentityTests {
 
         firstWindow.contentView?.addSubview(overlay)
         overlay.layoutSubtreeIfNeeded()
-        #expect(renderer.rootLayer.superlayer === overlay.layer)
+        overlay.bind(to: item)
+        #expect(renderer.rootLayer.superlayer != nil)
 
         let identity = PlaybackItemIdentity(bvid: "fixture", cid: 1)
-        controller.apply(
-            danmakuUpdate(
-                identity: identity,
-                position: 1,
-                eventID: "before-reparent",
-                mode: .scrolling
-            )
-        )
-        #expect(await waitUntil { (renderer.rootLayer.sublayers?.count ?? 0) == 1 })
-        let firstLayer = try #require(renderer.rootLayer.sublayers?.first)
+        let beforeReparent = danmakuEvent(at: 1, id: "before-reparent", mode: .scrolling)
+        controller.apply(pausedSnapshot(identity: identity, position: 1))
+        controller.setSegments([1: [beforeReparent]], for: identity)
+        #expect(await waitUntil { danmakuLayers(of: renderer).count == 1 })
+        let firstLayer = try #require(danmakuLayers(of: renderer).first)
 
         overlay.removeFromSuperview()
         #expect(overlay.window == nil)
-        #expect(renderer.rootLayer.superlayer === overlay.layer)
-        #expect(renderer.rootLayer.sublayers?.first === firstLayer)
-        #expect((renderer.rootLayer.sublayers?.count ?? 0) == 1)
+        #expect(renderer.rootLayer.superlayer != nil)
+        #expect(danmakuLayers(of: renderer).contains { $0 === firstLayer })
+        #expect(danmakuLayers(of: renderer).count == 1)
 
         overlay.frame = .zero
         overlay.layoutSubtreeIfNeeded()
-        controller.apply(
-            danmakuUpdate(
-                identity: identity,
-                position: 2,
-                eventID: "during-reparent",
-                mode: .top
-            )
+        controller.setSegments(
+            [1: [beforeReparent, danmakuEvent(at: 1.5, id: "during-reparent", mode: .top)]],
+            for: identity
         )
-        #expect(await waitUntil { (renderer.rootLayer.sublayers?.count ?? 0) == 2 })
+        #expect(await waitUntil { danmakuLayers(of: renderer).count == 2 })
 
         overlay.frame = secondWindow.contentView?.bounds ?? .zero
         secondWindow.contentView?.addSubview(overlay)
         overlay.layoutSubtreeIfNeeded()
-        #expect(renderer.rootLayer.superlayer === overlay.layer)
-        #expect(renderer.rootLayer.sublayers?.first === firstLayer)
-        #expect((renderer.rootLayer.sublayers?.count ?? 0) == 2)
+        #expect(renderer.rootLayer.superlayer != nil)
+        #expect(danmakuLayers(of: renderer).contains { $0 === firstLayer })
+        #expect(danmakuLayers(of: renderer).count == 2)
 
         overlay.detachSurface()
         #expect(renderer.rootLayer.superlayer == nil)
-        #expect((renderer.rootLayer.sublayers?.count ?? 0) == 0)
+        #expect(danmakuLayers(of: renderer).count == 0)
     }
 
-    private func danmakuUpdate(
-        identity: PlaybackItemIdentity,
-        position: Double,
-        eventID: String,
+    /// 弹幕时钟不会随 `replaceCurrentItem` 自动换绑：宿主在 `currentItem` 变化时、在这次调用之内先清屏，再
+    /// 换绑到新 item 的 timebase，旧 item 的弹幕不会留在新 item 的时间线上；新 timebase 写入之后弹幕的局部
+    /// 时间等于新 item 的时间，按原布局表挂回。
+    ///
+    /// 两个 item 用同一段带音轨的本地静音媒体：旧 item 先 seek 到 3 秒，新 item 从 0 开始，两者可区分。
+    @Test
+    @MainActor
+    func danmakuClockFollowsTheCurrentItemAndClearsOnReplacement() async throws {
+        let renderer = CoreAnimationDanmakuRenderer(
+            beginTimeAtZero: DanmakuTimebaseClock.beginTimeAtMediaZero
+        )
+        let controller = DanmakuPresentationController(backend: renderer)
+        let view = DanmakuPlayerView(
+            renderer: renderer,
+            controller: controller,
+            beginMomentaryPlaybackRate: nil,
+            endMomentaryPlaybackRate: nil
+        )
+        view.frame = NSRect(x: 0, y: 0, width: 800, height: 300)
+        let window = NSWindow(
+            contentRect: view.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView?.addSubview(view)
+        view.layoutSubtreeIfNeeded()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("danmaku-item-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let mediaURL = try writeSilentAudio(seconds: 8, in: directory)
+        let first = AVPlayerItem(url: mediaURL)
+        let second = AVPlayerItem(url: mediaURL)
+        let player = AVPlayer(playerItem: first)
+        view.player = player
+        view.startObservingPlayerItemChanges()
+        defer { view.stopObservingPlayerItemChanges() }
+        #expect(await waitUntil(timeout: .seconds(10)) { first.status == .readyToPlay })
+        await player.seek(to: CMTime(seconds: 3, preferredTimescale: 600))
+        #expect(
+            await waitUntil(timeout: .seconds(5)) {
+                first.currentTime().seconds > 2.9
+                    && localTime(of: renderer.rootLayer, matches: first)
+            }
+        )
+
+        let identity = PlaybackItemIdentity(bvid: "item-fixture", cid: 1)
+        controller.apply(pausedSnapshot(identity: identity, position: 1))
+        controller.setSegments(
+            [1: [danmakuEvent(at: 1, id: "before-replacement", mode: .top)]],
+            for: identity
+        )
+        #expect(await waitUntil { danmakuLayers(of: renderer).count == 1 })
+
+        player.replaceCurrentItem(with: second)
+        // currentItem 的 KVO 在 replaceCurrentItem 内部同步触发，宿主在同一次调用里清屏并换绑时钟（overlay 先清屏
+        // 再换绑）：返回时屏已清空，不等下一个主线程回合。
+        #expect(danmakuLayers(of: renderer).isEmpty)
+
+        // 新 item 的快照到达、新 timebase 写入之后，按新 item 的时间挂回同一张布局表。
+        controller.apply(pausedSnapshot(identity: identity, position: 0))
+        #expect(
+            await waitUntil(timeout: .seconds(5)) {
+                danmakuLayers(of: renderer).count == 1
+                    && localTime(of: renderer.rootLayer, matches: second)
+            }
+        )
+        #expect(second.currentTime().seconds < 1)
+        #expect(renderer.rootLayer.superlayer != nil)
+    }
+
+    /// 弹幕层的局部时间与 item 时间相差不到 0.05 秒（两者在不同时刻读取）。
+    @MainActor
+    private func localTime(of layer: CALayer, matches item: AVPlayerItem) -> Bool {
+        abs(layer.convertTime(CACurrentMediaTime(), from: nil) - item.currentTime().seconds) < 0.05
+    }
+
+    private func danmakuEvent(
+        at time: Double,
+        id: String,
         mode: DanmakuPresentationMode
-    ) -> DanmakuPresentationUpdate {
-        let event = DanmakuEvent(
-            id: eventID,
-            timeSeconds: position,
+    ) -> DanmakuEvent {
+        DanmakuEvent(
+            id: id,
+            timeSeconds: time,
             mode: mode,
             text: "reparent fixture",
             fontSize: 24,
@@ -145,31 +250,19 @@ struct PlayerHostViewIdentityTests {
             colorStyle: .solid,
             weight: 1
         )
-        return DanmakuPresentationUpdate(
-            snapshot: PlaybackTimelineSnapshot(
-                identity: identity,
-                positionSeconds: position,
-                durationSeconds: 100,
-                rate: 1,
-                state: .playing,
-                discontinuityGeneration: 1
-            ),
-            batch: DanmakuBatch(
-                identity: identity,
-                discontinuityGeneration: 1,
-                events: [event],
-                clearsExisting: false,
-                catchesUp: false
-            )
-        )
     }
 
-    private static let emptyDanmakuConfiguration = DanmakuLaneConfiguration(
-        surfaceWidth: 0,
-        surfaceHeight: 0,
-        laneHeight: 36,
-        minimumHorizontalGap: 12,
-        maximumActiveCount: DanmakuLaneConfiguration.hardMaximumActiveCount,
-        displayAreaFraction: 1
-    )
+    private func pausedSnapshot(
+        identity: PlaybackItemIdentity,
+        position: Double
+    ) -> PlaybackTimelineSnapshot {
+        PlaybackTimelineSnapshot(
+            identity: identity,
+            positionSeconds: position,
+            durationSeconds: 100,
+            rate: 0,
+            state: .paused,
+            discontinuityGeneration: 1
+        )
+    }
 }

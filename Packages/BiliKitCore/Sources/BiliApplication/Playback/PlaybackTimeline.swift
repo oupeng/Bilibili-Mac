@@ -85,7 +85,9 @@ public enum PlaybackTimelineState: Sendable, Equatable {
 
 /// 平台无关的媒体时间事实。
 ///
-/// `discontinuityGeneration` 在换项、seek 或时间跳变时前进，消费者不能只比较秒数来判断连续性。
+/// `discontinuityGeneration` 在换项、seek 或时间跳变时前进；需要识别 seek 的消费者（Now Playing）用它，
+/// 不能只比较秒数。弹幕不识别 seek，只按位置是否离开上次对齐后的一个步长对齐（见 docs/ARCHITECTURE.md
+/// 「弹幕」）。
 public struct PlaybackTimelineSnapshot: Sendable, Equatable {
     public let identity: PlaybackItemIdentity?
     /// 当前播放器 item 的不可复用加载意图；用于拒绝相同 identity 的 ABA 迟到结果。
@@ -114,6 +116,12 @@ public struct PlaybackTimelineSnapshot: Sendable, Equatable {
         self.discontinuityGeneration = discontinuityGeneration
     }
 
+    /// 播放中周期快照的频率：每媒体秒 30 个，按 item 时间计，倍速下宿主时间的间隔随之缩放。
+    ///
+    /// 实现方按它安装周期观察器。弹幕以快照为检查节拍，步长加一个快照周期必须短于前瞻（见
+    /// docs/ARCHITECTURE.md「弹幕」）。调高增加主线程回合，调低让进度显示与弹幕检查更稀。
+    public static let periodicSnapshotsPerMediaSecond = 30
+
     public static let idle = PlaybackTimelineSnapshot(
         identity: nil,
         positionSeconds: 0,
@@ -124,6 +132,26 @@ public struct PlaybackTimelineSnapshot: Sendable, Equatable {
         loadIntent: nil
     )
 
+    /// 以本快照为底、只替换给出的字段；store 的各写入口共用，`durationSeconds` 传 `.some(nil)` 表示清空。
+    fileprivate func replacing(
+        positionSeconds: Double? = nil,
+        durationSeconds: Double?? = nil,
+        rate: Double? = nil,
+        state: PlaybackTimelineState? = nil,
+        discontinuityGeneration: UInt64? = nil
+    ) -> PlaybackTimelineSnapshot {
+        PlaybackTimelineSnapshot(
+            identity: identity,
+            positionSeconds: positionSeconds ?? self.positionSeconds,
+            durationSeconds: durationSeconds ?? self.durationSeconds,
+            rate: rate ?? self.rate,
+            state: state ?? self.state,
+            discontinuityGeneration: discontinuityGeneration
+                ?? self.discontinuityGeneration,
+            loadIntent: loadIntent
+        )
+    }
+
     private static func nonnegativeFinite(_ value: Double) -> Double? {
         guard value.isFinite, value >= 0 else { return nil }
         return value
@@ -133,8 +161,8 @@ public struct PlaybackTimelineSnapshot: Sendable, Equatable {
 /// 播放器之外各消费方（弹幕、观看进度、播放器浮层与 Now Playing）共用的播放时钟。
 ///
 /// 实现是 BiliPlayback 的 `AVPlayerEngine`，见 docs/ARCHITECTURE.md「媒体时间轴」。
-/// 新订阅者应先得到当前快照；消费者不自建计时器，用 `discontinuityGeneration`
-/// 而不是秒数判断时间是否连续。
+/// 新订阅者应先得到当前快照；消费者不自建计时器。需要识别 seek 的消费者用 `discontinuityGeneration`
+/// 而不是秒数判断；弹幕只按位置对齐，见 docs/ARCHITECTURE.md「弹幕」。
 @MainActor
 public protocol PlaybackTimelineProviding: AnyObject {
     var currentTimelineSnapshot: PlaybackTimelineSnapshot { get }
@@ -231,7 +259,7 @@ package final class PlaybackTimelineStore {
                 durationSeconds: nil,
                 rate: 0,
                 state: .loading,
-                discontinuityGeneration: nextGeneration(),
+                discontinuityGeneration: nextDiscontinuityGeneration(),
                 loadIntent: loadIntent
             )
         )
@@ -248,15 +276,9 @@ package final class PlaybackTimelineStore {
             ? PlaybackTimelineState.ready
             : currentSnapshot.state
         publish(
-            PlaybackTimelineSnapshot(
-                identity: currentSnapshot.identity,
-                positionSeconds: currentSnapshot.positionSeconds,
-                durationSeconds: durationSeconds,
-                rate: currentSnapshot.rate,
-                state: state,
-                discontinuityGeneration:
-                    currentSnapshot.discontinuityGeneration,
-                loadIntent: currentSnapshot.loadIntent
+            currentSnapshot.replacing(
+                durationSeconds: .some(durationSeconds),
+                state: state
             )
         )
     }
@@ -269,16 +291,10 @@ package final class PlaybackTimelineStore {
     ) {
         guard token == currentToken else { return }
         publish(
-            PlaybackTimelineSnapshot(
-                identity: currentSnapshot.identity,
-                positionSeconds: positionSeconds
-                    ?? currentSnapshot.positionSeconds,
-                durationSeconds: currentSnapshot.durationSeconds,
-                rate: rate ?? currentSnapshot.rate,
-                state: state ?? currentSnapshot.state,
-                discontinuityGeneration:
-                    currentSnapshot.discontinuityGeneration,
-                loadIntent: currentSnapshot.loadIntent
+            currentSnapshot.replacing(
+                positionSeconds: positionSeconds,
+                rate: rate,
+                state: state
             )
         )
     }
@@ -294,20 +310,17 @@ package final class PlaybackTimelineStore {
             ? PlaybackTimelineState.paused
             : currentSnapshot.state
         publish(
-            PlaybackTimelineSnapshot(
-                identity: currentSnapshot.identity,
+            currentSnapshot.replacing(
                 positionSeconds: positionSeconds,
-                durationSeconds: currentSnapshot.durationSeconds,
-                rate: currentSnapshot.rate,
                 state: state,
-                discontinuityGeneration: nextGeneration(),
-                loadIntent: currentSnapshot.loadIntent
+                discontinuityGeneration: nextDiscontinuityGeneration()
             )
         )
     }
 
     package func markFailed(token: PlaybackTimelineItemToken) {
-        update(token: token, rate: 0, state: .failed)
+        guard token == currentToken else { return }
+        publish(currentSnapshot.replacing(rate: 0, state: .failed))
     }
 
     package func clear(token: PlaybackTimelineItemToken?) {
@@ -323,13 +336,13 @@ package final class PlaybackTimelineStore {
                 durationSeconds: nil,
                 rate: 0,
                 state: .idle,
-                discontinuityGeneration: nextGeneration(),
+                discontinuityGeneration: nextDiscontinuityGeneration(),
                 loadIntent: nil
             )
         )
     }
 
-    private func nextGeneration() -> UInt64 {
+    private func nextDiscontinuityGeneration() -> UInt64 {
         currentSnapshot.discontinuityGeneration &+ 1
     }
 

@@ -5,24 +5,23 @@ import Testing
 
 @testable import BiliDanmaku
 
-/// 固定弹幕会话的分段加载契约：并发上限与补位窗口决定请求哪些分段，结果写回缓存，
-/// 失败与认证失效在一次会话内只处理一次。
+/// 固定弹幕会话的分段加载契约：并发上限与位置决定请求哪些分段，结果写回缓存，远跳时落点分段只请求一次、
+/// 屏上那边的分段在显示时间跟过去之前不被淘汰，失败与认证失效在一次会话内只处理一次。
 ///
 /// 会话本身不可观察，测试只经产品出口判断：repository 收到的请求、presentation sink 收到的更新与
 /// 认证失效回调。
 ///
-/// 分段结果写回的确定性信号是「后续分段被请求」：会话同时最多加载两段，补位窗口让想要的分段多于两段，
+/// 分段结果写回的确定性信号是「后续分段被请求」：会话同时最多加载两段，分段开头的位置让想要的分段多于两段，
 /// 新分段只能在已发出的加载有结果写回（成功入缓存或失败记下）、释放名额之后才被请求。成功结果若没进缓存、
 /// 失败若没被记下，释放的名额会先用来重新请求同一段，所以「请求的分段各不相同」同时证明了写回；
 /// 名额不释放时不会再有请求，由 timeLimit 判失败。
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct DanmakuSessionTests {
-    /// 补位窗口 10 秒时，这个位置想要的分段依次是当前第 2 段、上一段第 1 段、下一段第 3 段。
+    /// 在第 2 段开头，想要的分段依次是当前第 2 段、上一段第 1 段、下一段第 3 段。
     nonisolated private static let threeSegmentPosition = 365.0
-    /// 同样窗口下想要第 3、2、4 段；第 1～3 段都已请求后，第 4 段被请求说明其中至多一段仍在加载。
+    /// 同样在分段开头，想要第 3、2、4 段；第 1～3 段都已请求后，第 4 段被请求说明其中至多一段仍在加载。
     nonisolated private static let laterThreeSegmentPosition = 725.0
-    nonisolated private static let threeSegmentCatchUpWindowSeconds = 10.0
 
     @Test
     func sessionPrefetchesCurrentAndNextWithBoundedConcurrency() async throws {
@@ -44,31 +43,25 @@ struct DanmakuSessionTests {
         await repository.releaseAll()
     }
 
-    /// 会话把呈现端给出的补位窗口交给调度：窗口跨进上一分段时先请求当前与上一分段，
-    /// 没有窗口时请求当前与下一分段。
+    /// 位置在分段开头一条弹幕的最长时长之内时先请求当前与上一分段，之后请求当前与下一分段。
     @Test(arguments: [
-        (DanmakuSessionTests.threeSegmentCatchUpWindowSeconds, [1, 2]),
-        (0.0, [2, 3])
+        (DanmakuSessionTests.threeSegmentPosition, [1, 2]),
+        (450.0, [2, 3])
     ])
-    func sessionUsesThePresentationCatchUpWindowForSegmentRequests(
-        catchUpWindowSeconds: Double,
+    func sessionRequestsThePreviousSegmentOnlyNearASegmentStart(
+        position: Double,
         expectedIndices: [Int]
     ) async throws {
-        let identity = PlaybackItemIdentity(bvid: "BV1CatchUpWindow", cid: 4)
+        let identity = PlaybackItemIdentity(bvid: "BV1PreviousSegment", cid: 4)
         let repository = StubDanmakuRepository(.holdUntilReleased)
         let timeline = SessionTimeline()
-        let sink = SessionPresentationSink()
-        sink.catchUpWindowSeconds = catchUpWindowSeconds
         let session = DanmakuSession(
             useCase: DanmakuSegmentUseCase(repository: repository),
-            timeline: timeline,
-            presentationSink: sink
+            timeline: timeline
         )
 
         session.start(for: identity)
-        timeline.publish(
-            snapshot(identity: identity, position: Self.threeSegmentPosition, generation: 1)
-        )
+        timeline.publish(snapshot(identity: identity, position: position, generation: 1))
         try await repository.waitForRequestCount(2, identity: identity)
 
         #expect(await repository.requestedIndices(for: identity).sorted() == expectedIndices)
@@ -324,13 +317,66 @@ struct DanmakuSessionTests {
         session.stop()
     }
 
-    /// 补位窗口让想要的分段多于并发上限的会话。
+    /// 远跳到未缓冲区时落点分段各只请求一次，屏上那边的分段留到显示时间跟过去。
+    ///
+    /// 快照先到第 7 段，屏上弹幕（显示时间）还在第 2 段：落点的 7、8 两段各只请求一次、存入后不被淘汰，屏上
+    /// 那边的 1～3 段也留着；显示时间跟到第 7 段后，下一段存入时淘汰回三段。
+    ///
+    /// 以显示时间为中心淘汰时，7 段一到就被淘汰、再按快照请求，这里等不到 1、2、3、7、8 同时在缓存，由
+    /// timeLimit 判失败。
+    @Test
+    func farJumpLoadsTheLandingSegmentsOnceAndKeepsTheScreenSide() async throws {
+        let identity = PlaybackItemIdentity(bvid: "BV1FarJumpFixture", cid: 9)
+        let repository = StubDanmakuRepository()
+        let timeline = SessionTimeline()
+        let sink = SessionPresentationSink()
+        let session = DanmakuSession(
+            useCase: DanmakuSegmentUseCase(repository: repository),
+            timeline: timeline,
+            presentationSink: sink
+        )
+        func publish(_ position: Double) {
+            timeline.publish(
+                PlaybackTimelineSnapshot(
+                    identity: identity,
+                    positionSeconds: position,
+                    durationSeconds: 3_600,
+                    rate: 1,
+                    state: .playing,
+                    discontinuityGeneration: 1
+                )
+            )
+        }
+        func waitForCachedSegments(_ expected: [Int]) async throws {
+            try await sink.waitForUpdates {
+                sink.segmentDeliveries.last?.segments.keys.sorted() == expected
+            }
+        }
+
+        sink.displayPositionSeconds = 400
+        session.start(for: identity)
+        publish(400)
+        try await waitForCachedSegments([1, 2, 3])
+
+        publish(2_300)
+        try await waitForCachedSegments([1, 2, 3, 7, 8])
+        let requested = await repository.requestedIndices(for: identity)
+        #expect(requested.filter { $0 == 7 }.count == 1)
+        #expect(requested.filter { $0 == 8 }.count == 1)
+
+        sink.displayPositionSeconds = 2_300
+        publish(2_530)
+        try await waitForCachedSegments([7, 8, 9])
+        #expect(await repository.requestedIndices(for: identity).sorted() == [1, 2, 3, 7, 8, 9])
+        session.stop()
+    }
+
+    /// 记录呈现端更新的会话；配合分段开头的位置，想要的分段多于并发上限。
     private func makeThreeSegmentSession(
         repository: StubDanmakuRepository
     ) -> (DanmakuSession, SessionTimeline, SessionPresentationSink) {
         let timeline = SessionTimeline()
         let sink = SessionPresentationSink()
-        sink.catchUpWindowSeconds = Self.threeSegmentCatchUpWindowSeconds
         let session = DanmakuSession(
             useCase: DanmakuSegmentUseCase(repository: repository),
             timeline: timeline,

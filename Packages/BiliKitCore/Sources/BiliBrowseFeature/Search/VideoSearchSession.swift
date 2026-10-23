@@ -103,6 +103,6 @@ public final class VideoSearchSession {
     }
 
     private static func normalized(_ draft: String) -> String {
-        draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        SearchText.normalized(draft)
     }
 }

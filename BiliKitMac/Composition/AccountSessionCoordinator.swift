@@ -20,6 +20,14 @@ final class AccountSessionCoordinator: AuthenticatedSessionInvalidating {
     @ObservationIgnored
     private var sessionInvalidators: [UUID: any AuthenticatedSessionInvalidating] = [:]
 
+    /// 其他窗口已发布了与本窗口不同的账户范围，本窗口还没复核到它：本窗口的账户范围已经过期。
+    ///
+    /// 进程还没有发布过范围（`unresolved`）时没有外部变化。`AppRootView` 据此在进程代次变化时先复核本窗口；复核结束前
+    /// 收藏夹列表不读取（`WindowComposition.favoriteFolderReadingScope`），否则会用新账户的 Cookie 读旧账户的 mid。
+    func awaitsRevalidation(ofWindowScope windowScope: AccountSessionScope) -> Bool {
+        scope != .unresolved && scope != windowScope
+    }
+
     /// 窗口发布自己已解析的账户范围；`unresolved` 与相同范围不动作。
     func publish(_ scope: AccountSessionScope) {
         guard scope != .unresolved, scope != self.scope else { return }

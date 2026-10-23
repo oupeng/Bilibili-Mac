@@ -1,3 +1,4 @@
+import BiliModels
 import BiliUI
 import Foundation
 
@@ -18,7 +19,6 @@ public enum CommentPresentationFormatting {
     }
 
     public static func pageCount(totalCount: Int, pageSize: Int) -> Int {
-        guard totalCount > 0, pageSize > 0 else { return 1 }
-        return (totalCount - 1) / pageSize + 1
+        PageNumbering.pageCount(totalCount: totalCount, pageSize: pageSize)
     }
 }

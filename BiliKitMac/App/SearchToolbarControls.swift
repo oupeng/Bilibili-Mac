@@ -17,97 +17,38 @@ extension SearchFilterSelection {
 
 /// 搜索页工具栏的排序菜单与筛选按钮（弹窗）：只编辑 `VideoSearchSession` 的筛选选择，并在排序变化或弹窗“应用”时
 /// 通知会话；弹窗里的草稿在“应用”前不影响选择。
+///
+/// 菜单、按钮与弹窗外壳与稍后再看共用（`ToolbarFilterControls`）。
 struct SearchToolbarControls: View {
     @Environment(\.locale) private var locale
     @Binding var selection: SearchFilterSelection
-    @State private var draft = SearchFilterSelection()
-    @State private var isFilterPopoverPresented = false
 
     let onSelectOrder: (VideoSearchOrder) -> Void
     let onApplyFilters: (SearchFilterSelection) -> Void
 
     var body: some View {
         Group {
-            Menu {
-                ForEach(VideoSearchOrder.allCases) { order in
-                    Toggle(
-                        isOn: Binding(
-                            get: { selection.order == order },
-                            set: { isSelected in
-                                guard isSelected else { return }
-                                selection.order = order
-                                onSelectOrder(order)
-                            }
-                        )
-                    ) {
-                        Text(order.localizedTitle(locale: locale))
-                    }
-                }
-            } label: {
-                Label {
-                    Text(selection.order.localizedTitle(locale: locale))
-                } icon: {
-                    Image(systemName: "arrow.up.arrow.down")
-                }
-                .labelStyle(.titleAndIcon)
-            }
-            .help(
-                AppStrings.localized(
+            ToolbarSortMenu(
+                options: VideoSearchOrder.allCases,
+                selection: $selection.order,
+                title: { $0.localizedTitle(locale: locale) },
+                help: AppStrings.localized(
                     "搜索结果排序：\(selection.order.localizedTitle(locale: locale))",
                     locale: locale
-                )
+                ),
+                onSelect: onSelectOrder
             )
 
-            Button {
-                draft = selection
-                isFilterPopoverPresented = true
-            } label: {
-                Label {
-                    Text(filterButtonTitle)
-                } icon: {
-                    Image(systemName: filterButtonImage)
+            ToolbarFilterButton(
+                selection: $selection,
+                activeFilterCount: \.activeFilterCount,
+                help: filterButtonHelp,
+                onApply: onApplyFilters,
+                popover: { draft, cancel, apply in
+                    SearchFilterPopover(draft: draft, onCancel: cancel, onApply: apply)
                 }
-                .labelStyle(.titleAndIcon)
-            }
-            .accessibilityValue(
-                Text(
-                    AppStrings.localized(
-                        "已启用 \(selection.activeFilterCount) 项",
-                        locale: locale
-                    )
-                )
-            )
-            .help(filterButtonHelp)
-            .popover(isPresented: $isFilterPopoverPresented, arrowEdge: .bottom) {
-                SearchFilterPopover(
-                    draft: $draft,
-                    onCancel: cancelDraft,
-                    onApply: applyDraft
-                )
-            }
-            .onChange(of: isFilterPopoverPresented) { _, isPresented in
-                if !isPresented {
-                    draft = selection
-                }
-            }
-        }
-    }
-
-    private var filterButtonTitle: String {
-        if selection.activeFilterCount == 0 {
-            AppStrings.localized("筛选", locale: locale)
-        } else {
-            AppStrings.localized(
-                "筛选 \(selection.activeFilterCount)",
-                locale: locale
             )
         }
-    }
-
-    private var filterButtonImage: String {
-        selection.activeFilterCount == 0
-            ? "line.3.horizontal.decrease.circle"
-            : "line.3.horizontal.decrease.circle.fill"
     }
 
     private var filterButtonHelp: String {
@@ -116,20 +57,9 @@ struct SearchToolbarControls: View {
             ? AppStrings.localized("筛选搜索结果", locale: locale)
             : AppStrings.localized("筛选搜索结果：\(summary)", locale: locale)
     }
-
-    private func cancelDraft() {
-        draft = selection
-        isFilterPopoverPresented = false
-    }
-
-    private func applyDraft() {
-        selection = draft
-        isFilterPopoverPresented = false
-        onApplyFilters(draft)
-    }
 }
 
-/// 筛选弹窗：只编辑父视图交来的草稿，“取消”与“应用”交回 `SearchToolbarControls` 处理。
+/// 筛选弹窗：只编辑父视图交来的草稿，“取消”与“应用”交回 `ToolbarFilterButton` 处理。
 ///
 /// 自定义日期范围不合法（`SearchFilterSelection.resolvedFilters()` 抛错）时显示原因并禁用“应用”。
 private struct SearchFilterPopover: View {
@@ -139,93 +69,64 @@ private struct SearchFilterPopover: View {
     let onApply: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(AppStrings.localized("筛选搜索结果", locale: locale))
-                .font(.headline)
-
-            LabeledContent(AppStrings.localized("发布日期", locale: locale)) {
-                Picker(AppStrings.localized("发布日期", locale: locale), selection: $draft.publication)
-                {
-                    ForEach(VideoPublicationFilter.allCases) { filter in
-                        Text(filter.localizedTitle(locale: locale)).tag(filter)
-                    }
-                }
-                .labelsHidden()
-                .frame(width: 176)
-            }
+        FilterPopoverChrome(
+            title: AppStrings.localized("筛选搜索结果", locale: locale),
+            canReset: draft.activeFilterCount > 0,
+            canApply: validationMessage == nil,
+            onReset: resetDraft,
+            onCancel: onCancel,
+            onApply: onApply
+        ) {
+            FilterPickerRow(
+                title: AppStrings.localized("发布日期", locale: locale),
+                options: VideoPublicationFilter.allCases,
+                selection: $draft.publication,
+                optionTitle: { $0.localizedTitle(locale: locale) }
+            )
 
             if draft.publication == .custom {
-                VStack(alignment: .leading, spacing: 10) {
-                    DatePicker(
-                        AppStrings.localized("开始日期", locale: locale),
-                        selection: $draft.customStart,
-                        in: ...Date(),
-                        displayedComponents: .date
-                    )
-                    DatePicker(
-                        AppStrings.localized("结束日期", locale: locale),
-                        selection: $draft.customEnd,
-                        in: ...Date(),
-                        displayedComponents: .date
-                    )
-                    if let validationMessage {
-                        Label {
-                            Text(validationMessage)
-                        } icon: {
-                            Image(systemName: "exclamationmark.triangle")
-                        }
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                    }
-                }
-                .padding(.leading, 12)
+                CustomDateRangeFields(
+                    start: $draft.customStart,
+                    end: $draft.customEnd,
+                    validationMessage: validationMessage
+                )
             }
 
-            LabeledContent(AppStrings.localized("视频时长", locale: locale)) {
-                Picker(AppStrings.localized("视频时长", locale: locale), selection: $draft.duration) {
-                    ForEach(VideoDurationFilter.allCases) { duration in
-                        Text(duration.localizedTitle(locale: locale)).tag(duration)
-                    }
-                }
-                .labelsHidden()
-                .frame(width: 176)
-            }
-
-            Divider()
-
-            HStack {
-                Button(AppStrings.localized("恢复默认", locale: locale)) {
-                    draft.resetFilters()
-                }
-                .disabled(draft.activeFilterCount == 0)
-                Spacer()
-                Button(AppStrings.localized("取消", locale: locale), action: onCancel)
-                    .keyboardShortcut(.cancelAction)
-                Button(AppStrings.localized("应用", locale: locale), action: onApply)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(validationMessage != nil)
-            }
+            FilterPickerRow(
+                title: AppStrings.localized("视频时长", locale: locale),
+                options: VideoDurationFilter.allCases,
+                selection: $draft.duration,
+                optionTitle: { $0.localizedTitle(locale: locale) }
+            )
         }
-        .padding(16)
-        .frame(width: 350)
+    }
+
+    private func resetDraft() {
+        draft.resetFilters()
     }
 
     private var validationMessage: String? {
-        guard draft.publication == .custom else { return nil }
         do {
             _ = try draft.resolvedFilters()
             return nil
-        } catch let error as VideoPublicationRangeError {
-            switch error {
-            case .startAfterEnd:
-                return AppStrings.localized("开始日期不能晚于结束日期", locale: locale)
-            case .futureDate:
-                return AppStrings.localized("结束日期不能超过今天", locale: locale)
-            case .invalidCalendarRange:
-                return AppStrings.localized("无法使用这个日期范围", locale: locale)
-            }
         } catch {
-            return AppStrings.localized("无法使用这个日期范围", locale: locale)
+            return DateRangeFilterError.localizedMessage(for: error, locale: locale)
+        }
+    }
+}
+
+extension DateRangeFilterError {
+    /// 日期筛选无法应用的原因；搜索与稍后再看的筛选弹窗共用这一份文案。
+    static func localizedMessage(for error: any Error, locale: Locale = .current) -> String {
+        switch error as? DateRangeFilterError {
+        case .startAfterEnd:
+            AppStrings.localized("开始日期不能晚于结束日期", locale: locale)
+        case .futureDate:
+            AppStrings.localized("结束日期不能超过今天", locale: locale)
+        case .beforeEpoch:
+            AppStrings.localized("日期不能早于 1970 年", locale: locale)
+        case .emptyRange, .invalidCalendarRange, nil:
+            AppStrings.localized("无法使用这个日期范围", locale: locale)
         }
     }
 }
@@ -242,18 +143,6 @@ extension VideoSearchOrder {
     }
 }
 
-extension VideoDurationFilter {
-    func localizedTitle(locale: Locale = .current) -> String {
-        switch self {
-        case .all: AppStrings.localized("全部时长", locale: locale)
-        case .underTenMinutes: AppStrings.localized("10 分钟以下", locale: locale)
-        case .tenToThirtyMinutes: AppStrings.localized("10–30 分钟", locale: locale)
-        case .thirtyToSixtyMinutes: AppStrings.localized("30–60 分钟", locale: locale)
-        case .overSixtyMinutes: AppStrings.localized("60 分钟以上", locale: locale)
-        }
-    }
-}
-
 extension VideoPublicationFilter {
     func localizedTitle(locale: Locale = .current) -> String {
         switch self {
@@ -262,6 +151,19 @@ extension VideoPublicationFilter {
         case .lastSevenDays: AppStrings.localized("最近一周", locale: locale)
         case .last180Days: AppStrings.localized("最近半年", locale: locale)
         case .custom: AppStrings.localized("自定义日期", locale: locale)
+        }
+    }
+}
+
+extension VideoDurationFilter {
+    /// 时长四档的标题；搜索与稍后再看的筛选弹窗都在 App，这里是这组文案的唯一位置。
+    func localizedTitle(locale: Locale = .current) -> String {
+        switch self {
+        case .all: AppStrings.localized("全部时长", locale: locale)
+        case .underTenMinutes: AppStrings.localized("10 分钟以下", locale: locale)
+        case .tenToThirtyMinutes: AppStrings.localized("10–30 分钟", locale: locale)
+        case .thirtyToSixtyMinutes: AppStrings.localized("30–60 分钟", locale: locale)
+        case .overSixtyMinutes: AppStrings.localized("60 分钟以上", locale: locale)
         }
     }
 }
