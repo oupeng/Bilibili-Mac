@@ -21,7 +21,7 @@ import Foundation
 ///   时刻都不新旧混排。
 ///
 /// 媒体时间是宿主时钟层的显示时间 D：reconcile 时由呈现控制器传入它在入口读到的值，纹理异步完成时自己经
-/// `currentPosition` 重新读此刻的 D，所以迟到纹理是否挂上、腾纹理字节时谁已走完，都与画面同一条时间线。
+/// `currentDisplayTime` 重新读此刻的 D，所以迟到纹理是否挂上、腾纹理字节时谁已走完，都与画面同一条时间线。
 /// 异步完成时读不到 D（时钟换绑或解绑之后；正常到不了，换绑、解绑与交还 surface 都先 `clear`，在途完成按
 /// generation 丢弃）就不挂上、交还 backend，不沿用旧时间；下一次有 D 的 reconcile 按当时的状态重来。
 ///
@@ -68,16 +68,16 @@ final class DanmakuMaterializer {
     /// 最近一次使用的 D：reconcile 传入的，或异步完成时重新读到的。
     private var position = 0.0
     /// 读此刻的 D，由呈现控制器提供；读不到时为 nil。
-    private let currentPosition: @MainActor () -> Double?
+    private let currentDisplayTime: @MainActor () -> Double?
     /// 最近一次 reconcile 的取景框；迟到的纹理按它判断可见。
     private var viewport = DanmakuViewport(width: 0, height: 0, displayAreaFraction: 0)
 
     init(
         backend: any DanmakuRenderingBackend,
-        currentPosition: @escaping @MainActor () -> Double?
+        currentDisplayTime: @escaping @MainActor () -> Double?
     ) {
         self.backend = backend
-        self.currentPosition = currentPosition
+        self.currentDisplayTime = currentDisplayTime
     }
 
     /// 布局表在 `position` 时刻、`viewport` 取景框下应在 backend 上的 placement，按 (时间, ID) 排序。
@@ -237,7 +237,7 @@ final class DanmakuMaterializer {
             return
         }
         pending[eventID] = nil
-        let now = requestDepth > 0 ? position : currentPosition()
+        let now = requestDepth > 0 ? position : currentDisplayTime()
         if let now {
             position = now
         }
