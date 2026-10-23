@@ -280,7 +280,7 @@ struct DanmakuMaterializerTests {
     ///
     /// 正常到不了：读不到 D 之前总会先清屏。D 回来之后的下一次 reconcile 挂上此刻的集合。
     @Test
-    func textureCompletedWithoutADisplayTimeWaitsForTheNextAlignment() {
+    func textureCompletedWithoutADisplayTimeWaitsForTheNextReconciliation() {
         let table = layoutTable([1: denseEvents(segment: 1, count: 300, seed: 63)])
         let backend = RecordingRenderingBackend()
         backend.delaysPreparation = true

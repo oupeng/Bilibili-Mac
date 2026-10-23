@@ -8,7 +8,7 @@ import Foundation
 /// 给出每条弹幕的车道与时长，`DanmakuMaterializer` 让 backend 上的 layer 等于此刻取景框里应有的集合，
 /// layer 的运动由宿主的时钟层按播放 item 的 timebase 驱动。暂停、倍速与缓冲都不需要这里处理。
 ///
-/// 单一时间源：在屏集合、对齐位置、步长、迟到纹理与腾纹理字节都按时钟层此刻的显示时间 D(now)
+/// 单一时间源：在屏集合、何时对齐、步长、迟到纹理与腾纹理字节都按时钟层此刻的显示时间 D(now)
 /// （`DanmakuDisplayClock`，宿主接管 surface 时交来）计算，与画面上弹幕运动的是同一条线。时间线快照与时钟层
 /// 之间有偏差（seek 起播时快照领先、卡顿时快照速率仍是 1、未缓冲拖动时快照领先几十秒、4x 跳变风暴时快照
 /// 回跳），按快照算会让屏上集合与画面错开。快照只剩两个用途：确认 identity，以及作为「该检查一下了」的
@@ -30,17 +30,17 @@ import Foundation
 /// 旧 `AVPlayerView` 的迟到 resize/detach 操作清空新宿主。换 identity、`stopPresentation`、接管或交还
 /// surface 时清屏；关闭弹幕时清屏但保留布局表，打开时按当前时刻挂上。
 ///
-/// 何时对齐只看 D 与上次对齐位置，不识别 seek 或拖动，也不读不连续代号：位置落在
-/// [上次对齐位置, 上次对齐位置 + `reconcileStride`) 里时，屏上已挂的就是此刻应有的，什么都不做；落在这之外
+/// 何时对齐只看 D 与上次对齐时的 D（`reconciledDisplayTime`），不识别 seek 或拖动，也不读不连续代号：D 落在
+/// [上次对齐时的 D, 它 + `reconcileStride`) 里时，屏上已挂的就是此刻应有的，什么都不做；落在这之外
 /// （按步长推进、向前跳出或回跳）都是同一次对齐，缓存命中的纹理在同一次调用里挂上，其余各自就绪时出现。
 /// 恢复播放、向前的 timebase 重锚与缓冲恢复时 D 还在步长里，什么都不做（起播与卡顿恢复时 timebase 的后退由
 /// 宿主时钟层原地等待吸收，D 不回跳）。弹幕不隐藏也不清屏，屏上的 layer 一直跟随媒体时间。
 @MainActor
 public final class DanmakuPresentationController: DanmakuPresentationSink {
-    /// 两次对齐之间至少相隔的媒体时长：D 落在 [上次对齐位置, 上次对齐位置 + 它) 里时不对齐。
+    /// 两次对齐之间至少相隔的媒体时长：D 落在 [上次对齐时的 D, 上次对齐时的 D + 它) 里时不对齐。
     ///
     /// 检查由周期快照（`PlaybackTimelineSnapshot.periodicSnapshotsPerMediaSecond`）与时钟写入触发，不必每次都
-    /// reconcile。上次对齐挂上了进场时间不晚于「上次对齐位置 + `DanmakuMaterializer.lookaheadSeconds`」的弹幕，
+    /// reconcile。上次对齐挂上了进场时间不晚于「上次对齐时的 D + `DanmakuMaterializer.lookaheadSeconds`」的弹幕，
     /// 所以步长加相邻两次检查的间隔必须短于前瞻，余下的时间留给即将进场的弹幕栅格化；这段余量没有常量，
     /// 取决于密度。检查间隔没有上界：弹幕会话经只保留最新值的 AsyncStream 收快照，主线程忙时快照会被合并，
     /// 卡顿越过「前瞻 − 步长」时，卡顿期间进场的弹幕在下一次对齐才请求纹理，之后逐条出现。调小增加主线程
@@ -75,7 +75,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     ///
     /// 为 nil 时下一次检查一定对齐。任何一次 reconcile 都更新它，换 identity、停止、换 item、接管与交还
     /// surface 时清掉。
-    private var alignedPosition: Double?
+    private var reconciledDisplayTime: Double?
 
     /// 窗口与屏幕尺寸由接管 surface 的宿主经 `updateSurface` 给出，之前不布局。
     public init(backend: any DanmakuRenderingBackend) {
@@ -127,16 +127,16 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         evaluate()
     }
 
-    /// 按此刻的 D 决定是否对齐：D 不在 [上次对齐位置, 上次对齐位置 + 步长) 里就对齐一次。
+    /// 按此刻的 D 决定是否对齐：D 不在 [上次对齐时的 D, 它 + 步长) 里就对齐一次。
     private func evaluate() {
-        guard canAlign, let position = clockBox.clock?.displayTime() else { return }
-        if let aligned = alignedPosition,
-            position >= aligned,
-            position < aligned + Self.reconcileStride
+        guard canReconcile, let displayTime = clockBox.clock?.displayTime() else { return }
+        if let reconciled = reconciledDisplayTime,
+            displayTime >= reconciled,
+            displayTime < reconciled + Self.reconcileStride
         {
             return
         }
-        reconcile(at: position)
+        reconcile(at: displayTime)
     }
 
     public func setSegments(
@@ -198,7 +198,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         guard surfaceOwnerID != ownerID else { return }
         surfaceOwnerID = ownerID
         clockBox.clock = clock
-        alignedPosition = nil
+        reconciledDisplayTime = nil
         materializer.clear()
         reconcileAtDisplayTime()
     }
@@ -209,7 +209,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         guard surfaceOwnerID == ownerID else { return false }
         surfaceOwnerID = nil
         clockBox.clock = nil
-        alignedPosition = nil
+        reconciledDisplayTime = nil
         materializer.clear()
         return true
     }
@@ -217,7 +217,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     /// 宿主的时钟层即将换绑到另一个播放 item：先清屏，再由宿主换绑；只接受当前 owner。
     ///
     /// 时钟层换绑后时间立刻按新 item 走，旧 layer 留着会在新时间线上错位，所以必须先清。布局表保留
-    /// （同一视频换线路或清晰度时仍然有效）。上次对齐位置清掉，新 item 有 D 之后的第一次检查一定对齐。
+    /// （同一视频换线路或清晰度时仍然有效）。上次对齐时的 D 清掉，新 item 有 D 之后的第一次检查一定对齐。
     /// 最近快照也清掉，等新 item 自己的快照来确认 identity：换的若是另一个视频，旧快照的 identity 仍是旧视频，
     /// 留着的话新 item 的 D 一到就会把旧视频的布局表按新视频的时刻挂上，要等新视频的快照到达、换 identity
     /// 时才清掉。宿主随后换绑时钟，新 timebase 第一次写入之前读不到 D；新 item 的快照与新纪元的 D 都有了之后
@@ -226,7 +226,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         guard surfaceOwnerID == ownerID else { return }
         materializer.clear()
         latestSnapshot = nil
-        alignedPosition = nil
+        reconciledDisplayTime = nil
     }
 
     /// 只接受当前 owner 的尺寸更新：`width`/`height` 是窗口里弹幕画面的尺寸，`screenWidth`/`screenHeight`
@@ -244,7 +244,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         ownerID: UUID
     ) {
         guard surfaceOwnerID == ownerID else { return }
-        let position = clockBox.clock?.displayTime()
+        let displayTime = clockBox.clock?.displayTime()
         let normalizedScale = DanmakuTextureRasterizer.normalizedBackingScale(backingScale)
         self.backingScale = normalizedScale
         // backend 换 scale 时静默取消在途准备（不回调），materializer 随后作废对应的记录；两步之间不得发准备
@@ -256,8 +256,8 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         planningWidth = Self.planningExtent(window: width, screen: screenWidth)
         planningHeight = Self.planningExtent(window: height, screen: screenHeight)
         updateLayoutParameters()
-        if let position {
-            reconcile(at: position)
+        if let displayTime {
+            reconcile(at: displayTime)
         }
     }
 
@@ -267,7 +267,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     }
 
     /// 是否可以对齐：已有当前 identity 的快照且弹幕开着；另外还要读得到 D，由各入口自己读。
-    private var canAlign: Bool {
+    private var canReconcile: Bool {
         identity != nil && latestSnapshot?.identity == identity && isEnabled
     }
 
@@ -275,15 +275,15 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     ///
     /// 用于不经 `evaluate` 的入口：布局表替换、打开弹幕、接管 surface。
     private func reconcileAtDisplayTime() {
-        guard let position = clockBox.clock?.displayTime() else { return }
-        reconcile(at: position)
+        guard let displayTime = clockBox.clock?.displayTime() else { return }
+        reconcile(at: displayTime)
     }
 
-    /// 布局表在 `position`（入口读到的 D）时刻应有的弹幕挂到 backend 上；不满足 `canAlign` 时什么都不做。
-    private func reconcile(at position: Double) {
-        guard canAlign else { return }
-        alignedPosition = position
-        materializer.reconcile(table: layoutTable, displayTime: position, viewport: viewport)
+    /// 布局表在 `displayTime`（入口读到的 D）时刻应有的弹幕挂到 backend 上；不满足 `canReconcile` 时什么都不做。
+    private func reconcile(at displayTime: Double) {
+        guard canReconcile else { return }
+        reconciledDisplayTime = displayTime
+        materializer.reconcile(table: layoutTable, displayTime: displayTime, viewport: viewport)
     }
 
     /// 换 identity 或停止：丢弃布局表与时间线状态并清屏。
@@ -291,7 +291,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         coordinator.reset()
         materializer.clear()
         latestSnapshot = nil
-        alignedPosition = nil
+        reconciledDisplayTime = nil
     }
 
     /// 把当前设置与规划尺寸交给布局 coordinator；与上次相同时 coordinator 什么都不做，画面尚未布局

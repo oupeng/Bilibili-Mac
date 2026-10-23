@@ -144,7 +144,7 @@ struct DanmakuPresentationControllerTests {
     }
 
     @Test
-    func jumpingBackAlignsEvenBySmallAmounts() async throws {
+    func jumpingBackReconcilesEvenBySmallAmounts() async throws {
         let (controller, backend) = await laidOutController(at: 30)
         let target = 29.7
         try #require(expectedIDs(at: target, in: controller) != backend.installedEventIDs)
@@ -156,7 +156,7 @@ struct DanmakuPresentationControllerTests {
 
     /// 暂停中 seek：时钟层跳到新位置后不等快照，写入通知就按新的 D 整屏对齐；别的 owner 的通知无效。
     @Test
-    func clockJumpAlignsWithoutASnapshot() async {
+    func clockJumpReconcilesWithoutASnapshot() async {
         let owner = UUID()
         let (controller, backend) = await laidOutController(at: 30, surfaceOwner: owner)
         let before = backend.installed
@@ -355,7 +355,7 @@ struct DanmakuPresentationControllerTests {
     /// 窗口缩小与放大都不重排：布局表与一开始就用小窗口时相同；增删当场按新取景框完成，不清屏；
     /// 放大后的画面与一直是大窗口时相同，新露出的、正在飞的弹幕按原 placement 挂上。
     @Test
-    func resizingKeepsTheTableAndAlignsTheVisibleSetAtOnce() async {
+    func resizingKeepsTheTableAndReconcilesTheVisibleSetAtOnce() async {
         let screen = Size(width: 1_200, height: 720)
         let owner = UUID()
         let (controller, backend) = await laidOutController(
