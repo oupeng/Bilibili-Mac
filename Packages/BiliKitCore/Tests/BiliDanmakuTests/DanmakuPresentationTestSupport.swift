@@ -63,16 +63,16 @@ func layoutTable(
 
 /// 呈现测试唯一的渲染后端替身，不创建任何 layer。
 ///
-/// 记录在屏弹幕的 placement、清屏与画面尺寸，可延迟纹理准备由测试逐个完成；在屏集合变化或
-/// 收到延迟的准备请求时检查等待条件。backing scale 变化时与 renderer 一样静默取消在途准备。
+/// 记录在屏弹幕的 placement 与纹理 scale、清屏与画面尺寸，可延迟纹理准备由测试逐个完成；在屏集合变化或
+/// 收到延迟的准备请求时检查等待条件。与 renderer 一样：backing scale 变化时静默取消在途准备，交还的准备不再
+/// 回调；纹理已在缓存里的弹幕即使延迟准备也在请求内同步就绪；安装被纹理字节上限拒绝的弹幕保留原有的纹理与
+/// placement；已就绪的准备要么被挂上、要么被交还，否则一直占着名额。
 @MainActor
 final class RecordingRenderingBackend: DanmakuRenderingBackend {
     /// 此刻在屏的弹幕与它们的 placement。
     private(set) var installed: [String: DanmakuLanePlacement] = [:]
-    /// 每次新挂上的事件 ID，按顺序。
-    private(set) var installedHistory: [String] = []
-    /// 每次原位替换（同一 ID 已在屏时再次安装）的事件 ID，按顺序。
-    private(set) var replacedHistory: [String] = []
+    /// 此刻在屏的弹幕的纹理按哪个 backing scale 准备。
+    private(set) var textureScales: [String: Double] = [:]
     /// 每次移除的事件 ID，按顺序。
     private(set) var removedHistory: [String] = []
     private(set) var clearCount = 0
@@ -82,15 +82,28 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
     private var backingScale = DanmakuTextureRasterizer.defaultBackingScale
     /// 为 true 时准备不立即完成，等测试调用 `completePreparations`。
     var delaysPreparation = false
-    private var delayedCompletions:
-        [(eventID: String, completion: @MainActor @Sendable (DanmakuPreparationResult) -> Void)] =
-            []
+    /// 纹理已在缓存里的弹幕：即使 `delaysPreparation` 也在 `prepare` 内同步就绪。
+    var cachedEventIDs: Set<String> = []
+    /// 安装时像纹理字节超出上限那样被拒绝的弹幕：已在屏的保留原有的纹理与 placement。
+    var rejectedEventIDs: Set<String> = []
+    private typealias DelayedCompletion = (
+        eventID: String,
+        preparationID: UInt64,
+        completion: @MainActor @Sendable (DanmakuPreparationResult) -> Void
+    )
+    private var delayedCompletions: [DelayedCompletion] = []
+    /// 已就绪、既没挂上也没交还的准备。
+    private var heldPreparationIDs: Set<UInt64> = []
     private var waiters:
         [UUID: (isSatisfied: @MainActor () -> Bool, continuation: CheckedContinuation<Void, Never>)] =
             [:]
 
     var installedEventIDs: Set<String> { Set(installed.keys) }
     var pendingPreparationCount: Int { delayedCompletions.count }
+    /// 纹理还在准备中的弹幕。
+    var pendingEventIDs: Set<String> { Set(delayedCompletions.map(\.eventID)) }
+    /// 已就绪、既没挂上也没交还的准备数；renderer 里它们一直计入未完成请求的上限。
+    var heldPreparationCount: Int { heldPreparationIDs.count }
 
     func prepare(
         _ event: DanmakuEvent,
@@ -100,37 +113,56 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
                 DanmakuPreparationResult
             ) -> Void
     ) {
-        if delaysPreparation {
-            delayedCompletions.append((event.id, completion))
+        if delaysPreparation, !cachedEventIDs.contains(event.id) {
+            delayedCompletions.append((event.id, preparationID, completion))
             notifyWaiters()
         } else {
-            completion(.ready(DanmakuTextMetrics(width: 120, height: 24)))
+            complete(preparationID, completion)
         }
     }
 
-    /// 按发起顺序完成前 `count` 个延迟的准备（默认全部）；`reversed` 时倒序完成它们。
-    func completePreparations(_ count: Int? = nil, reversed: Bool = false) {
-        let completing = Array(delayedCompletions.prefix(count ?? delayedCompletions.count))
-        delayedCompletions.removeFirst(completing.count)
-        for item in reversed ? completing.reversed() : completing {
-            item.completion(.ready(DanmakuTextMetrics(width: 120, height: 24)))
+    /// 按发起顺序完成最早的 `count` 个延迟的准备（默认全部），返回按完成顺序排列的事件 ID。
+    ///
+    /// `reversed` 时从最晚发起的开始倒序完成 `count` 个。
+    @discardableResult
+    func completePreparations(_ count: Int? = nil, reversed: Bool = false) -> [String] {
+        let count = min(count ?? delayedCompletions.count, delayedCompletions.count)
+        let completing: [DelayedCompletion]
+        if reversed {
+            completing = delayedCompletions.suffix(count).reversed()
+            delayedCompletions.removeLast(count)
+        } else {
+            completing = Array(delayedCompletions.prefix(count))
+            delayedCompletions.removeFirst(count)
         }
+        for item in completing {
+            complete(item.preparationID, item.completion)
+        }
+        return completing.map(\.eventID)
     }
 
-    /// 不限纹理字节；已在屏的同一 ID 视为原位替换，记入 `replacedHistory`。
+    private func complete(
+        _ preparationID: UInt64,
+        _ completion: @MainActor @Sendable (DanmakuPreparationResult) -> Void
+    ) {
+        heldPreparationIDs.insert(preparationID)
+        completion(.ready(DanmakuTextMetrics(width: 120, height: 24)))
+    }
+
+    /// 不计纹理字节，只拒绝 `rejectedEventIDs` 里的；已在屏的同一 ID 视为原位换纹理。
     @discardableResult
     func install(
         _ placement: DanmakuLanePlacement,
         preparationID: UInt64,
         at position: Double
     ) -> DanmakuInstallResult {
+        heldPreparationIDs.remove(preparationID)
         let eventID = placement.request.event.id
-        if installed[eventID] != nil {
-            replacedHistory.append(eventID)
-        } else {
-            installedHistory.append(eventID)
+        guard !rejectedEventIDs.contains(eventID) else {
+            return DanmakuInstallResult(isInstalled: false, evictedEventIDs: [])
         }
         installed[eventID] = placement
+        textureScales[eventID] = backingScale
         notifyWaiters()
         return DanmakuInstallResult(isInstalled: true, evictedEventIDs: [])
     }
@@ -144,22 +176,28 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
         return true
     }
 
-    func discardPreparation(preparationID: UInt64) {}
+    /// 与 renderer 一样：交还的准备若还在途就不再回调。
+    func discardPreparation(preparationID: UInt64) {
+        heldPreparationIDs.remove(preparationID)
+        delayedCompletions.removeAll { $0.preparationID == preparationID }
+    }
 
     func cancelPendingPreparations() {
-        delayedCompletions.removeAll()
+        cancelAllPreparations()
     }
 
     func remove(eventID: String) {
         removedHistory.append(eventID)
         installed[eventID] = nil
+        textureScales[eventID] = nil
         notifyWaiters()
     }
 
     func clearAll() {
         clearCount += 1
-        delayedCompletions.removeAll()
+        cancelAllPreparations()
         installed.removeAll()
+        textureScales.removeAll()
         notifyWaiters()
     }
 
@@ -174,15 +212,22 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
         surfaceSizes.append((width, height))
         if backingScale != self.backingScale {
             self.backingScale = backingScale
-            delayedCompletions.removeAll()
+            cancelAllPreparations()
         }
     }
 
     func stop() {
         stopCount += 1
-        delayedCompletions.removeAll()
+        cancelAllPreparations()
         installed.removeAll()
+        textureScales.removeAll()
         notifyWaiters()
+    }
+
+    /// 与 renderer 一样：取消的准备不再回调，已就绪未取走的记录一并丢弃。
+    private func cancelAllPreparations() {
+        delayedCompletions.removeAll()
+        heldPreparationIDs.removeAll()
     }
 
     /// 等到状态满足 `isSatisfied`；每次在屏集合变化或收到延迟的准备请求时检查。
@@ -213,6 +258,15 @@ final class ManualDisplayClock: DanmakuDisplayClock, @unchecked Sendable {
 
     func displayTime() -> Double? {
         time
+    }
+}
+
+/// 布局表里每条弹幕的 placement，按事件 ID 索引；ID 重复时取先出现的一条。
+func placementsByEventID(
+    _ table: [Int: DanmakuSegmentLayout]
+) -> [String: DanmakuLanePlacement] {
+    Dictionary(table.values.flatMap(\.placements).map { ($0.request.event.id, $0) }) { first, _ in
+        first
     }
 }
 
@@ -247,7 +301,7 @@ func expectedVisibleEventIDs(
     )
 }
 
-/// 可见性采样相对 D 的偏移（媒体秒）：此刻、区间中段、上次对齐覆盖的区间末端之前。
+/// 可见性采样相对 D 的偏移（媒体秒）：此刻，以及前瞻（2 秒）里挂上的弹幕陆续进场的两个时刻。
 private let visibilitySampleOffsets = [0, 0.5, 1.4]
 
 /// 显示时间停在 `displayTime` 时，此刻与之后 1.4 媒体秒内看得见的都与布局表一致。
@@ -268,4 +322,21 @@ func expectVisibilityMatchesTheTable(
             sourceLocation: sourceLocation
         )
     }
+}
+
+/// 显示时间为 `displayTime` 时不扣留：布局表此刻应看得见的，要么看得见，要么纹理还在准备；看得见的也不超出
+/// 布局表此刻应有的。
+@MainActor
+func expectNothingWithheld(
+    on backend: RecordingRenderingBackend,
+    table: [Int: DanmakuSegmentLayout],
+    viewport: DanmakuViewport,
+    at displayTime: Double,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    let visible = visibleEventIDs(on: backend, at: displayTime, viewport: viewport)
+    let expected = expectedVisibleEventIDs(in: table, at: displayTime, viewport: viewport)
+    #expect(visible.isSubset(of: expected), "看得见的超出布局表", sourceLocation: sourceLocation)
+    let withheld = expected.subtracting(visible).subtracting(backend.pendingEventIDs)
+    #expect(withheld.isEmpty, "纹理已就绪却看不见：\(withheld.sorted())", sourceLocation: sourceLocation)
 }

@@ -86,7 +86,7 @@ public enum PlaybackTimelineState: Sendable, Equatable {
 /// 平台无关的媒体时间事实。
 ///
 /// `discontinuityGeneration` 在换项、seek 或时间跳变时前进；需要识别 seek 的消费者（Now Playing）用它，
-/// 不能只比较秒数。弹幕不识别 seek，只按位置是否越出上次对齐的覆盖区间对齐（见 docs/ARCHITECTURE.md
+/// 不能只比较秒数。弹幕不识别 seek，只按位置是否离开上次对齐后的一个步长对齐（见 docs/ARCHITECTURE.md
 /// 「弹幕」）。
 public struct PlaybackTimelineSnapshot: Sendable, Equatable {
     public let identity: PlaybackItemIdentity?
@@ -115,6 +115,12 @@ public struct PlaybackTimelineSnapshot: Sendable, Equatable {
         self.state = state
         self.discontinuityGeneration = discontinuityGeneration
     }
+
+    /// 播放中周期快照的频率：每媒体秒 30 个，按 item 时间计，倍速下宿主时间的间隔随之缩放。
+    ///
+    /// 实现方按它安装周期观察器。弹幕以快照为检查节拍，步长加一个快照周期必须短于前瞻（见
+    /// docs/ARCHITECTURE.md「弹幕」）。调高增加主线程回合，调低让进度显示与弹幕检查更稀。
+    public static let periodicSnapshotsPerMediaSecond = 30
 
     public static let idle = PlaybackTimelineSnapshot(
         identity: nil,
@@ -156,7 +162,7 @@ public struct PlaybackTimelineSnapshot: Sendable, Equatable {
 ///
 /// 实现是 BiliPlayback 的 `AVPlayerEngine`，见 docs/ARCHITECTURE.md「媒体时间轴」。
 /// 新订阅者应先得到当前快照；消费者不自建计时器。需要识别 seek 的消费者用 `discontinuityGeneration`
-/// 而不是秒数判断；弹幕按位置与覆盖区间对齐，见 docs/ARCHITECTURE.md「弹幕」。
+/// 而不是秒数判断；弹幕只按位置对齐，见 docs/ARCHITECTURE.md「弹幕」。
 @MainActor
 public protocol PlaybackTimelineProviding: AnyObject {
     var currentTimelineSnapshot: PlaybackTimelineSnapshot { get }
