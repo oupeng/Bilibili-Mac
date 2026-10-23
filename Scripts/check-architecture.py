@@ -161,6 +161,8 @@ EXTRA_ALLOWED = {
     "BiliKitMac/Platform/PlayerHostView.swift": {"AVKit", "BiliDanmaku", "BiliPlayback", "BiliVideoCollectionUI"},
     "BiliKitMac/Platform/PlayerKeyboardShortcutController.swift": {"BiliPlayback"},
     "BiliKitMac/Platform/PlayerOverlay.swift": {"AVFoundation", "BiliPlayback"},
+    # 窗口播放器子类拦截 seek 入口，供播放器浮层判断画面是否还停在旧位置。
+    "BiliKitMac/Platform/SeekTrackingPlayer.swift": {"AVFoundation"},
     "BiliKitMac/Platform/SystemNowPlayingController.swift": {"MediaPlayer"},
 }
 

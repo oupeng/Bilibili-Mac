@@ -253,10 +253,10 @@ private struct PlaybackFixture {
         window.contentView = view
         window.orderFrontRegardless()
         item = AVPlayerItem(url: mediaURL)
-        player = AVPlayer(playerItem: item)
+        let player = SeekTrackingPlayer(playerItem: item)
         player.automaticallyWaitsToMinimizeStalling = false
-        view.player = player
-        view.startObservingPlayerItemChanges()
+        self.player = player
+        view.attachPlayer(player)
         view.layoutSubtreeIfNeeded()
     }
 

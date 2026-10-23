@@ -2717,30 +2717,30 @@
         }
       }
     },
-    "正在缓冲" : {
+    "正在加载" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Buffering"
+            "value" : "Loading"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "バッファリング中"
+            "value" : "読み込み中"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在缓冲"
+            "value" : "正在加载"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在緩衝"
+            "value" : "正在載入"
           }
         }
       }

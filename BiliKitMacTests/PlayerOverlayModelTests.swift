@@ -133,62 +133,88 @@ struct PlayerOverlayModelTests {
         #expect(model.showsPreparationActivity == showsActivity)
     }
 
-    /// 只有开播后为减少卡顿而等待才算卡住；准备阶段、未就绪与短暂的缓冲评估都不算。
+    /// 用户在等画面才转：seek 未落地（无论播放、暂停还是 progressive 源 seek 期间仍为 playing），或要播却停着
+    /// 等数据；缓冲充足的等待、暂停、准备期间与 item 未就绪都不转。
     @Test(arguments: [
-        (
-            false, true, AVPlayer.TimeControlStatus.waitingToPlayAtSpecifiedRate,
-            AVPlayer.WaitingReason?.some(.toMinimizeStalls), true
-        ),
-        (false, true, .waitingToPlayAtSpecifiedRate, .evaluatingBufferingRate, false),
-        (false, true, .waitingToPlayAtSpecifiedRate, nil, false),
-        (false, true, .playing, nil, false),
-        (false, true, .paused, nil, false),
-        (true, true, .waitingToPlayAtSpecifiedRate, .toMinimizeStalls, false),
-        (false, false, .waitingToPlayAtSpecifiedRate, .toMinimizeStalls, false)
+        (false, true, true, AVPlayer.TimeControlStatus.paused, true, true),
+        (false, true, true, .playing, true, true),
+        (false, true, true, .waitingToPlayAtSpecifiedRate, false, true),
+        (false, true, false, .waitingToPlayAtSpecifiedRate, false, true),
+        (false, true, false, .waitingToPlayAtSpecifiedRate, true, false),
+        (false, true, false, .paused, false, false),
+        (false, true, false, .playing, true, false),
+        (true, true, true, .waitingToPlayAtSpecifiedRate, false, false),
+        (false, false, true, .waitingToPlayAtSpecifiedRate, false, false)
     ])
-    func stallCountsOnlyWaitingToMinimizeStallsAfterPlaybackIsReady(
+    func loadingCoversOnlyWaitingForThePictureAfterPlaybackIsReady(
         isPreparing: Bool,
         isItemReady: Bool,
+        hasPendingSeek: Bool,
         timeControlStatus: AVPlayer.TimeControlStatus,
-        reason: AVPlayer.WaitingReason?,
-        isStalled: Bool
+        isPlaybackLikelyToKeepUp: Bool,
+        isWaiting: Bool
     ) {
         #expect(
-            PlayerStallPolicy.isStalled(
+            PlayerLoadingPolicy.isWaitingForPicture(
                 isPreparing: isPreparing,
                 isItemReady: isItemReady,
+                hasPendingSeek: hasPendingSeek,
                 timeControlStatus: timeControlStatus,
-                reasonForWaitingToPlay: reason
-            ) == isStalled
+                isPlaybackLikelyToKeepUp: isPlaybackLikelyToKeepUp
+            ) == isWaiting
         )
     }
 
-    /// 卡住只在该次卡顿的延迟到期时仍未恢复才呈现；恢复立即撤下，恢复后再卡住重新计时。
+    /// 转圈只在这次等待的延迟到期时仍未结束才呈现；结束立即撤下，再次等待重新计时。
     @Test
-    func stallActivityAppearsOnlyForTheStallStillInProgress() throws {
+    func loadingActivityAppearsOnlyForTheWaitStillInProgress() throws {
         let model = PlayerOverlayModel()
 
-        model.setStalled(true)
-        let recovered = try #require(model.stallID)
-        #expect(!model.showsStallActivity)
-        model.setStalled(false)
-        model.presentStall(id: recovered)
-        #expect(!model.showsStallActivity)
+        model.setWaitingForPicture(true, landedSeekCount: 0)
+        let finished = try #require(model.loadingID)
+        #expect(!model.showsLoadingActivity)
+        model.setWaitingForPicture(false, landedSeekCount: 0)
+        model.presentLoading(id: finished)
+        #expect(!model.showsLoadingActivity)
 
-        model.setStalled(true)
-        let shown = try #require(model.stallID)
-        model.presentStall(id: shown)
-        #expect(model.showsStallActivity)
+        model.setWaitingForPicture(true, landedSeekCount: 0)
+        let shown = try #require(model.loadingID)
+        model.presentLoading(id: shown)
+        #expect(model.showsLoadingActivity)
 
-        model.setStalled(false)
-        #expect(!model.showsStallActivity)
-        model.setStalled(true)
-        let restalled = try #require(model.stallID)
-        #expect(restalled != shown)
-        model.presentStall(id: shown)
-        #expect(!model.showsStallActivity)
-        model.presentStall(id: restalled)
-        #expect(model.showsStallActivity)
+        model.setWaitingForPicture(false, landedSeekCount: 0)
+        #expect(!model.showsLoadingActivity)
+        #expect(model.loadingID == nil)
+        model.setWaitingForPicture(true, landedSeekCount: 0)
+        let again = try #require(model.loadingID)
+        #expect(again != shown)
+        model.presentLoading(id: shown)
+        #expect(!model.showsLoadingActivity)
+        model.presentLoading(id: again)
+        #expect(model.showsLoadingActivity)
+    }
+
+    /// 计时起点是最近一次画面更新：还没呈现时有 seek 落地就重新计时（拖动已缓冲区间不转），没落地的新 seek
+    /// 不重新计时（未缓冲区连按照常转）；已经呈现后再落地也不让转圈闪一下。
+    @Test
+    func landedSeekRestartsTheDelayOnlyBeforeTheActivityIsShown() throws {
+        let model = PlayerOverlayModel()
+
+        model.setWaitingForPicture(true, landedSeekCount: 1)
+        let first = try #require(model.loadingID)
+        model.setWaitingForPicture(true, landedSeekCount: 1)
+        #expect(model.loadingID == first)
+        model.setWaitingForPicture(true, landedSeekCount: 2)
+        let second = try #require(model.loadingID)
+        #expect(second != first)
+        model.presentLoading(id: first)
+        #expect(!model.showsLoadingActivity)
+
+        model.presentLoading(id: second)
+        #expect(model.showsLoadingActivity)
+        model.setWaitingForPicture(true, landedSeekCount: 3)
+        #expect(model.loadingID == second)
+        #expect(model.showsLoadingActivity)
     }
 
     @Test

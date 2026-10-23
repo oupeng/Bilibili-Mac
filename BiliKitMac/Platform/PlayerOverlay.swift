@@ -142,24 +142,29 @@ private struct PlayerGlassCapsuleBackground: ViewModifier {
     }
 }
 
-/// 开播后的缓冲卡顿：AVKit 此时不画任何指示，由浮层转圈。
+/// 开播后的加载转圈：用户在等画面时由浮层转圈，AVKit 此时不画任何指示。
 ///
-/// 只认 AVPlayer 为减少卡顿而等待（`toMinimizeStalls`）；开播与 seek 时的短暂评估等待不算。
-/// 卡住持续到 `presentationDelay` 才呈现，期间恢复播放则不出现，避免拖进度条时一闪。
-enum PlayerStallPolicy {
+/// 等画面只有两种：一次 seek 还没落地，新位置的画面还没出来（播放、暂停、原生进度条拖动与 progressive 源
+/// 都一样，见 `SeekTrackingPlayer`）；或者播放器要播却停着等数据，即 `waitingToPlayAtSpecifiedRate` 且
+/// item 不再“可能跟得上”。不看等待原因：seek 后先是 `evaluatingBufferingRate` 再转为 `toMinimizeStalls`，
+/// 两者都是在等数据；而 HLS 源播完后再调用播放会一直停在 `toMinimizeStalls`，却已“可能跟得上”，那不是在等画面。
+/// 准备期间与 item 未就绪时分别由准备转圈与 AVKit 自己的转圈负责，这里都不算。
+/// 等待持续 `presentationDelay` 才呈现，期间恢复则不出现：开播、变速与已缓冲区内 seek 的瞬时等待都在
+/// 几十毫秒内结束，不会闪一下。
+enum PlayerLoadingPolicy {
     static let presentationDelay: Duration = .milliseconds(300)
     static let fadeDurationSeconds: TimeInterval = 0.2
 
-    static func isStalled(
+    static func isWaitingForPicture(
         isPreparing: Bool,
         isItemReady: Bool,
+        hasPendingSeek: Bool,
         timeControlStatus: AVPlayer.TimeControlStatus,
-        reasonForWaitingToPlay: AVPlayer.WaitingReason?
+        isPlaybackLikelyToKeepUp: Bool
     ) -> Bool {
-        !isPreparing
-            && isItemReady
-            && timeControlStatus == .waitingToPlayAtSpecifiedRate
-            && reasonForWaitingToPlay == .toMinimizeStalls
+        guard !isPreparing, isItemReady else { return false }
+        return hasPendingSeek
+            || (timeControlStatus == .waitingToPlayAtSpecifiedRate && !isPlaybackLikelyToKeepUp)
     }
 }
 
@@ -256,7 +261,7 @@ final class PassthroughHostingView<Content: View>: NSHostingView<Content> {
     }
 }
 
-/// 播放器 content overlay 上的全部临时提示：准备与缓冲转圈、快捷键反馈、“从头播放”按钮与试看结束徽章。
+/// 播放器 content overlay 上的全部临时提示：准备与加载转圈、快捷键反馈、“从头播放”按钮与试看结束徽章。
 ///
 /// 自动消失的计时由 `PlayerOverlayView` 的 `.task(id:)` 持有；这里只保存状态与 identity 规则。
 @MainActor
@@ -277,11 +282,16 @@ final class PlayerOverlayModel {
     private(set) var resumeNotice: PlaybackResumeNotice?
     private(set) var previewEndedMessage: String?
     private(set) var showsPreparationActivity = false
-    /// 当前这次卡顿的 identity，恢复后为 nil。
+    /// 当前这次等画面的 identity，不在等待时为 nil。
     ///
-    /// 呈现计时以它为 `.task` id：恢复后又卡住时生成新 id，重新计时。
-    private(set) var stallID: UUID?
-    private(set) var showsStallActivity = false
+    /// 呈现计时以它为 `.task` id，计时起点是用户最近一次看到画面更新：等待开始时，或转圈还没呈现时又有 seek
+    /// 落地（新位置的画面出来了），都生成新 id 重新计时。拖动已缓冲区间时 AVKit 一次接一次地 seek，每次都很快
+    /// 落地，不会转；在未缓冲区连按快捷键时旧 seek 被打断而没有落地，画面一直停在原处，从第一次按下起计时。
+    /// 转圈已经呈现后再落地沿用原 id，转圈不闪。
+    private(set) var loadingID: UUID?
+    private(set) var showsLoadingActivity = false
+    /// 最近一次 `setWaitingForPicture` 带来的 seek 落地次数，只用来判断画面是否又更新过。
+    @ObservationIgnored private var loadingLandedSeekCount: UInt64 = 0
     @ObservationIgnored private(set) var restartFromBeginning: () -> Void = {}
     @ObservationIgnored private var dismissedResumeToken: PlaybackResumeToken?
     @ObservationIgnored fileprivate var resumeButtonFrame: CGRect?
@@ -361,20 +371,30 @@ final class PlayerOverlayModel {
         showsPreparationActivity = shows
     }
 
-    /// 恢复播放立即撤下转圈；进入卡顿只记录，呈现由视图在延迟后调用 `presentStall(id:)`。
-    func setStalled(_ stalled: Bool) {
-        guard (stallID != nil) != stalled else { return }
-        stallID = stalled ? UUID() : nil
-        guard !stalled, showsStallActivity else { return }
-        withAnimation(.easeInOut(duration: PlayerStallPolicy.fadeDurationSeconds)) {
-            showsStallActivity = false
+    /// 等待结束立即撤下转圈；进入等待只记录，呈现由视图在延迟后调用 `presentLoading(id:)`。
+    ///
+    /// 由播放器宿主在播放器、item 或 seek 登记任一变化后按最新状态调用；`landedSeekCount` 是
+    /// `PlayerSeekActivity.landedSeekCount`。
+    func setWaitingForPicture(_ waiting: Bool, landedSeekCount: UInt64) {
+        let pictureUpdated = landedSeekCount != loadingLandedSeekCount
+        loadingLandedSeekCount = landedSeekCount
+        guard waiting else {
+            guard loadingID != nil else { return }
+            loadingID = nil
+            guard showsLoadingActivity else { return }
+            withAnimation(.easeInOut(duration: PlayerLoadingPolicy.fadeDurationSeconds)) {
+                showsLoadingActivity = false
+            }
+            return
         }
+        guard loadingID == nil || (pictureUpdated && !showsLoadingActivity) else { return }
+        loadingID = UUID()
     }
 
-    func presentStall(id: UUID) {
-        guard stallID == id, !showsStallActivity else { return }
-        withAnimation(.easeInOut(duration: PlayerStallPolicy.fadeDurationSeconds)) {
-            showsStallActivity = true
+    func presentLoading(id: UUID) {
+        guard loadingID == id, !showsLoadingActivity else { return }
+        withAnimation(.easeInOut(duration: PlayerLoadingPolicy.fadeDurationSeconds)) {
+            showsLoadingActivity = true
         }
     }
 
@@ -397,25 +417,25 @@ struct PlayerOverlayView: View {
 
     var body: some View {
         Color.clear
-            .overlay { stallActivity }
+            .overlay { loadingActivity }
             .overlay { preparationActivity }
             .overlay(alignment: .top) { feedbackBadge }
             .overlay(alignment: .bottomLeading) { resumeButton }
             .overlay(alignment: .bottom) { previewEndedBadge }
             .coordinateSpace(.named(PlayerOverlayLayout.coordinateSpace))
-            .task(id: model.stallID) {
-                guard let stallID = model.stallID else { return }
-                try? await Task.sleep(for: PlayerStallPolicy.presentationDelay)
+            .task(id: model.loadingID) {
+                guard let loadingID = model.loadingID else { return }
+                try? await Task.sleep(for: PlayerLoadingPolicy.presentationDelay)
                 guard !Task.isCancelled else { return }
-                model.presentStall(id: stallID)
+                model.presentLoading(id: loadingID)
             }
     }
 
     @ViewBuilder
-    private var stallActivity: some View {
-        if model.showsStallActivity {
+    private var loadingActivity: some View {
+        if model.showsLoadingActivity {
             PlayerLoadingIndicator()
-                .accessibilityLabel(AppStrings.localized("正在缓冲"))
+                .accessibilityLabel(AppStrings.localized("正在加载"))
                 .transition(reduceMotion ? .identity : .opacity)
         }
     }
