@@ -43,9 +43,7 @@ final class NativeVideoCollectionView: NativeVideoCardCollectionView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        // Control-点按是上下文菜单手势：有菜单时 AppKit 弹菜单、不送 mouseDown，没有菜单时仍会送来，不能当作点击
-        // 改选中或激活。
-        guard !event.modifierFlags.contains(.control) else { return }
+        guard !routesControlClickToContextMenu(event) else { return }
         setShowsKeyboardSelection(false)
         let point = convert(event.locationInWindow, from: nil)
         let clickedIndexPath = indexPathForItem(at: point)

@@ -6,7 +6,8 @@ import Testing
 @testable import BiliVideoCollectionUI
 
 /// 卡片菜单：右键菜单与读屏自定义操作出自同一份描述，项、顺序与标题一致；「拷贝链接」「在浏览器中打开」只给可进入
-/// 播放且有网页地址的卡片，打开交给系统 `OpenURLAction` 的正是该卡片的地址；没有项时不弹菜单。
+/// 播放且有网页地址的卡片，打开交给系统 `OpenURLAction` 的正是该卡片的地址；没有项时不弹菜单；Control-点按走右键
+/// 同一条菜单路径，不激活卡片。
 struct NativeVideoCardMenuTests {
     @Test @MainActor
     func playableCardWithAWebPageOffersCopyThenOpenInBrowser() throws {
@@ -143,6 +144,89 @@ struct NativeVideoCardMenuTests {
 
         coordinator.reset()
         #expect(available.accessibilityCustomActions()?.isEmpty ?? true)
+    }
+
+    /// Control-点按沿响应链到达网格时走右键同一条菜单路径：取这张卡片的菜单并弹出，打开期间画上下文描边，
+    /// 不当作点击激活。
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func controlClickOpensTheCardMenuWithoutActivating() async throws {
+        var requestedIDs: [String] = []
+        var selections: [String] = []
+        let coordinator = NativeVideoGridView.Coordinator(
+            items: [Self.card(id: "BV1Menu0", availability: .available)],
+            initialScrollOffsetY: 0,
+            accessibilityLabel: "网格",
+            tailState: .end,
+            bottomInset: 0,
+            scrollResetRequestID: 0,
+            acknowledgedScrollResetRequestID: 0,
+            imagePipeline: StubCardImageLoader(),
+            onScroll: { _ in },
+            onAcknowledgeScrollReset: { _ in },
+            onNearEnd: {},
+            onSelect: { selections.append($0) },
+            cardMenu: { card in
+                requestedIDs.append(card.id)
+                return NativeVideoCardMenu(
+                    items: [NativeVideoCardMenu.Item(title: "菜单项", systemImage: "link") {}]
+                )
+            }
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let scrollView = coordinator.makeScrollView()
+        window.contentView = scrollView
+        defer {
+            coordinator.reset()
+            window.contentView = NSView()
+        }
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+        scrollView.layoutSubtreeIfNeeded()
+        let collectionView = try #require(scrollView.documentView as? NSCollectionView)
+        let card = try #require(collectionView.visibleItems().first?.view)
+        let event = try #require(
+            NSEvent.mouseEvent(
+                with: .leftMouseDown,
+                location: card.convert(NSPoint(x: card.bounds.midX, y: card.bounds.midY), to: nil),
+                modifierFlags: .control,
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 1,
+                pressure: 1
+            )
+        )
+        // 菜单进入跟踪循环后，在循环里记下卡片的描边再关闭菜单。
+        var borderWidthWhileOpen: CGFloat?
+        let observer = NotificationCenter.default.addObserver(
+            forName: NSMenu.didBeginTrackingNotification,
+            object: nil,
+            queue: nil
+        ) { notification in
+            nonisolated(unsafe) let menu = notification.object as? NSMenu
+            RunLoop.current.perform(inModes: [.eventTracking, .default]) {
+                MainActor.assumeIsolated {
+                    borderWidthWhileOpen = card.layer?.borderWidth
+                    menu?.cancelTrackingWithoutAnimation()
+                }
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        collectionView.mouseDown(with: event)
+
+        #expect(requestedIDs == ["BV1Menu0"])
+        #expect((borderWidthWhileOpen ?? 0) > 0)
+        #expect(card.layer?.borderWidth == 0)
+        #expect(selections.isEmpty)
+        #expect(collectionView.selectionIndexPaths.isEmpty)
     }
 
     private static func card(

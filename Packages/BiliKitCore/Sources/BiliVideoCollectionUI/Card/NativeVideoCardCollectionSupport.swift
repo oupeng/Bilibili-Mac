@@ -221,6 +221,17 @@ open class NativeVideoCardCollectionView: NSCollectionView {
         return menu.makeMenu()
     }
 
+    /// 子类 `mouseDown` 的第一步：Control-点按转进右键同一条菜单路径（`rightMouseDown` → `menu(for:)` →
+    /// `willOpenMenu`／`didCloseMenu`），返回 true 时调用方不再按点击处理。
+    ///
+    /// 命中的是卡片视图：窗口先问它的 `menu(for:)`，它没有菜单，事件就作为普通按下沿响应链送到集合视图。右键沿响应链
+    /// 走的是 `rightMouseDown`，会问到集合视图的菜单；Control-点按不转过去就既不弹菜单，还会被当作点击激活。
+    package func routesControlClickToContextMenu(_ event: NSEvent) -> Bool {
+        guard event.modifierFlags.contains(.control) else { return false }
+        rightMouseDown(with: event)
+        return true
+    }
+
     open override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
         contextMenuTarget?.setContextMenuTarget(true)
