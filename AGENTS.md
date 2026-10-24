@@ -4,7 +4,8 @@
 
 BiliKit 是原生、macOS-first、非官方 B 站浏览与播放客户端：Swift 6、SwiftUI + AppKit、AVPlayer，
 最低 macOS 15。App 与 Swift 模块名为 `BiliKit`；仓库、Xcode 工程和内部 App target 保留
-`BiliKitMac`。不要擅自加入下载、转码、导出、直播、多账号、区域解锁或写操作。
+`BiliKitMac`。不要擅自加入下载、转码、导出、直播、多账号、区域解锁，或 `docs/ROADMAP.md` 已列出之外的
+账户写操作。
 
 需要时只读这几份文档，它们描述的是现状：
 
