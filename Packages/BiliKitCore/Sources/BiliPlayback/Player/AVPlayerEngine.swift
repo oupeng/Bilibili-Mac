@@ -82,6 +82,9 @@ public final class AVPlayerEngine:
         self.subtitleUseCase = subtitleUseCase
         self.sourcePreferenceProvider = sourcePreferenceProvider
         self.loudnessNormalizationEnabledProvider = loudnessNormalizationEnabledProvider
+        // 起播的媒体选择只按播放列表的 DEFAULT：音频总是原声，字幕默认关闭。打开后系统会按界面语言
+        // 挑 AUTOSELECT=YES 的 rendition，语言等于界面语言的 AI 配音会压过不写语言的原声。AI 配音另写
+        // AUTOSELECT=NO，与这里共同保证起播是原声。
         player.appliesMediaSelectionCriteriaAutomatically = false
         timeline = AVPlayerTimelineAdapter(player: player)
         timeline.onFailed = { [weak self] in

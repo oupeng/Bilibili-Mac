@@ -371,6 +371,7 @@ public struct DASHToHLSBridge: Sendable {
                 )
                 localizedSubtitleCatalog = []
             }
+            // 两条 master 路径都引用这份显示名；原声音轨不写 LANGUAGE，菜单里的“原声”只来自这里。
             registrations.append(
                 LoopbackRouteRegistration(
                     relativePath: "metadata/localized-rendition-names.json",

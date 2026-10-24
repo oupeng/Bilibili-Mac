@@ -142,6 +142,12 @@ session path，提供内存中生成的 master／media playlist，并把 AVPlaye
   验证后逐 chunk 写入 loopback，不累积整段；不支持多段 `durl` 拼接。格式只接受 `mp4` 与 `hdmp4`
   （较早视频只有整段文件，最高 720P），`flv*` 不支持；请求的清晰度只有 FLV 时，按 `support_formats`
   里不高于请求的最高 MP4 清晰度重取一次。
+- 音轨写成同一 AUDIO group 的 rendition。原声 `DEFAULT=YES`、`public.original-content`，不写 LANGUAGE：
+  B 站不给可验证的原声语言，写 `und` 时系统菜单会附上“未知语言”。原声的显示名只来自每份 master 都带的
+  `_hls.localized-rendition-names`，系统再加“（原始）”并把它排在最前。AI 配音写 `LANGUAGE=<lang>` 与
+  `public.machine-generated`，系统显示为语言名加“生成”；macOS 27 不显示音频的原始 NAME，B 站的配音标题
+  只用于 NAME 唯一性。音频不写 `public.translation`：拿不到原声语言，就无法确认配音与原声语言不同。
+- 起播总是原声：AI 配音写 `AUTOSELECT=NO`，播放器也关闭自动媒体选择，只按 DEFAULT 起播。
 - 字幕目录的每一轨写成 master 里的原生 subtitle rendition，系统字幕菜单按 CHARACTERISTICS 给名称加
   本地化标注：B 站 AI 识别轨（`ai_type=0`）只写 `public.machine-generated`，macOS 27 显示“（已转写）”；
   AI 翻译轨（`ai_type=1`）再加 `public.translation`，显示“（已翻译）”；人工字幕与字段组合无法确认来源
@@ -661,7 +667,7 @@ gain 只压低不放大：`min(−18 LUFS − I, 0)`，下限 −12 dB。不放�
 
 起播后按系统选中的音轨选项重算增益，只按语言与角色（原声／机器配音）匹配；`displayName` 是系统
 本地化后的界面名称，不能用来匹配。语言优先取选项保留的原始标签（`extendedLanguageTag`），字面不同
-时按 BCP 47 补全后比较。元数据缺失、音轨无法唯一映射或 tap 失败时保持 unity，播放不得
+时按 BCP 47 补全后比较；原声不写 LANGUAGE，选项与音轨两边都缺省，按 `und` 对上。元数据缺失、音轨无法唯一映射或 tap 失败时保持 unity，播放不得
 失败。B 站未测量响度的视频（多为较早上传）四个测量值都是 `0.001` 占位，按无效元数据处理、原音量播放；
 不自行测量响度。实时回调只读固定内存／原子值，不分配、不加锁、不记日志。
 

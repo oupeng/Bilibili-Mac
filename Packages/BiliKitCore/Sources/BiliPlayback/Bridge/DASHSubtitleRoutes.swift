@@ -5,6 +5,9 @@ import Foundation
 extension DASHToHLSBridge {
     /// master playlist 的 `_hls.localized-rendition-names` 会话数据：原声音轨与需要区分的字幕
     /// rendition 的多语言显示名（JSON），由系统按界面语言选用。
+    ///
+    /// 原声音轨在 master 里不写 LANGUAGE，系统菜单的名字完全取自这里的原声条目；条目缺失时
+    /// 菜单只显示“（原始）”之类的系统标注。
     func localizedRenditionNamesResource(
         audioTracks: [PlaybackAudioTrack],
         subtitleCatalog: [NativeSubtitleCatalogEntry]

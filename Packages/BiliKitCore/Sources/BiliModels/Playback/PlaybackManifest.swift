@@ -163,6 +163,7 @@ public struct PlaybackAudioTrack: Sendable, Equatable, Identifiable {
     /// 音轨来源：`original` 为原声，`machineGenerated` 为 AI 配音。
     ///
     /// 播放桥要求原声同时是默认与自动选择，AI 配音不是默认且带语言标记，否则拒绝选中的音轨。
+    /// AI 配音也不是自动选择，只在用户明确选中时播放。
     public enum Role: Sendable, Equatable {
         case original
         case machineGenerated
@@ -202,7 +203,8 @@ public struct PlaybackAudioTrack: Sendable, Equatable, Identifiable {
 
     /// 默认原声音轨的唯一构造处，BiliAPI 的 playurl 映射经它组装清单。
     ///
-    /// 原声同时是默认与自动选择、不带语言标记，满足播放桥对原声音轨的要求。
+    /// 原声同时是默认与自动选择、不带语言标记，满足播放桥对原声音轨的要求。B 站不提供可验证的原声
+    /// 语言，写成 HLS 时省略 LANGUAGE，系统菜单的名字来自播放桥提供的本地化显示名。
     public static func original(
         representations: [MediaRepresentation],
         loudnessMetadata: PlaybackLoudnessMetadata?

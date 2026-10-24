@@ -30,6 +30,9 @@ enum LoudnessAudioTrackMatching {
     }
 
     /// 缺省视为 `und`；字面不同时按 BCP 47 补全后比较，`zh-Hans` 与 `zh_CN` 之类的写法差异视为同一语言。
+    ///
+    /// 原声在播放列表里不写 LANGUAGE，系统选项的语言标签与 locale 都为 nil，与没有语言标记的原声
+    /// 音轨按 `und` 对上。
     static func sameLanguage(_ expected: String?, _ actual: String?) -> Bool {
         let expected = normalized(expected)
         let actual = normalized(actual)

@@ -168,6 +168,7 @@ struct LoudnessNormalizationPolicyTests {
     /// 语言按 BCP 47 补全后比较：同一语言的不同写法能对上，不同语言或文字不能。
     @Test(
         arguments: [
+            (nil, nil, true),
             (nil, "und", true),
             ("und", nil, true),
             ("zh-Hans", "zh-Hans", true),
@@ -201,13 +202,16 @@ struct LoudnessNormalizationPolicyTests {
             { values.contains($0.rawValue) }
         }
 
-        #expect(
-            LoudnessAudioTrackMatching.matches(
-                original,
-                optionLanguageTag: "und",
-                optionHasCharacteristic: characteristics(["public.original-content"])
+        // 原声在播放列表里不写 LANGUAGE，系统选项的语言标签与 locale 都为 nil。
+        for optionLanguageTag in [nil, "und"] as [String?] {
+            #expect(
+                LoudnessAudioTrackMatching.matches(
+                    original,
+                    optionLanguageTag: optionLanguageTag,
+                    optionHasCharacteristic: characteristics(["public.original-content"])
+                )
             )
-        )
+        }
         #expect(
             LoudnessAudioTrackMatching.matches(
                 dub,
