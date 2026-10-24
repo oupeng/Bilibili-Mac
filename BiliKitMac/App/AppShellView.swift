@@ -2,6 +2,7 @@ import BiliApplication
 import BiliAuthFeature
 import BiliBrowseFeature
 import BiliLibraryFeature
+import BiliUI
 import BiliVideoCollectionUI
 import BiliVideoDetailFeature
 import SwiftUI
@@ -35,6 +36,8 @@ struct AppShellView: View {
     let commentImageSaver: NativeCommentImageSaver
     let seekPlayback: @MainActor (_ bvid: String, _ seconds: Int) -> Void
     let imagePipeline: NativeVideoImagePipeline
+    /// 窗口的账户写入：经环境交给各来源的卡片菜单，结果胶囊盖在主区底部。
+    let accountWrites: AccountWriteCoordinator
     @Binding var isAuthenticationPresented: Bool
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var gridScroll = SourceGridScrollStates()
@@ -107,7 +110,12 @@ struct AppShellView: View {
                         )
                     }
             }
+            .overlay(alignment: .bottom) {
+                AccountWriteStatusOverlay(accountWrites: accountWrites)
+            }
         }
+        // 来源网格、相关推荐横排与它们的卡片菜单都在这棵树里；写入口只转发意图，门槛与请求在 `AccountWriteCoordinator`。
+        .environment(\.videoCardAccountWriting, accountWriting)
         .navigationSplitViewStyle(.balanced)
         .toolbarVisibility(
             isCommentImagePreviewPresented ? .hidden : .automatic,
@@ -159,6 +167,16 @@ struct AppShellView: View {
             guard previousBVID != currentBVID else { return }
             dismissCommentImagePreview(restoringFocus: false)
         }
+    }
+
+    /// 卡片菜单的账户写入口：门槛在菜单构造时求值，动作转给窗口的写入协调者。
+    private var accountWriting: VideoCardAccountWriting {
+        let accountWrites = accountWrites
+        return VideoCardAccountWriting(
+            isAvailable: { accountWrites.isWritable },
+            addToWatchLater: { accountWrites.addToWatchLater(bvid: $0) },
+            removeFromWatchLater: { accountWrites.removeFromWatchLater(bvid: $0) }
+        )
     }
 
     /// 侧栏的选择值：读写都经来源描述映射，选中的条目记在来源自己的模型里，侧栏重建后照样恢复高亮。
@@ -432,5 +450,17 @@ private struct PlaybackDestinationView: View {
         }
         .navigationTitle("播放")
         .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
+    }
+}
+
+/// 写入结果胶囊的宿主：单独成一个 View，只有它读取协调者的结果，结果变化时不让整个外壳重新求值。
+private struct AccountWriteStatusOverlay: View {
+    let accountWrites: AccountWriteCoordinator
+
+    var body: some View {
+        AccountWriteStatusCapsule(
+            report: accountWrites.report,
+            sequence: accountWrites.reportSequence
+        )
     }
 }

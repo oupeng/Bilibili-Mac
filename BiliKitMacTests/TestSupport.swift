@@ -207,18 +207,73 @@ struct WatchHistoryRepositoryStub: WatchHistoryRepository {
     }
 }
 
-/// 稍后再看 port 的唯一测试替身：给了 `error` 时每次读取都失败，否则返回所请求页的空页。
+/// 稍后再看 port 的唯一测试替身：给了 `error` 时每次读取都失败，否则返回所请求页，条目为 `bvids`（默认空页）。
 struct WatchLaterRepositoryStub: WatchLaterRepository {
     var error: ContentApplicationError?
+    var bvids: [String] = []
 
     func watchLater(request: WatchLaterRequest) async throws -> WatchLaterPage {
         if let error { throw error }
         return WatchLaterPage(
-            items: [],
+            items: bvids.map {
+                WatchLaterItem(
+                    bvid: $0,
+                    title: "手写稍后再看条目",
+                    coverURL: nil,
+                    owner: nil,
+                    durationSeconds: 60,
+                    progress: .notStarted,
+                    addedAt: nil
+                )
+            },
             pageNumber: request.page,
             nextPageNumber: nil,
-            totalCount: 0
+            totalCount: bvids.count
         )
+    }
+}
+
+/// 稍后再看写入 port 的唯一测试替身：记录每次写入，按顺序取 `outcomes`（用完后一律成功）；`holdsWrites` 时每次写入
+/// 挂起到 `releaseWrites()` 或任务取消。
+actor WatchLaterWriteRepositoryStub: WatchLaterWriteRepository {
+    private var outcomes: [AccountWriteError?]
+    private let holdsWrites: Bool
+    private(set) var calls: [String] = []
+    private var callWaiters = CountWaiters()
+    private var held: [CheckedContinuation<Void, Never>] = []
+    private var released = false
+
+    init(outcomes: [AccountWriteError?] = [], holdsWrites: Bool = false) {
+        self.outcomes = outcomes
+        self.holdsWrites = holdsWrites
+    }
+
+    func add(_ target: VideoWriteTarget, accountID: Int64) async throws {
+        try await record("add \(target.bvid) \(accountID)")
+    }
+
+    func remove(_ target: VideoWriteTarget, accountID: Int64) async throws {
+        try await record("remove \(target.bvid) \(accountID)")
+    }
+
+    func waitForCallCount(_ target: Int) async {
+        await withCheckedContinuation { callWaiters.add($0, until: target, current: calls.count) }
+    }
+
+    func releaseWrites() {
+        released = true
+        held.resumeAll()
+    }
+
+    private func record(_ call: String) async throws {
+        calls.append(call)
+        callWaiters.resume(reaching: calls.count)
+        let outcome = outcomes.isEmpty ? nil : outcomes.removeFirst()
+        if holdsWrites, !released {
+            await withCheckedContinuation { held.append($0) }
+        }
+        try Task.checkCancellation()
+        if let outcome { throw outcome }
     }
 }
 

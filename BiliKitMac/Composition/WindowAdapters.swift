@@ -11,7 +11,7 @@ import CoreGraphics
 import Foundation
 import SwiftUI
 
-/// 一个窗口可替换的 adapter 与 port：内容与认证仓库、播放控制与播放器视图、弹幕呈现、Now Playing 与观看进度
+/// 一个窗口可替换的 adapter 与 port：内容、稍后再看写入与认证仓库、播放控制与播放器视图、弹幕呈现、Now Playing 与观看进度
 /// 的连接，以及窗口打开、关闭时 adapter 自己的登记与清理。
 ///
 /// `WindowComposition` 只经它拿到具体实现；生产实现只由 `live(process:)` 一处构造。
@@ -30,6 +30,8 @@ struct WindowAdapters {
     let commentRepository: any CommentRepository
     let historyRepository: any WatchHistoryRepository
     let watchLaterRepository: any WatchLaterRepository
+    /// 稍后再看的加入与移除；生产实现走窗口 API 的账户写授权器，绑定窗口账户。
+    let watchLaterWriteRepository: any WatchLaterWriteRepository
     let favoritesRepository: any FavoritesRepository
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentLinkRouter: CommentLinkRouter
@@ -115,6 +117,7 @@ extension WindowAdapters {
             commentRepository: BiliCommentRepository(client: api),
             historyRepository: BiliWatchHistoryRepository(client: api),
             watchLaterRepository: BiliWatchLaterRepository(client: api),
+            watchLaterWriteRepository: BiliWatchLaterWriteRepository(client: api),
             favoritesRepository: BiliFavoritesRepository(client: api),
             commentAssetURLResolver: { reference, box in
                 commentAssetResolver.imageURL(for: reference, fitting: box)

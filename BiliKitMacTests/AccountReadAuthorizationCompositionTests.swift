@@ -136,6 +136,45 @@ struct AccountReadAuthorizationCompositionTests {
     }
 }
 
+/// 窗口主 API 的每个写 path 都能被真实的账户写授权器按它的 schema 授权：BiliAuth 的 schema 表与 BiliAPI 的
+/// `BiliAccountWritePath` 各写一份字面量，这里是两边唯一的交叉核对。
+@Suite(.timeLimit(.minutes(1)))
+struct AccountWriteAuthorizationCompositionTests {
+    @Test
+    @MainActor
+    func everyProductionWritePathCanAuthorizeTheRequestTheClientBuilds() async throws {
+        let authorizer = BiliAccountWriteRequestAuthorizer(
+            store: CompositionFixtureCredentialStore(credential: try makeCompositionFixtureCredential()),
+            allowedPaths: LiveAPIClients.mainAccountWriteAllowedPaths
+        )
+        let referers = [
+            BiliAccountWritePath.watchLaterAdd: "https://www.bilibili.com/",
+            BiliAccountWritePath.watchLaterRemove: "https://www.bilibili.com/watchlater/"
+        ]
+        #expect(Set(referers.keys) == LiveAPIClients.mainAccountWriteAllowedPaths)
+
+        for (path, referer) in referers {
+            let request = HTTPRequest(
+                url: try #require(URL(string: "https://api.bilibili.com\(path)")),
+                method: .post,
+                headers: [
+                    "Accept": "application/json",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Origin": "https://www.bilibili.com",
+                    "Referer": referer,
+                    "User-Agent": HTTPUserAgent.browserCompatible
+                ],
+                body: Data("aid=170001".utf8)
+            )
+
+            let authorized = try await authorizer.authorize(request, boundTo: "42")
+
+            #expect(authorized.headers["Cookie"] == "SESSDATA=FIXTURE_SESSDATA_VALUE")
+            #expect(authorized.body == Data("aid=170001&csrf=FIXTURE_bili_jct_VALUE".utf8))
+        }
+    }
+}
+
 private struct CompositionFixtureCredentialStore: WebCredentialStoring {
     let credential: WebCredential
 
@@ -149,7 +188,7 @@ private func makeCompositionFixtureCredential() throws -> WebCredential {
         cookies: WebCredentialCookieName.allCases.map { name in
             WebCredentialCookie(
                 name: name,
-                value: "FIXTURE_\(name.rawValue)_VALUE",
+                value: name == .userID ? "42" : "FIXTURE_\(name.rawValue)_VALUE",
                 domain: ".bilibili.com",
                 path: "/",
                 isSecure: true,
