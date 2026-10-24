@@ -5,136 +5,183 @@ import Testing
 
 @testable import BiliVideoCollectionUI
 
-/// 卡片菜单：右键菜单与读屏自定义操作出自同一份描述，项、顺序与标题一致；「拷贝链接」「在浏览器中打开」只给可进入
-/// 播放且有网页地址的卡片，打开交给系统 `OpenURLAction` 的正是该卡片的地址；没有项时不弹菜单；Control-点按走右键
-/// 同一条菜单路径，不激活卡片。
+/// 卡片菜单：右键菜单、读屏自定义操作与 ⌘⌫ 出自同一份描述。写操作一组在前、链接一组在后，组间有分隔线；「拷贝链接」
+/// 「在浏览器中打开」与「添加到稍后再看」只给可进入播放的卡片，「从稍后再看移除」也给不可用卡片并带 ⌘⌫；不满足写入门槛时
+/// 写操作项在菜单里禁用、不进入读屏操作；读屏操作执行时按卡片 ID 重新核对；没有项时不弹菜单；Control-点按走右键同一条
+/// 菜单路径，不激活卡片。
 struct NativeVideoCardMenuTests {
+    private static let webPage = URL(string: "https://www.bilibili.com/video/BV1Menu")
+
     @Test @MainActor
-    func playableCardWithAWebPageOffersCopyThenOpenInBrowser() throws {
-        let webPage = try #require(URL(string: "https://www.bilibili.com/video/BV1Menu"))
+    func playableCardOffersWriteGroupThenLinks() throws {
         var opened: [URL] = []
-        let items = NativeVideoCardMenu.Item.videoLinks(
-            for: Self.card(id: "BV1Menu", availability: .available),
-            webPageURL: webPage,
-            openURL: OpenURLAction { url in
-                opened.append(url)
-                return .handled
-            }
-        )
-
-        #expect(items.map(\.title) == [VideoCardMenuText.copyLink, VideoCardMenuText.openInBrowser])
-        #expect(items.map(\.systemImage) == ["link", "globe"])
-        items[1].action()
-        #expect(opened == [webPage])
-    }
-
-    @Test @MainActor
-    func unavailableCardsAndCardsWithoutAWebPageHaveNoMenu() throws {
-        let webPage = try #require(URL(string: "https://www.bilibili.com/video/BV1Gone"))
-        let openURL = OpenURLAction { _ in .handled }
-        let unavailable = NativeVideoCardMenu.Item.videoLinks(
-            for: Self.card(id: "BV1Gone", availability: .unavailable(badge: "已失效")),
-            webPageURL: webPage,
-            openURL: openURL
-        )
-        let withoutWebPage = NativeVideoCardMenu.Item.videoLinks(
-            for: Self.card(id: "fav-21-1", availability: .available),
-            webPageURL: nil,
-            openURL: openURL
-        )
-
-        #expect(unavailable.isEmpty)
-        #expect(withoutWebPage.isEmpty)
-        #expect(NativeVideoCardMenu(items: unavailable) == nil)
-    }
-
-    @Test @MainActor
-    func menuAndAccessibilityActionsShareItemsTitlesAndOrder() throws {
-        var performed: [String] = []
-        let titles = ["第一项", "第二项", "第三项"]
+        var added: [String] = []
         let menu = try #require(
-            NativeVideoCardMenu(
-                items: titles.map { title in
-                    NativeVideoCardMenu.Item(title: title, systemImage: "star") {
-                        performed.append(title)
-                    }
-                }
+            NativeVideoCardMenu.video(
+                for: Self.card(id: "BV1Menu", availability: .available),
+                webPageURL: Self.webPage,
+                openURL: OpenURLAction { url in
+                    opened.append(url)
+                    return .handled
+                },
+                writing: Self.writing(isAvailable: true, added: { added.append($0) }),
+                watchLater: .add
+            )
+        )
+
+        #expect(menu.sections.map { $0.map(\.title) } == [
+            [VideoCardMenuText.addToWatchLater],
+            [VideoCardMenuText.copyLink, VideoCardMenuText.openInBrowser]
+        ])
+        #expect(menu.items.map(\.systemImage) == ["text.badge.plus", "link", "globe"])
+        menu.items[0].action()
+        menu.items[2].action()
+        #expect(added == ["BV1Menu"])
+        #expect(opened == [try #require(Self.webPage)])
+
+        let nsMenu = menu.makeMenu()
+        #expect(!nsMenu.autoenablesItems)
+        #expect(nsMenu.items.map(\.isSeparatorItem) == [false, true, false, false])
+    }
+
+    /// 稍后再看页：失效等不可用卡片只有「从稍后再看移除」（带 ⌘⌫），可播放卡片另有链接；其他来源的不可用卡片没有菜单。
+    @Test @MainActor
+    func watchLaterRemovalAlsoCoversUnavailableCards() throws {
+        let openURL = OpenURLAction { _ in .handled }
+        let writing = Self.writing(isAvailable: true)
+        let unavailable = Self.card(id: "BV1Gone", availability: .unavailable(badge: "已失效"))
+
+        let removal = try #require(
+            NativeVideoCardMenu.video(
+                for: unavailable,
+                webPageURL: Self.webPage,
+                openURL: openURL,
+                writing: writing,
+                watchLater: .remove
+            )
+        )
+        #expect(removal.items.map(\.title) == [VideoCardMenuText.removeFromWatchLater])
+        #expect(removal.items[0].keyEquivalent == .commandDelete)
+        #expect(removal.enabledItem(for: .commandDelete) != nil)
+        let menuItem = try #require(removal.makeMenu().items.first)
+        #expect(menuItem.keyEquivalent == "\u{8}")
+        #expect(menuItem.keyEquivalentModifierMask == .command)
+
+        #expect(
+            NativeVideoCardMenu.video(
+                for: unavailable,
+                webPageURL: Self.webPage,
+                openURL: openURL,
+                writing: writing,
+                watchLater: .add
+            ) == nil
+        )
+    }
+
+    @Test @MainActor
+    func cardsWithoutAWebPageOrWriteEntryHaveOnlyWhatTheyQualifyFor() throws {
+        let openURL = OpenURLAction { _ in .handled }
+        let playable = Self.card(id: "BV1Menu", availability: .available)
+
+        #expect(
+            NativeVideoCardMenu.video(
+                for: playable,
+                webPageURL: nil,
+                openURL: openURL,
+                writing: Self.writing(isAvailable: true),
+                watchLater: .add
+            ) == nil
+        )
+        let withoutWriting = try #require(
+            NativeVideoCardMenu.video(
+                for: playable,
+                webPageURL: Self.webPage,
+                openURL: openURL,
+                writing: nil,
+                watchLater: .remove
+            )
+        )
+        #expect(
+            withoutWriting.items.map(\.title)
+                == [VideoCardMenuText.copyLink, VideoCardMenuText.openInBrowser]
+        )
+        #expect(NativeVideoCardMenu(sections: [[], []]) == nil)
+    }
+
+    /// 不满足门槛时写操作项仍显示但禁用（AppKit 不会自动重新启用），没有可执行的 ⌘⌫ 项。
+    @Test @MainActor
+    func unavailableWritingShowsDisabledItems() throws {
+        var removed: [String] = []
+        let menu = try #require(
+            NativeVideoCardMenu.video(
+                for: Self.card(id: "BV1Menu", availability: .available),
+                webPageURL: Self.webPage,
+                openURL: OpenURLAction { _ in .handled },
+                writing: Self.writing(isAvailable: false, removed: { removed.append($0) }),
+                watchLater: .remove
             )
         )
 
         let nsMenu = menu.makeMenu()
-        let actions = menu.accessibilityCustomActions
-        #expect(nsMenu.items.map(\.title) == titles)
-        #expect(actions.map(\.name) == titles)
+        nsMenu.update()
+        #expect(nsMenu.items.filter { !$0.isSeparatorItem }.map(\.isEnabled) == [false, true, true])
+        #expect(menu.enabledItem(for: .commandDelete) == nil)
+        #expect(removed.isEmpty)
+    }
 
+    @Test @MainActor
+    func menuItemsPerformTheirActions() throws {
+        var performed: [String] = []
+        let titles = ["第一项", "第二项", "第三项"]
+        let menu = try #require(
+            NativeVideoCardMenu(
+                sections: [
+                    titles.map { title in
+                        NativeVideoCardMenu.Item(title: title, systemImage: "star") {
+                            performed.append(title)
+                        }
+                    }
+                ]
+            )
+        )
+
+        let nsMenu = menu.makeMenu()
+        #expect(nsMenu.items.map(\.title) == titles)
         for menuItem in nsMenu.items {
             let target = try #require(menuItem.target as? NSObject)
             _ = target.perform(menuItem.action, with: menuItem)
         }
-        for action in actions {
-            #expect(action.handler?() == true)
-        }
-        #expect(performed == titles + titles)
+        #expect(performed == titles)
     }
 
-    /// 网格卡片的读屏操作取自注入的 `cardMenu`：传入的是这张卡片的呈现，网格拆除后卡片不再有操作。
+    /// 网格卡片的读屏操作取自注入的 `cardMenu`：标题与顺序同菜单里可用的项；禁用项不进入操作；执行时按卡片 ID 与此刻的
+    /// 描述重新核对；网格拆除后卡片不再有操作。
     @Test(.timeLimit(.minutes(1))) @MainActor
-    func gridCardsExposeTheInjectedMenuAsAccessibilityActions() async throws {
+    func gridCardsExposeEnabledMenuItemsAsAccessibilityActions() async throws {
         var opened: [URL] = []
+        var isWritingAvailable = false
         let openURL = OpenURLAction { url in
             opened.append(url)
             return .handled
         }
-        let coordinator = NativeVideoGridView.Coordinator(
-            items: [
+        let grid = try await GridFixture(
+            cards: [
                 Self.card(id: "BV1Menu0", availability: .available),
                 Self.card(id: "BV1Menu1", availability: .unavailable(badge: "已失效"))
             ],
-            initialScrollOffsetY: 0,
-            accessibilityLabel: "网格",
-            tailState: .end,
-            bottomInset: 0,
-            scrollResetRequestID: 0,
-            acknowledgedScrollResetRequestID: 0,
-            imagePipeline: StubCardImageLoader(),
-            onScroll: { _ in },
-            onAcknowledgeScrollReset: { _ in },
-            actions: NativeVideoGridActions(
-                onNearEnd: {},
-                onSelect: { _ in },
-                cardMenu: { card in
-                    NativeVideoCardMenu(
-                        items: NativeVideoCardMenu.Item.videoLinks(
-                            for: card,
-                            webPageURL: URL(string: "https://www.bilibili.com/video/\(card.id)"),
-                            openURL: openURL
-                        )
-                    )
-                }
-            )
+            cardMenu: { card in
+                NativeVideoCardMenu.video(
+                    for: card,
+                    webPageURL: URL(string: "https://www.bilibili.com/video/\(card.id)"),
+                    openURL: openURL,
+                    writing: Self.writing(isAvailable: isWritingAvailable),
+                    watchLater: .add
+                )
+            }
         )
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        let scrollView = coordinator.makeScrollView()
-        window.contentView = scrollView
-        defer { window.contentView = NSView() }
-        // makeScrollView 把首次排版排到下一轮主队列；等它跑完再取卡片。
-        await withCheckedContinuation { continuation in
-            DispatchQueue.main.async { continuation.resume() }
-        }
-        scrollView.layoutSubtreeIfNeeded()
-        let collectionView = try #require(scrollView.documentView as? NSCollectionView)
-        let cards = Dictionary(
-            uniqueKeysWithValues: collectionView.visibleItems()
-                .compactMap { $0 as? NativeVideoCollectionItem }
-                .compactMap { item in item.representedVideoID.map { ($0, item.view) } }
-        )
-        let available = try #require(cards["BV1Menu0"])
-        let unavailable = try #require(cards["BV1Menu1"])
+        defer { grid.tearDown() }
+        let available = try grid.cardView("BV1Menu0")
+        let unavailable = try grid.cardView("BV1Menu1")
 
         let actions = try #require(available.accessibilityCustomActions())
         #expect(
@@ -142,10 +189,60 @@ struct NativeVideoCardMenuTests {
         )
         #expect(actions[1].handler?() == true)
         #expect(opened.map(\.absoluteString) == ["https://www.bilibili.com/video/BV1Menu0"])
-        #expect(unavailable.accessibilityCustomActions()?.isEmpty ?? true)
+        #expect(unavailable.accessibilityCustomActions() == nil)
+        #expect(!unavailable.isAccessibilityEnabled())
 
-        coordinator.reset()
-        #expect(available.accessibilityCustomActions()?.isEmpty ?? true)
+        isWritingAvailable = true
+        let writeActions = try #require(available.accessibilityCustomActions())
+        #expect(writeActions.first?.name == VideoCardMenuText.addToWatchLater)
+        // 查询之后门槛变化：执行时按此刻的描述核对，禁用的项不再执行。
+        isWritingAvailable = false
+        #expect(writeActions.first?.handler?() == false)
+
+        grid.coordinator.reset()
+        #expect(available.accessibilityCustomActions() == nil)
+    }
+
+    /// 稍后再看页的失效卡片：读屏仍可用并列出「从稍后再看移除」，执行即移除；按下仍不进入播放。⌘⌫ 对选中卡片执行同一项。
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func unavailableWatchLaterCardsStayRemovableBySpeechAndKeyboard() async throws {
+        var removed: [String] = []
+        var selections: [String] = []
+        var isWritingAvailable = true
+        let grid = try await GridFixture(
+            cards: [Self.card(id: "BV1Gone", availability: .unavailable(badge: "已失效"))],
+            onSelect: { selections.append($0) },
+            cardMenu: { card in
+                NativeVideoCardMenu.video(
+                    for: card,
+                    webPageURL: URL(string: "https://www.bilibili.com/video/\(card.id)"),
+                    openURL: OpenURLAction { _ in .handled },
+                    writing: Self.writing(
+                        isAvailable: isWritingAvailable,
+                        removed: { removed.append($0) }
+                    ),
+                    watchLater: .remove
+                )
+            }
+        )
+        defer { grid.tearDown() }
+        let card = try grid.cardView("BV1Gone")
+
+        #expect(card.isAccessibilityEnabled())
+        #expect(!card.accessibilityPerformPress())
+        let actions = try #require(card.accessibilityCustomActions())
+        #expect(actions.map(\.name) == [VideoCardMenuText.removeFromWatchLater])
+        #expect(actions[0].handler?() == true)
+        #expect(removed == ["BV1Gone"])
+
+        grid.collectionView.selectItems(at: [IndexPath(item: 0, section: 0)], scrollPosition: [])
+        grid.collectionView.keyDown(with: try Self.commandDelete(in: grid.window))
+        #expect(removed == ["BV1Gone", "BV1Gone"])
+
+        isWritingAvailable = false
+        grid.collectionView.keyDown(with: try Self.commandDelete(in: grid.window))
+        #expect(removed == ["BV1Gone", "BV1Gone"])
+        #expect(selections.isEmpty)
     }
 
     /// 打开卡片菜单的两个非右键入口。
@@ -165,27 +262,27 @@ struct NativeVideoCardMenuTests {
     func entriesRouteToTheRightClickMenuWithoutActivating(entry: MenuEntry) async throws {
         var requestedIDs: [String] = []
         var selections: [String] = []
-        let grid = try await GridHarness(
-            actions: NativeVideoGridActions(
-                onNearEnd: {},
-                onSelect: { selections.append($0) },
-                cardMenu: { card in
-                    requestedIDs.append(card.id)
-                    guard entry == .accessibilityShowMenu, requestedIDs.count == 1 else {
-                        return nil
-                    }
-                    return NativeVideoCardMenu(
-                        items: [NativeVideoCardMenu.Item(title: "菜单项", systemImage: "link") {}]
-                    )
+        let grid = try await GridFixture(
+            cards: [Self.card(id: "BV1Menu0", availability: .available)],
+            onSelect: { selections.append($0) },
+            cardMenu: { card in
+                requestedIDs.append(card.id)
+                guard entry == .accessibilityShowMenu, requestedIDs.count == 1 else {
+                    return nil
                 }
-            )
+                return NativeVideoCardMenu(
+                    sections: [[NativeVideoCardMenu.Item(title: "菜单项", systemImage: "link") {}]]
+                )
+            }
         )
+        defer { grid.tearDown() }
+        let card = try grid.cardView("BV1Menu0")
 
         switch entry {
         case .controlClick:
-            grid.collectionView.mouseDown(with: try grid.cardEvent(.leftMouseDown, .control))
+            grid.collectionView.mouseDown(with: try grid.event(.leftMouseDown, .control, on: card))
         case .accessibilityShowMenu:
-            #expect(grid.card.accessibilityPerformShowMenu())
+            #expect(card.accessibilityPerformShowMenu())
             // 读屏入口推到下一轮主队列才走右键路径；等第二次取菜单，超时由 time limit 兜底。
             while requestedIDs.count < 2 {
                 await withCheckedContinuation { continuation in
@@ -199,99 +296,74 @@ struct NativeVideoCardMenuTests {
         #expect(grid.collectionView.selectionIndexPaths.isEmpty)
     }
 
-    /// 右键路径给出的就是来源的菜单；上下文描边只由 `willOpenMenu` 画、`didCloseMenu` 撤。
+    /// 右键路径给出的就是来源的菜单（含禁用状态）；上下文描边只由 `willOpenMenu` 画、`didCloseMenu` 撤。
     @Test(.timeLimit(.minutes(1))) @MainActor
     func rightClickMenuIsTheSourceMenuAndRingFollowsOpenAndClose() async throws {
-        let grid = try await GridHarness(
-            actions: NativeVideoGridActions(
-                onNearEnd: {},
-                onSelect: { _ in },
-                cardMenu: { _ in
-                    NativeVideoCardMenu(
-                        items: [NativeVideoCardMenu.Item(title: "菜单项", systemImage: "link") {}]
-                    )
-                }
-            )
+        let grid = try await GridFixture(
+            cards: [Self.card(id: "BV1Menu0", availability: .available)],
+            cardMenu: { card in
+                NativeVideoCardMenu.video(
+                    for: card,
+                    webPageURL: URL(string: "https://www.bilibili.com/video/\(card.id)"),
+                    openURL: OpenURLAction { _ in .handled },
+                    writing: Self.writing(isAvailable: false),
+                    watchLater: .add
+                )
+            }
         )
-        let event = try grid.cardEvent(.rightMouseDown, [])
+        defer { grid.tearDown() }
+        let card = try grid.cardView("BV1Menu0")
+        let event = try grid.event(.rightMouseDown, [], on: card)
 
         let menu = try #require(grid.collectionView.menu(for: event))
-        #expect(menu.items.map(\.title) == ["菜单项"])
-        #expect(grid.card.layer?.borderWidth == 0)
+        #expect(
+            menu.items.filter { !$0.isSeparatorItem }.map(\.title)
+                == [
+                    VideoCardMenuText.addToWatchLater,
+                    VideoCardMenuText.copyLink,
+                    VideoCardMenuText.openInBrowser
+                ]
+        )
+        #expect(menu.items.first?.isEnabled == false)
+        #expect(card.layer?.borderWidth == 0)
 
         grid.collectionView.willOpenMenu(menu, with: event)
-        #expect((grid.card.layer?.borderWidth ?? 0) > 0)
+        #expect((card.layer?.borderWidth ?? 0) > 0)
 
         grid.collectionView.didCloseMenu(menu, with: event)
-        #expect(grid.card.layer?.borderWidth == 0)
+        #expect(card.layer?.borderWidth == 0)
     }
 
-    /// 只有一张可用卡片 `BV1Menu0` 的网格，挂在不显示的窗口里；析构时拆除网格。
     @MainActor
-    private final class GridHarness {
-        let coordinator: NativeVideoGridView.Coordinator
-        let window: NSWindow
-        let collectionView: NSCollectionView
-        let card: NSView
+    private static func writing(
+        isAvailable: Bool,
+        added: @escaping (String) -> Void = { _ in },
+        removed: @escaping (String) -> Void = { _ in }
+    ) -> VideoCardAccountWriting {
+        nonisolated(unsafe) let added = added
+        nonisolated(unsafe) let removed = removed
+        return VideoCardAccountWriting(
+            isAvailable: { isAvailable },
+            addToWatchLater: { added($0) },
+            removeFromWatchLater: { removed($0) }
+        )
+    }
 
-        init(actions: NativeVideoGridActions) async throws {
-            coordinator = NativeVideoGridView.Coordinator(
-                items: [NativeVideoCardMenuTests.card(id: "BV1Menu0", availability: .available)],
-                initialScrollOffsetY: 0,
-                accessibilityLabel: "网格",
-                tailState: .end,
-                bottomInset: 0,
-                scrollResetRequestID: 0,
-                acknowledgedScrollResetRequestID: 0,
-                imagePipeline: StubCardImageLoader(),
-                onScroll: { _ in },
-                onAcknowledgeScrollReset: { _ in },
-                actions: actions
+    private static func commandDelete(in window: NSWindow) throws -> NSEvent {
+        try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: .command,
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: "\u{7f}",
+                charactersIgnoringModifiers: "\u{7f}",
+                isARepeat: false,
+                keyCode: 51
             )
-            window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
-                styleMask: [.borderless],
-                backing: .buffered,
-                defer: false
-            )
-            let scrollView = coordinator.makeScrollView()
-            window.contentView = scrollView
-            // makeScrollView 把首次排版排到下一轮主队列；等它跑完再取卡片。
-            await withCheckedContinuation { continuation in
-                DispatchQueue.main.async { continuation.resume() }
-            }
-            scrollView.layoutSubtreeIfNeeded()
-            collectionView = try #require(scrollView.documentView as? NSCollectionView)
-            card = try #require(collectionView.visibleItems().first?.view)
-        }
-
-        isolated deinit {
-            coordinator.reset()
-            window.contentView = nil
-        }
-
-        /// 落在卡片中心的鼠标事件。
-        func cardEvent(
-            _ type: NSEvent.EventType,
-            _ modifierFlags: NSEvent.ModifierFlags
-        ) throws -> NSEvent {
-            try #require(
-                NSEvent.mouseEvent(
-                    with: type,
-                    location: card.convert(
-                        NSPoint(x: card.bounds.midX, y: card.bounds.midY),
-                        to: nil
-                    ),
-                    modifierFlags: modifierFlags,
-                    timestamp: ProcessInfo.processInfo.systemUptime,
-                    windowNumber: window.windowNumber,
-                    context: nil,
-                    eventNumber: 0,
-                    clickCount: 1,
-                    pressure: 1
-                )
-            )
-        }
+        )
     }
 
     private static func card(
@@ -308,5 +380,86 @@ struct NativeVideoCardMenuTests {
             accessibilityLabel: "手写卡片",
             availability: availability
         )
+    }
+}
+
+/// 在无边框窗口里排好的网格，按 ID 取卡片视图；测试结束时 `tearDown` 拆除。
+@MainActor
+private struct GridFixture {
+    let coordinator: NativeVideoGridView.Coordinator
+    let window: NSWindow
+    let collectionView: NSCollectionView
+
+    init(
+        cards: [NativeVideoCardPresentation],
+        onSelect: @escaping (String) -> Void = { _ in },
+        cardMenu: @escaping (NativeVideoCardPresentation) -> NativeVideoCardMenu?
+    ) async throws {
+        coordinator = NativeVideoGridView.Coordinator(
+            items: cards,
+            initialScrollOffsetY: 0,
+            accessibilityLabel: "网格",
+            tailState: .end,
+            bottomInset: 0,
+            scrollResetRequestID: 0,
+            acknowledgedScrollResetRequestID: 0,
+            imagePipeline: StubCardImageLoader(),
+            onScroll: { _ in },
+            onAcknowledgeScrollReset: { _ in },
+            actions: NativeVideoGridActions(
+                onNearEnd: {},
+                onSelect: onSelect,
+                cardMenu: cardMenu
+            )
+        )
+        window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let scrollView = coordinator.makeScrollView()
+        window.contentView = scrollView
+        // makeScrollView 把首次排版排到下一轮主队列；等它跑完再取卡片。
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+        scrollView.layoutSubtreeIfNeeded()
+        collectionView = try #require(scrollView.documentView as? NSCollectionView)
+    }
+
+    func cardView(_ id: String) throws -> NSView {
+        let item = try #require(
+            collectionView.visibleItems()
+                .compactMap { $0 as? NativeVideoCollectionItem }
+                .first { $0.representedVideoID == id }
+        )
+        return item.view
+    }
+
+    /// 落在 `view` 中心的鼠标事件。
+    func event(
+        _ type: NSEvent.EventType,
+        _ modifierFlags: NSEvent.ModifierFlags,
+        on view: NSView
+    ) throws -> NSEvent {
+        try #require(
+            NSEvent.mouseEvent(
+                with: type,
+                location: view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil),
+                modifierFlags: modifierFlags,
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 1,
+                pressure: 1
+            )
+        )
+    }
+
+    func tearDown() {
+        coordinator.reset()
+        window.contentView = NSView()
     }
 }

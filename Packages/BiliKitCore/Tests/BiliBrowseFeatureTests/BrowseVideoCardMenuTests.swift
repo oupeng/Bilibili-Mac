@@ -7,7 +7,8 @@ import Testing
 
 @testable import BiliBrowseFeature
 
-/// 首页推荐、热门与搜索的卡片都有「拷贝链接」「在浏览器中打开」，打开的是该视频的网页地址；ID 不是合法 BVID 时没有菜单。
+/// 首页推荐、热门与搜索的卡片都有「添加到稍后再看」（交出的是这张卡片的 BVID）与「拷贝链接」「在浏览器中打开」，打开的是
+/// 该视频的网页地址；ID 不是合法 BVID 时没有菜单。
 struct BrowseVideoCardMenuTests {
     private static let owner = VideoOwner(id: 1, name: "作者")
     private static let statistics = VideoStatistics(viewCount: 10, danmakuCount: 2, likeCount: 3)
@@ -60,20 +61,32 @@ struct BrowseVideoCardMenuTests {
 
         for card in cards {
             var opened: [URL] = []
+            let added = AddedVideos()
             let menu = try #require(
                 BrowseVideoCardMenu.menu(
                     for: card,
                     openURL: OpenURLAction { url in
                         opened.append(url)
                         return .handled
-                    }
+                    },
+                    writing: VideoCardAccountWriting(
+                        isAvailable: { true },
+                        addToWatchLater: { added.ids.append($0) },
+                        removeFromWatchLater: { _ in }
+                    )
                 )
             )
             #expect(
                 menu.items.map(\.title)
-                    == [VideoCardMenuText.copyLink, VideoCardMenuText.openInBrowser]
+                    == [
+                        VideoCardMenuText.addToWatchLater,
+                        VideoCardMenuText.copyLink,
+                        VideoCardMenuText.openInBrowser
+                    ]
             )
-            menu.items[1].action()
+            menu.items[0].action()
+            menu.items[2].action()
+            #expect(added.ids == [card.id])
             #expect(opened.map(\.absoluteString) == ["https://www.bilibili.com/video/\(card.id)"])
         }
     }
@@ -95,6 +108,12 @@ struct BrowseVideoCardMenuTests {
         )
 
         let openURL = OpenURLAction { _ in .handled }
-        #expect(BrowseVideoCardMenu.menu(for: card, openURL: openURL) == nil)
+        #expect(BrowseVideoCardMenu.menu(for: card, openURL: openURL, writing: nil) == nil)
     }
+}
+
+/// 记录写入口收到的 BVID；写入口的闭包在主线程调用。
+@MainActor
+private final class AddedVideos {
+    var ids: [String] = []
 }

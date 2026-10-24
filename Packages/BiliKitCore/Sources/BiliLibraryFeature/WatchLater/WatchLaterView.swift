@@ -41,6 +41,7 @@ public struct WatchLaterView: View {
             model: model,
             text: text,
             card: { WatchLaterCardPresentation(item: $0, locale: $1).nativeCard },
+            watchLaterAction: .remove,
             accountState: accountState,
             gridHost: gridHost,
             onSelect: onSelect,

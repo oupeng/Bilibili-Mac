@@ -173,7 +173,14 @@ package enum NativeVideoCollectionKeys {
     static let rightArrow: UInt16 = 124
     static let downArrow: UInt16 = 125
     static let upArrow: UInt16 = 126
+    static let deleteKey: UInt16 = 51
     static let space = " "
+
+    /// ⌘⌫：只按住 Command（不含 Shift、Option、Control）时的删除键。
+    package static func isCommandDelete(_ event: NSEvent) -> Bool {
+        event.keyCode == deleteKey
+            && event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command
+    }
 
     package static func isActivation(_ event: NSEvent) -> Bool {
         event.keyCode == returnKey || event.charactersIgnoringModifiers == space

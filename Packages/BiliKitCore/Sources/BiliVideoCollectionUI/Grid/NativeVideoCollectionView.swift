@@ -1,7 +1,7 @@
 import AppKit
 import BiliUI
 
-/// 网格的集合视图：扩大预备区域，并处理点击激活与按列数移动的键盘选择。
+/// 网格的集合视图：扩大预备区域，并处理点击激活、按列数移动的键盘选择与选中卡片的 ⌘⌫。
 ///
 /// 只由 `NativeVideoGridView` 创建；用 AppKit 的理由见 ARCHITECTURE「原生 AppKit 集合视图」。
 @MainActor
@@ -56,6 +56,16 @@ final class NativeVideoCollectionView: NativeVideoCardCollectionView {
     }
 
     override func keyDown(with event: NSEvent) {
+        // ⌘⌫ 执行选中卡片菜单里带这个快捷键的项（稍后再看页的「从稍后再看移除」），与右键菜单、读屏操作同一份描述；
+        // 每次按键重新取描述，项禁用或卡片没有这一项时交给系统（发出提示音）。
+        if NativeVideoCollectionKeys.isCommandDelete(event),
+            let indexPath = selectionIndexPaths.first,
+            let id = item(at: indexPath)?.representedObject as? String,
+            let item = cardMenu?(id)?.enabledItem(for: .commandDelete)
+        {
+            item.action()
+            return
+        }
         if NativeVideoCollectionKeys.isActivation(event),
             let indexPath = selectionIndexPaths.first,
             let id = item(at: indexPath)?.representedObject as? String

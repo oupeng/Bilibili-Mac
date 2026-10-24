@@ -627,7 +627,13 @@ final class NativeVideoCardView: NSView {
     }
 
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
-        menuHost?.cardMenu?.accessibilityCustomActions
+        menuHost?.accessibilityCardActions
+    }
+
+    /// 不可用卡片仍有可执行的菜单项时（稍后再看里失效视频的「从稍后再看移除」）保持读屏可用，否则读屏可能不列出操作、
+    /// 也不提供「显示菜单」；按下仍由 `accessibilityPerformPress` 拒绝，不会进入播放。
+    override func isAccessibilityEnabled() -> Bool {
+        isActivatable || accessibilityCustomActions() != nil
     }
 
     override func accessibilityPerformShowMenu() -> Bool {
@@ -639,7 +645,6 @@ final class NativeVideoCardView: NSView {
         let opacity: Float = activatable ? 1 : NativeVideoCardLayout.unavailableContentOpacity
         textRenderer.setContentOpacity(opacity)
         avatar.alphaValue = CGFloat(opacity)
-        setAccessibilityEnabled(activatable)
         guard isActivatable != activatable else { return }
         isActivatable = activatable
         window?.invalidateCursorRects(for: self)

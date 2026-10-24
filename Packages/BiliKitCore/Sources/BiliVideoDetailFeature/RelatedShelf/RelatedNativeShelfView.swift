@@ -1,10 +1,12 @@
 import BiliModels
+import BiliUI
 import BiliVideoCollectionUI
 import SwiftUI
 
 /// 播放页主区下方的相关推荐横排：把相关推荐投影映射为共享卡片，经卡片取图 port 加载封面；卡片菜单见 `cardMenu`。
 struct RelatedNativeShelfView: View {
     @Environment(\.openURL) private var openURL
+    @Environment(\.videoCardAccountWriting) private var accountWriting
     let contentIdentity: String
     let presentations: [RelatedVideoCardPresentation]
     let imagePipeline: any NativeVideoImageLoading
@@ -28,24 +30,27 @@ struct RelatedNativeShelfView: View {
             items: Self.makePresentations(presentations),
             imagePipeline: imagePipeline,
             onSelect: onSelect,
-            cardMenu: { Self.cardMenu(for: $0, openURL: openURL) }
+            cardMenu: { Self.cardMenu(for: $0, openURL: openURL, writing: accountWriting) }
         )
         .ignoresSafeArea(.container, edges: .horizontal)
     }
 
-    /// 相关推荐卡片的菜单：「拷贝链接」「在浏览器中打开」（`NativeVideoCardMenu.Item.videoLinks`）。
+    /// 相关推荐卡片的菜单：「添加到稍后再看」一组加「拷贝链接」「在浏览器中打开」一组，规则在共用的
+    /// `NativeVideoCardMenu.video`。
     ///
-    /// 卡片 ID 就是 BVID，不合法时没有菜单。`openURL` 是从环境取得的系统 `OpenURLAction`。
+    /// 卡片 ID 就是 BVID，不合法时没有菜单。`openURL` 是从环境取得的系统 `OpenURLAction`，`writing` 是 App 从环境注入的
+    /// 写入口（未登录或复核中时写操作项禁用）。
     static func cardMenu(
         for card: NativeVideoCardPresentation,
-        openURL: OpenURLAction
+        openURL: OpenURLAction,
+        writing: VideoCardAccountWriting?
     ) -> NativeVideoCardMenu? {
-        NativeVideoCardMenu(
-            items: NativeVideoCardMenu.Item.videoLinks(
-                for: card,
-                webPageURL: BVID.webPageURL(card.id),
-                openURL: openURL
-            )
+        NativeVideoCardMenu.video(
+            for: card,
+            webPageURL: BVID.webPageURL(card.id),
+            openURL: openURL,
+            writing: writing,
+            watchLater: .add
         )
     }
 

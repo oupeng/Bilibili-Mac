@@ -1,4 +1,5 @@
 import BiliModels
+import BiliUI
 import BiliVideoCollectionUI
 import Foundation
 import SwiftUI
@@ -11,6 +12,7 @@ import SwiftUI
 struct RecommendedNativeGridView: View {
     @Environment(\.locale) private var locale
     @Environment(\.openURL) private var openURL
+    @Environment(\.videoCardAccountWriting) private var accountWriting
     let content: LoadedFeedContent<RecommendedVideo>
     let host: NativeVideoGridHostContext
 
@@ -22,7 +24,9 @@ struct RecommendedNativeGridView: View {
             host: host,
             onNearEnd: content.loadMore,
             onSelect: content.select,
-            cardMenu: { BrowseVideoCardMenu.menu(for: $0, openURL: openURL) }
+            cardMenu: {
+                BrowseVideoCardMenu.menu(for: $0, openURL: openURL, writing: accountWriting)
+            }
         )
     }
 

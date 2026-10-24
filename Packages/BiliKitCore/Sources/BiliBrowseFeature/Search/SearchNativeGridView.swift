@@ -1,3 +1,4 @@
+import BiliUI
 import BiliVideoCollectionUI
 import SwiftUI
 
@@ -9,6 +10,7 @@ import SwiftUI
 struct SearchNativeGridView: View {
     @Environment(\.locale) private var locale
     @Environment(\.openURL) private var openURL
+    @Environment(\.videoCardAccountWriting) private var accountWriting
     let content: LoadedFeedContent<SearchVideoCardPresentation>
     let host: NativeVideoGridHostContext
 
@@ -20,7 +22,9 @@ struct SearchNativeGridView: View {
             host: host,
             onNearEnd: content.loadMore,
             onSelect: content.select,
-            cardMenu: { BrowseVideoCardMenu.menu(for: $0, openURL: openURL) }
+            cardMenu: {
+                BrowseVideoCardMenu.menu(for: $0, openURL: openURL, writing: accountWriting)
+            }
         )
     }
 

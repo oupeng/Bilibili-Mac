@@ -14,6 +14,7 @@ struct FavoriteFolderContentView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.locale) private var locale
     @Environment(\.openURL) private var openURL
+    @Environment(\.videoCardAccountWriting) private var accountWriting
     let model: FavoriteFolderViewModel
     let gridHost: NativeVideoGridHostContext
     let onSelect: (String) -> Void
@@ -173,7 +174,14 @@ struct FavoriteFolderContentView: View {
             host: gridHost,
             onNearEnd: {},
             onSelect: onSelect,
-            cardMenu: { LibraryVideoCardMenu.menu(for: $0, openURL: openURL) }
+            cardMenu: {
+                LibraryVideoCardMenu.menu(
+                    for: $0,
+                    openURL: openURL,
+                    writing: accountWriting,
+                    watchLater: .add
+                )
+            }
         )
         .ignoresSafeArea(.container, edges: .top)
         .overlay(alignment: .top) {
