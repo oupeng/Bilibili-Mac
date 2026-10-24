@@ -546,9 +546,11 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
         return url
     }
 
-    /// 视频请求的 Referer：与网页一致带尾部斜杠，调用方已用 `BVID.isValid` 校验过 BVID。
-    static func videoReferer(_ bvid: String) -> String {
-        "https://www.bilibili.com/video/\(bvid)/"
+    /// 视频请求的 Referer：`BVID.webPageURL` 加尾部斜杠，与网页版一致，播放心跳授权器也按这个形状核对；
+    /// BVID 不合法时抛 `invalidRequest`，不发出请求。
+    static func videoReferer(_ bvid: String) throws -> String {
+        guard let webPage = BVID.webPageURL(bvid) else { throw BiliAPIError.invalidRequest }
+        return webPage.absoluteString + "/"
     }
 }
 

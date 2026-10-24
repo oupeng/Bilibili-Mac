@@ -1,3 +1,4 @@
+import BiliModels
 import BiliNetworking
 import Foundation
 
@@ -243,11 +244,7 @@ public struct BiliPlaybackHeartbeatRequestAuthorizer: HTTPRequestAuthorizing,
             && header.hasSuffix("/")
             && pathParts.count == 2
             && pathParts[0] == "video"
-            && pathParts[1].hasPrefix("BV")
-            && pathParts[1].count <= 24
-            && pathParts[1].allSatisfy {
-                $0.isASCII && ($0.isLetter || $0.isNumber)
-            }
+            && BVID.isValid(String(pathParts[1]))
     }
 
     private static func decodedUniqueFields(_ value: String) -> [String: String]? {

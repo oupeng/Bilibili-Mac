@@ -37,7 +37,7 @@ extension BiliAPIClient {
             send: { url in
                 try await get(
                     url: url,
-                    referer: Self.videoReferer(identity.bvid),
+                    referer: try Self.videoReferer(identity.bvid),
                     access: .accountRead(missingCredential: .fail),
                     maximumResponseSize: Self.maximumSubtitleCatalogSize
                 )
@@ -71,7 +71,10 @@ extension BiliAPIClient {
                 ]
             },
             send: { url in
-                try await signedDanmakuSegment(url: url, referer: Self.videoReferer(identity.bvid))
+                try await signedDanmakuSegment(
+                    url: url,
+                    referer: try Self.videoReferer(identity.bvid)
+                )
             }
         )
     }

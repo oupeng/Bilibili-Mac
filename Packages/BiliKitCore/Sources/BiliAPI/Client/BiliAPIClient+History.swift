@@ -82,7 +82,7 @@ extension BiliAPIClient {
             path: "/x/click-interface/web/heartbeat",
             percentEncodedQuery: query
         )
-        let referer = Self.videoReferer(report.target.identity.bvid)
+        let referer = try Self.videoReferer(report.target.identity.bvid)
         var bodyFields: [(String, String)] = [
             ("start_ts", String(report.sessionStartTimestamp)),
             ("aid", String(report.target.aid)),

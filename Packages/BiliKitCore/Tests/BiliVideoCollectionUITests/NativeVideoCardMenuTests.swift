@@ -99,17 +99,19 @@ struct NativeVideoCardMenuTests {
             imagePipeline: StubCardImageLoader(),
             onScroll: { _ in },
             onAcknowledgeScrollReset: { _ in },
-            onNearEnd: {},
-            onSelect: { _ in },
-            cardMenu: { card in
-                NativeVideoCardMenu(
-                    items: NativeVideoCardMenu.Item.videoLinks(
-                        for: card,
-                        webPageURL: URL(string: "https://www.bilibili.com/video/\(card.id)"),
-                        openURL: openURL
+            actions: NativeVideoGridActions(
+                onNearEnd: {},
+                onSelect: { _ in },
+                cardMenu: { card in
+                    NativeVideoCardMenu(
+                        items: NativeVideoCardMenu.Item.videoLinks(
+                            for: card,
+                            webPageURL: URL(string: "https://www.bilibili.com/video/\(card.id)"),
+                            openURL: openURL
+                        )
                     )
-                )
-            }
+                }
+            )
         )
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
@@ -146,10 +148,19 @@ struct NativeVideoCardMenuTests {
         #expect(available.accessibilityCustomActions()?.isEmpty ?? true)
     }
 
-    /// Control-点按沿响应链到达网格时走右键同一条菜单路径：取这张卡片的菜单并弹出，打开期间画上下文描边，
-    /// 不当作点击激活。
-    @Test(.timeLimit(.minutes(1))) @MainActor
-    func controlClickOpensTheCardMenuWithoutActivating() async throws {
+    /// 打开卡片菜单的两个非右键入口。
+    enum MenuEntry: String, CaseIterable {
+        /// Control-点按沿响应链到达网格的 `mouseDown`。
+        case controlClick
+        /// 读屏「显示菜单」。
+        case accessibilityShowMenu
+    }
+
+    /// Control-点按与读屏「显示菜单」都走右键同一条菜单路径。
+    ///
+    /// 取这张卡片的菜单并弹出，打开期间画上下文描边，不当作点击激活。用例观察的是进程内所有菜单的跟踪通知，并行会互相关掉对方的菜单，所以串行。
+    @Test(.serialized, .timeLimit(.minutes(1)), arguments: MenuEntry.allCases) @MainActor
+    func entriesOpenTheCardMenuThroughTheRightClickPath(entry: MenuEntry) async throws {
         var requestedIDs: [String] = []
         var selections: [String] = []
         let coordinator = NativeVideoGridView.Coordinator(
@@ -163,14 +174,16 @@ struct NativeVideoCardMenuTests {
             imagePipeline: StubCardImageLoader(),
             onScroll: { _ in },
             onAcknowledgeScrollReset: { _ in },
-            onNearEnd: {},
-            onSelect: { selections.append($0) },
-            cardMenu: { card in
-                requestedIDs.append(card.id)
-                return NativeVideoCardMenu(
-                    items: [NativeVideoCardMenu.Item(title: "菜单项", systemImage: "link") {}]
-                )
-            }
+            actions: NativeVideoGridActions(
+                onNearEnd: {},
+                onSelect: { selections.append($0) },
+                cardMenu: { card in
+                    requestedIDs.append(card.id)
+                    return NativeVideoCardMenu(
+                        items: [NativeVideoCardMenu.Item(title: "菜单项", systemImage: "link") {}]
+                    )
+                }
+            )
         )
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
@@ -220,9 +233,20 @@ struct NativeVideoCardMenuTests {
         }
         defer { NotificationCenter.default.removeObserver(observer) }
 
-        collectionView.mouseDown(with: event)
+        switch entry {
+        case .controlClick:
+            collectionView.mouseDown(with: event)
+        case .accessibilityShowMenu:
+            #expect(card.accessibilityPerformShowMenu())
+            // 读屏入口推到下一轮主队列才弹出；等菜单开始跟踪，超时由 time limit 兜底。
+            while borderWidthWhileOpen == nil {
+                await withCheckedContinuation { continuation in
+                    DispatchQueue.main.async { continuation.resume() }
+                }
+            }
+        }
 
-        #expect(requestedIDs == ["BV1Menu0"])
+        #expect(Set(requestedIDs) == ["BV1Menu0"])
         #expect((borderWidthWhileOpen ?? 0) > 0)
         #expect(card.layer?.borderWidth == 0)
         #expect(selections.isEmpty)

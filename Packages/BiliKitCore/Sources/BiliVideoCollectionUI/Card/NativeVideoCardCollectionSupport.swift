@@ -203,10 +203,12 @@ open class NativeVideoCardCollectionView: NSCollectionView {
     /// 由网格与横排的 Coordinator 设置并在 reset 时清空，Coordinator 再转给 Feature 注入的 `cardMenu`。
     package var cardMenu: ((String) -> NativeVideoCardMenu?)?
     package private(set) var showsKeyboardSelection = false
-    /// 右键菜单打开期间的目标卡片：`menu(for:)` 记下，`willOpenMenu` 画上下文描边，`didCloseMenu` 撤销并清空。
+    /// 菜单打开期间的目标卡片：`menu(for:)` 记下，`willOpenMenu` 画上下文描边，`didCloseMenu` 撤销并清空。
+    ///
+    /// 右键、Control-点按与读屏「显示菜单」都经 `rightMouseDown` 走到这里，描边只在这一对回调里写。
     private weak var contextMenuTarget: NativeVideoCollectionItem?
 
-    /// 右键与 Control-点按命中卡片时弹出该卡片的菜单；空白处与没有菜单的卡片不弹。
+    /// 右键、Control-点按与读屏「显示菜单」命中卡片时弹出该卡片的菜单；空白处与没有菜单的卡片不弹。
     ///
     /// 与访达、「音乐」一致，右键不改变选中，也不移动键盘选择框，只在菜单打开期间给目标卡片画上下文描边：
     /// 菜单只作用于被点的那张卡片，改选中会让键盘焦点跟着跳走。

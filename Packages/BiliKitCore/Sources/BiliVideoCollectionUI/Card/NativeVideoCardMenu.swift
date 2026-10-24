@@ -115,7 +115,8 @@ extension NativeVideoCardCollectionView {
         return cardMenu?(id)
     }
 
-    /// 读屏「显示菜单」：在卡片旁弹出与右键相同的菜单，期间画上下文描边。
+    /// 读屏「显示菜单」：以卡片中心的右键事件走右键同一条路径（`rightMouseDown` → `menu(for:)` → `willOpenMenu`／
+    /// `didCloseMenu`），菜单、弹出位置与上下文描边都与右键一致。
     ///
     /// 推到下一轮 runloop 再弹：菜单的跟踪循环会一直阻塞到菜单关闭，在辅助功能请求里同步弹出会让读屏等到超时。
     /// 届时卡片可能已被复用给其他视频，所以按发起时的 ID 重新核对。
@@ -126,16 +127,23 @@ extension NativeVideoCardCollectionView {
                 let self,
                 let item,
                 item.representedVideoID == id,
-                let menu = self.cardMenu(for: item)
+                let window = self.window,
+                let event = NSEvent.mouseEvent(
+                    with: .rightMouseDown,
+                    location: item.view.convert(
+                        NSPoint(x: item.view.bounds.midX, y: item.view.bounds.midY),
+                        to: nil
+                    ),
+                    modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber,
+                    context: nil,
+                    eventNumber: 0,
+                    clickCount: 1,
+                    pressure: 1
+                )
             else { return }
-            let view = item.view
-            item.setContextMenuTarget(true)
-            menu.makeMenu().popUp(
-                positioning: nil,
-                at: NSPoint(x: view.bounds.minX, y: view.bounds.midY),
-                in: view
-            )
-            item.setContextMenuTarget(false)
+            self.rightMouseDown(with: event)
         }
         return true
     }

@@ -32,7 +32,7 @@ extension BiliAPIClient {
             path: BiliAccountReadPath.videoDetail,
             parameters: { ["bvid": bvid] },
             send: { url in
-                try await get(url: url, referer: Self.videoReferer(bvid), access: access)
+                try await get(url: url, referer: try Self.videoReferer(bvid), access: access)
             }
         )
     }
@@ -47,7 +47,7 @@ extension BiliAPIClient {
                 path: BiliAccountReadPath.relatedVideos,
                 queryItems: [URLQueryItem(name: "bvid", value: bvid)]
             ),
-            referer: Self.videoReferer(bvid),
+            referer: try Self.videoReferer(bvid),
             access: .accountRead(missingCredential: .useAnonymousRequest)
         )
         return try payload.map { try $0.model() }

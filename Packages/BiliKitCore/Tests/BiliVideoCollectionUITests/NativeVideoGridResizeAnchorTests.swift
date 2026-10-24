@@ -145,9 +145,11 @@ private final class GridHarness {
             imagePipeline: StubCardImageLoader(),
             onScroll: { _ in },
             onAcknowledgeScrollReset: { _ in },
-            onNearEnd: {},
-            onSelect: { _ in },
-            cardMenu: { _ in nil }
+            actions: NativeVideoGridActions(
+                onNearEnd: {},
+                onSelect: { _ in },
+                cardMenu: { _ in nil }
+            )
         )
         self.coordinator = coordinator
         scrollView = coordinator.makeScrollView()
@@ -220,9 +222,11 @@ private final class GridHarness {
             requestedScrollOffsetY: 0,
             onScroll: { _ in },
             onAcknowledgeScrollReset: { _ in },
-            onNearEnd: { [weak self] in self?.nearEndRequests += 1 },
-            onSelect: { _ in },
-            cardMenu: { _ in nil }
+            actions: NativeVideoGridActions(
+                onNearEnd: { [weak self] in self?.nearEndRequests += 1 },
+                onSelect: { _ in },
+                cardMenu: { _ in nil }
+            )
         )
         window.contentView?.layoutSubtreeIfNeeded()
     }

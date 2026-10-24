@@ -1,9 +1,11 @@
 import Foundation
 
-/// BVID 形状与视频网页地址的唯一来源。
+/// BVID 形状与视频网页地址：`BV` 前缀加 1–22 位 ASCII 字母或数字，网页地址是 `https://www.bilibili.com/video/<BVID>`。
 ///
-/// 形状是 `BV` 前缀加 1–22 位 ASCII 字母或数字。BiliAPI 用 BVID 拼 query、Referer，以及映射远端条目、识别评论
-/// 视频链接之前都先过 `isValid`；卡片菜单的「拷贝链接」「在浏览器中打开」只用 `webPageURL` 给出的地址。无状态。
+/// BiliAPI 用 BVID 拼 query 之前、映射远端条目与识别评论视频链接时，以及播放心跳授权器核对 Referer 时都用 `isValid`；
+/// 视频请求的 Referer（BiliAPI `videoReferer`，加尾部斜杠）与卡片菜单的「拷贝链接」「在浏览器中打开」都由
+/// `webPageURL` 派生。部分远端映射另有更严或更宽的筛选（例如只收 12 位 BVID），那是各自的数据规则，不是这里的形状。
+/// 无状态。
 public enum BVID {
     /// 视频网页地址的前缀；只拼合法 BVID，主机固定为 `www.bilibili.com`，见 SECURITY-MODEL §4。
     private static let webPagePrefix = "https://www.bilibili.com/video/"
