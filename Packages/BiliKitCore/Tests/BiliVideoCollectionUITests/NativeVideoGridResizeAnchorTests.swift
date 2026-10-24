@@ -6,6 +6,8 @@ import Testing
 
 /// 视口尺寸变化（含侧栏收起、展开动画中的连续变化）前后与其后的原地刷新中，网格的首张可见卡片不变；尺寸变化之后滚进
 /// 近尾阈值仍会请求下一页。
+///
+/// 每个测试都在 overlay 与传统滚动条下各跑一遍，结果不取决于运行机器的滚动条设置。
 @Suite(.serialized, .timeLimit(.minutes(1)))
 @MainActor
 struct NativeVideoGridResizeAnchorTests {
@@ -13,10 +15,13 @@ struct NativeVideoGridResizeAnchorTests {
     private static let sidebarAnimationWidths: [CGFloat] = Array(
         stride(from: 800, through: 1_120, by: 20)
     )
+    private nonisolated static let scrollerStyles: [NSScroller.Style] = [.overlay, .legacy]
 
-    @Test
-    func continuousWidenThenNarrowKeepsTheFirstVisibleCard() async throws {
-        let grid = try await GridHarness()
+    @Test(arguments: scrollerStyles)
+    func continuousWidenThenNarrowKeepsTheFirstVisibleCard(
+        scrollerStyle: NSScroller.Style
+    ) async throws {
+        let grid = try await GridHarness(scrollerStyle: scrollerStyle)
         grid.scroll(toLogicalOffset: 6_000)
         let original = try #require(grid.firstVisibleCard())
 
@@ -33,9 +38,11 @@ struct NativeVideoGridResizeAnchorTests {
         #expect(grid.firstVisibleCard() == original, "\(grid.diagnostics)")
     }
 
-    @Test
-    func narrowingNearTheEndReturnsToTheSameFirstVisibleCard() async throws {
-        let grid = try await GridHarness(width: 1_120)
+    @Test(arguments: scrollerStyles)
+    func narrowingNearTheEndReturnsToTheSameFirstVisibleCard(
+        scrollerStyle: NSScroller.Style
+    ) async throws {
+        let grid = try await GridHarness(width: 1_120, scrollerStyle: scrollerStyle)
         grid.scroll(toLogicalOffset: grid.maximumLogicalOffset - 120)
         let original = try #require(grid.firstVisibleCard())
 
@@ -44,24 +51,28 @@ struct NativeVideoGridResizeAnchorTests {
         {
             grid.setViewport(width: width)
         }
-        #expect(grid.firstVisibleCard() == original)
+        #expect(grid.firstVisibleCard() == original, "\(grid.diagnostics)")
     }
 
-    @Test
-    func heightChangeAtTheEndReturnsToTheSameFirstVisibleCard() async throws {
-        let grid = try await GridHarness()
+    @Test(arguments: scrollerStyles)
+    func heightChangeAtTheEndReturnsToTheSameFirstVisibleCard(
+        scrollerStyle: NSScroller.Style
+    ) async throws {
+        let grid = try await GridHarness(scrollerStyle: scrollerStyle)
         grid.scroll(toLogicalOffset: grid.maximumLogicalOffset)
         let original = try #require(grid.firstVisibleCard())
 
         grid.setViewport(height: 1_000)
         grid.setViewport(height: GridHarness.defaultHeight)
 
-        #expect(grid.firstVisibleCard() == original)
+        #expect(grid.firstVisibleCard() == original, "\(grid.diagnostics)")
     }
 
-    @Test
-    func inPlaceRefreshAfterWidthChangeKeepsTheFirstVisibleCard() async throws {
-        let grid = try await GridHarness()
+    @Test(arguments: scrollerStyles)
+    func inPlaceRefreshAfterWidthChangeKeepsTheFirstVisibleCard(
+        scrollerStyle: NSScroller.Style
+    ) async throws {
+        let grid = try await GridHarness(scrollerStyle: scrollerStyle)
         grid.scroll(toLogicalOffset: 6_000)
         let original = try #require(grid.firstVisibleCard())
         for width in Self.sidebarAnimationWidths.dropFirst() {
@@ -71,15 +82,19 @@ struct NativeVideoGridResizeAnchorTests {
         grid.replaceItems(with: (0..<10).map { "NEW\($0)" } + grid.ids)
 
         let card = try #require(grid.card(original.id))
-        #expect(abs(card.offsetFromViewportTop - original.offsetFromViewportTop) <= 1)
+        #expect(
+            abs(card.offsetFromViewportTop - original.offsetFromViewportTop) <= 1,
+            "\(grid.diagnostics)"
+        )
     }
 
     /// 后一组是半点抖动：宽度变化不超过半点时不重排，其间在 layout 之外的追加照常重排。
-    @Test(arguments: [(CGFloat(1_120), CGFloat(800)), (800.5, 799.5)])
+    @Test(arguments: scrollerStyles, [(CGFloat(1_120), CGFloat(800)), (800.5, 799.5)])
     func scrollingIntoTheThresholdAfterResizingLoadsTheNextPage(
+        scrollerStyle: NSScroller.Style,
         widths: (beforeAppend: CGFloat, afterAppend: CGFloat)
     ) async throws {
-        let grid = try await GridHarness()
+        let grid = try await GridHarness(scrollerStyle: scrollerStyle)
         grid.setViewport(width: widths.beforeAppend)
         grid.replaceItems(with: grid.ids + (300..<330).map { "BV\($0)" })
         grid.setViewport(width: widths.afterAppend)
@@ -87,7 +102,7 @@ struct NativeVideoGridResizeAnchorTests {
 
         grid.scroll(toLogicalOffset: grid.maximumLogicalOffset)
 
-        #expect(grid.nearEndRequests == requestsBeforeScrolling + 1)
+        #expect(grid.nearEndRequests == requestsBeforeScrolling + 1, "\(grid.diagnostics)")
     }
 }
 
@@ -111,7 +126,7 @@ private final class GridHarness {
     private let scrollView: NSScrollView
     private let collectionView: NSCollectionView
 
-    init(width: CGFloat = 800) async throws {
+    init(width: CGFloat = 800, scrollerStyle: NSScroller.Style) async throws {
         window = NSWindow(
             contentRect: NSRect(origin: .zero, size: Self.windowSize),
             styleMask: [.titled, .resizable, .fullSizeContentView],
@@ -145,6 +160,10 @@ private final class GridHarness {
         await withCheckedContinuation { continuation in
             DispatchQueue.main.async { continuation.resume() }
         }
+        // 滚动条样式最后才设，且只重新 tile、不再 layout：系统切换样式或传统滚动条随内容出现时就是这样，视口宽度在
+        // layout 之外改变（CI 默认传统滚动条）。样式由测试指定，不取运行机器的偏好。
+        scrollView.scrollerStyle = scrollerStyle
+        scrollView.tile()
     }
 
     isolated deinit {

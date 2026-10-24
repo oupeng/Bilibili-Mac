@@ -225,7 +225,9 @@ package struct NativeVideoGridView: NSViewRepresentable {
             scrollView.drawsBackground = false
             scrollView.contentView.postsBoundsChangedNotifications = true
             scrollView.onViewportLayout = { [weak self] in
-                guard let self, self.pendingViewportChange.any else { return }
+                // 重排 document 中途的 tile 不嵌套处理，视口在重排中又变了由 `resizeDocument` 自己再排一遍。
+                guard let self, !self.isResizingDocument, self.pendingViewportChange.any
+                else { return }
                 self.resizeDocument()
                 self.restorePendingOffsetIfPossible()
                 self.viewportDidChange()
@@ -455,22 +457,45 @@ package struct NativeVideoGridView: NSViewRepresentable {
 
         /// `restoringViewport` 为 false 时无条件重排 document，且不按 `viewportAnchor` 恢复；锚点缺失或它的卡片已不在
         /// 内容里时，重排后从当前排版补捕。
+        ///
+        /// 重排改了 document 高度，传统滚动条可能随之出现或消失，视口宽度在重排中又变一次；这时按新视口再排，
+        /// 最多 `maximumDocumentLayoutPasses` 遍。
         private func resizeDocument(restoringViewport: Bool = true) {
             guard !isReset, !isResizingDocument else { return }
+            isResizingDocument = true
+            defer { isResizingDocument = false }
+            var passes = 0
+            while layoutDocumentForCurrentViewport(restoringViewport: restoringViewport) {
+                passes += 1
+                guard pendingViewportChange.any else { break }
+                guard passes < Self.maximumDocumentLayoutPasses else {
+                    scrollView.needsLayout = true
+                    break
+                }
+            }
+            if viewportAnchor.map({ contents[$0.id] == nil }) ?? true {
+                viewportAnchor = captureViewportAnchor()
+            }
+        }
+
+        /// 滚动条出现或消失只会让视口宽度再变一次，两遍足以稳定；第二遍后仍在变说明滚动条在两种宽度间来回
+        /// （内容约一屏高），留给下一轮 layout，不在一次重排里反复。
+        private static let maximumDocumentLayoutPasses = 2
+
+        /// 按当前视口排一遍 document 并按锚点恢复；视口不可渲染或无需重排时返回 false。
+        private func layoutDocumentForCurrentViewport(restoringViewport: Bool) -> Bool {
             let viewportSize = scrollView.contentSize
             guard NativeVideoGridGeometry.isRenderableViewport(width: viewportSize.width)
             else {
                 lastViewportSize = nil
                 documentLayoutNeedsInvalidation = true
-                return
+                return false
             }
-            isResizingDocument = true
-            defer { isResizingDocument = false }
             let width = viewportSize.width
             let change = pendingViewportChange
             let shouldInvalidateLayout =
                 !restoringViewport || documentLayoutNeedsInvalidation || change.width
-            guard shouldInvalidateLayout || change.height else { return }
+            guard shouldInvalidateLayout || change.height else { return false }
 
             lastViewportSize = viewportSize
             documentLayoutNeedsInvalidation = false
@@ -485,18 +510,14 @@ package struct NativeVideoGridView: NSViewRepresentable {
             if shouldInvalidateLayout { layout.invalidateLayout() }
             collectionView.layoutSubtreeIfNeeded()
             if restoringViewport { restore(viewportAnchor) }
-            if viewportAnchor.map({ contents[$0.id] == nil }) ?? true {
-                viewportAnchor = captureViewportAnchor()
-            }
-            // 重排中视口又变了（传统滚动条随内容高度出现或消失）：AppKit 不会为此再排一次，主动要下一轮 layout。
-            if pendingViewportChange.any { scrollView.needsLayout = true }
+            return true
         }
 
         /// 当前视口与最近一次排版（`lastViewportSize`）在宽、高上是否不同（容差半点）；还没有排版时都算不同。
         ///
-        /// 视口尺寸是否变化只按这一份基准判断：滚动视图每次 layout 都回调，由这里决定要不要重排。宽度一变，AppKit
-        /// 在回调之前就已按新宽度、旧卡片尺寸重排了集合视图；高度一变，它可能已夹取偏移。重排之前排版与偏移都是
-        /// 过渡态，其间的 bounds 变化不记录、不捕获锚点。
+        /// 视口尺寸是否变化只按这一份基准判断：滚动视图每次 tile 与 layout 后都回调，由这里决定要不要重排。
+        /// 宽度一变，AppKit 在回调之前就已按新宽度、旧卡片尺寸重排了集合视图；高度一变，它可能已夹取偏移。
+        /// 重排之前排版与偏移都是过渡态，其间的 bounds 变化不记录、不捕获锚点。
         private var pendingViewportChange: (width: Bool, height: Bool, any: Bool) {
             let size = scrollView.contentSize
             guard let lastViewportSize else { return (true, true, true) }
