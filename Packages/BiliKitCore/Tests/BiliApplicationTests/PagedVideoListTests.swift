@@ -358,6 +358,31 @@ struct PagedVideoListTests {
         #expect(list.items == ["BV1A", "BV1C"])
     }
 
+    /// 连续移除多条后以任意顺序回滚（含先移除先失败），都回到原来的相对位置；之后加载更多的条目仍排在后面。
+    @Test(arguments: [
+        (["BV1A", "BV1B"], [0, 1]),
+        (["BV1A", "BV1B"], [1, 0]),
+        (["BV1B", "BV1A"], [0, 1]),
+        (["BV1C", "BV1A", "BV1B"], [1, 2, 0])
+    ])
+    func consecutiveRemovalsRollBackInAnyOrder(removed: [String], rollbackOrder: [Int]) throws {
+        var list = List(stallPolicy: .stop)
+        list.replaceFirstPage(page(["BV1A", "BV1B", "BV1C"], next: 2), bvid: \.self)
+        var removals: [List.Removal] = []
+        for id in removed {
+            let removal = list.remove(id: id, bvid: \.self)
+            removals.append(try #require(removal))
+        }
+        _ = list.beginLoadMore()
+        list.apply(page(["BV1D"], next: nil), requested: 2, bvid: \.self)
+
+        for index in rollbackOrder {
+            list.restore(removals[index], bvid: \.self)
+        }
+
+        #expect(list.items == ["BV1A", "BV1B", "BV1C", "BV1D"])
+    }
+
     private func page(_ items: [String], next: Int?) -> VideoListPage<String, Int> {
         VideoListPage(items: items, nextCursor: next)
     }
