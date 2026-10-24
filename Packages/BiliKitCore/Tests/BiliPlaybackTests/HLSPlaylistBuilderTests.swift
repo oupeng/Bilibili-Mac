@@ -336,7 +336,7 @@ struct HLSPlaylistBuilderTests {
         let metadata = [
             ("中文", "zh", []),
             ("中文（AI）", "zh", ["public.machine-generated"]),
-            ("English（AI）", "en", ["public.machine-generated"])
+            ("English（AI）", "en", ["public.machine-generated", "public.translation"])
         ]
         let subtitleRenditions = try metadata.enumerated().map { offset, item in
             HLSSubtitleRendition(
@@ -367,7 +367,7 @@ struct HLSPlaylistBuilderTests {
         )
         #expect(
             playlist.contains(
-                #"#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subtitles",NAME="English（AI）",LANGUAGE="en",CHARACTERISTICS="public.machine-generated",DEFAULT=NO,AUTOSELECT=NO,FORCED=NO,URI="bilikit-playlist://subtitle/2.m3u8""#
+                #"#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subtitles",NAME="English（AI）",LANGUAGE="en",CHARACTERISTICS="public.machine-generated,public.translation",DEFAULT=NO,AUTOSELECT=NO,FORCED=NO,URI="bilikit-playlist://subtitle/2.m3u8""#
             )
         )
         #expect(playlist.contains("SUBTITLES=\"subtitles\""))

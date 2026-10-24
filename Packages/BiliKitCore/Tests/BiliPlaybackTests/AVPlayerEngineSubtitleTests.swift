@@ -9,7 +9,8 @@ import Testing
 
 extension AVPlayerEngineSuites {
     /// 固定原生字幕接入契约：字幕 reset 跨 A→B→A 的 load 串行且旧 generation 被拒，
-    /// 不可用的字幕目录或不配合的 repository 都退回只含媒体的 master playlist。
+    /// 不可用的字幕目录或不配合的 repository 都退回只含媒体的 master playlist；
+    /// 可用目录按来源写出 rendition 的语言、特征与各界面语言的显示名。
     @Suite(.serialized, .timeLimit(.minutes(2)))
     struct AVPlayerEngineSubtitleTests {
         @Test
@@ -114,6 +115,77 @@ extension AVPlayerEngineSuites {
         }
 
         @Test
+        func subtitleRenditionsCarrySourceCharacteristicsAndLocalizedNames() async throws {
+            let fixture = try makeSimpleMedia(host: "subtitle-names.fixture.bilivideo.com")
+            let bridge = makeFixtureBridge(FixtureRangeTransport(media: fixture.media))
+            let repository = FixtureSubtitleRepository(
+                catalog: .tracks([
+                    SubtitleTrack(
+                        id: "standard-zh",
+                        languageCode: "zh-CN",
+                        displayName: "中文（简体）",
+                        kind: .standard
+                    ),
+                    SubtitleTrack(
+                        id: "transcription-zh",
+                        languageCode: "ai-zh",
+                        displayName: "中文",
+                        kind: .automaticTranscription
+                    ),
+                    SubtitleTrack(
+                        id: "translation-en",
+                        languageCode: "ai-en",
+                        displayName: "English",
+                        kind: .automaticTranslation
+                    )
+                ])
+            )
+
+            let prepared = try await bridge.prepare(
+                videos: [fixture.video],
+                audioTracks: [makeSelectedAudioTrack(representation: fixture.audio)],
+                headers: [:],
+                subtitleSource: NativeSubtitleSource(
+                    useCase: SubtitleUseCase(
+                        repository: repository,
+                        reportAuthenticationInvalidation: {}
+                    ),
+                    identity: PlaybackItemIdentity(bvid: "BV1SubtitleNames", cid: 304)
+                )
+            )
+            defer { prepared.stop() }
+            let master = try await fetchText(prepared.url)
+            let localizedNames = try await localizedRenditionNames(
+                besideMaster: prepared.url
+            )
+
+            #expect(master.contains(#"NAME="中文（简体）",LANGUAGE="zh-cn",DEFAULT=NO"#))
+            #expect(
+                master.contains(
+                    #"NAME="中文（AI）",LANGUAGE="zh",CHARACTERISTICS="public.machine-generated",DEFAULT=NO"#
+                )
+            )
+            #expect(
+                master.contains(
+                    #"NAME="English（AI）",LANGUAGE="en",CHARACTERISTICS="public.machine-generated,public.translation",DEFAULT=NO"#
+                )
+            )
+            #expect(localizedNames["中文（简体）"] == nil)
+            #expect(
+                localizedNames["中文（AI）"] == [
+                    "en": "Chinese", "ja": "中国語", "zh": "中文",
+                    "zh-Hans": "中文", "zh-Hant": "中文"
+                ]
+            )
+            #expect(
+                localizedNames["English（AI）"] == [
+                    "en": "English", "ja": "英語", "zh": "英语",
+                    "zh-Hans": "英语", "zh-Hant": "英文"
+                ]
+            )
+        }
+
+        @Test
         func subtitleCatalogGraceDoesNotWaitForNoncooperativeRepository() async throws {
             let fixture = try makeSimpleMedia(host: "subtitle-timeout.fixture.bilivideo.com")
             let repository = FixtureSubtitleRepository(
@@ -188,7 +260,7 @@ enum UnusableNativeSubtitleCatalog: CaseIterable, Sendable {
                         id: "automatic-duplicate-label",
                         languageCode: "ai-zh",
                         displayName: "中文",
-                        kind: .automatic
+                        kind: .automaticTranscription
                     )
                 ])
             )

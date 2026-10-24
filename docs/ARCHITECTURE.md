@@ -142,6 +142,13 @@ session path，提供内存中生成的 master／media playlist，并把 AVPlaye
   验证后逐 chunk 写入 loopback，不累积整段；不支持多段 `durl` 拼接。格式只接受 `mp4` 与 `hdmp4`
   （较早视频只有整段文件，最高 720P），`flv*` 不支持；请求的清晰度只有 FLV 时，按 `support_formats`
   里不高于请求的最高 MP4 清晰度重取一次。
+- 字幕目录的每一轨写成 master 里的原生 subtitle rendition，系统字幕菜单按 CHARACTERISTICS 给名称加
+  本地化标注：B 站 AI 识别轨（`ai_type=0`）只写 `public.machine-generated`，macOS 27 显示“（已转写）”；
+  AI 翻译轨（`ai_type=1`）再加 `public.translation`，显示“（已翻译）”；人工字幕与字段组合无法确认来源
+  的字幕不写特征。
+- 系统可能在字幕菜单里插入不在 BiliKit 目录里的翻译轨（例如有英文字幕时翻成界面语言，显示为
+  “简体中文（中国大陆）（已翻译）”）。BiliKit 不过滤它，也没有公开 API 可以关掉；C 键按系统排序取字幕时
+  可能选中它。
 - `AVPlayerEngine` 是 `AVPlayerItem`、loopback server、原生字幕 route 的唯一 owner；替换、停止或
   释放时关闭 server 并取消连接与上游 Task。不使用私有 AVFoundation header 注入。
 

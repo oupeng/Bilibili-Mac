@@ -31,8 +31,9 @@ extension DASHToHLSBridge {
             where entry.characteristics.contains("public.machine-generated")
                 && localizedNames[entry.label] == nil
             {
-                // 系统会按 machine-generated 特征另加本地化标注，所以机器生成字幕的显示名换成
-                // 语言本身的名称，源标签“中文（AI）”就不会显示成“中文（AI）（生成）”。
+                // 系统会按特征另加本地化标注（macOS 27 上 machine-generated 显示“（已转写）”，再加
+                // translation 显示“（已翻译）”），所以机器生成字幕的显示名换成语言本身的名称，源标签
+                // “中文（AI）”就不会显示成“中文（AI）（已转写）”。
                 localizedNames[entry.label] = translations
             }
         }
@@ -82,11 +83,16 @@ extension DASHToHLSBridge {
         return String(label.dropLast(suffix.count))
     }
 
+    /// 字幕语言在各界面语言下的名称，键与上面原声一项相同。
+    ///
+    /// 系统按界面语言选用：简中界面认 `zh-Hans`，繁中界面认 `zh-Hant`；缺 `zh-Hant` 时繁中界面会把
+    /// 中文 AI 字幕显示成“Chinese - 中文（語音轉錄）”。取值是用该界面语言写出的字幕语言名（繁中为
+    /// “中文”“英文”）。
     private func localizedLanguageNames(
         for language: String
     ) -> [String: String] {
         var names: [String: String] = [:]
-        for interfaceLanguage in ["en", "ja", "zh"] {
+        for interfaceLanguage in ["en", "ja", "zh", "zh-Hans", "zh-Hant"] {
             if let name = Locale(identifier: interfaceLanguage)
                 .localizedString(forLanguageCode: language)
             {

@@ -51,7 +51,7 @@ struct NativeSubtitleSource: Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "_", with: "-")
             .lowercased()
-        if track.kind == .automatic, source.hasPrefix("ai-") {
+        if track.kind.isAutomatic, source.hasPrefix("ai-") {
             source.removeFirst(3)
         }
         let subtags = source.split(
@@ -71,14 +71,20 @@ struct NativeSubtitleSource: Sendable {
         return subtags.joined(separator: "-")
     }
 
+    /// AI 字幕写 `public.machine-generated`，翻译轨再加 `public.translation`。
+    ///
+    /// 系统字幕菜单据此给识别轨加“已转写”、给翻译轨加“已翻译”的本地化标注。人工与来源未知的字幕
+    /// 不写特征。
     private static func characteristics(
         for kind: SubtitleTrackKind
     ) -> [String] {
         switch kind {
         case .standard:
             []
-        case .automatic:
+        case .automaticTranscription:
             ["public.machine-generated"]
+        case .automaticTranslation:
+            ["public.machine-generated", "public.translation"]
         case .unknown:
             []
         }

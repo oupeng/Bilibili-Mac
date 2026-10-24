@@ -95,15 +95,24 @@ struct SubtitleTrackPayload: Decodable, Sendable {
         )
     }
 
-    /// AI 语义由语言标记与已知字段值共同决定；异常或缺失组合保持 unknown。
+    /// AI 语义由语言标记与已知字段值共同决定。
+    ///
+    /// `ai-` 前缀且 `ai_status` 为 2 时，`ai_type` 0 为识别、1 为翻译。异常或缺失组合保持 unknown：
+    /// 字段无法确认来源时，不给轨道加 AI 标签或机器生成特征，宁可按目录原名显示，也不错标来源。
     private func trackKind(languageCode: String) -> SubtitleTrackKind {
         let normalizedLanguageCode = languageCode.lowercased()
         if normalizedLanguageCode.hasPrefix("ai-"),
             normalizedLanguageCode.count > 3,
-            aiStatus == 2,
-            aiType == 0 || aiType == 1
+            aiStatus == 2
         {
-            return .automatic
+            switch aiType {
+            case 0:
+                return .automaticTranscription
+            case 1:
+                return .automaticTranslation
+            default:
+                return .unknown
+            }
         }
         switch (normalizedLanguageCode, aiType, aiStatus) {
         case ("zh", 0, 0):

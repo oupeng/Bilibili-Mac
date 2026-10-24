@@ -36,7 +36,7 @@ public enum SubtitleDisplayPolicy {
         for track: SubtitleTrack,
         sourceLabel: String
     ) -> String {
-        guard track.kind == .automatic else {
+        guard track.kind.isAutomatic else {
             return sourceLabel
         }
         guard !sourceLabel.hasSuffix("（AI）") else {
