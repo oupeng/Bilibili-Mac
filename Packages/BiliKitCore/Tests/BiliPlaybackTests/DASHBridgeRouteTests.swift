@@ -274,6 +274,7 @@ struct DASHBridgeRouteTests {
                     languageTag: "en",
                     role: .machineGenerated,
                     isDefault: false,
+                    isAutoselect: false,
                     representation: ai
                 )
             ],
@@ -314,6 +315,7 @@ struct DASHBridgeRouteTests {
                     languageTag: "en",
                     role: .machineGenerated,
                     isDefault: false,
+                    isAutoselect: false,
                     representation: ai
                 )
             ],
@@ -392,6 +394,7 @@ struct DASHBridgeRouteTests {
                     languageTag: "en",
                     role: .machineGenerated,
                     isDefault: false,
+                    isAutoselect: false,
                     representation: ai
                 )
             ],

@@ -347,7 +347,8 @@ extension BiliAPIClient {
                     languageTag: languageTag,
                     role: .machineGenerated,
                     isDefault: false,
-                    isAutoselect: true,
+                    // 不参与系统自动选择：否则开着自动媒体选择时，语言等于界面语言的配音会在起播时压过原声。
+                    isAutoselect: false,
                     loudnessMetadata: payload.volume?.model,
                     representations: representations
                 )
