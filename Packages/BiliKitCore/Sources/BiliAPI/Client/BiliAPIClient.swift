@@ -546,15 +546,7 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
         return url
     }
 
-    /// BVID 形状：`BV` 前缀加 1–22 位 ASCII 字母或数字；用 BVID 拼 query 或 Referer 的 endpoint
-    /// 都先过它。
-    static func isValidBVID(_ bvid: String) -> Bool {
-        bvid.hasPrefix("BV")
-            && bvid.count > 2
-            && bvid.count <= 24
-            && bvid.dropFirst(2).allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber) }
-    }
-
+    /// 视频请求的 Referer：与网页一致带尾部斜杠，调用方已用 `BVID.isValid` 校验过 BVID。
     static func videoReferer(_ bvid: String) -> String {
         "https://www.bilibili.com/video/\(bvid)/"
     }

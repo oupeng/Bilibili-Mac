@@ -56,7 +56,7 @@ extension BiliAPIClient {
         for bvid: String,
         cid: Int64
     ) async throws -> VideoPlayback {
-        guard Self.isValidBVID(bvid), cid > 0 else {
+        guard BVID.isValid(bvid), cid > 0 else {
             throw BiliAPIError.invalidRequest
         }
         let quality = Self.requestedPlaybackQuality
@@ -161,7 +161,7 @@ extension BiliAPIClient {
         for bvid: String,
         cid: Int64
     ) async throws -> CDNBenchmarkPlayback {
-        guard Self.isValidBVID(bvid), cid > 0 else {
+        guard BVID.isValid(bvid), cid > 0 else {
             throw BiliAPIError.invalidRequest
         }
         let playbackSessionEpoch = authenticatedSessionEpoch

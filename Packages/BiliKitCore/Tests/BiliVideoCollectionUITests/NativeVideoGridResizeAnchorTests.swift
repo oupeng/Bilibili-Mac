@@ -146,7 +146,8 @@ private final class GridHarness {
             onScroll: { _ in },
             onAcknowledgeScrollReset: { _ in },
             onNearEnd: {},
-            onSelect: { _ in }
+            onSelect: { _ in },
+            cardMenu: { _ in nil }
         )
         self.coordinator = coordinator
         scrollView = coordinator.makeScrollView()
@@ -220,7 +221,8 @@ private final class GridHarness {
             onScroll: { _ in },
             onAcknowledgeScrollReset: { _ in },
             onNearEnd: { [weak self] in self?.nearEndRequests += 1 },
-            onSelect: { _ in }
+            onSelect: { _ in },
+            cardMenu: { _ in nil }
         )
         window.contentView?.layoutSubtreeIfNeeded()
     }

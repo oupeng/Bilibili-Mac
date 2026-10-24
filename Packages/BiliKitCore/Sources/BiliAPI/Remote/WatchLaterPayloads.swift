@@ -82,7 +82,7 @@ struct WatchLaterItemPayload: Decodable, Sendable {
     }
 
     func model() throws -> WatchLaterItem? {
-        guard let aid, aid > 0, let bvid, BiliAPIClient.isValidBVID(bvid) else { return nil }
+        guard let aid, aid > 0, let bvid, BVID.isValid(bvid) else { return nil }
         if let unavailability {
             return unavailableModel(bvid: bvid, unavailability: unavailability)
         }

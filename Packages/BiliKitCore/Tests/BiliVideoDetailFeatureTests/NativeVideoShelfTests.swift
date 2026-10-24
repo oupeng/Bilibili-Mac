@@ -133,7 +133,8 @@ struct NativeVideoShelfTests {
             imagePipeline: loader,
             reduceMotion: true,
             isInteractionEnabled: true,
-            onSelect: { _ in }
+            onSelect: { _ in },
+            cardMenu: { _ in nil }
         )
         let scrollView = coordinator.makeScrollView()
         let window = NSWindow(
@@ -162,7 +163,8 @@ struct NativeVideoShelfTests {
             items: items,
             reduceMotion: true,
             isInteractionEnabled: true,
-            onSelect: { _ in }
+            onSelect: { _ in },
+            cardMenu: { _ in nil }
         )
 
         // 快照完成后重配可见卡片会为同一张封面重新发起请求；先要看到旧请求被取消。

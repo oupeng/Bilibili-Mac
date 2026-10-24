@@ -6,10 +6,11 @@ import SwiftUI
 /// 热门的已加载网格：把热门条目映射为原生卡片，交给共享的 `NativeVideoGridView`；用 AppKit 网格的理由见
 /// ARCHITECTURE「原生 AppKit 集合视图」。
 ///
-/// 只负责映射与接线：分页与选择意图回送 `PopularFeedView` 给出的回调，滚动位置、回顶请求与取图 port
-/// 来自 App 窗口的 `NativeVideoGridHostContext`。
+/// 只负责映射与接线：分页与选择意图回送 `PopularFeedView` 给出的回调，卡片菜单取 `BrowseVideoCardMenu`，
+/// 滚动位置、回顶请求与取图 port 来自 App 窗口的 `NativeVideoGridHostContext`。
 struct PopularNativeGridView: View {
     @Environment(\.locale) private var locale
+    @Environment(\.openURL) private var openURL
     let content: LoadedFeedContent<PopularVideo>
     let host: NativeVideoGridHostContext
 
@@ -20,7 +21,8 @@ struct PopularNativeGridView: View {
             tailState: content.tailState,
             host: host,
             onNearEnd: content.loadMore,
-            onSelect: content.select
+            onSelect: content.select,
+            cardMenu: { BrowseVideoCardMenu.menu(for: $0, openURL: openURL) }
         )
     }
 

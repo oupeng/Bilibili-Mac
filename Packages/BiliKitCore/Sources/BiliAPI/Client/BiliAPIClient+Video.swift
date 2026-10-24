@@ -6,7 +6,7 @@ import Foundation
 /// 视频详情（含分 P）、相关推荐与 UP 主签名。
 extension BiliAPIClient {
     public func videoDetail(for bvid: String) async throws -> VideoDetail {
-        guard Self.isValidBVID(bvid) else {
+        guard BVID.isValid(bvid) else {
             throw BiliAPIError.invalidRequest
         }
         let payload: VideoDetailPayload = try await signedVideoDetail(
@@ -39,7 +39,7 @@ extension BiliAPIClient {
 
     /// 登录增强地读取相关推荐；只有本地明确无凭据时匿名。
     public func relatedVideos(to bvid: String) async throws -> [RelatedVideo] {
-        guard Self.isValidBVID(bvid) else {
+        guard BVID.isValid(bvid) else {
             throw BiliAPIError.invalidRequest
         }
         let payload: [RelatedVideoPayload] = try await get(

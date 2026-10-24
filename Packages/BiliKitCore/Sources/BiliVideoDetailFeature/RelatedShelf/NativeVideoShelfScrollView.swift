@@ -323,7 +323,8 @@ final class NativeVideoShelfCollectionView: NativeVideoCardCollectionView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        guard isInteractionEnabled else { return }
+        // Control-点按只用于上下文菜单，理由同网格（`NativeVideoCollectionView.mouseDown`）。
+        guard isInteractionEnabled, !event.modifierFlags.contains(.control) else { return }
         let point = convert(event.locationInWindow, from: nil)
         let clickedIndexPath = indexPathForItem(at: point)
         super.mouseDown(with: event)

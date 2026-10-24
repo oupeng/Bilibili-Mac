@@ -8,7 +8,8 @@ import SwiftUI
 /// 内容、分页与选择的意图归调用方，滚动位置、回顶请求与取图 port 来自 App 窗口的
 /// `NativeVideoGridHostContext`。滚动位置经 binding 双向同步，回顶请求经 `scrollReset` 握手确认。
 /// 不可用卡片（`NativeVideoCardAvailability.unavailable`）不能被鼠标选中或按下高亮，点击、回车、空格与读屏按下都不回调
-/// `onSelect`；键盘方向键仍可把选择停在上面。`bottomInset` 是末行下方为悬浮控件（收藏夹的页码条）额外留出的高度，
+/// `onSelect`；键盘方向键仍可把选择停在上面。`cardMenu` 是来源按卡片给出的菜单（`NativeVideoCardMenu`），右键与读屏
+/// 操作共用。`bottomInset` 是末行下方为悬浮控件（收藏夹的页码条）额外留出的高度，
 /// 布局与内容高度共用这个值。
 package struct NativeVideoGridView: NSViewRepresentable {
     let items: [NativeVideoCardPresentation]
@@ -20,6 +21,7 @@ package struct NativeVideoGridView: NSViewRepresentable {
     let imagePipeline: any NativeVideoImageLoading
     let onNearEnd: () -> Void
     let onSelect: (String) -> Void
+    let cardMenu: (NativeVideoCardPresentation) -> NativeVideoCardMenu?
 
     package init(
         items: [NativeVideoCardPresentation],
@@ -28,7 +30,8 @@ package struct NativeVideoGridView: NSViewRepresentable {
         bottomInset: CGFloat = 0,
         host: NativeVideoGridHostContext,
         onNearEnd: @escaping () -> Void,
-        onSelect: @escaping (String) -> Void
+        onSelect: @escaping (String) -> Void,
+        cardMenu: @escaping (NativeVideoCardPresentation) -> NativeVideoCardMenu?
     ) {
         self.items = items
         _scrollOffsetY = host.scrollOffsetY
@@ -39,6 +42,7 @@ package struct NativeVideoGridView: NSViewRepresentable {
         imagePipeline = host.imageLoader
         self.onNearEnd = onNearEnd
         self.onSelect = onSelect
+        self.cardMenu = cardMenu
     }
 
     package func makeCoordinator() -> Coordinator {
@@ -56,7 +60,8 @@ package struct NativeVideoGridView: NSViewRepresentable {
                 scrollReset.acknowledgedRequestID = $0
             },
             onNearEnd: onNearEnd,
-            onSelect: onSelect
+            onSelect: onSelect,
+            cardMenu: cardMenu
         )
     }
 
@@ -77,7 +82,8 @@ package struct NativeVideoGridView: NSViewRepresentable {
                 scrollReset.acknowledgedRequestID = $0
             },
             onNearEnd: onNearEnd,
-            onSelect: onSelect
+            onSelect: onSelect,
+            cardMenu: cardMenu
         )
     }
 
@@ -114,6 +120,7 @@ package struct NativeVideoGridView: NSViewRepresentable {
         private var onAcknowledgeScrollReset: (UInt64) -> Void
         private var onNearEnd: () -> Void
         private var onSelect: (String) -> Void
+        private var cardMenu: (NativeVideoCardPresentation) -> NativeVideoCardMenu?
         private var observers = NativeVideoNotificationObservers()
         /// 待应用的逻辑偏移：初次恢复、回顶请求、外部请求，以及整体替换时 `topPin` 保持置顶或锚点卡片已不在
         /// 新内容里（后两者都回到 0）；视口可渲染时应用并清空，非 nil 期间不记录滚动、不判断翻页。
@@ -164,7 +171,8 @@ package struct NativeVideoGridView: NSViewRepresentable {
             onScroll: @escaping (CGFloat) -> Void,
             onAcknowledgeScrollReset: @escaping (UInt64) -> Void,
             onNearEnd: @escaping () -> Void,
-            onSelect: @escaping (String) -> Void
+            onSelect: @escaping (String) -> Void,
+            cardMenu: @escaping (NativeVideoCardPresentation) -> NativeVideoCardMenu?
         ) {
             contents = NativeVideoCardContents(items)
             self.accessibilityLabel = accessibilityLabel
@@ -178,6 +186,7 @@ package struct NativeVideoGridView: NSViewRepresentable {
             self.onAcknowledgeScrollReset = onAcknowledgeScrollReset
             self.onNearEnd = onNearEnd
             self.onSelect = onSelect
+            self.cardMenu = cardMenu
             retainedScrollOffset = NativeVideoScrollOffsetRetention(
                 initialOffsetY: initialScrollOffsetY
             )
@@ -202,6 +211,10 @@ package struct NativeVideoGridView: NSViewRepresentable {
             collectionView.backgroundColors = [.clear]
             collectionView.onActivateSelection = { [weak self] id in
                 self?.activate(id)
+            }
+            collectionView.cardMenu = { [weak self] id in
+                guard let self, !self.isReset, let card = self.contents[id] else { return nil }
+                return self.cardMenu(card)
             }
             collectionView.register(
                 NativeVideoCollectionItem.self,
@@ -276,13 +289,15 @@ package struct NativeVideoGridView: NSViewRepresentable {
             onScroll: @escaping (CGFloat) -> Void,
             onAcknowledgeScrollReset: @escaping (UInt64) -> Void,
             onNearEnd: @escaping () -> Void,
-            onSelect: @escaping (String) -> Void
+            onSelect: @escaping (String) -> Void,
+            cardMenu: @escaping (NativeVideoCardPresentation) -> NativeVideoCardMenu?
         ) {
             guard !isReset else { return }
             self.onScroll = onScroll
             self.onAcknowledgeScrollReset = onAcknowledgeScrollReset
             self.onNearEnd = onNearEnd
             self.onSelect = onSelect
+            self.cardMenu = cardMenu
             self.tailState = tailState
             if self.bottomInset != bottomInset {
                 self.bottomInset = bottomInset
@@ -385,6 +400,7 @@ package struct NativeVideoGridView: NSViewRepresentable {
             hover.forgetHoveredItem()
             for item in collectionView.visibleVideoCards { item.invalidate() }
             collectionView.onActivateSelection = nil
+            collectionView.cardMenu = nil
             scrollView.onViewportLayout = nil
             scrollView.onContentInsetsChange = nil
             collectionView.delegate = nil
@@ -395,6 +411,7 @@ package struct NativeVideoGridView: NSViewRepresentable {
             onAcknowledgeScrollReset = { _ in }
             onNearEnd = {}
             onSelect = { _ in }
+            cardMenu = { _ in nil }
             lastViewportSize = nil
             contents = NativeVideoCardContents()
             nearEndPagination.reset()

@@ -1,8 +1,10 @@
+import BiliModels
 import BiliVideoCollectionUI
 import SwiftUI
 
-/// 播放页主区下方的相关推荐横排：把相关推荐投影映射为共享卡片，经卡片取图 port 加载封面。
+/// 播放页主区下方的相关推荐横排：把相关推荐投影映射为共享卡片，经卡片取图 port 加载封面；卡片菜单见 `cardMenu`。
 struct RelatedNativeShelfView: View {
+    @Environment(\.openURL) private var openURL
     let contentIdentity: String
     let presentations: [RelatedVideoCardPresentation]
     let imagePipeline: any NativeVideoImageLoading
@@ -25,9 +27,26 @@ struct RelatedNativeShelfView: View {
             contentIdentity: contentIdentity,
             items: Self.makePresentations(presentations),
             imagePipeline: imagePipeline,
-            onSelect: onSelect
+            onSelect: onSelect,
+            cardMenu: { Self.cardMenu(for: $0, openURL: openURL) }
         )
         .ignoresSafeArea(.container, edges: .horizontal)
+    }
+
+    /// 相关推荐卡片的菜单：「拷贝链接」「在浏览器中打开」（`NativeVideoCardMenu.Item.videoLinks`）。
+    ///
+    /// 卡片 ID 就是 BVID，不合法时没有菜单。`openURL` 是从环境取得的系统 `OpenURLAction`。
+    static func cardMenu(
+        for card: NativeVideoCardPresentation,
+        openURL: OpenURLAction
+    ) -> NativeVideoCardMenu? {
+        NativeVideoCardMenu(
+            items: NativeVideoCardMenu.Item.videoLinks(
+                for: card,
+                webPageURL: BVID.webPageURL(card.id),
+                openURL: openURL
+            )
+        )
     }
 
     static func makePresentations(

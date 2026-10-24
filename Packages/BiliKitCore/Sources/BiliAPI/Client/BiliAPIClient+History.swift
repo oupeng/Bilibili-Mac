@@ -51,7 +51,7 @@ extension BiliAPIClient {
         }
         guard report.target.aid > 0,
             report.target.identity.cid > 0,
-            Self.isValidBVID(report.target.identity.bvid),
+            BVID.isValid(report.target.identity.bvid),
             report.positionSeconds >= 0,
             report.maximumPositionSeconds >= report.positionSeconds
         else {
