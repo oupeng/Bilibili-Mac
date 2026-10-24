@@ -162,6 +162,28 @@ package struct PagedVideoList<Item, Cursor: Equatable & Sendable> {
         isRefreshing = false
     }
 
+    /// 本地移除的一条：被移除的条目与它当时的位置，交回 `restore(_:bvid:)` 放回原位。
+    package struct Removal {
+        package let item: Item
+        package let index: Int
+    }
+
+    /// 按 BVID 从已显示条目里移除一条（稍后再看的乐观移除）；没有这条时为 nil。
+    ///
+    /// 不改游标、尾标、加载与刷新状态：服务端确认之前这只是本地视图的变化。调用方负责在列表被整体替换后不再交回
+    /// 旧的 `Removal`（本类型不知道两次之间是否换过内容）。
+    package mutating func remove(id: String, bvid: (Item) -> String) -> Removal? {
+        guard let index = items.firstIndex(where: { bvid($0) == id }) else { return nil }
+        return Removal(item: items.remove(at: index), index: index)
+    }
+
+    /// 把移除的条目放回原位（写入失败的回滚）；位置超出当前条数时放到末尾，同一 BVID 已在列表里时不重复放入。
+    package mutating func restore(_ removal: Removal, bvid: (Item) -> String) {
+        let id = bvid(removal.item)
+        guard !items.contains(where: { bvid($0) == id }) else { return }
+        items.insert(removal.item, at: Swift.min(removal.index, items.count))
+    }
+
     /// 按 BVID 去重并截到条目上限后并入，再按上限、回环与无进展策略决定下一页游标。
     private mutating func merge(
         _ page: VideoListPage<Item, Cursor>,
@@ -202,5 +224,9 @@ package struct PagedVideoList<Item, Cursor: Equatable & Sendable> {
 extension VideoListPage: Sendable where Item: Sendable, Cursor: Sendable {}
 
 extension PagedVideoList: Sendable where Item: Sendable {}
+
+extension PagedVideoList.Removal: Sendable where Item: Sendable {}
+
+extension PagedVideoList.Removal: Equatable where Item: Equatable {}
 
 extension PagedVideoList: Equatable where Item: Equatable {}

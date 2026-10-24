@@ -332,6 +332,32 @@ struct PagedVideoListTests {
         #expect(list.loadMoreError == nil)
     }
 
+    /// 乐观移除只改条目，不动游标与尾标；回滚放回原位，原位已越界时放到末尾，已在列表里的不重复放入。
+    @Test
+    func removeAndRestoreKeepPaginationAndPosition() throws {
+        var list = List(stallPolicy: .stop)
+        list.replaceFirstPage(page(["BV1A", "BV1B", "BV1C"], next: 2), bvid: \.self)
+        let tail = list.tailIdentity
+
+        let removed = list.remove(id: "BV1B", bvid: \.self)
+        let removal = try #require(removed)
+        #expect(list.items == ["BV1A", "BV1C"])
+        #expect(list.nextCursor == 2)
+        #expect(list.tailIdentity == tail)
+        #expect(list.remove(id: "BV1Z", bvid: \.self) == nil)
+
+        list.restore(removal, bvid: \.self)
+        #expect(list.items == ["BV1A", "BV1B", "BV1C"])
+        list.restore(removal, bvid: \.self)
+        #expect(list.items == ["BV1A", "BV1B", "BV1C"])
+
+        let removedLast = list.remove(id: "BV1C", bvid: \.self)
+        let last = try #require(removedLast)
+        _ = list.remove(id: "BV1B", bvid: \.self)
+        list.restore(last, bvid: \.self)
+        #expect(list.items == ["BV1A", "BV1C"])
+    }
+
     private func page(_ items: [String], next: Int?) -> VideoListPage<String, Int> {
         VideoListPage(items: items, nextCursor: next)
     }

@@ -3,14 +3,12 @@ import BiliModels
 import BiliNetworking
 import Foundation
 
-/// 观看历史 cursor 读取与唯一写请求（观看进度 heartbeat）。
+/// 观看历史 cursor 读取与观看进度写入（heartbeat）。
 extension BiliAPIClient {
     /// 历史接口一页可请求的最大条数，超出按无效请求在发请求前拒绝。
     ///
     /// 调大前要先确认接口仍按请求的条数返回，否则“本页条数少于每页条数即到底”的判断会提前停止翻页。
     private static let maximumWatchHistoryPageSize = 30
-    /// heartbeat 响应只有状态 envelope，16 KiB 远超正常大小；更大的正文按异常响应失败关闭。
-    private static let maximumHeartbeatResponseSize = 16 * 1_024
 
     public func watchHistory(
         after continuation: WatchHistoryContinuation? = nil,
@@ -41,10 +39,11 @@ extension BiliAPIClient {
         return try payload.model(pageSize: pageSize)
     }
 
-    /// 唯一的认证写请求（观看进度 heartbeat）；endpoint、WBI、表单与响应判定都在 API adapter
-    /// 内收口。
+    /// 自动的观看进度写入（heartbeat）；endpoint、WBI 与表单字段在这里，表单编码、发送与状态判定走写请求共用的
+    /// `postForm`。
     ///
-    /// 不经 `signedRequest`，不做换 key 重试；-101 与 -111 一律视为凭据失效，见 SECURITY-MODEL §3。
+    /// 不经 `signedRequest`，不做换 key 重试；-101 与 -111 一律视为凭据失效，见 SECURITY-MODEL §3。不带 Origin：heartbeat
+    /// 授权器的 header 集合里没有它。
     public func reportWatchProgress(_ report: WatchProgressReport) async throws {
         guard hasHistoryWriteAuthorizer else {
             throw BiliAPIError.authorizationRequired
@@ -108,52 +107,12 @@ extension BiliAPIClient {
             ("platform", "web"),
             ("session", report.sessionID)
         ])
-        let authorizedResponse = try await response(
-            baseRequest: HTTPRequest(
-                url: url,
-                method: .post,
-                headers: [
-                    "Accept": "application/json",
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "Referer": referer,
-                    "User-Agent": userAgent
-                ],
-                body: try Self.formBody(bodyFields)
-            ),
-            access: .historyWrite,
-            maximumResponseSize: Self.maximumHeartbeatResponseSize
+        try await postForm(
+            url: url,
+            fields: bodyFields,
+            referer: referer,
+            origin: nil,
+            access: .historyWrite
         )
-        guard authorizedResponse.response.looksLikeJSON(allowsTopLevelArray: true) else {
-            throw BiliAPIError.nonJSONResponse
-        }
-        let status: APIStatusEnvelope
-        do {
-            status = try decoder.decode(
-                APIStatusEnvelope.self,
-                from: authorizedResponse.response.body
-            )
-        } catch {
-            throw BiliAPIError.decodingFailed
-        }
-        // 写请求总是带凭据发出：-101（未登录）与 -111（csrf 校验失败）都说明凭据失效，见
-        // SECURITY-MODEL §3。
-        if status.code == -101 || status.code == -111 {
-            throw BiliAPIError.authenticationInvalid
-        }
-        guard status.code == 0 else {
-            throw BiliAPIError.apiRejected(
-                code: status.code,
-                message: status.message ?? ""
-            )
-        }
-    }
-
-    private static func formBody(_ fields: [(String, String)]) throws -> Data {
-        var components = URLComponents()
-        components.queryItems = fields.map(URLQueryItem.init(name:value:))
-        guard let encoded = components.percentEncodedQuery else {
-            throw BiliAPIError.invalidRequest
-        }
-        return Data(encoded.utf8)
     }
 }

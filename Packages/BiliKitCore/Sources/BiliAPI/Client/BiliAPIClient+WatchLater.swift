@@ -2,7 +2,7 @@ import BiliApplication
 import Foundation
 
 /// 稍后再看读取。列表只属于当前账户，所以只按账户读取，本地无凭据时直接失败（见 SECURITY-MODEL §3）；
-/// 只读，不涉及任何写请求。
+/// 加入与移除是账户写入，在 `BiliAPIClient+AccountWrite.swift`。
 extension BiliAPIClient {
     /// 按请求的条件读取第 `page` 页（从 1 开始）。
     ///
