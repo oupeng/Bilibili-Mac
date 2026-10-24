@@ -9,7 +9,9 @@ public enum BiliAccountWritePath {
     public static let watchLaterAdd = "/x/v2/history/toview/add"
     /// 从稍后再看移除单条（`aid`、`csrf`，urlencoded，不签 WBI）。
     ///
-    /// 网页稍后再看页实际用 `/x/v2/history/toview/v2/dels`（WBI 签名、multipart，字段 `resources`）；单条接口有文档、多个
-    /// 第三方客户端在用，表单最简单，所以先用它。实机失效时改用 `v2/dels`，并同步授权器的 schema。
+    /// 网页稍后再看页没有用它，本项目也还没有实测；它有接口文档、多个第三方客户端在用，表单最简单，所以先用它。后备有两级：
+    /// 1. `/x/v2/history/toview/v2/dels`，urlencoded、不签 WBI，字段 `resources=<aid>`（多个 Cookie 客户端这样用）：只需在这里
+    ///    加一个 path 常量、在授权器 schema 表加一行（`resources` 只接受单个正整数）、写 allowlist 换成它；
+    /// 2. 网页实际的 `v2/dels`（WBI 签名 + multipart）：需要改写管线与授权器，见授权器 schema 表的注释。
     public static let watchLaterRemove = "/x/v2/history/toview/del"
 }

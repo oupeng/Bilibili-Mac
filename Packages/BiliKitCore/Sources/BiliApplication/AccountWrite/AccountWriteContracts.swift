@@ -4,9 +4,10 @@ import BiliModels
 ///
 /// 由 BiliAPI 的写 adapter 映射：-101、-111 与凭据账户不符为 `authenticationInvalid`；窗口以为已登录、本地却没有凭据为
 /// `authenticationRequired`；Keychain 不可用为 `authenticationUnavailable`；HTTP 403／412、-352 等风控为 `restricted`；
-/// 业务码 90001 为 `listFull`，90003 与内容不存在类业务码为 `contentUnavailable`；其他非零业务码为 `rejected`，不回显服务端
-/// message；网络与无法判定结果的响应为 `unavailable`。是否复核账户、是否值得用户再试只读 `requiresAccountRevalidation`
-/// 与 `isRetryable`，调用方不各自判断。写入不自动重试、不排队、不持久化（见 SECURITY-MODEL §3）。
+/// 业务码 90000 为 `unsupportedContent`，90001 为 `listFull`，90003 与内容不存在类业务码为 `contentUnavailable`；其他非零
+/// 业务码为 `rejected`，不回显服务端 message；网络与无法判定结果的响应为 `unavailable`。是否复核账户只读
+/// `requiresAccountRevalidation`，调用方不各自判断；提示措辞按 case 由写入结果胶囊的文案决定（写入从不自动重试，没有
+/// 另一个需要“是否可重试”的调用方）。写入不自动重试、不排队、不持久化（见 SECURITY-MODEL §3）。
 public enum AccountWriteError: Error, Sendable, Equatable {
     /// 请求形状不合规或授权器拒绝：客户端编程错误，不发出请求。
     case invalidRequest
@@ -20,6 +21,8 @@ public enum AccountWriteError: Error, Sendable, Equatable {
     case restricted
     /// 稍后再看已满（业务码 90001）。
     case listFull
+    /// 这个稿件不能加入（业务码 90000：付费稿件）。
+    case unsupportedContent
     /// 稿件不存在或已删除。
     case contentUnavailable
     /// 其他业务拒绝。
@@ -37,18 +40,7 @@ extension AccountWriteError {
         case .authenticationRequired, .authenticationInvalid:
             true
         case .invalidRequest, .authenticationUnavailable, .restricted, .listFull,
-            .contentUnavailable, .rejected, .unavailable:
-            false
-        }
-    }
-
-    /// 用户稍后再试可能得到不同结果时为 true；写入从不自动重试，这里只决定提示的措辞。
-    public var isRetryable: Bool {
-        switch self {
-        case .authenticationUnavailable, .unavailable, .rejected:
-            true
-        case .invalidRequest, .authenticationRequired, .authenticationInvalid, .restricted,
-            .listFull, .contentUnavailable:
+            .unsupportedContent, .contentUnavailable, .rejected, .unavailable:
             false
         }
     }

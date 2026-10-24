@@ -10,8 +10,8 @@ import Observation
 /// 本窗口的 `AccountWriteEffectRouter`，并经进程级集线器转给其他窗口）。
 ///
 /// 每次执行都重新核对：卡片 ID 必须是合法 BVID、窗口此刻满足写入门槛，否则不发请求（菜单项可能是在门槛变化前构造的）。
-/// 失败不重试、不排队；凭据类失败（`requiresAccountRevalidation`）递增一次复核代次，此后直到下一次写入成功都不再自动复核，
-/// 避免“复核 → 仍失败 → 再复核”的循环。`close()`（关窗）取消全部在途写入与计时，之后不再接受意图；被取消的写入只回滚
+/// 失败不重试、不排队；凭据类失败（`requiresAccountRevalidation`）递增一次复核代次，此后在同一账户与会话代次里直到下一次
+/// 写入成功都不再自动复核，避免“复核 → 仍失败 → 再复核”；换号或登出再登录后会话代次变化，节流随之作废。`close()`（关窗）取消全部在途写入与计时，之后不再接受意图；被取消的写入只回滚
 /// 本地移除、不显示结果。
 @MainActor
 @Observable
@@ -36,8 +36,11 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
     /// 在途写入，按改动去重；完成、失败或取消时移除。
     @ObservationIgnored private var inFlight: [AccountWriteChange: Task<Void, Never>] = [:]
     @ObservationIgnored private var reportDismissal: Task<Void, Never>?
-    /// 已因凭据类失败请求过复核、此后还没有写入成功；为 true 时不再递增复核代次。
-    @ObservationIgnored private var revalidationRequestedSinceSuccess = false
+    /// 因凭据类失败请求过复核时的账户与会话代次；此后还没有写入成功。
+    ///
+    /// 失败时的账户与它相同就不再递增复核代次；写入成功时清空，账户或会话代次不同（换号、登出再登录）时视为作废，避免
+    /// 上一会话的节流让新会话的写入再也不复核。
+    @ObservationIgnored private var revalidationRequestedFor: WritableAccount?
     @ObservationIgnored private var isClosed = false
 
     /// `publish` 把成功的效果交给本窗口的效果路由与其他窗口（`WindowComposition` 接线）。
@@ -126,7 +129,11 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
                 self?.inFlight[change] = nil
             } catch {
                 rollback()
-                self?.fail(change, error: error as? AccountWriteError ?? .unavailable)
+                self?.fail(
+                    change,
+                    error: error as? AccountWriteError ?? .unavailable,
+                    account: account
+                )
             }
         }
     }
@@ -139,7 +146,7 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
     ) {
         inFlight[change] = nil
         guard !isClosed else { return }
-        revalidationRequestedSinceSuccess = false
+        revalidationRequestedFor = nil
         show(AccountWriteReport(change: change, failure: nil))
         publish(
             AccountWriteEffectDelivery(
@@ -150,12 +157,16 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
         )
     }
 
-    private func fail(_ change: AccountWriteChange, error: AccountWriteError) {
+    private func fail(
+        _ change: AccountWriteChange,
+        error: AccountWriteError,
+        account: WritableAccount
+    ) {
         inFlight[change] = nil
         guard !isClosed else { return }
         show(AccountWriteReport(change: change, failure: error))
-        if error.requiresAccountRevalidation, !revalidationRequestedSinceSuccess {
-            revalidationRequestedSinceSuccess = true
+        if error.requiresAccountRevalidation, revalidationRequestedFor != account {
+            revalidationRequestedFor = account
             authenticationRevalidationGeneration &+= 1
         }
     }

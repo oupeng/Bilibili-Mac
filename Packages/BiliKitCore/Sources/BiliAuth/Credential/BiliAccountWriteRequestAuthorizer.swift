@@ -41,8 +41,16 @@ public struct BiliAccountWriteRequestAuthorizer: HTTPSubjectBoundRequestAuthoriz
     /// BiliAPI，Composition 的测试核对两边一致）。
     ///
     /// 稍后再看移除用单条接口 `toview/del`（urlencoded、不签 WBI）：它有接口文档、多个第三方客户端在用，表单只有
-    /// aid 与 csrf。网页稍后再看页实际用的是 `toview/v2/dels`（WBI 签名 + multipart），如果 `toview/del` 失效再换用它，
-    /// 届时要在这里登记 multipart 的封闭解析与签名 query 的校验，不能放宽成接受任意正文。
+    /// aid 与 csrf。它的 `aid` 在文档里是可选的，带 `viewed=true` 时会删除全部已看完的视频；这里强制要求 `aid` 且不收
+    /// `viewed`，挡住的正是“一次清空”，不能把 `aid` 改成可选或放进 `viewed`。
+    ///
+    /// 实机失效时的后备：
+    /// 1. urlencoded、不签 WBI 的 `toview/v2/dels`：加一行 schema，必需字段 `resources`，取值形状 `.positiveInteger`
+    ///    （只收单个 aid，不收逗号分隔的批量），Referer 与 Cookie 同 `toview/del`。
+    /// 2. 网页实际的 WBI 签名 + multipart：本类型目前把 `Content-Type` 固定为 urlencoded、csrf 以 `&csrf=` 拼在 urlencoded
+    ///    正文末尾、要求没有 query，写管线 `postForm` 也只编码 urlencoded 且不经 `signedRequest`。换用它要给 schema 加正文
+    ///    格式维度，封闭校验 multipart 的 boundary 与各 part，把 csrf 注入为单独的 part，并像 heartbeat 授权器那样校验签名
+    ///    query（`w_rid`／`wts` 的形状），写管线另要取 WBI key 签名；不能放宽成接受任意正文或 query。
     static let schemas: [String: Schema] = [
         "/x/v2/history/toview/add": Schema(
             requiredFields: ["aid": .positiveInteger],

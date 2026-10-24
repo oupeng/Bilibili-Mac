@@ -136,7 +136,15 @@ struct BiliAccountWriteRequestAuthorizerTests {
         "aid=",
         "bvid=BV17x411w7KC",
         "",
-        "aid=" + String(repeating: "1", count: 1_100)
+        "aid=" + String(repeating: "1", count: 1_100),
+        "AID=170001",
+        "a%69d=1&aid=2",
+        "aid=1;csrf=x",
+        "aid=1%26csrf%3Dx",
+        "aid=1+2",
+        "aid=99999999999999999999",
+        "aid=١٢",
+        "aid=1\r\ncsrf=x"
     ])
     func rejectsBodiesOutsideTheSchema(body: String) async throws {
         let authorizer = try makeAuthorizer()
@@ -144,6 +152,46 @@ struct BiliAccountWriteRequestAuthorizerTests {
         await #expect(throws: BiliRequestAuthorizationError.requestNotAllowed) {
             try await authorizer.authorize(
                 try writeRequest(path: Self.addPath, body: body),
+                boundTo: Self.accountID
+            )
+        }
+    }
+
+    /// path 只认精确且编码规范的形状：尾斜杠、编码字母、大小写、空 query、路径参数、多余斜杠与点段、host 末尾的点都拒绝。
+    @Test(arguments: [
+        "https://api.bilibili.com/x/v2/history/toview/add/",
+        "https://api.bilibili.com/x/v2/history/toview/%61dd",
+        "https://api.bilibili.com/X/v2/history/toview/add",
+        "https://api.bilibili.com/x/v2/history/toview/add?",
+        "https://api.bilibili.com/x/v2/history/toview/add;x",
+        "https://api.bilibili.com//x/v2/history/toview/add",
+        "https://api.bilibili.com/x/v2/history/./toview/add",
+        "https://api.bilibili.com./x/v2/history/toview/add"
+    ])
+    func rejectsNonCanonicalTargets(url: String) async throws {
+        let authorizer = try makeAuthorizer()
+        let request = HTTPRequest(
+            url: try #require(URL(string: url)),
+            method: .post,
+            headers: validHeaders(referer: "https://www.bilibili.com/"),
+            body: Data("aid=170001".utf8)
+        )
+
+        await #expect(throws: BiliRequestAuthorizationError.requestNotAllowed) {
+            try await authorizer.authorize(request, boundTo: Self.accountID)
+        }
+    }
+
+    /// 只差大小写的同名 header 算重复，不按其中一个放行。
+    @Test
+    func rejectsCaseVariantDuplicateHeaders() async throws {
+        let authorizer = try makeAuthorizer()
+        var headers = validHeaders(referer: "https://www.bilibili.com/")
+        headers["referer"] = "https://www.bilibili.com/"
+
+        await #expect(throws: BiliRequestAuthorizationError.requestNotAllowed) {
+            try await authorizer.authorize(
+                try writeRequest(path: Self.addPath, headers: headers),
                 boundTo: Self.accountID
             )
         }

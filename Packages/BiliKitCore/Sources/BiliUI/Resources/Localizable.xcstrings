@@ -1736,6 +1736,34 @@
           }
         }
       }
+    },
+    "这个视频不能加入稍后再看。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This video can’t be added to Watch Later."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この動画は「あとで見る」に追加できません。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这个视频不能加入稍后再看。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這部影片無法加入稍後再看。"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

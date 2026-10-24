@@ -81,6 +81,8 @@ package enum AccountWriteStatusText {
             BiliUIStrings.localized("请求受到限制，请稍后再试。")
         case .listFull:
             BiliUIStrings.localized("稍后再看已满。")
+        case .unsupportedContent:
+            BiliUIStrings.localized("这个视频不能加入稍后再看。")
         case .contentUnavailable:
             BiliUIStrings.localized("视频不存在或已删除。")
         case .rejected(let code):

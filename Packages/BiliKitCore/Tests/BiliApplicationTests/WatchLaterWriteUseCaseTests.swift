@@ -55,16 +55,12 @@ struct WatchLaterWriteUseCaseTests {
     func onlyCredentialFailuresRequestRevalidation() {
         let all: [AccountWriteError] = [
             .invalidRequest, .authenticationRequired, .authenticationInvalid,
-            .authenticationUnavailable, .restricted, .listFull, .contentUnavailable,
-            .rejected(code: 1), .unavailable
+            .authenticationUnavailable, .restricted, .listFull, .unsupportedContent,
+            .contentUnavailable, .rejected(code: 1), .unavailable
         ]
         #expect(
             all.filter(\.requiresAccountRevalidation)
                 == [.authenticationRequired, .authenticationInvalid]
-        )
-        #expect(
-            all.filter(\.isRetryable)
-                == [.authenticationUnavailable, .rejected(code: 1), .unavailable]
         )
     }
 }

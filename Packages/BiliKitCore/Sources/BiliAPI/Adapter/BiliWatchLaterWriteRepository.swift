@@ -5,10 +5,16 @@ import BiliApplication
 /// 无状态；底层 client 必须注入了账户写授权器（`LiveAPIClients.main`），否则一律按“需要登录”失败。取消原样传播。
 /// 映射规则见 `AccountWriteError`，这里是唯一的对应处，见 SECURITY-MODEL §3。
 public struct BiliWatchLaterWriteRepository: WatchLaterWriteRepository {
+    /// 付费稿件，不能加入稍后再看。
+    ///
+    /// 这几个业务码的出处是第三方接口文档与网页端错误码表的交叉核实，未经本项目实测。
+    private static let paidContentCode = 90_000
     /// 稍后再看已满（“塞满啦”）。
     private static let listFullCode = 90_001
     /// 稿件已被删除。
     private static let deletedCode = 90_003
+    // 90002 没有专门映射：只有一个第三方客户端把它当作“移除时不在列表里”并视为成功，接口文档与错误码表都没有收录，
+    // 含义未经证实。按普通业务拒绝显示错误码，不当作成功：含义不符时当作成功会让乐观移除掩盖真实的失败。
 
     private let client: BiliAPIClient
 
@@ -45,6 +51,8 @@ public struct BiliWatchLaterWriteRepository: WatchLaterWriteRepository {
                 .authenticationUnavailable
             case .restricted:
                 .restricted
+            case .rejected(let code) where code == paidContentCode:
+                .unsupportedContent
             case .rejected(let code) where code == listFullCode:
                 .listFull
             case .rejected(let code) where code == deletedCode:

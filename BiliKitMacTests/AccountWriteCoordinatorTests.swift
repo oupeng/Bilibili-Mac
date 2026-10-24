@@ -125,6 +125,32 @@ struct AccountWriteCoordinatorTests {
         }
     }
 
+    /// 节流只在同一账户与会话代次里生效：换号或登出再登录后，第一次凭据类失败照常请求复核。
+    @Test
+    func revalidationThrottleExpiresWithTheSession() async throws {
+        let writes = WatchLaterWriteRepositoryStub(
+            outcomes: [.authenticationInvalid, .authenticationInvalid, .authenticationInvalid]
+        )
+        let session = MutableWritableAccount()
+        let coordinator = AccountWriteCoordinator(
+            watchLater: WatchLaterWriteUseCase(repository: writes),
+            watchLaterModel: WatchLaterViewModel(
+                useCase: WatchLaterUseCase(repository: WatchLaterRepositoryStub())
+            ),
+            writableAccount: { session.account },
+            publish: { _, _ in }
+        )
+        defer { coordinator.close() }
+
+        for (generation, expected) in [(UInt64(1), 1), (1, 1), (3, 2)] {
+            session.account = WritableAccount(accountID: 7, sessionGeneration: generation)
+            let sequence = coordinator.reportSequence
+            coordinator.addToWatchLater(bvid: "BV17x411w7KC")
+            await waitForObservedState { coordinator.reportSequence != sequence }
+            #expect(coordinator.authenticationRevalidationGeneration == expected)
+        }
+    }
+
     @Test
     func closedGateSendsNothing() async throws {
         let writes = WatchLaterWriteRepositoryStub()
@@ -244,4 +270,10 @@ struct AccountWriteCoordinatorTests {
     private func target() throws -> VideoWriteTarget {
         try #require(VideoWriteTarget(bvid: "BV17x411w7KC"))
     }
+}
+
+/// 测试里可变的窗口写入账户；门槛闭包在主线程读取。
+@MainActor
+private final class MutableWritableAccount {
+    var account: WritableAccount?
 }

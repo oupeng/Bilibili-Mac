@@ -12,8 +12,7 @@ import Foundation
 /// 拥有当前 transport 与 `HTTPClient`、WBI key 缓存和认证 epoch，都由 actor 隔离；跨 `await`
 /// 可重入，用户意图的取消与写回代次由上层 ViewModel 管理。实例由 Composition（`LiveAPIClients`）
 /// 按用途构造：每个窗口一个主 API（只有它打开用户发起的账户写入），进程级的线路测速与观看进度写入各一个；都登记进
-/// 账户会话，登出、
-/// 换号与凭据失效时经 `invalidateAuthenticatedSession()` 一并失效。
+/// 账户会话，登出、换号与凭据失效时经 `invalidateAuthenticatedSession()` 一并失效。
 ///
 /// 本文件只含请求管线（access 选择、授权、epoch 复核、envelope 解码）、WBI key 与签名读取序列
 /// （`signedRequest`）；各域 endpoint 在同 actor 的 `BiliAPIClient+*.swift` 扩展中，签名读取一律经
