@@ -27,10 +27,10 @@ struct NativeVideoGridResizeAnchorTests {
             let card = try #require(grid.card(original.id))
             #expect(
                 abs(card.offsetFromViewportTop - original.offsetFromViewportTop) <= 1,
-                "宽度 \(width) 时首卡 \(original.id) 离开了视野顶部"
+                "宽度 \(width) 时首卡 \(original.id) 离开了视野顶部：原距离 \(original.offsetFromViewportTop)，现距离 \(card.offsetFromViewportTop)；\(grid.diagnostics)"
             )
         }
-        #expect(grid.firstVisibleCard() == original)
+        #expect(grid.firstVisibleCard() == original, "\(grid.diagnostics)")
     }
 
     @Test
@@ -220,6 +220,18 @@ private final class GridHarness {
             }
             .min { ($0.1.minY, $0.0) < ($1.1.minY, $1.0) }
             .flatMap { card(ids[$0.0]) }
+    }
+
+    /// 失败时帮助判断运行环境：缩放、滚动条样式、视口与 document 尺寸、首行张数。
+    var diagnostics: String {
+        let firstRow = ids.indices.prefix(8).compactMap {
+            collectionView.collectionViewLayout?
+                .layoutAttributesForItem(at: IndexPath(item: $0, section: 0))?.frame.minY
+        }
+        return "scale=\(window.backingScaleFactor) scroller=\(scrollView.scrollerStyle.rawValue)"
+            + " frame=\(scrollView.frame.size) content=\(scrollView.contentSize)"
+            + " insets=\(scrollView.contentInsets.top) document=\(collectionView.frame.size)"
+            + " origin=\(scrollView.contentView.bounds.origin.y) firstRowsMinY=\(firstRow)"
     }
 
     /// 卡片顶边到视口逻辑顶边（工具栏下沿）的距离。
