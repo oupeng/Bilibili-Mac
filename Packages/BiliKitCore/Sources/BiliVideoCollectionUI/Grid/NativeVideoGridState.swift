@@ -95,25 +95,12 @@ public struct NativeVideoGridScrollResetState: Equatable, Sendable {
     }
 }
 
-/// 视口锚点：视野内最靠上的卡片及其顶边到视口顶边的距离。
+/// 视口锚点：与视野相交的最上一行里序号最小的卡片，及其顶边到视口逻辑顶边（contentInsets 之下、逻辑偏移处）的距离。
+///
+/// 距离按逻辑坐标记，contentInsets 变化时网格保持逻辑偏移，锚点无需改写。
 struct NativeVideoGridViewportAnchor: Equatable {
     let id: String
     let offsetFromViewportTop: CGFloat
-}
-
-/// 按锚点卡片的新位置算出目标偏移，夹在可滚动范围内。
-enum NativeVideoGridAnchorRetention {
-    static func targetOffsetY(
-        itemOriginY: CGFloat,
-        offsetFromViewportTop: CGFloat,
-        minimumOffsetY: CGFloat = 0,
-        maximumOffsetY: CGFloat
-    ) -> CGFloat {
-        min(
-            max(minimumOffsetY, maximumOffsetY),
-            max(minimumOffsetY, itemOriginY - offsetFromViewportTop)
-        )
-    }
 }
 
 /// 网格最近观察到的滚动位置，与已同步给 binding 的位置分开记：用户滚动时只记录、不逐帧写回 SwiftUI，

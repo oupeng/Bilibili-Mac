@@ -8,8 +8,7 @@ import BiliUI
 final class NativeVideoCollectionView: NativeVideoCardCollectionView {
     /// AppKit 默认只准备视野内的卡片，封面要等卡片露出来才开始加载；这里上下各多准备一屏。
     ///
-    /// 因此 `indexPathsForVisibleItems()` 也包含视野外已准备的卡片；需要“看得见的卡片”时用
-    /// `indexPathsIntersectingVisibleRect()`。
+    /// 因此 `indexPathsForVisibleItems()` 也包含视野外已准备的卡片；需要视野首卡时用 `firstVisibleItem()`。
     override func prepareContent(in rect: NSRect) {
         guard !visibleRect.isEmpty else {
             super.prepareContent(in: rect)
@@ -20,12 +19,15 @@ final class NativeVideoCollectionView: NativeVideoCardCollectionView {
         )
     }
 
-    /// 与视野相交的卡片：键盘选择的起点与滚动锚点只能取用户看得见的卡片。
-    func indexPathsIntersectingVisibleRect() -> [IndexPath] {
-        let visible = visibleRect
-        return indexPathsForVisibleItems().filter {
-            collectionViewLayout?.layoutAttributesForItem(at: $0)?.frame.intersects(visible) == true
-        }
+    /// 视野首卡：与视野相交的最上一行里序号最小的卡片，网格的滚动锚点与键盘选择的起点都取它。
+    ///
+    /// 直接问排版视野里有哪些卡片，不看已准备的卡片：跳转后的视野可能还没有准备好的卡片。
+    func firstVisibleItem() -> NSCollectionViewLayoutAttributes? {
+        collectionViewLayout?.layoutAttributesForElements(in: visibleRect)
+            .filter { $0.representedElementCategory == .item && $0.indexPath != nil }
+            .min {
+                ($0.frame.minY, $0.indexPath?.item ?? 0) < ($1.frame.minY, $1.indexPath?.item ?? 0)
+            }
     }
 
     func refreshPreparedContentIfNeeded() {
@@ -64,7 +66,7 @@ final class NativeVideoCollectionView: NativeVideoCardCollectionView {
             for: event,
             rowLength: NativeVideoGridGeometry.columnCount(for: bounds.width)
         ), numberOfItems(inSection: 0) > 0 {
-            let visibleStart = indexPathsIntersectingVisibleRect().map(\.item).min() ?? 0
+            let visibleStart = firstVisibleItem()?.indexPath?.item ?? 0
             let current = selectionIndexPaths.first?.item ?? visibleStart
             selectWithKeyboard(itemAt: current + delta, scrollPosition: .nearestVerticalEdge)
             return
