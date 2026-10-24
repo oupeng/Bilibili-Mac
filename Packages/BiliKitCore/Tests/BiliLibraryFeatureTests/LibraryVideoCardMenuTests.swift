@@ -13,9 +13,18 @@ struct LibraryVideoCardMenuTests {
     @Test @MainActor
     func playableCardsOfferTheirWatchLaterActionAndVideoLinks() throws {
         let cases: [(NativeVideoCardPresentation, NativeVideoCardMenu.WatchLaterAction, String)] = [
-            (WatchHistoryCardPresentation(item: item("BV1History")).nativeCard, .add, VideoCardMenuText.addToWatchLater),
-            (WatchLaterCardPresentation(item: laterItem("BV1Later")).nativeCard, .remove, VideoCardMenuText.removeFromWatchLater),
-            (FavoriteCardPresentation(item: favoriteItem("BV1Favorite")).nativeCard, .add, VideoCardMenuText.addToWatchLater)
+            (
+                WatchHistoryCardPresentation(item: item("BV1History")).nativeCard, .add,
+                VideoCardMenuText.addToWatchLater
+            ),
+            (
+                WatchLaterCardPresentation(item: laterItem("BV1Later")).nativeCard, .remove,
+                VideoCardMenuText.removeFromWatchLater
+            ),
+            (
+                FavoriteCardPresentation(item: favoriteItem("BV1Favorite")).nativeCard, .add,
+                VideoCardMenuText.addToWatchLater
+            )
         ]
 
         for (card, action, writeTitle) in cases {

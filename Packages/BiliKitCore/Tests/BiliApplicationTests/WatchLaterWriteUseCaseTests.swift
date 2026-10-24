@@ -39,7 +39,10 @@ struct WatchLaterWriteUseCaseTests {
         let useCase = WatchLaterWriteUseCase(repository: repository)
 
         await #expect(throws: AccountWriteError.listFull) {
-            try await useCase.add(try #require(VideoWriteTarget(bvid: "BV17x411w7KC")), accountID: 42)
+            try await useCase.add(
+                try #require(VideoWriteTarget(bvid: "BV17x411w7KC")),
+                accountID: 42
+            )
         }
     }
 

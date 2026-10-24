@@ -399,8 +399,11 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
         }
     }
 
-    /// 按 `access` 交给对应的授权器；账户写入另把预期账户 mid 作为绑定主体。调用前已由 `hasAuthorizer` 确认注入。
-    private func authorize(_ request: HTTPRequest, access: RequestAccess) async throws -> HTTPRequest {
+    /// 按 `access` 交给对应的授权器；账户写入另把预期账户 mid 作为绑定主体，调用前已由 `hasAuthorizer` 确认注入。
+    private func authorize(
+        _ request: HTTPRequest,
+        access: RequestAccess
+    ) async throws -> HTTPRequest {
         switch access {
         case .accountRead:
             guard let requestAuthorizer else { break }

@@ -24,7 +24,10 @@ public struct AccountWriteStatusCapsule: View {
                     Text(AccountWriteStatusText.message(for: report))
                         .lineLimit(Geometry.messageLineLimit)
                 } icon: {
-                    Image(systemName: report.failure == nil ? "checkmark.circle" : "exclamationmark.circle")
+                    Image(
+                        systemName: report.failure == nil
+                            ? "checkmark.circle" : "exclamationmark.circle"
+                    )
                 }
                 .font(.callout)
                 .padding(Geometry.contentPadding)
@@ -38,7 +41,10 @@ public struct AccountWriteStatusCapsule: View {
         .padding(.horizontal, Geometry.horizontalInset)
         .padding(.bottom, Geometry.bottomInset)
         .animation(LoadingStateTransition.animation(reduceMotion: reduceMotion), value: sequence)
-        .animation(LoadingStateTransition.animation(reduceMotion: reduceMotion), value: report == nil)
+        .animation(
+            LoadingStateTransition.animation(reduceMotion: reduceMotion),
+            value: report == nil
+        )
         .onChange(of: sequence) { _, _ in
             guard let report else { return }
             AccessibilityNotification.Announcement(AccountWriteStatusText.message(for: report))

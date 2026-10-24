@@ -242,7 +242,9 @@ extension NativeVideoCardCollectionView {
     ///
     /// 读屏可能缓存操作列表，卡片在此期间会被复用给别的视频、账户门槛也可能变化；按 ID 与当下的描述核对，避免对另一个
     /// 视频或在不满足门槛时执行写操作（与 `presentCardMenu` 同一做法）。
-    func accessibilityCustomActions(for item: NativeVideoCollectionItem) -> [NSAccessibilityCustomAction]? {
+    func accessibilityCustomActions(
+        for item: NativeVideoCollectionItem
+    ) -> [NSAccessibilityCustomAction]? {
         guard let id = item.representedVideoID, let menu = cardMenu(for: item) else { return nil }
         let actions = menu.items.filter(\.isEnabled).map { menuItem in
             let title = menuItem.title

@@ -20,7 +20,8 @@ final class AccountWriteEffectHub {
     }
 
     /// 转给除 `origin`（发起写入的窗口的路由，它已在本窗口内处理过）以外的全部已登记窗口。
-    func publish(_ delivery: AccountWriteEffectDelivery, excluding origin: AccountWriteEffectRouter) {
+    func publish(_ delivery: AccountWriteEffectDelivery, excluding origin: AccountWriteEffectRouter)
+    {
         for router in routers.values where router !== origin {
             router.apply(delivery, appliedLocally: false)
         }

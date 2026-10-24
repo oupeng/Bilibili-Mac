@@ -17,7 +17,8 @@ public struct WatchLaterWriteUseCase: Sendable {
     }
 
     /// 账户 mid 不是正数时不发请求（`invalidRequest`）。
-    public func add(_ target: VideoWriteTarget, accountID: Int64) async throws -> AccountWriteEffect {
+    public func add(_ target: VideoWriteTarget, accountID: Int64) async throws -> AccountWriteEffect
+    {
         guard accountID > 0 else { throw AccountWriteError.invalidRequest }
         try await repository.add(target, accountID: accountID)
         return AccountWriteEffect(accountID: accountID, change: .watchLaterAdded(target))

@@ -144,7 +144,9 @@ struct AccountWriteAuthorizationCompositionTests {
     @MainActor
     func everyProductionWritePathCanAuthorizeTheRequestTheClientBuilds() async throws {
         let authorizer = BiliAccountWriteRequestAuthorizer(
-            store: CompositionFixtureCredentialStore(credential: try makeCompositionFixtureCredential()),
+            store: CompositionFixtureCredentialStore(
+                credential: try makeCompositionFixtureCredential()
+            ),
             allowedPaths: LiveAPIClients.mainAccountWriteAllowedPaths
         )
         let referers = [

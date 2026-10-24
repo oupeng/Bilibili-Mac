@@ -176,8 +176,10 @@ struct BiliAccountWriteRequestAuthorizerTests {
                 boundTo: Self.accountID
             )
         }
-        #expect(BiliRequestAuthorizationError.accountMismatch.authorizationFailureKind
-            == .invalidCredential)
+        #expect(
+            BiliRequestAuthorizationError.accountMismatch.authorizationFailureKind
+                == .invalidCredential
+        )
         #expect(store.deleteCount == 0)
     }
 

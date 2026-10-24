@@ -5,7 +5,9 @@ import Testing
 
 @testable import BiliVideoCollectionUI
 
-/// 卡片菜单：右键菜单、读屏自定义操作与 ⌘⌫ 出自同一份描述。写操作一组在前、链接一组在后，组间有分隔线；「拷贝链接」
+/// 卡片菜单：右键菜单、读屏自定义操作与 ⌘⌫ 出自同一份描述。
+///
+/// 写操作一组在前、链接一组在后，组间有分隔线；「拷贝链接」
 /// 「在浏览器中打开」与「添加到稍后再看」只给可进入播放的卡片，「从稍后再看移除」也给不可用卡片并带 ⌘⌫；不满足写入门槛时
 /// 写操作项在菜单里禁用、不进入读屏操作；读屏操作执行时按卡片 ID 重新核对；没有项时不弹菜单；Control-点按走右键同一条
 /// 菜单路径，不激活卡片。
@@ -29,10 +31,12 @@ struct NativeVideoCardMenuTests {
             )
         )
 
-        #expect(menu.sections.map { $0.map(\.title) } == [
-            [VideoCardMenuText.addToWatchLater],
-            [VideoCardMenuText.copyLink, VideoCardMenuText.openInBrowser]
-        ])
+        #expect(
+            menu.sections.map { $0.map(\.title) } == [
+                [VideoCardMenuText.addToWatchLater],
+                [VideoCardMenuText.copyLink, VideoCardMenuText.openInBrowser]
+            ]
+        )
         #expect(menu.items.map(\.systemImage) == ["text.badge.plus", "link", "globe"])
         menu.items[0].action()
         menu.items[2].action()
@@ -203,7 +207,7 @@ struct NativeVideoCardMenuTests {
         #expect(available.accessibilityCustomActions() == nil)
     }
 
-    /// 稍后再看页的失效卡片：读屏仍可用并列出「从稍后再看移除」，执行即移除；按下仍不进入播放。⌘⌫ 对选中卡片执行同一项。
+    /// 稍后再看页的失效卡片：读屏仍可用并列出「从稍后再看移除」，执行即移除；按下仍不进入播放；⌘⌫ 对选中卡片执行同一项。
     @Test(.timeLimit(.minutes(1))) @MainActor
     func unavailableWatchLaterCardsStayRemovableBySpeechAndKeyboard() async throws {
         var removed: [String] = []

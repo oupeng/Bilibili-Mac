@@ -194,8 +194,9 @@ public final class LibraryVideoListModel<
         }
     }
 
-    /// 本列表在服务端的内容已被别处的写入改变（另一视图或另一窗口加入、移除了稍后再看）：只记下过期，不在后台读取，
-    /// 下一次页面出现（`loadIfNeeded`）时原地刷新。由 App 的写入效果路由调用。
+    /// 本列表在服务端的内容已被别处的写入改变（另一视图或另一窗口加入、移除了稍后再看）：只记下过期，不在后台读取。
+    ///
+    /// 下一次页面出现（`loadIfNeeded`）时原地刷新；由 App 的写入效果路由调用。
     public func markNeedsReload() {
         needsReload = true
     }
@@ -439,7 +440,9 @@ public final class LibraryVideoListModel<
 }
 
 /// 乐观移除的凭据：被移除的条目、它的位置与移除时列表内容的代次，交回 `LibraryVideoListModel.restoreItem` 回滚。
-public struct LibraryVideoListRemoval<Item: Sendable & Equatable, Cursor: Equatable & Sendable>: Sendable {
+public struct LibraryVideoListRemoval<Item: Sendable & Equatable, Cursor: Equatable & Sendable>:
+    Sendable
+{
     fileprivate let removal: PagedVideoList<Item, Cursor>.Removal
     fileprivate let contentGeneration: UInt64
 }

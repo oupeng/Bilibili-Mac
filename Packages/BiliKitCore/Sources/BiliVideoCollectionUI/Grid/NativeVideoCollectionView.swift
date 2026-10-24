@@ -1,7 +1,7 @@
 import AppKit
 import BiliUI
 
-/// 网格的集合视图：扩大预备区域，并处理点击激活、按列数移动的键盘选择与选中卡片的 ⌘⌫。
+/// 网格的集合视图：扩大预备区域，处理点击激活、按列数移动的键盘选择，以及选中卡片按 ⌘⌫ 执行的菜单项。
 ///
 /// 只由 `NativeVideoGridView` 创建；用 AppKit 的理由见 ARCHITECTURE「原生 AppKit 集合视图」。
 @MainActor

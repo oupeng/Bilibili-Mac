@@ -16,7 +16,9 @@ import Observation
 @MainActor
 @Observable
 final class AccountWriteCoordinator: AccountRevalidationParticipant {
-    /// 写入结果胶囊停留的时长：够读完两行说明；读屏另有通告，不依赖胶囊停留。调长会让连续操作时旧结果盖住新内容更久。
+    /// 写入结果胶囊停留的时长。
+    ///
+    /// 够读完两行说明；读屏另有通告，不依赖胶囊停留。调长会让连续操作时旧结果盖住新内容更久。
     static let reportDisplayDuration: Duration = .seconds(4)
 
     /// 胶囊显示的最新结果；nil 时不显示。
@@ -29,7 +31,8 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
     @ObservationIgnored private let watchLater: WatchLaterWriteUseCase
     @ObservationIgnored private let watchLaterModel: WatchLaterViewModel
     @ObservationIgnored private let writableAccount: @MainActor () -> WritableAccount?
-    @ObservationIgnored private let publish: @MainActor (AccountWriteEffectDelivery, _ appliedLocally: Bool) -> Void
+    @ObservationIgnored private let publish:
+        @MainActor (AccountWriteEffectDelivery, _ appliedLocally: Bool) -> Void
     /// 在途写入，按改动去重；完成、失败或取消时移除。
     @ObservationIgnored private var inFlight: [AccountWriteChange: Task<Void, Never>] = [:]
     @ObservationIgnored private var reportDismissal: Task<Void, Never>?
@@ -50,7 +53,7 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
         self.publish = publish
     }
 
-    /// 写入门槛：窗口已确认登录且 mid 已知、不在复核中、没有待复核的外部换号，且窗口未关闭。菜单项据此启用或禁用。
+    /// 写入门槛：窗口已确认登录且 mid 已知、不在复核中、没有待复核的外部换号，且窗口未关闭；菜单项据此启用或禁用。
     var isWritable: Bool {
         !isClosed && writableAccount() != nil
     }
@@ -78,13 +81,14 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
             appliedLocally: removal != nil,
             rollback: { [watchLaterModel] in
                 if let removal { watchLaterModel.restoreItem(removal) }
+            },
+            write: { [watchLater] in
+                try await watchLater.remove(target, accountID: account.accountID)
             }
-        ) { [watchLater] in
-            try await watchLater.remove(target, accountID: account.accountID)
-        }
+        )
     }
 
-    /// 关窗：取消全部在途写入与胶囊计时，之后不再接受意图。不可逆。
+    /// 关窗：取消全部在途写入与胶囊计时，之后不再接受意图；不可逆。
     func close() {
         isClosed = true
         for task in inFlight.values { task.cancel() }
@@ -110,7 +114,12 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
         inFlight[change] = Task { [weak self] in
             do {
                 let effect = try await write()
-                self?.finish(change, effect: effect, account: account, appliedLocally: appliedLocally)
+                self?.finish(
+                    change,
+                    effect: effect,
+                    account: account,
+                    appliedLocally: appliedLocally
+                )
             } catch is CancellationError {
                 // 关窗，或认证会话在请求途中切换（API 按取消结束）：不显示结果，只撤销本地移除。
                 rollback()
@@ -133,7 +142,10 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
         revalidationRequestedSinceSuccess = false
         show(AccountWriteReport(change: change, failure: nil))
         publish(
-            AccountWriteEffectDelivery(effect: effect, sessionGeneration: account.sessionGeneration),
+            AccountWriteEffectDelivery(
+                effect: effect,
+                sessionGeneration: account.sessionGeneration
+            ),
             appliedLocally
         )
     }

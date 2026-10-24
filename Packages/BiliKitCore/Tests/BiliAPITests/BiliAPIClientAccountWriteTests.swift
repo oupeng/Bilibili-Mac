@@ -64,7 +64,10 @@ struct BiliAPIClientAccountWriteTests {
         )
 
         await #expect(throws: expected) {
-            try await repository.add(try #require(VideoWriteTarget(bvid: "BV17x411w7KC")), accountID: 42)
+            try await repository.add(
+                try #require(VideoWriteTarget(bvid: "BV17x411w7KC")),
+                accountID: 42
+            )
         }
     }
 
@@ -87,7 +90,10 @@ struct BiliAPIClientAccountWriteTests {
 
     /// 凭据失效（含账户不符）、已登录却无凭据、Keychain 不可用与授权器拒绝各有自己的写入错误，都不发出请求。
     @Test(arguments: [
-        (HTTPRequestAuthorizationFailureKind.invalidCredential, AccountWriteError.authenticationInvalid),
+        (
+            HTTPRequestAuthorizationFailureKind.invalidCredential,
+            AccountWriteError.authenticationInvalid
+        ),
         (.missingCredential, .authenticationRequired),
         (.unavailable, .authenticationUnavailable),
         (.denied, .invalidRequest)
@@ -105,7 +111,10 @@ struct BiliAPIClientAccountWriteTests {
         )
 
         await #expect(throws: expected) {
-            try await repository.add(try #require(VideoWriteTarget(bvid: "BV17x411w7KC")), accountID: 42)
+            try await repository.add(
+                try #require(VideoWriteTarget(bvid: "BV17x411w7KC")),
+                accountID: 42
+            )
         }
         #expect(transport.capturedRequests().isEmpty)
     }
@@ -118,7 +127,10 @@ struct BiliAPIClientAccountWriteTests {
             client: BiliAPIClient(transport: transport, requestAuthorizer: StubAuthorizer())
         )
         await #expect(throws: AccountWriteError.authenticationRequired) {
-            try await unauthorized.add(try #require(VideoWriteTarget(bvid: "BV17x411w7KC")), accountID: 42)
+            try await unauthorized.add(
+                try #require(VideoWriteTarget(bvid: "BV17x411w7KC")),
+                accountID: 42
+            )
         }
 
         let authorizer = StubSubjectBoundAuthorizer()
