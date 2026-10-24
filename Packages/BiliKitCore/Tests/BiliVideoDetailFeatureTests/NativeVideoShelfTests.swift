@@ -196,7 +196,9 @@ struct NativeVideoShelfTests {
         let cardMenu: (NativeVideoCardPresentation) -> NativeVideoCardMenu? = { card in
             requestedIDs.append(card.id)
             return NativeVideoCardMenu(
-                sections: [[NativeVideoCardMenu.Item(title: "菜单项", systemImage: "link") {}]]
+                sections: [
+                    [NativeVideoCardMenu.Item(id: "item", title: "菜单项", systemImage: "link") {}]
+                ]
             )
         }
         let coordinator = NativeVideoShelfView.Coordinator(

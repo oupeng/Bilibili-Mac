@@ -141,7 +141,7 @@ struct NativeVideoCardMenuTests {
             NativeVideoCardMenu(
                 sections: [
                     titles.map { title in
-                        NativeVideoCardMenu.Item(title: title, systemImage: "star") {
+                        NativeVideoCardMenu.Item(id: title, title: title, systemImage: "star") {
                             performed.append(title)
                         }
                     }
@@ -275,7 +275,9 @@ struct NativeVideoCardMenuTests {
                     return nil
                 }
                 return NativeVideoCardMenu(
-                    sections: [[NativeVideoCardMenu.Item(title: "菜单项", systemImage: "link") {}]]
+                    sections: [
+                        [NativeVideoCardMenu.Item(id: "item", title: "菜单项", systemImage: "link") {}]
+                    ]
                 )
             }
         )

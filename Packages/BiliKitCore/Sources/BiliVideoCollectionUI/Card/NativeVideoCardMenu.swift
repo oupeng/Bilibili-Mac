@@ -19,8 +19,10 @@ package struct NativeVideoCardMenu {
         case commandDelete
     }
 
-    /// 一个菜单项：标题、SF Symbol 名、是否可用、快捷键与动作。
+    /// 一个菜单项：稳定标识、标题、SF Symbol 名、是否可用、快捷键与动作。
     package struct Item {
+        /// 同一份描述里不重复的稳定标识；读屏操作执行时按它在此刻的描述里找回这一项，不依赖本地化的标题。
+        package let id: String
         package let title: String
         package let systemImage: String
         package let isEnabled: Bool
@@ -28,12 +30,14 @@ package struct NativeVideoCardMenu {
         package let action: @MainActor () -> Void
 
         package init(
+            id: String,
             title: String,
             systemImage: String,
             isEnabled: Bool = true,
             keyEquivalent: KeyEquivalent? = nil,
             action: @escaping @MainActor () -> Void
         ) {
+            self.id = id
             self.title = title
             self.systemImage = systemImage
             self.isEnabled = isEnabled
@@ -138,14 +142,18 @@ extension NativeVideoCardMenu.Item {
     ) -> [Self] {
         guard card.isActivatable else { return [] }
         return [
-            Self(title: VideoCardMenuText.copyLink, systemImage: "link") {
+            Self(id: "copyLink", title: VideoCardMenuText.copyLink, systemImage: "link") {
                 let item = NSPasteboardItem()
                 item.setString(webPageURL.absoluteString, forType: .URL)
                 item.setString(webPageURL.absoluteString, forType: .string)
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.writeObjects([item])
             },
-            Self(title: VideoCardMenuText.openInBrowser, systemImage: "globe") {
+            Self(
+                id: "openInBrowser",
+                title: VideoCardMenuText.openInBrowser,
+                systemImage: "globe"
+            ) {
                 openURL(webPageURL)
             }
         ]
@@ -165,6 +173,7 @@ extension NativeVideoCardMenu.Item {
             guard card.isActivatable else { return [] }
             return [
                 Self(
+                    id: "addToWatchLater",
                     title: VideoCardMenuText.addToWatchLater,
                     systemImage: "text.badge.plus",
                     isEnabled: writing.isAvailable()
@@ -173,6 +182,7 @@ extension NativeVideoCardMenu.Item {
         case .remove:
             return [
                 Self(
+                    id: "removeFromWatchLater",
                     title: VideoCardMenuText.removeFromWatchLater,
                     systemImage: "text.badge.minus",
                     isEnabled: writing.isAvailable(),
@@ -237,7 +247,7 @@ extension NativeVideoCardCollectionView {
         return true
     }
 
-    /// 卡片的读屏自定义操作：查询时只列出可用项的标题，执行时按查询时的卡片 ID 重新取一次菜单、按标题找到仍可用的项
+    /// 卡片的读屏自定义操作：查询时只列出可用项，执行时按查询时的卡片 ID 重新取一次菜单、按项的稳定标识找到仍可用的项
     /// 再执行。
     ///
     /// 读屏可能缓存操作列表，卡片在此期间会被复用给别的视频、账户门槛也可能变化；按 ID 与当下的描述核对，避免对另一个
@@ -247,8 +257,8 @@ extension NativeVideoCardCollectionView {
     ) -> [NSAccessibilityCustomAction]? {
         guard let id = item.representedVideoID, let menu = cardMenu(for: item) else { return nil }
         let actions = menu.items.filter(\.isEnabled).map { menuItem in
-            let title = menuItem.title
-            return NSAccessibilityCustomAction(name: title) { [weak self, weak item] in
+            let itemID = menuItem.id
+            return NSAccessibilityCustomAction(name: menuItem.title) { [weak self, weak item] in
                 // 读屏在主线程执行自定义操作。
                 MainActor.assumeIsolated {
                     guard
@@ -256,7 +266,7 @@ extension NativeVideoCardCollectionView {
                         let item,
                         item.representedVideoID == id,
                         let current = self.cardMenu(for: item)?.items.first(where: {
-                            $0.title == title && $0.isEnabled
+                            $0.id == itemID && $0.isEnabled
                         })
                     else { return false }
                     current.action()
