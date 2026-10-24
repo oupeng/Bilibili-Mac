@@ -34,6 +34,8 @@ public struct AccountWriteStatusCapsule: View {
                 .background(.regularMaterial, in: Capsule())
                 // 通告已经读出这句话，胶囊本身不再进入读屏焦点顺序。
                 .accessibilityHidden(true)
+                // 胶囊盖在网格与相关推荐上，不拦截停留期间的点按。
+                .allowsHitTesting(false)
                 .id(sequence)
                 .transition(.opacity)
             }
