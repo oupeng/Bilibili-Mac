@@ -528,10 +528,7 @@ public final class AVPlayerEngine:
         guard let item = player.currentItem,
             let duration = currentTimelineSnapshot.durationSeconds
         else { return false }
-        let components = time.components
-        let seconds =
-            Double(components.seconds)
-            + Double(components.attoseconds) / 1_000_000_000_000_000_000
+        let seconds = time / .seconds(1)
         guard seconds.isFinite, seconds >= 0, seconds <= duration else {
             return false
         }
