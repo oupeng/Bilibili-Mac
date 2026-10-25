@@ -75,13 +75,17 @@ struct LibraryVideoListLoadedSurface<Item: Sendable & Equatable, Cursor: Equatab
 /// 分页状态胶囊；凭据失败的说明按模型的账户复核进度区分。
 ///
 /// 不拥有请求、分页与复核（`LibraryVideoListModel`）；条目到卡片的映射由来源给出，滚动位置、回顶请求与图片
-/// 管线由根视图从 App 窗口转交。
+/// 管线由根视图从 App 窗口转交；卡片菜单取 `LibraryVideoCardMenu`，写入口来自 App 注入的环境 `videoCardAccountWriting`。
 struct LibraryVideoListContentView<Item: Sendable & Equatable, Cursor: Equatable & Sendable>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.locale) private var locale
+    @Environment(\.openURL) private var openURL
+    @Environment(\.videoCardAccountWriting) private var accountWriting
     let model: LibraryVideoListModel<Item, Cursor>
     let text: LibraryVideoListText
     let card: (Item, Locale) -> NativeVideoCardPresentation
+    /// 卡片菜单的稍后再看写操作：稍后再看页是移除，观看历史是加入。
+    let watchLaterAction: NativeVideoCardMenu.WatchLaterAction
     let gridHost: NativeVideoGridHostContext
     let onSelect: (String) -> Void
 
@@ -194,7 +198,15 @@ struct LibraryVideoListContentView<Item: Sendable & Equatable, Cursor: Equatable
             ),
             host: gridHost,
             onNearEnd: model.loadMore,
-            onSelect: onSelect
+            onSelect: onSelect,
+            cardMenu: {
+                LibraryVideoCardMenu.menu(
+                    for: $0,
+                    openURL: openURL,
+                    writing: accountWriting,
+                    watchLater: watchLaterAction
+                )
+            }
         )
         .ignoresSafeArea(.container, edges: .top)
         .overlay(alignment: .top) {

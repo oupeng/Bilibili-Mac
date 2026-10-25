@@ -30,7 +30,7 @@ struct FavoriteFolderAccountScopeTests {
         accountSession.publish(processScope)
 
         #expect(
-            WindowComposition.favoriteFolderReadingScope(
+            WindowComposition.settledAccountScope(
                 windowScope: .signedIn(accountID: 7),
                 isRestoring: isRestoring,
                 accountSession: accountSession

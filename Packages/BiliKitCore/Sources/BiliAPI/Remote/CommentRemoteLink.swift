@@ -164,7 +164,7 @@ enum CommentRemoteLink {
     ///
     /// 链接路径与正文纯文字识别共用这一规则。
     static func bvid(fromVideoID component: String) -> String? {
-        if BiliAPIClient.isValidBVID(component) {
+        if BVID.isValid(component) {
             return component
         }
         guard component.lowercased().hasPrefix("av"),

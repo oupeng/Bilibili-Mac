@@ -56,14 +56,14 @@ extension BiliAPIClient {
         for bvid: String,
         cid: Int64
     ) async throws -> VideoPlayback {
-        guard Self.isValidBVID(bvid), cid > 0 else {
+        guard BVID.isValid(bvid), cid > 0 else {
             throw BiliAPIError.invalidRequest
         }
         let quality = Self.requestedPlaybackQuality
         // 进入时记录认证 epoch：带凭据得到的 playurl、续播位置与 AI 配音在使用前都与它比对，
         // 不一致抛 `CancellationError`，不把两个会话的结果拼进同一次播放。
         let playbackSessionEpoch = authenticatedSessionEpoch
-        let referer = Self.videoReferer(bvid)
+        let referer = try Self.videoReferer(bvid)
         var resolved = try await resolvedPlayURL(
             bvid: bvid,
             cid: cid,
@@ -161,7 +161,7 @@ extension BiliAPIClient {
         for bvid: String,
         cid: Int64
     ) async throws -> CDNBenchmarkPlayback {
-        guard Self.isValidBVID(bvid), cid > 0 else {
+        guard BVID.isValid(bvid), cid > 0 else {
             throw BiliAPIError.invalidRequest
         }
         let playbackSessionEpoch = authenticatedSessionEpoch
@@ -182,7 +182,7 @@ extension BiliAPIClient {
         return CDNBenchmarkPlayback(
             videoRepresentations: video,
             mediaHeaders: [
-                "Referer": Self.videoReferer(bvid),
+                "Referer": try Self.videoReferer(bvid),
                 "User-Agent": userAgent
             ]
         )
@@ -209,7 +209,7 @@ extension BiliAPIClient {
             send: { url in
                 try await getWithAuthorizationProvenance(
                     url: url,
-                    referer: Self.videoReferer(bvid),
+                    referer: try Self.videoReferer(bvid),
                     access: access
                 )
             }

@@ -72,7 +72,8 @@ public actor BiliSubtitleRepository: SubtitleRepository {
     ) async throws -> [SubtitleCue] {
         guard currentIdentity == identity,
             let url = resourceURLs[trackID],
-            SubtitleURLPolicy().allows(url)
+            SubtitleURLPolicy().allows(url),
+            let referer = try? BiliAPIClient.videoReferer(identity.bvid)
         else {
             throw SubtitleApplicationError.invalidRequest
         }
@@ -81,7 +82,7 @@ public actor BiliSubtitleRepository: SubtitleRepository {
             url: url,
             headers: [
                 "Accept": "application/json",
-                "Referer": "https://www.bilibili.com/video/\(identity.bvid)/",
+                "Referer": referer,
                 "User-Agent": HTTPUserAgent.short
             ]
         )

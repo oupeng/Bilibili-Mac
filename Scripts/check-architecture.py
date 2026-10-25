@@ -139,7 +139,9 @@ EXTRA_ALLOWED = {
     # `NativeVideoImageLoading` 传给播放页的相关推荐横排。网格与横排本身在 Feature 里，App 壳其余文件不接触
     # AppKit 集合视图。
     "BiliKitMac/App/AppRootView.swift": {"BiliApplication"},
-    "BiliKitMac/App/AppShellView.swift": {"BiliApplication", "BiliVideoCollectionUI"},
+    # AppShellView 还把窗口的账户写入协调者包成 BiliUI 的卡片写入口（`VideoCardAccountWriting`，经环境交给各来源的卡片
+    # 菜单），并宿主 BiliUI 的写入结果胶囊（`AccountWriteStatusCapsule`）。
+    "BiliKitMac/App/AppShellView.swift": {"BiliApplication", "BiliUI", "BiliVideoCollectionUI"},
     "BiliKitMac/App/AppSidebarViews.swift": {"BiliApplication"},
     "BiliKitMac/App/AppSourceRootViews.swift": {"BiliApplication", "BiliVideoCollectionUI"},
     "BiliKitMac/App/SearchToolbarControls.swift": {"BiliApplication"},

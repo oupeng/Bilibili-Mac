@@ -1,11 +1,12 @@
+import BiliModels
 import BiliNetworking
 import Foundation
 
-/// 只授权唯一的账户写能力（观看进度 heartbeat），并在 `BiliAuth` 内注入最小 Cookie 与 CSRF。
+/// 只授权自动的观看进度写入（heartbeat），并在 `BiliAuth` 内注入最小 Cookie 与 CSRF。
 ///
 /// 请求的 method、host、path、header 集合、query 与表单字段按固定 schema 逐项校验并交叉核对，
-/// 只附加 `SESSDATA`，`bili_jct` 作为表单 `csrf` 注入；不得泛化给其他写请求
-/// （见 SECURITY-MODEL §3）。
+/// 只附加 `SESSDATA`，`bili_jct` 作为表单 `csrf` 注入；不得泛化给其他写请求：用户发起的账户写入由
+/// `BiliAccountWriteRequestAuthorizer` 按自己的 schema 与账户绑定授权（见 SECURITY-MODEL §3）。
 public struct BiliPlaybackHeartbeatRequestAuthorizer: HTTPRequestAuthorizing,
     Sendable
 {
@@ -26,6 +27,8 @@ public struct BiliPlaybackHeartbeatRequestAuthorizer: HTTPRequestAuthorizing,
         "mobi_app", "device", "platform", "session"
     ]
     private static let optionalBodyNames: Set<String> = ["video_duration"]
+
+    private typealias Support = WriteRequestAuthorizationSupport
 
     private let store: any WebCredentialStoring
 
@@ -55,10 +58,10 @@ public struct BiliPlaybackHeartbeatRequestAuthorizer: HTTPRequestAuthorizing,
             throw BiliRequestAuthorizationError.credentialHeaderAlreadyPresent
         }
 
-        let credential = try loadCredential()
+        let credential = try store.loadCredentialForWrite()
         guard let session = credential.value(for: .session),
             let csrf = credential.value(for: .csrf),
-            let encodedCSRF = Self.percentEncodedPair(name: "csrf", value: csrf)
+            let encodedCSRF = Support.encodedCSRFField(csrf)
         else {
             throw BiliRequestAuthorizationError.invalidCredential
         }
@@ -71,36 +74,6 @@ public struct BiliPlaybackHeartbeatRequestAuthorizer: HTTPRequestAuthorizing,
             headers: headers,
             body: Data("\(bodyString)&\(encodedCSRF)".utf8)
         )
-    }
-
-    private func loadCredential() throws -> WebCredential {
-        let credential: WebCredential
-        do {
-            guard let stored = try store.load() else {
-                throw BiliRequestAuthorizationError.missingCredential
-            }
-            credential = stored
-        } catch let error as BiliRequestAuthorizationError {
-            throw error
-        } catch WebCredentialStoreError.corruptCredential {
-            try purgeStoredCredential()
-            throw BiliRequestAuthorizationError.invalidCredential
-        } catch {
-            throw BiliRequestAuthorizationError.credentialStoreUnavailable
-        }
-        guard !credential.isExpired() else {
-            try purgeStoredCredential()
-            throw BiliRequestAuthorizationError.expiredCredential
-        }
-        return credential
-    }
-
-    private func purgeStoredCredential() throws {
-        do {
-            try store.delete()
-        } catch {
-            throw BiliRequestAuthorizationError.credentialStoreUnavailable
-        }
     }
 
     private static func isAllowedRequest(_ request: HTTPRequest) -> Bool {
@@ -143,38 +116,38 @@ public struct BiliPlaybackHeartbeatRequestAuthorizer: HTTPRequestAuthorizing,
                 url: url,
                 resolvingAgainstBaseURL: false
             )?.percentEncodedQuery,
-            let fields = decodedUniqueFields(encodedQuery)
+            let fields = Support.decodedUniqueFields(encodedQuery)
         else { return nil }
         let names = Set(fields.keys)
         guard names.isSuperset(of: requiredQueryNames),
             names.isSubset(of: requiredQueryNames.union(optionalQueryNames)),
-            positiveInteger(fields["w_aid"]),
+            Support.positiveInteger(fields["w_aid"]),
             fields["w_dt"] == "2",
             nonnegativeInteger(fields["w_last_play_progress_time"]),
             signedPlayedTime(fields["w_played_time"]),
             nonnegativeInteger(fields["w_real_played_time"]),
             nonnegativeInteger(fields["w_realtime"]),
-            positiveInteger(fields["w_start_ts"]),
+            Support.positiveInteger(fields["w_start_ts"]),
             fields["web_location"] == "1315873",
-            positiveInteger(fields["wts"]),
+            Support.positiveInteger(fields["wts"]),
             isLowercaseHex(fields["w_rid"], count: 32),
-            fields["w_video_duration"].map(positiveInteger) ?? true
+            fields["w_video_duration"].map(Support.positiveInteger) ?? true
         else { return nil }
         return fields
     }
 
     private static func allowedBodyFields(_ body: String) -> [String: String]? {
-        guard let fields = decodedUniqueFields(body) else { return nil }
+        guard let fields = Support.decodedUniqueFields(body) else { return nil }
         let names = Set(fields.keys)
         guard names.isSuperset(of: requiredBodyNames),
             names.isSubset(of: requiredBodyNames.union(optionalBodyNames)),
-            positiveInteger(fields["start_ts"]),
-            positiveInteger(fields["aid"]),
-            positiveInteger(fields["cid"]),
+            Support.positiveInteger(fields["start_ts"]),
+            Support.positiveInteger(fields["aid"]),
+            Support.positiveInteger(fields["cid"]),
             fields["type"] == "3",
             fields["sub_type"] == "0",
             fields["dt"] == "2",
-            let playType = integer(fields["play_type"]),
+            let playType = Support.integer(fields["play_type"]),
             (0...4).contains(playType),
             nonnegativeInteger(fields["realtime"]),
             signedPlayedTime(fields["played_time"]),
@@ -186,14 +159,14 @@ public struct BiliPlaybackHeartbeatRequestAuthorizer: HTTPRequestAuthorizing,
             fields["device"] == "web",
             fields["platform"] == "web",
             isLowercaseHex(fields["session"], count: 32),
-            fields["video_duration"].map(positiveInteger) ?? true,
-            let played = integer(fields["played_time"]),
+            fields["video_duration"].map(Support.positiveInteger) ?? true,
+            let played = Support.integer(fields["played_time"]),
             played != -1 || playType == 4,
-            let position = integer(fields["last_play_progress_time"]),
-            let maximum = integer(fields["max_play_progress_time"]),
+            let position = Support.integer(fields["last_play_progress_time"]),
+            let maximum = Support.integer(fields["max_play_progress_time"]),
             maximum >= position,
-            let realtime = integer(fields["realtime"]),
-            let realPlayed = integer(fields["real_played_time"]),
+            let realtime = Support.integer(fields["realtime"]),
+            let realPlayed = Support.integer(fields["real_played_time"]),
             realtime >= realPlayed
         else { return nil }
         return fields
@@ -243,48 +216,15 @@ public struct BiliPlaybackHeartbeatRequestAuthorizer: HTTPRequestAuthorizing,
             && header.hasSuffix("/")
             && pathParts.count == 2
             && pathParts[0] == "video"
-            && pathParts[1].hasPrefix("BV")
-            && pathParts[1].count <= 24
-            && pathParts[1].allSatisfy {
-                $0.isASCII && ($0.isLetter || $0.isNumber)
-            }
-    }
-
-    private static func decodedUniqueFields(_ value: String) -> [String: String]? {
-        var result: [String: String] = [:]
-        for pair in value.split(separator: "&", omittingEmptySubsequences: false) {
-            let parts = pair.split(
-                separator: "=",
-                maxSplits: 1,
-                omittingEmptySubsequences: false
-            )
-            guard parts.count == 2,
-                let name = String(parts[0]).removingPercentEncoding,
-                let value = String(parts[1]).removingPercentEncoding,
-                !name.isEmpty,
-                result.updateValue(value, forKey: name) == nil
-            else { return nil }
-        }
-        return result
-    }
-
-    private static func integer(_ value: String?) -> Int64? {
-        guard let value, !value.isEmpty,
-            value.allSatisfy({ $0.isASCII && ($0.isNumber || $0 == "-") })
-        else { return nil }
-        return Int64(value)
-    }
-
-    private static func positiveInteger(_ value: String?) -> Bool {
-        (integer(value) ?? 0) > 0
+            && BVID.isValid(String(pathParts[1]))
     }
 
     private static func nonnegativeInteger(_ value: String?) -> Bool {
-        (integer(value) ?? -1) >= 0
+        (Support.integer(value) ?? -1) >= 0
     }
 
     private static func signedPlayedTime(_ value: String?) -> Bool {
-        guard let number = integer(value) else { return false }
+        guard let number = Support.integer(value) else { return false }
         return number >= -1
     }
 
@@ -293,11 +233,5 @@ public struct BiliPlaybackHeartbeatRequestAuthorizer: HTTPRequestAuthorizing,
         return value.allSatisfy {
             $0.isNumber || ("a"..."f").contains(String($0))
         }
-    }
-
-    private static func percentEncodedPair(name: String, value: String) -> String? {
-        var components = URLComponents()
-        components.queryItems = [URLQueryItem(name: name, value: value)]
-        return components.percentEncodedQuery
     }
 }

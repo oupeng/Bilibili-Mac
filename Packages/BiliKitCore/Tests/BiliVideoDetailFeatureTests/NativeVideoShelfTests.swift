@@ -6,7 +6,7 @@ import Testing
 @testable import BiliVideoDetailFeature
 
 /// 相关推荐横排按页滚动并露出下一张，视口通知推迟到布局之后；加载骨架按可见宽度铺满；拆除时清掉横排里的第一
-/// 响应者，键盘激活按稳定 ID 找卡片、不依赖可见项实例；换视频时整体替换并作废旧的封面请求。
+/// 响应者，键盘激活按稳定 ID 找卡片、不依赖可见项实例；换视频时整体替换并作废旧的封面请求；被遮挡时不给卡片菜单。
 struct NativeVideoShelfTests {
     @Test
     @MainActor
@@ -133,7 +133,8 @@ struct NativeVideoShelfTests {
             imagePipeline: loader,
             reduceMotion: true,
             isInteractionEnabled: true,
-            onSelect: { _ in }
+            onSelect: { _ in },
+            cardMenu: { _ in nil }
         )
         let scrollView = coordinator.makeScrollView()
         let window = NSWindow(
@@ -162,7 +163,8 @@ struct NativeVideoShelfTests {
             items: items,
             reduceMotion: true,
             isInteractionEnabled: true,
-            onSelect: { _ in }
+            onSelect: { _ in },
+            cardMenu: { _ in nil }
         )
 
         // 快照完成后重配可见卡片会为同一张封面重新发起请求；先要看到旧请求被取消。
@@ -173,6 +175,80 @@ struct NativeVideoShelfTests {
         }
         #expect(cancelledVisibleCover)
         #expect(Self.logicalOffset(of: scrollView) == 0)
+    }
+
+    /// 被遮挡（交互关闭）的横排不给卡片菜单，右键与读屏操作都取不到；恢复交互后照常给出。
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func occludedShelfOffersNoCardMenu() async throws {
+        let items = (0..<3).map { index in
+            NativeVideoCardPresentation(
+                id: "BV1Menu\(index)",
+                title: "相关推荐 \(index)",
+                coverURL: nil,
+                avatarURL: nil,
+                showsAvatar: false,
+                footerLeadingText: "作者",
+                accessibilityLabel: "相关推荐 \(index)"
+            )
+        }
+        var requestedIDs: [String] = []
+        let cardMenu: (NativeVideoCardPresentation) -> NativeVideoCardMenu? = { card in
+            requestedIDs.append(card.id)
+            return NativeVideoCardMenu(
+                sections: [
+                    [NativeVideoCardMenu.Item(id: "item", title: "菜单项", systemImage: "link") {}]
+                ]
+            )
+        }
+        let coordinator = NativeVideoShelfView.Coordinator(
+            contentIdentity: "BV-parent",
+            items: items,
+            imagePipeline: NativeVideoShelfPendingImageLoader(),
+            reduceMotion: true,
+            isInteractionEnabled: false,
+            onSelect: { _ in },
+            cardMenu: cardMenu
+        )
+        let scrollView = coordinator.makeScrollView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 300),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = scrollView
+        defer {
+            coordinator.reset()
+            window.contentView = NSView()
+        }
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+        scrollView.layoutSubtreeIfNeeded()
+        let collectionView = try #require(
+            scrollView.documentView as? NativeVideoCardCollectionView
+        )
+        let card = try #require(
+            collectionView.visibleItems().first { $0.representedObject as? String == "BV1Menu0" }?
+                .view
+        )
+
+        #expect(collectionView.cardMenu?("BV1Menu0") == nil)
+        #expect(card.accessibilityCustomActions()?.isEmpty ?? true)
+        #expect(requestedIDs.isEmpty)
+
+        coordinator.update(
+            contentIdentity: "BV-parent",
+            items: items,
+            reduceMotion: true,
+            isInteractionEnabled: true,
+            onSelect: { _ in },
+            cardMenu: cardMenu
+        )
+
+        #expect(collectionView.cardMenu?("BV1Menu0") != nil)
+        #expect(card.accessibilityCustomActions()?.map(\.name) == ["菜单项"])
     }
 
     @MainActor

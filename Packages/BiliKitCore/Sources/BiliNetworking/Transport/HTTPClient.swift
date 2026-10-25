@@ -2,7 +2,8 @@ import Foundation
 
 /// 传输层允许的 HTTP 方法。
 ///
-/// `POST` 只用于观看进度 heartbeat，`HEAD` 只用于 b23.tv 短链解析（见 SECURITY-MODEL §3、§4）。
+/// `POST` 只用于两个写授权器放行的写请求（观看进度 heartbeat 与用户发起的账户写入），`HEAD` 只用于 b23.tv 短链
+/// 解析（见 SECURITY-MODEL §3、§4）。
 public enum HTTPMethod: String, Sendable {
     case get = "GET"
     case head = "HEAD"

@@ -28,6 +28,12 @@ package struct PagedVideoList<Item, Cursor: Equatable & Sendable> {
     }
 
     package private(set) var items: [Item] = []
+    /// 与 `items` 一一对应的并入序号：每并入一条取 `nextOrdinal` 并递增，`replaceFirstPage` 时从头编号。
+    ///
+    /// 只用于乐观移除的回滚定位：序号在同一分页会话里随列表顺序严格递增，回滚时插到第一个序号更大的条目之前，连续移除
+    /// 多条再以任意顺序回滚也能回到原来的相对位置；只记绝对下标或单个邻居都做不到。
+    private var ordinals: [UInt64] = []
+    private var nextOrdinal: UInt64 = 0
     /// 下一页游标；nil 表示远端已到底、`.stop` 遇到无进展页、达到条目上限（显式继续策略另有页数上限），
     /// 或检测到游标回环。
     package private(set) var nextCursor: Cursor?
@@ -83,6 +89,8 @@ package struct PagedVideoList<Item, Cursor: Equatable & Sendable> {
         bvid: (Item) -> String
     ) {
         items = []
+        ordinals = []
+        nextOrdinal = 0
         consumedCursors = []
         isRefreshing = false
         isLoadingMore = false
@@ -162,6 +170,31 @@ package struct PagedVideoList<Item, Cursor: Equatable & Sendable> {
         isRefreshing = false
     }
 
+    /// 本地移除的一条：被移除的条目与它的并入序号，交回 `restore(_:bvid:)` 放回原位。
+    package struct Removal {
+        package let item: Item
+        fileprivate let ordinal: UInt64
+    }
+
+    /// 按 BVID 从已显示条目里移除一条（稍后再看的乐观移除）；没有这条时为 nil。
+    ///
+    /// 不改游标、尾标、加载与刷新状态：服务端确认之前这只是本地视图的变化。调用方负责在列表被整体替换后不再交回
+    /// 旧的 `Removal`（本类型不知道两次之间是否换过内容）。
+    package mutating func remove(id: String, bvid: (Item) -> String) -> Removal? {
+        guard let index = items.firstIndex(where: { bvid($0) == id }) else { return nil }
+        return Removal(item: items.remove(at: index), ordinal: ordinals.remove(at: index))
+    }
+
+    /// 把移除的条目放回原位（写入失败的回滚）：插到第一个并入序号比它大的条目之前，没有就放到末尾；同一 BVID 已在
+    /// 列表里时不重复放入。
+    package mutating func restore(_ removal: Removal, bvid: (Item) -> String) {
+        let id = bvid(removal.item)
+        guard !items.contains(where: { bvid($0) == id }) else { return }
+        let index = ordinals.firstIndex { $0 > removal.ordinal } ?? items.count
+        items.insert(removal.item, at: index)
+        ordinals.insert(removal.ordinal, at: index)
+    }
+
     /// 按 BVID 去重并截到条目上限后并入，再按上限、回环与无进展策略决定下一页游标。
     private mutating func merge(
         _ page: VideoListPage<Item, Cursor>,
@@ -171,6 +204,8 @@ package struct PagedVideoList<Item, Cursor: Equatable & Sendable> {
         let remainingCapacity = Swift.max(0, VideoListRetention.maximumItemCount - items.count)
         let appended = page.items.uniquedByBVID(after: items, bvid).prefix(remainingCapacity)
         items += appended
+        ordinals += (0..<UInt64(appended.count)).map { nextOrdinal + $0 }
+        nextOrdinal += UInt64(appended.count)
         if !appended.isEmpty {
             tailGeneration &+= 1
         }
@@ -202,5 +237,7 @@ package struct PagedVideoList<Item, Cursor: Equatable & Sendable> {
 extension VideoListPage: Sendable where Item: Sendable, Cursor: Sendable {}
 
 extension PagedVideoList: Sendable where Item: Sendable {}
+
+extension PagedVideoList.Removal: Sendable where Item: Sendable {}
 
 extension PagedVideoList: Equatable where Item: Equatable {}

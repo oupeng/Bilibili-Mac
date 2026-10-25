@@ -9,7 +9,7 @@ import SwiftUI
 /// 出现时构造一次（`ProcessComposition.makeWindow()`）。
 ///
 /// 拥有本窗口的全部模型（浏览、视频、评论、弹幕、认证、稍后再看与稍后再看会话、观看历史、收藏夹列表与夹内页面、UP 主空间、热搜与
-/// 联想、搜索会话）、导航协调、
+/// 联想、搜索会话）、账户写入的协调者与效果路由、导航协调、
 /// 来源描述与复核参与者、播放器视图、窗口图片管线、评论短链解析与图片保存、Now Playing 与观看进度的连接，以及
 /// 经 `WindowAdapters` 拿到的具体实现。只引用进程级对象（账户会话、设置、Now Playing 控制器、搜索历史），不创建
 /// 也不关闭它们。视频、弹幕模型与播放器视图必须共享 adapter 里同一个播放器；分别重建会让画面、时间线与弹幕指向
@@ -36,6 +36,8 @@ final class WindowComposition {
     let favoriteFolderList: FavoriteFolderListModel
     /// 收藏夹来源的选择、条件与夹内内容；经收藏夹来源的描述绑定来源。
     let favoriteFolders: FavoriteFolderViewModel
+    /// 本窗口用户发起的账户写入（卡片菜单、读屏操作与 ⌘⌫）；窗口级复核参与者，关窗时取消在途写入。
+    let accountWrites: AccountWriteCoordinator
     let trendingSearchModel: TrendingSearchViewModel
     let searchSuggestionSource: SearchSuggestionSource
     /// 搜索来源的草稿、筛选与已提交的条件；关窗时由搜索来源的描述 reset。
@@ -59,6 +61,9 @@ final class WindowComposition {
     private let systemNowPlayingCoordinator: SystemNowPlayingWindowCoordinator
     private let watchProgressConnection: WatchProgressWindowConnection
     private let adapters: WindowAdapters
+    /// 把写入效果落到本窗口视图上；打开时登记进进程级集线器，关窗时注销。
+    private let accountWriteEffectRouter: AccountWriteEffectRouter
+    private var accountWriteEffectRegistration: UUID?
     private var isOpen = false
     /// 关闭不可逆：之后不再打开，也不再向进程级对象登记本窗口。
     private(set) var isClosed = false
@@ -122,7 +127,7 @@ final class WindowComposition {
         let favoriteFolderList = FavoriteFolderListModel(
             useCase: favoritesUseCase,
             accountScope: {
-                Self.favoriteFolderReadingScope(
+                Self.settledAccountScope(
                     windowScope: authenticationModel.sessionScope,
                     isRestoring: authenticationModel.resolutionPhase == .restoring,
                     accountSession: accountSession
@@ -135,6 +140,29 @@ final class WindowComposition {
         )
         self.favoriteFolderList = favoriteFolderList
         self.favoriteFolders = favoriteFolders
+        let writableAccount: @MainActor () -> WritableAccount? = {
+            Self.writableAccount(
+                windowScope: authenticationModel.sessionScope,
+                isRestoring: authenticationModel.resolutionPhase == .restoring,
+                accountSession: accountSession
+            )
+        }
+        let accountWriteEffectRouter = AccountWriteEffectRouter(
+            watchLaterModel: watchLaterModel,
+            writableAccount: writableAccount
+        )
+        let accountWriteEffects = process.accountWriteEffects
+        self.accountWriteEffectRouter = accountWriteEffectRouter
+        let accountWrites = AccountWriteCoordinator(
+            watchLater: WatchLaterWriteUseCase(repository: adapters.watchLaterWriteRepository),
+            watchLaterModel: watchLaterModel,
+            writableAccount: writableAccount,
+            publish: { delivery, appliedLocally in
+                accountWriteEffectRouter.apply(delivery, appliedLocally: appliedLocally)
+                accountWriteEffects.publish(delivery, excluding: accountWriteEffectRouter)
+            }
+        )
+        self.accountWrites = accountWrites
         self.trendingSearchModel = trendingSearchModel
         searchSuggestionSource = SearchSuggestionSource(
             useCase: SearchSuggestionUseCase(repository: adapters.searchSuggestionRepository)
@@ -157,7 +185,8 @@ final class WindowComposition {
         self.sources = sources
         // 收藏夹列表是侧栏常驻的元数据，窗口已登录就读取，不绑定来源；夹内页面经收藏夹来源的描述绑定。
         let windowWide: [any AccountRevalidationParticipant] = [
-            videoModel, browseModel, danmakuModel, commentsModel, uploaderSpace, favoriteFolderList
+            videoModel, browseModel, danmakuModel, commentsModel, uploaderSpace, favoriteFolderList,
+            accountWrites
         ]
         revalidationParticipants = AccountRevalidationParticipants(
             entries: windowWide.map { .init(participant: $0, route: nil) }
@@ -182,6 +211,9 @@ final class WindowComposition {
         guard !isOpen, !isClosed else { return }
         isOpen = true
         adapters.open()
+        accountWriteEffectRegistration = process.accountWriteEffects.register(
+            accountWriteEffectRouter
+        )
         watchProgressConnection.start()
         systemNowPlayingCoordinator.start()
     }
@@ -189,7 +221,7 @@ final class WindowComposition {
     /// 关窗；不可逆，重复调用不再动作。
     ///
     /// 按顺序：先从进程级测速注销本窗口；再关闭播放（停止播放器、字幕与弹幕）并恢复新窗口的来源；各来源
-    /// 丢弃内容；取消认证临时任务与评论；取消短链解析与图片保存；停止观看进度与 Now Playing；关闭图片管线；最后
+    /// 丢弃内容；取消认证临时任务与评论；取消在途账户写入并从写入效果集线器注销；取消短链解析与图片保存；停止观看进度与 Now Playing；关闭图片管线；最后
     /// 由 adapter 取消弹幕的内存压力监听、停止播放偏好的持久化、注销窗口 API 的会话并失效短链 session（只在打开过
     /// 之后）。模型与连接先停下自己的任务，再拆掉它们依赖的 adapter。
     func close() {
@@ -200,6 +232,10 @@ final class WindowComposition {
         sources.resetForWindowClosure()
         authenticationModel.cancelTransientWork()
         commentsModel.reset()
+        accountWrites.close()
+        if let accountWriteEffectRegistration {
+            process.accountWriteEffects.unregister(accountWriteEffectRegistration)
+        }
         commentShortLinks.cancel()
         commentImageSaver.cancel()
         watchProgressConnection.stop()
@@ -216,12 +252,15 @@ final class WindowComposition {
         favoriteFolderList.synchronize()
     }
 
-    /// 收藏夹列表此刻按哪个账户范围读取：认证仍在确认、或其他窗口换号而本窗口还没复核到时为 `unresolved`（列表不读取、
-    /// 也不丢弃），否则是本窗口的范围。
+    /// 本窗口的账户范围此刻是否可信：认证仍在确认、或其他窗口换号而本窗口还没复核到时为 `unresolved`，否则是本窗口的
+    /// 范围。
+    ///
+    /// 收藏夹列表按它读取（`unresolved` 时不读取、也不丢弃），账户写入按它决定门槛（`writableAccount`）。
     ///
     /// 复核期间窗口范围仍是旧账户，Keychain 里却可能已是新账户的 Cookie 或没有凭据：此时读取会用新 Cookie 读旧 mid，
-    /// 把旧账户的公开收藏夹显示出来，凭据失败还会触发一次普通复核、替换掉进行中的外部复核。见 SECURITY-MODEL §2、§3。
-    static func favoriteFolderReadingScope(
+    /// 把旧账户的公开收藏夹显示出来，凭据失败还会触发一次普通复核、替换掉进行中的外部复核；写入则会以旧账户的名义改动
+    /// 新账户（写授权器另按 `DedeUserID` 拦下）。见 SECURITY-MODEL §2、§3。
+    static func settledAccountScope(
         windowScope: AccountSessionScope,
         isRestoring: Bool,
         accountSession: AccountSessionCoordinator
@@ -230,6 +269,24 @@ final class WindowComposition {
             return .unresolved
         }
         return windowScope
+    }
+
+    /// 账户写入的门槛：`settledAccountScope` 是已登录且 mid 已知时给出账户与进程账户会话代次，否则为 nil（菜单项禁用、
+    /// 不发写请求）。
+    static func writableAccount(
+        windowScope: AccountSessionScope,
+        isRestoring: Bool,
+        accountSession: AccountSessionCoordinator
+    ) -> WritableAccount? {
+        guard
+            case .signedIn(let accountID?) = settledAccountScope(
+                windowScope: windowScope,
+                isRestoring: isRestoring,
+                accountSession: accountSession
+            ),
+            accountID > 0
+        else { return nil }
+        return WritableAccount(accountID: accountID, sessionGeneration: accountSession.generation)
     }
 
     func markWindowActive() {

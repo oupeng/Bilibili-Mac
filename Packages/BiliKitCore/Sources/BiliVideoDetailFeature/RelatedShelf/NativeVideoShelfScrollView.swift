@@ -323,7 +323,7 @@ final class NativeVideoShelfCollectionView: NativeVideoCardCollectionView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        guard isInteractionEnabled else { return }
+        guard isInteractionEnabled, !routesControlClickToContextMenu(event) else { return }
         let point = convert(event.locationInWindow, from: nil)
         let clickedIndexPath = indexPathForItem(at: point)
         super.mouseDown(with: event)

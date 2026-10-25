@@ -32,6 +32,7 @@ public struct WatchHistoryView: View {
             model: model,
             text: text,
             card: { WatchHistoryCardPresentation(item: $0, locale: $1).nativeCard },
+            watchLaterAction: .add,
             accountState: accountState,
             gridHost: gridHost,
             onSelect: onSelect,

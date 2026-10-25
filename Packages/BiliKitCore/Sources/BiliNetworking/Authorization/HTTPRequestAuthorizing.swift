@@ -22,3 +22,11 @@ public enum HTTPRequestAuthorizationFailureKind: Sendable, Equatable {
 public protocol HTTPRequestAuthorizationFailure: Error {
     var authorizationFailureKind: HTTPRequestAuthorizationFailureKind { get }
 }
+
+/// 为绑定到某个主体的请求附加认证材料：只有本地凭据属于 `subject` 时才授权。
+///
+/// 与 `HTTPRequestAuthorizing` 分开，调用方必须逐请求给出预期主体，不能在不知道主体时取得凭据。主体只是不透明
+/// 字符串，比对规则与主体不符时的失败分类由实现决定，失败同样经 `HTTPRequestAuthorizationFailure` 分类。
+public protocol HTTPSubjectBoundRequestAuthorizing: Sendable {
+    func authorize(_ request: HTTPRequest, boundTo subject: String) async throws -> HTTPRequest
+}

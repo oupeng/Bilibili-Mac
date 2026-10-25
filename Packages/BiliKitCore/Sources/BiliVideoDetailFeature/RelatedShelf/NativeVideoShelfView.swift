@@ -57,6 +57,8 @@ struct NativeVideoShelfView: NSViewRepresentable {
     let items: [NativeVideoCardPresentation]
     let imagePipeline: any NativeVideoImageLoading
     let onSelect: (String) -> Void
+    /// 卡片菜单，与网格同一份描述（`NativeVideoCardMenu`）；横排被遮挡（交互关闭）时不弹。
+    let cardMenu: (NativeVideoCardPresentation) -> NativeVideoCardMenu?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -65,7 +67,8 @@ struct NativeVideoShelfView: NSViewRepresentable {
             imagePipeline: imagePipeline,
             reduceMotion: reduceMotion,
             isInteractionEnabled: isEnabled,
-            onSelect: onSelect
+            onSelect: onSelect,
+            cardMenu: cardMenu
         )
     }
 
@@ -82,7 +85,8 @@ struct NativeVideoShelfView: NSViewRepresentable {
             items: items,
             reduceMotion: reduceMotion,
             isInteractionEnabled: isEnabled,
-            onSelect: onSelect
+            onSelect: onSelect,
+            cardMenu: cardMenu
         )
     }
 
@@ -110,6 +114,7 @@ struct NativeVideoShelfView: NSViewRepresentable {
         private var reduceMotion: Bool
         private var isInteractionEnabled: Bool
         private var onSelect: (String) -> Void
+        private var cardMenu: (NativeVideoCardPresentation) -> NativeVideoCardMenu?
         private var observers = NativeVideoNotificationObservers()
         private var windowObservers = NativeVideoNotificationObservers()
         private let hover = NativeVideoHoverTracker()
@@ -123,7 +128,8 @@ struct NativeVideoShelfView: NSViewRepresentable {
             imagePipeline: any NativeVideoImageLoading,
             reduceMotion: Bool,
             isInteractionEnabled: Bool,
-            onSelect: @escaping (String) -> Void
+            onSelect: @escaping (String) -> Void,
+            cardMenu: @escaping (NativeVideoCardPresentation) -> NativeVideoCardMenu?
         ) {
             self.contentIdentity = contentIdentity
             contents = NativeVideoCardContents(items)
@@ -131,6 +137,7 @@ struct NativeVideoShelfView: NSViewRepresentable {
             self.reduceMotion = reduceMotion
             self.isInteractionEnabled = isInteractionEnabled
             self.onSelect = onSelect
+            self.cardMenu = cardMenu
         }
 
         func makeScrollView() -> NativeVideoShelfScrollView {
@@ -155,6 +162,15 @@ struct NativeVideoShelfView: NSViewRepresentable {
             collectionView.backgroundColors = [.clear]
             collectionView.onActivateSelection = { [weak self] id in
                 self?.selectAndActivate(id)
+            }
+            collectionView.cardMenu = { [weak self] id in
+                guard
+                    let self,
+                    !self.isReset,
+                    self.isInteractionEnabled,
+                    let card = self.contents[id]
+                else { return nil }
+                return self.cardMenu(card)
             }
             collectionView.itemIDAtIndex = { [weak self] index in
                 guard let ids = self?.contents.orderedIDs, ids.indices.contains(index) else {
@@ -218,11 +234,13 @@ struct NativeVideoShelfView: NSViewRepresentable {
             items: [NativeVideoCardPresentation],
             reduceMotion: Bool,
             isInteractionEnabled: Bool,
-            onSelect: @escaping (String) -> Void
+            onSelect: @escaping (String) -> Void,
+            cardMenu: @escaping (NativeVideoCardPresentation) -> NativeVideoCardMenu?
         ) {
             guard !isReset else { return }
             self.reduceMotion = reduceMotion
             self.onSelect = onSelect
+            self.cardMenu = cardMenu
             applyInteractionState(isInteractionEnabled, reconfiguresCards: true)
             let updatedContents = NativeVideoCardContents(items)
             let plan = NativeVideoGridUpdatePlan(
@@ -269,6 +287,7 @@ struct NativeVideoShelfView: NSViewRepresentable {
             observers.removeAll()
             windowObservers.removeAll()
             collectionView.onActivateSelection = nil
+            collectionView.cardMenu = nil
             collectionView.itemIDAtIndex = nil
             collectionView.onFocusChange = nil
             collectionView.delegate = nil
@@ -277,6 +296,7 @@ struct NativeVideoShelfView: NSViewRepresentable {
             scrollView.reset()
             contents = NativeVideoCardContents()
             onSelect = { _ in }
+            cardMenu = { _ in nil }
         }
 
         private func applySnapshot(

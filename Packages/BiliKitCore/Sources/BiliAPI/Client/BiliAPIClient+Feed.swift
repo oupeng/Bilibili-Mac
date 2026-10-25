@@ -73,7 +73,7 @@ extension BiliAPIClient {
     func recentSubmissionDetail(
         for bvid: String
     ) async throws -> RecentSubmissionDetailPayload {
-        guard Self.isValidBVID(bvid) else { throw BiliAPIError.invalidRequest }
+        guard BVID.isValid(bvid) else { throw BiliAPIError.invalidRequest }
         return try await signedVideoDetail(
             bvid: bvid,
             access: .accountRead(missingCredential: .fail)

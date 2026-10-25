@@ -52,6 +52,7 @@ struct AppRootView: View {
             commentImageSaver: window.commentImageSaver,
             seekPlayback: window.seekPlayback,
             imagePipeline: window.imagePipeline,
+            accountWrites: window.accountWrites,
             isAuthenticationPresented: $isAuthenticationPresented
         )
         .task(id: browseActivation) {

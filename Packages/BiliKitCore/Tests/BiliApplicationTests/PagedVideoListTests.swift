@@ -332,6 +332,57 @@ struct PagedVideoListTests {
         #expect(list.loadMoreError == nil)
     }
 
+    /// 乐观移除只改条目，不动游标与尾标；回滚放回原位，原位已越界时放到末尾，已在列表里的不重复放入。
+    @Test
+    func removeAndRestoreKeepPaginationAndPosition() throws {
+        var list = List(stallPolicy: .stop)
+        list.replaceFirstPage(page(["BV1A", "BV1B", "BV1C"], next: 2), bvid: \.self)
+        let tail = list.tailIdentity
+
+        let removed = list.remove(id: "BV1B", bvid: \.self)
+        let removal = try #require(removed)
+        #expect(list.items == ["BV1A", "BV1C"])
+        #expect(list.nextCursor == 2)
+        #expect(list.tailIdentity == tail)
+        #expect(list.remove(id: "BV1Z", bvid: \.self) == nil)
+
+        list.restore(removal, bvid: \.self)
+        #expect(list.items == ["BV1A", "BV1B", "BV1C"])
+        list.restore(removal, bvid: \.self)
+        #expect(list.items == ["BV1A", "BV1B", "BV1C"])
+
+        let removedLast = list.remove(id: "BV1C", bvid: \.self)
+        let last = try #require(removedLast)
+        _ = list.remove(id: "BV1B", bvid: \.self)
+        list.restore(last, bvid: \.self)
+        #expect(list.items == ["BV1A", "BV1C"])
+    }
+
+    /// 连续移除多条后以任意顺序回滚（含先移除先失败），都回到原来的相对位置；之后加载更多的条目仍排在后面。
+    @Test(arguments: [
+        (["BV1A", "BV1B"], [0, 1]),
+        (["BV1A", "BV1B"], [1, 0]),
+        (["BV1B", "BV1A"], [0, 1]),
+        (["BV1C", "BV1A", "BV1B"], [1, 2, 0])
+    ])
+    func consecutiveRemovalsRollBackInAnyOrder(removed: [String], rollbackOrder: [Int]) throws {
+        var list = List(stallPolicy: .stop)
+        list.replaceFirstPage(page(["BV1A", "BV1B", "BV1C"], next: 2), bvid: \.self)
+        var removals: [List.Removal] = []
+        for id in removed {
+            let removal = list.remove(id: id, bvid: \.self)
+            removals.append(try #require(removal))
+        }
+        _ = list.beginLoadMore()
+        list.apply(page(["BV1D"], next: nil), requested: 2, bvid: \.self)
+
+        for index in rollbackOrder {
+            list.restore(removals[index], bvid: \.self)
+        }
+
+        #expect(list.items == ["BV1A", "BV1B", "BV1C", "BV1D"])
+    }
+
     private func page(_ items: [String], next: Int?) -> VideoListPage<String, Int> {
         VideoListPage(items: items, nextCursor: next)
     }

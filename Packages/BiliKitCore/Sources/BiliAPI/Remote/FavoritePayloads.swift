@@ -154,7 +154,7 @@ struct FavoriteMediaPayload: Decodable, Sendable {
     }
 
     func model() throws -> FavoriteItem? {
-        let validBVID = bvid.flatMap { BiliAPIClient.isValidBVID($0) ? $0 : nil }
+        let validBVID = bvid.flatMap { BVID.isValid($0) ? $0 : nil }
         if let unavailability {
             let fallbackIdentity = id.flatMap { $0 > 0 ? "fav-\(type ?? 0)-\($0)" : nil }
             guard let identity = validBVID ?? fallbackIdentity else { return nil }

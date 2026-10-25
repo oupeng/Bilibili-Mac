@@ -153,6 +153,7 @@ package final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHover
 
     package override func loadView() {
         view = card
+        card.menuHost = self
     }
 
     /// 内容相同时只补发缺失的取图；换视频或换图片地址时先取消旧请求、清掉旧图再配置。
@@ -252,6 +253,7 @@ package final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHover
     func setKeyboardFocusVisible(_ isVisible: Bool) {
         card.setKeyboardFocusVisible(isVisible)
     }
+    func setContextMenuTarget(_ isTarget: Bool) { card.setContextMenuTarget(isTarget) }
     func refreshEnvironmentAppearance() { card.refreshEnvironmentAppearance() }
 
     private func restartMissingImageRequests(
@@ -331,11 +333,12 @@ package final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHover
     }
 }
 
-/// 卡片视图：封面、头像与文字层的排版，悬停、按下与键盘选中的外观，读屏按钮语义。
+/// 卡片视图：封面、头像与文字层的排版，悬停、按下、键盘选中与菜单目标的外观，读屏按钮语义。
 ///
 /// 不取图，图片由 `NativeVideoCollectionItem` 设置；悬停变化经回调交给集合项。不可用卡片
 /// （`NativeVideoCardAvailability.unavailable`）变暗并显示原因角标，不画悬停与按下、不显示手形指针，读屏呈现为
 /// 不可用的按钮且按下不激活；键盘选中框照常显示，焦点可以停在上面。网格另在自己的激活入口拦截。
+/// 读屏自定义操作与「显示菜单」经 `menuHost` 取所在集合视图的卡片菜单，与右键菜单同源。
 @MainActor
 final class NativeVideoCardView: NSView {
     private let cover = NativeVideoMergedCoverView(frame: .zero)
@@ -351,12 +354,16 @@ final class NativeVideoCardView: NSView {
     private let textRenderer = NativeVideoCardTextRenderer()
     private var activation: (() -> Void)?
     private var hoverDidChange: ((Bool) -> Void)?
+    /// 读屏自定义操作与「显示菜单」的转发对象，即拥有这张卡片的集合项（`NativeVideoCardMenu.swift`）。
+    weak var menuHost: NativeVideoCollectionItem?
     private var trackingArea: NSTrackingArea?
     private var showsAvatar = true
     private var isHovered = false
     private var selected = false
     private var showsKeyboardFocus = false
     private var isPressed = false
+    /// 菜单打开期间的上下文描边，与键盘选中框同一外观。
+    private var isContextMenuTarget = false
     private var isActivatable = true
 
     override var isFlipped: Bool { true }
@@ -433,6 +440,12 @@ final class NativeVideoCardView: NSView {
         updateInteractionAppearance()
     }
 
+    func setContextMenuTarget(_ isTarget: Bool) {
+        guard isContextMenuTarget != isTarget else { return }
+        isContextMenuTarget = isTarget
+        updateInteractionAppearance()
+    }
+
     func setPressed(_ isPressed: Bool) {
         self.isPressed = isPressed
         updateInteractionAppearance()
@@ -459,6 +472,7 @@ final class NativeVideoCardView: NSView {
         selected = false
         showsKeyboardFocus = false
         isPressed = false
+        isContextMenuTarget = false
         setActivatable(true)
         updateInteractionAppearance(animated: false)
         setAccessibilityLabel(nil)
@@ -612,12 +626,25 @@ final class NativeVideoCardView: NSView {
         return true
     }
 
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        menuHost?.accessibilityCardActions
+    }
+
+    /// 不可用卡片仍有可执行的菜单项时（稍后再看里失效视频的「从稍后再看移除」）保持读屏可用，否则读屏可能不列出操作、
+    /// 也不提供「显示菜单」；按下仍由 `accessibilityPerformPress` 拒绝，不会进入播放。
+    override func isAccessibilityEnabled() -> Bool {
+        isActivatable || accessibilityCustomActions() != nil
+    }
+
+    override func accessibilityPerformShowMenu() -> Bool {
+        menuHost?.presentCardMenu() ?? false
+    }
+
     /// 可用性变化时同步变暗、指针与读屏可用状态；外观由 `updateInteractionAppearance` 按它忽略悬停与按下。
     private func setActivatable(_ activatable: Bool) {
         let opacity: Float = activatable ? 1 : NativeVideoCardLayout.unavailableContentOpacity
         textRenderer.setContentOpacity(opacity)
         avatar.alphaValue = CGFloat(opacity)
-        setAccessibilityEnabled(activatable)
         guard isActivatable != activatable else { return }
         isActivatable = activatable
         window?.invalidateCursorRects(for: self)
@@ -632,15 +659,15 @@ final class NativeVideoCardView: NSView {
 
     private func updateInteractionAppearance(animated: Bool = true) {
         guard let layer else { return }
-        let keyboardSelected = selected && showsKeyboardFocus
+        let showsFocusRing = (selected && showsKeyboardFocus) || isContextMenuTarget
         // 不可用卡片不画悬停与按下：它们暗示点了会有反应；键盘选中框仍画，表示焦点停在这里。
         let isPressed = isPressed && isActivatable
         let isHovered = isHovered && isActivatable
         let surfaceOpacity: CGFloat = isPressed ? 0.14 : (isHovered ? 0.08 : 0)
-        let showsStroke = isHovered || keyboardSelected
+        let showsStroke = isHovered || showsFocusRing
         let targetBackground = NSColor.labelColor
             .withAlphaComponent(surfaceOpacity).cgColor(for: effectiveAppearance)
-        let targetBorder = (keyboardSelected ? NSColor.controlAccentColor : .secondaryLabelColor)
+        let targetBorder = (showsFocusRing ? NSColor.controlAccentColor : .secondaryLabelColor)
             .cgColor(for: effectiveAppearance)
         let targetBorderWidth: CGFloat =
             showsStroke

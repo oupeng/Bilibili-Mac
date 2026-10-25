@@ -56,7 +56,7 @@ BiliNetworking 不依赖任何 Bili 模块
 | `BiliVideoDetailFeature` | 播放页与侧栏上下文层的 UP 主空间：视频与分 P 意图、续播与链接起播、评论、弹幕设置、空间投稿，以及这些页面的呈现投影与 AppKit 视图（播放侧栏、评论图片预览、相关推荐横排、空间列表）。导航给出的选择意图怎样落到当前视频、失败后由谁重试，以及播放页失败的文案与是否可重试，只在这里 | 同其他 Feature，但可 import AppKit、CoreText（评论排版）与 ImageIO（动图逐帧解码）；不依赖 AVKit/AVFoundation、网络与 adapter；下载、校验、首帧解码、动图门槛与缓存只在 App 管线 |
 | `BiliUI` | Feature 共享的 SwiftUI 呈现：卡片与网格几何、骨架、状态胶囊、页码条、失败视图与文案、登录门槛、格式化、B 站图片缩略地址；自己的字符串目录。默认 `package`，App 直接使用的才 `public`；无 library product | 除 Foundation、SwiftUI、BiliApplication 外的任何模块（含 BiliModels、AppKit 与其他 Feature） |
 | `BiliVideoCollectionUI` | 网格与横排共用的 AppKit 卡片、原生网格及其状态（回顶、锚点、准备区域）、集合视图的悬停、键盘与通知观察、图片淡入、近尾分页、内容差异、卡片取图 port `NativeVideoImageLoading` 与网格从窗口拿到的依赖 `NativeVideoGridHostContext`。App 用到的为 `public`，只有 Feature 用到的为 `package` | 除 BiliUI 外的 Bili 模块（含 BiliNetworking、adapter 与 Feature）；图片下载与缓存只经 port 注入 |
-| App `BiliKitMac` | composition root（`Composition/` 的进程级与窗口级组装）、导航协调、来源描述与复核汇总（`Navigation/`）、AVKit 宿主、图片管线、Settings、Now Playing、Sparkle | `App/` 与 `Navigation/` 不直接 import adapter 或平台框架，`Navigation/` 只依赖 Feature、Application 与 Models；具体实现只在 `Composition/`、`Platform/`、`Settings/`；`App/` 里 import Application 或 BiliVideoCollectionUI 的文件由脚本逐个登记 |
+| App `BiliKitMac` | composition root（`Composition/` 的进程级与窗口级组装）、导航协调、来源描述、复核汇总与账户写入的协调和效果路由（`Navigation/`）、AVKit 宿主、图片管线、Settings、Now Playing、Sparkle | `App/` 与 `Navigation/` 不直接 import adapter 或平台框架，`Navigation/` 只依赖 Feature、Application 与 Models；具体实现只在 `Composition/`、`Platform/`、`Settings/`；`App/` 里 import Application 或 BiliVideoCollectionUI 的文件由脚本逐个登记 |
 
 补充规则：
 
@@ -85,14 +85,14 @@ BiliNetworking 不依赖任何 Bili 模块
 ### 组装分层
 
 - 进程级 `ProcessComposition`（`BiliKitMacApp` 持有唯一一份，随进程存活、不关闭）：账户会话协调器、进程
-  唯一的观看进度 writer、设置与线路测速、系统 Now Playing、本机搜索历史与更新器。生产 `BiliAPIClient` 只由
-  `LiveAPIClients` 构造，各授权器的 allowlist 也只在那里声明。
+  唯一的观看进度 writer、窗口间的账户写入效果集线器 `AccountWriteEffectHub`、设置与线路测速、系统 Now Playing、
+  本机搜索历史与更新器。生产 `BiliAPIClient` 只由 `LiveAPIClients` 构造，各授权器的 allowlist 也只在那里声明。
 - 窗口级 `WindowComposition`（每个窗口一份，由 `AppRootView` 在视图身份首次出现时构造一次）：全部模型、
-  导航协调、来源描述与复核参与者、播放器视图、窗口图片管线。它只引用进程级对象，不替它们创建或关闭。
+  账户写入的协调者与效果路由、导航协调、来源描述与复核参与者、播放器视图、窗口图片管线。它只引用进程级对象，不替它们创建或关闭。
   具体实现只经 `WindowAdapters` 进入，生产由 `WindowAdapters.live(process:)` 一处构造，测试换成替身后走同一条
   组装路径。
-- 窗口出现时先把当前账户范围同步为观看进度的上报权限，再 `open()`。窗口消失时 `close()`（不可逆）按序：
-  从进程级测速注销本窗口 → 关闭播放并恢复新窗口的来源 → 各来源丢弃内容 → 取消认证临时任务与评论 → 取消短链
+- 窗口出现时先把当前账户范围同步为观看进度的上报权限，再 `open()`（同时把本窗口的写入效果路由登记进集线器）。窗口消失时 `close()`（不可逆）按序：
+  从进程级测速注销本窗口 → 关闭播放并恢复新窗口的来源 → 各来源丢弃内容 → 取消认证临时任务与评论 → 取消在途账户写入并从集线器注销 → 取消短链
   解析与图片保存 → 停止观看进度与 Now Playing → 关闭图片管线 → adapter 取消内存压力监听、停止偏好持久化、
   注销会话并失效短链 session。adapter 这一步只在窗口打开过之后执行。
 
@@ -176,11 +176,20 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
   index、不创建卡片，替代不了。
 - 网格的视口锚点是用户最后看到的视野首卡：只在滚动或程序定位落定、且排版就是当前视口尺寸时捕获；宽度、
   高度变化与整体替换都按它恢复，恢复后不重新捕获：连续宽度变化中逐帧重新捕获会让首卡逐行漂移。视口尺寸一变，AppKit 会在网格按新尺寸重排之前先按旧卡片尺寸重排、夹取
-  偏移，这段过渡里的排版与偏移不可信，不捕获锚点、不判断翻页。
+  偏移，这段过渡里的排版与偏移不可信，不捕获锚点、不判断翻页。纯删除（例如稍后再看的乐观移除）删掉锚点卡片时，由
+  旧顺序里它之后第一张仍在的卡片按同一距离接替，视野不跳。
 - 分页：推荐、热门、搜索、观看历史与稍后再看由 `PagedVideoList` 承担，来源只把远端页适配为“条目 + 下一页
   游标”，去重与条目上限只在那里（集合层的 `NativeVideoCardContents` 另按卡片 ID 兜底）；收藏夹与 UP 主空间按页整体替换，翻页状态是 `PageReplacementPaging`。
-- 已有内容、且条件与解析出的请求不变时，刷新原地进行：网格不卸载，成功后整体替换并回顶，失败保留已显示内容。网格的 snapshot 不做
-  差异动画：动画结束前新卡片不会创建，而整体替换紧接着回顶，视野会空白一段。
+- 已有内容、且条件与解析出的请求不变时，刷新原地进行：网格不卸载，成功后整体替换并回顶，失败保留已显示内容。
+- 网格的差异动画：内容身份变化、不是严格的尾部追加、已在窗口里排过版、没开「减少动态效果」时，快照带差异动画应用。
+  动画进行中 `NSCollectionView` 不为新露出的区域创建卡片（纯原生实测约 250ms、0 张），所以网格的 clip view
+  （`NativeVideoGridClipView`）在动画中每次视野移动之后补一次无动画的空批量更新，新视野的卡片立即补齐，进行中的动画
+  不受影响。`apply` 返回时排版已是新内容，重配卡片、重排 document、回顶或锚点恢复与翻页判断都在同一轮里做完，不等
+  完成回调，没有“新内容、旧偏移”的中间态。
+- 卡片菜单：各来源的网格与相关推荐横排共用一份菜单描述 `NativeVideoCardMenu`，由拥有来源的 Feature 按来源与卡片
+  构造、经 `cardMenu` 注入，不经 App 插槽。右键、Control-点按与读屏「显示菜单」走集合视图基类的同一条右键路径，卡片的
+  读屏自定义操作取同一份描述，项、顺序与标题与菜单一致。右键与访达、「音乐」一致，不改选中、不移动键盘选择框。链接项
+  只给卡片 ID 是合法 BVID 的可播放卡片，打开只经系统 `OpenURLAction`（见 `SECURITY-MODEL.md` §4）。
 - **UP 主空间列表**：头部与投稿行是同一个 `NSCollectionView` 的原生 item，随列表滚到工具栏下由系统做边缘
   模糊。列表不接收键盘焦点，方向键、空格留给播放器快捷键。
 - 图片由窗口级匿名、有界的 `NativeVideoImagePipeline` 加载（Now Playing 封面另有进程级实例）；cell 离屏、复用
@@ -260,7 +269,8 @@ endpoint 扩展逐请求选择访问方式，Repository adapter 不自行构造 
 `&+=` 递增 `authenticationRevalidationGeneration`。参与者集合由 `WindowComposition` 构造一次，`AppRootView`
 只比较各参与者的代次，前后不等（不比大小，回绕仍算）就调用一次 `revalidate()`，结束后把结果交给参与者；
 绑定来源的参与者只在该来源是当前来源时收到，不在本页时不在后台读取账户内容。收藏夹列表是侧栏常驻的
-元数据，按窗口级登记，例外地不论当前来源都读取并接收结果。Feature 不直接调用认证服务。
+元数据，按窗口级登记，例外地不论当前来源都读取并接收结果。Feature 不直接调用认证服务。用户发起的账户写入由窗口的
+写入协调者作为窗口级参与者，凭据类失败只请求一次复核，同一账户与会话代次里直到下一次写入成功不再请求。
 
 内容域的认证失败分四态，由 `ContentApplicationError` 决定是否复核与是否给重试：无凭据是“需要登录”（不给重试）、
 凭据失效触发复核、本地凭据读不到可重试但不复核、风控按受限。观看历史、稍后再看与收藏夹只在窗口已登录时
@@ -270,6 +280,19 @@ endpoint 扩展逐请求选择访问方式，Repository adapter 不自行构造 
 多窗口共享一个进程级账户会话协调器：登出、换号或凭据失效时先全局推进 authentication epoch，其他窗口再复核
 Keychain，并按新 generation 重启依赖账户的内容。账户变化由来源自己处理，App 只经来源描述通知；其他窗口换号
 时，本窗口先丢弃要求账户的来源的内容再复核。
+
+### 账户写入
+
+- 链路：卡片菜单、读屏操作与 ⌘⌫ 只转发意图（BVID）→ App `Navigation/AccountWriteCoordinator`（每窗口一个，拥有在途写入
+  的 Task、结果胶囊的最新结果与复核代次）→ BiliApplication 的写 use case → BiliAPI 的 adapter 与 `BiliAPIClient+AccountWrite`
+  （表单编码、固定 header、状态 envelope 与 -101／-111 映射只在共用的写管线，heartbeat 也走它）→ 账户写授权器（见
+  `SECURITY-MODEL.md` §3）。只有窗口主 API 有写授权器。
+- 门槛由 App 算出后经 SwiftUI 环境注入卡片菜单（BiliUI `VideoCardAccountWriting`），与收藏夹列表读取同一规则，不满足时菜单项
+  禁用、读屏操作不列出；协调者每次执行时重新核对，不依赖菜单构造时的状态。同一视频的同一种写入同时只有一个在途。
+- 乐观移除：稍后再看页的移除先在本地删掉，失败或被取消时按 `PagedVideoList` 的并入序号放回原位；之后列表被整体替换过就
+  不再放回。已知边界：页码分页在服务端删掉条目后整体前移，移除之后继续向下加载可能漏掉与移除条数相同的几条，刷新后恢复。
+- 效果分发：成功的写入带着账户 mid 与发起时的会话代次，经本窗口的 `AccountWriteEffectRouter` 与进程级集线器转给所有窗口；
+  只处理与本窗口账户、会话代次都一致的效果。稍后再看只标记为过期，下次页面出现时原地刷新一次，不在后台读取。
 
 ### 播放线路偏好与测速
 

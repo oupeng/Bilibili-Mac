@@ -159,6 +159,10 @@ public final class LibraryVideoListModel<
     /// 刷新与加载更多共用的最新意图 Task：新请求替换旧请求，迟到结果经 `isCurrent` 丢弃；`reset` 与
     /// `deactivateRoute` 取消。
     @ObservationIgnored private let loadTask = LatestTask()
+    /// 显示的内容是否已被别处的写入改变，等下一次 `loadIfNeeded` 原地刷新；`reload` 开始时清除。
+    @ObservationIgnored private var needsReload = false
+    /// 显示的列表每被整体替换一次（换成空列表或第一页加载成功）以 `&+=` 递增；`restoreItem` 只在与移除时相同才放回。
+    @ObservationIgnored private var contentGeneration: UInt64 = 0
     /// 复核代次、是否在等复核与复核后是否已自动重载过。
     private var revalidation = LibraryAccountRevalidation()
 
@@ -177,12 +181,52 @@ public final class LibraryVideoListModel<
         list = PagedVideoList(stallPolicy: stallPolicy)
     }
 
+    /// 页面出现、账户变化或复核成功时调用：从未加载（idle）时加载；已显示内容但被标记为过期
+    /// （`markNeedsReload`）时原地刷新一次；其他状态不动作。
     public func loadIfNeeded() {
-        guard phase == .idle else { return }
-        reload()
+        switch phase {
+        case .idle:
+            reload()
+        case .loaded where needsReload:
+            reload()
+        case .loading, .loaded, .failed:
+            break
+        }
+    }
+
+    /// 本列表在服务端的内容已被别处的写入改变（另一视图或另一窗口加入、移除了稍后再看）：只记下过期，不在后台读取。
+    ///
+    /// 下一次页面出现（`loadIfNeeded`）时原地刷新；由 App 的写入效果路由调用。
+    public func markNeedsReload() {
+        needsReload = true
+    }
+
+    /// 乐观移除一条（稍后再看页的移除）：先从显示的列表里删掉，总数减一；没有这条或列表不在已加载状态时为 nil。
+    ///
+    /// 服务端确认之前只是本地变化，写入失败时交回 `restoreItem` 放回原位。由 App 的写入协调者调用，Task 也归它。
+    public func removeItem(bvid: String) -> LibraryVideoListRemoval<Item, Cursor>? {
+        guard phase == .loaded, let removal = list.remove(id: bvid, bvid: self.bvid) else {
+            return nil
+        }
+        totalCount = totalCount.map { max(0, $0 - 1) }
+        return LibraryVideoListRemoval(removal: removal, contentGeneration: contentGeneration)
+    }
+
+    /// 写入失败的回滚：放回原位，总数加一。
+    ///
+    /// 移除之后列表被整体替换过（刷新成功、条件变化、账户变化、失败或 `reset`）时不再放回：新内容已经是服务端此刻的
+    /// 状态，旧条目放进去会与新内容混排，账户变化时还会把上一账户的条目放进新账户的列表。
+    public func restoreItem(_ removal: LibraryVideoListRemoval<Item, Cursor>) {
+        guard phase == .loaded, removal.contentGeneration == contentGeneration else { return }
+        let before = list.items.count
+        list.restore(removal.removal, bvid: bvid)
+        if list.items.count > before {
+            totalCount = totalCount.map { $0 + 1 }
+        }
     }
 
     public func reload() {
+        needsReload = false
         let firstPageCursor = firstPageCursor()
         // 已有条目（或正在加载更多）且第一页游标不变时原地刷新，与首页、热门一致：网格不卸载，成功后由刷新代次回到
         // 顶部。游标变了（稍后再看的条件或解析出的区间不同）就清空重载。
@@ -193,7 +237,7 @@ public final class LibraryVideoListModel<
         if refreshesInPlace {
             list.beginRefresh()
         } else {
-            list = emptyList()
+            replaceList()
             totalCount = nil
             displayedFirstPageCursor = nil
             expectedLoadingItemCount = expectedItemCount(firstPageCursor: firstPageCursor)
@@ -205,6 +249,7 @@ public final class LibraryVideoListModel<
                 let result = try await load(firstPageCursor)
                 guard isCurrent() else { return }
                 list.replaceFirstPage(result.page, bvid: bvid)
+                contentGeneration &+= 1
                 displayedFirstPageCursor = firstPageCursor
                 totalCount = result.totalCount
                 knownTotal = result.totalCount.map { (firstPageCursor, $0) }
@@ -276,7 +321,7 @@ public final class LibraryVideoListModel<
     /// 不原地刷新：旧条件的条目不能留在新条件下显示。加载成功时 `successfulReloadGeneration` 前进，App 据此把网格
     /// 滚回顶部。由来源会话在改完条件后调用。
     func reloadReplacingContent() {
-        list = emptyList()
+        replaceList()
         displayedFirstPageCursor = nil
         knownTotal = nil
         phase = .idle
@@ -301,7 +346,8 @@ public final class LibraryVideoListModel<
     /// 取消请求并从内存删除全部个性化条目，供登出、换号与窗口关闭调用。
     public func reset() {
         loadTask.cancel()
-        list = emptyList()
+        needsReload = false
+        replaceList()
         totalCount = nil
         displayedFirstPageCursor = nil
         knownTotal = nil
@@ -375,14 +421,28 @@ public final class LibraryVideoListModel<
         PagedVideoList(stallPolicy: stallPolicy)
     }
 
+    /// 换成空列表，并作废此前的乐观移除。
+    private func replaceList() {
+        list = emptyList()
+        contentGeneration &+= 1
+    }
+
     /// 进入失败页并放弃已显示条目；凭据失败时请求账户复核。
     private func fail(_ failure: ContentApplicationError) {
         if LibraryAccountRevalidation.isCredentialFailure(failure) {
             revalidation.request()
         }
-        list = emptyList()
+        replaceList()
         totalCount = nil
         displayedFirstPageCursor = nil
         phase = .failed(failure)
     }
+}
+
+/// 乐观移除的凭据：被移除的条目、它的位置与移除时列表内容的代次，交回 `LibraryVideoListModel.restoreItem` 回滚。
+public struct LibraryVideoListRemoval<Item: Sendable & Equatable, Cursor: Equatable & Sendable>:
+    Sendable
+{
+    fileprivate let removal: PagedVideoList<Item, Cursor>.Removal
+    fileprivate let contentGeneration: UInt64
 }

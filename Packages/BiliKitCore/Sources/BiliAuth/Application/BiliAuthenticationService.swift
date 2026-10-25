@@ -303,7 +303,7 @@ public actor BiliAuthenticationService: AuthenticationServicing {
         case .credentialStoreUnavailable:
             .credentialUnavailable
         case .requestNotAllowed, .credentialHeaderAlreadyPresent,
-            .missingCredential, .expiredCredential, .invalidCredential:
+            .missingCredential, .expiredCredential, .invalidCredential, .accountMismatch:
             .invalidResponse
         }
     }

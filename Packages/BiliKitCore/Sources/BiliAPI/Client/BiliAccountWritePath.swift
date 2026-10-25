@@ -1,0 +1,17 @@
+/// 用户发起的账户写入的 endpoint path；`BiliAPIClient` 的写 endpoint 用它构造请求，App Composition 用它声明窗口主 API 的
+/// 写 allowlist（`LiveAPIClients.mainAccountWriteAllowedPaths`）。
+///
+/// 与 `BiliAccountReadPath` 同理：endpoint 与 allowlist 引用同一个常量。BiliAuth 的 `BiliAccountWriteRequestAuthorizer`
+/// 另有一张按 path 的封闭 schema 表（BiliAuth 不能依赖 BiliAPI，字面量各写一份），Composition 的测试核对 allowlist 里的
+/// 每个 path 都能被它授权。观看进度 heartbeat 不在这里，它有自己的授权器。见 SECURITY-MODEL §3。
+public enum BiliAccountWritePath {
+    /// 加入稍后再看（`aid`、`csrf`，urlencoded）。
+    public static let watchLaterAdd = "/x/v2/history/toview/add"
+    /// 从稍后再看移除单条（`aid`、`csrf`，urlencoded，不签 WBI）。
+    ///
+    /// 网页稍后再看页没有用它，本项目也还没有实测；它有接口文档、多个第三方客户端在用，表单最简单，所以先用它。后备有两级：
+    /// 1. `/x/v2/history/toview/v2/dels`，urlencoded、不签 WBI，字段 `resources=<aid>`（多个 Cookie 客户端这样用）：只需在这里
+    ///    加一个 path 常量、在授权器 schema 表加一行（`resources` 只接受单个正整数）、写 allowlist 换成它；
+    /// 2. 网页实际的 `v2/dels`（WBI 签名 + multipart）：需要改写管线与授权器，见授权器 schema 表的注释。
+    public static let watchLaterRemove = "/x/v2/history/toview/del"
+}

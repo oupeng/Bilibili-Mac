@@ -5,14 +5,18 @@ import Synchronization
 
 @testable import BiliAuth
 
+/// `userID` 给出时 `DedeUserID` 用这个数字（账户写入按它绑定账户），否则与其他 Cookie 一样是占位值。
 func makeFixtureCredential(
-    expiresAt: Date = Date(timeIntervalSince1970: 4_102_444_800)
+    expiresAt: Date = Date(timeIntervalSince1970: 4_102_444_800),
+    userID: String? = nil
 ) throws -> WebCredential {
     try WebCredential(
         cookies: WebCredentialCookieName.allCases.map { name in
             WebCredentialCookie(
                 name: name,
-                value: "FIXTURE_\(name.rawValue)_VALUE",
+                value: name == .userID
+                    ? userID ?? "FIXTURE_\(name.rawValue)_VALUE"
+                    : "FIXTURE_\(name.rawValue)_VALUE",
                 domain: ".bilibili.com",
                 path: "/",
                 isSecure: true,
