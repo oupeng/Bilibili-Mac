@@ -682,6 +682,15 @@ gain 只压低不放大：`min(−18 LUFS − I, 0)`，下限 −12 dB。不放�
   `Testing.framework`，旧 runner 上的 Xcode 加载不了 27 构建的 bundle，而 Xcode 27 不支持 macOS 15。
 - 因此 macOS 15 只有“能启动并持续运行”的自动证据；AVFoundation、loopback 与窗口行为在最低系统上
   没有自动验证，deployment target 编译成功不能证明它们可用。
+- Gate 判定包测试通过不只看 `swift test` 的退出码：测试进程中途正常退出时退出码仍是 0，SwiftPM 按
+  测试 bundle 分进程运行，终端里的“passed”汇总行也可能来自别的 bundle。`package_test` 把 xUnit 结果与
+  `swift test list` 逐个比对（`Scripts/check-package-test-results.py`），缺少、多出、失败或筛选器没有
+  选中任何测试都判失败；CI 只调用 Gate 脚本，判定相同。App 测试由 xcodebuild 判定：宿主中途退出时
+  没跑完的测试记为失败，Gate 返回非零。
+- 包测试进程里不进入 AppKit 事件循环（弹出菜单、`nextEvent(matching:)`、模态会话）：事件线程开始
+  拉取窗口服务器事件后，会向主 run loop 投递 `CFRunLoopStop`；包测试的主线程跑的是 Swift 并发主
+  执行器的 `CFRunLoopRun()`，被停下后运行时直接 `exit(0)`，测试静默中断。真实菜单跟踪不在包测试
+  里验证。
 - Gate 构建的 App 不签名，测试宿主的身份每次构建都变。App 测试不读仓库源文件：仓库在外接卷上时，
   系统每次都会弹出访问授权，Gate 无法无人值守。字符串目录完整性这类源文件检查放在 static 阶段的
   脚本里（`Scripts/check-localization.py`），App 测试只检查构建产物。

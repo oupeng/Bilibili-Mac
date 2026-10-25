@@ -66,7 +66,7 @@ cd "$repository_root"
 . Scripts/isolated-toolchain.sh
 
 if [ "$mode" = "package" ]; then
-    package_test --filter "$test_filter"
+    package_test "$test_filter"
 else
     app_xcodebuild test -only-testing:"$test_filter"
 fi
