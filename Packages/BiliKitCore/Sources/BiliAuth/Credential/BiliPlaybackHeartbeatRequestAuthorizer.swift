@@ -228,10 +228,10 @@ public struct BiliPlaybackHeartbeatRequestAuthorizer: HTTPRequestAuthorizing,
         return number >= -1
     }
 
+    /// 按 UTF-8 字节判断：只有 ASCII `0-9a-f` 才合法；`Character.isNumber` 会放过阿拉伯-印度数字、全角数字与 `½`，
+    /// 带组合符的字母按字符比较也会落进 `a...f`。
     private static func isLowercaseHex(_ value: String?, count: Int) -> Bool {
-        guard let value, value.count == count else { return false }
-        return value.allSatisfy {
-            $0.isNumber || ("a"..."f").contains(String($0))
-        }
+        guard let value, value.utf8.count == count else { return false }
+        return value.utf8.allSatisfy { (0x30...0x39).contains($0) || (0x61...0x66).contains($0) }
     }
 }
