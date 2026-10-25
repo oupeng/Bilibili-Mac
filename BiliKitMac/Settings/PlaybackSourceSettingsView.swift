@@ -1,5 +1,6 @@
 import BiliApplication
 import BiliPlayback
+import BiliUI
 import Foundation
 import SwiftUI
 
@@ -171,7 +172,7 @@ struct PlaybackSourceSettingsView: View {
 
     static func resultText(
         _ result: PlaybackRouteMeasurement,
-        locale: Locale = .current
+        locale: Locale = InterfaceLocale.current
     ) -> String {
         guard let bits = result.effectiveBitsPerSecond, bits.isFinite, bits >= 0 else {
             return AppStrings.localized(
@@ -203,7 +204,7 @@ struct PlaybackSourceSettingsView: View {
 
     static func sampleDistributionText(
         _ result: PlaybackRouteMeasurement,
-        locale: Locale = .current
+        locale: Locale = InterfaceLocale.current
     ) -> String? {
         guard result.totalRuns > 1, !result.sampleBitsPerSecond.isEmpty else {
             return nil

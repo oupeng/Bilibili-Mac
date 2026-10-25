@@ -166,6 +166,8 @@ EXTRA_ALLOWED = {
     # 窗口播放器子类拦截 seek 入口，供播放器浮层判断画面是否还停在旧位置。
     "BiliKitMac/Platform/SeekTrackingPlayer.swift": {"AVFoundation"},
     "BiliKitMac/Platform/SystemNowPlayingController.swift": {"MediaPlayer"},
+    # 测速结果的数字按界面语言格式化，locale 取 BiliUI 的 `InterfaceLocale`（见 ARCHITECTURE「分发」格式化 locale 一条）。
+    "BiliKitMac/Settings/PlaybackSourceSettingsView.swift": {"BiliUI"},
 }
 
 # 范围内子目录再禁止的模块：纯逻辑部分不得碰播放或渲染框架。

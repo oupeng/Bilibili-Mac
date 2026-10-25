@@ -48,7 +48,7 @@ enum PlayerShortcutFeedback: Equatable {
             seconds < 0
                 ? AppStrings.localized("后退 \(-seconds) 秒")
                 : AppStrings.localized("前进 \(seconds) 秒")
-        case .volume(let percent): "\(percent)%"
+        case .volume(let percent): Self.volumeText(percent)
         case .playback(let isPlaying):
             isPlaying ? AppStrings.localized("播放") : AppStrings.localized("暂停")
         case .danmaku(let enabled):
@@ -83,7 +83,7 @@ enum PlayerShortcutFeedback: Equatable {
             seconds < 0
                 ? AppStrings.localized("已后退 \(-seconds) 秒")
                 : AppStrings.localized("已前进 \(seconds) 秒")
-        case .volume(let percent): AppStrings.localized("播放器音量 \(percent)%")
+        case .volume(let percent): AppStrings.localized("播放器音量 \(Self.volumeText(percent))")
         case .playback(let isPlaying):
             isPlaying ? AppStrings.localized("已开始播放") : AppStrings.localized("已暂停播放")
         case .danmaku(let enabled):
@@ -92,6 +92,11 @@ enum PlayerShortcutFeedback: Equatable {
         case .subtitles(.disabled): AppStrings.localized("字幕已关闭")
         case .subtitles(.unavailable): AppStrings.localized("当前视频没有可用字幕")
         }
+    }
+
+    /// 音量百分比的唯一写法，locale 取与文案同语言的 `InterfaceLocale`。
+    private static func volumeText(_ percent: Int) -> String {
+        percent.formatted(.percent.locale(InterfaceLocale.current))
     }
 }
 
