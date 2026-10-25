@@ -8,9 +8,14 @@ package enum VideoCardAccessibilityText {
     /// 卡片处于选中状态时的读屏值。
     package static var selectedValue: String { BiliUIStrings.localized("已选择") }
 
-    /// 读屏标签里的时长片段；`durationText` 是已格式化的时长（`VideoDurationFormatting`）。
-    package static func duration(_ durationText: String, locale: Locale = InterfaceLocale.current) -> String {
-        BiliUIStrings.localized("时长 \(durationText)", locale: locale)
+    /// 读屏标签里的时长片段：「时长 12分钟34秒钟」。
+    ///
+    /// 封面上的「12:34」会被 VoiceOver 读成时刻，读屏改用系统带单位的完整写法；为零的单位不读，负数按 0。
+    package static func duration(seconds: Int, locale: Locale = InterfaceLocale.current) -> String {
+        let spoken = Duration.seconds(max(0, seconds)).formatted(
+            .units(allowed: [.hours, .minutes, .seconds], width: .wide).locale(locale)
+        )
+        return BiliUIStrings.localized("时长 \(spoken)", locale: locale)
     }
 
     /// 不能进入播放的卡片的读屏值；具体原因在调用方给出的标签里。

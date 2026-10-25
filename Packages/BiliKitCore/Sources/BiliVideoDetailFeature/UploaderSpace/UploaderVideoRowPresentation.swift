@@ -41,8 +41,10 @@ public struct UploaderVideoRowPresentation: Identifiable, Equatable, Sendable {
             components.append(collaborationText)
         }
         components += [viewCountText, danmakuCountText].compactMap { $0 }
-        if let durationText {
-            components.append(VideoCardAccessibilityText.duration(durationText, locale: locale))
+        if let durationSeconds = video.durationSeconds {
+            components.append(
+                VideoCardAccessibilityText.duration(seconds: durationSeconds, locale: locale)
+            )
         }
         components.append(publishedText)
         accessibilityLabel = ListFormatter.localizedString(byJoining: components)

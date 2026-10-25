@@ -2,6 +2,7 @@ import BiliModels
 import Foundation
 import Testing
 
+@testable import BiliUI
 @testable import BiliVideoDetailFeature
 
 struct RelatedVideoShelfTests {
@@ -39,10 +40,17 @@ struct RelatedVideoShelfTests {
         #expect(presentation.durationText == "12:34")
         for value in [
             presentation.title, presentation.ownerName, presentation.viewCountText,
-            presentation.danmakuCountText, presentation.durationText ?? ""
+            presentation.danmakuCountText
         ] {
             #expect(presentation.accessibilityLabel.contains(value))
         }
+        // 读屏读带单位的时长，不读封面上会被当成时刻的「12:34」。
+        #expect(
+            presentation.accessibilityLabel.contains(
+                VideoCardAccessibilityText.duration(seconds: 754, locale: locale)
+            )
+        )
+        #expect(!presentation.accessibilityLabel.contains("12:34"))
     }
 
     @Test

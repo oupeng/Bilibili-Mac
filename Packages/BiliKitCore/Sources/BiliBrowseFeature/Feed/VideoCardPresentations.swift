@@ -45,7 +45,7 @@ public struct PopularVideoCardPresentation: Sendable, Equatable {
             ownerName: video.owner.name,
             viewCountText: viewCountText,
             danmakuCountText: danmakuCountText,
-            durationText: durationText,
+            durationSeconds: video.durationSeconds,
             publishedDateText: publishedDateText,
             locale: locale
         )
@@ -95,7 +95,7 @@ public struct RecommendedVideoCardPresentation: Sendable, Equatable {
             ownerName: video.owner.name,
             viewCountText: viewCountText,
             danmakuCountText: danmakuCountText,
-            durationText: durationText,
+            durationSeconds: video.durationSeconds,
             publishedDateText: publishedDateText,
             recommendationReason: video.recommendationReason,
             locale: locale
@@ -144,7 +144,7 @@ public struct SearchVideoCardPresentation: Sendable, Equatable {
             ownerName: video.owner.name,
             viewCountText: viewCountText,
             danmakuCountText: danmakuCountText,
-            durationText: durationText,
+            durationSeconds: video.durationSeconds,
             publishedDateText: publishedDateText,
             locale: locale
         )
@@ -157,7 +157,7 @@ private func videoCardAccessibilityLabel(
     ownerName: String,
     viewCountText: String,
     danmakuCountText: String,
-    durationText: String?,
+    durationSeconds: Int?,
     publishedDateText: String,
     recommendationReason: String? = nil,
     locale: Locale
@@ -168,7 +168,9 @@ private func videoCardAccessibilityLabel(
             ownerName,
             BrowseFeatureStrings.localized("播放 \(viewCountText)", locale: locale),
             BrowseFeatureStrings.localized("弹幕 \(danmakuCountText)", locale: locale),
-            durationText.map { VideoCardAccessibilityText.duration($0, locale: locale) },
+            durationSeconds.map {
+                VideoCardAccessibilityText.duration(seconds: $0, locale: locale)
+            },
             BrowseFeatureStrings.localized("发布 \(publishedDateText)", locale: locale),
             recommendationReason.map {
                 BrowseFeatureStrings.localized("推荐理由 \($0)", locale: locale)
