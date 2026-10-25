@@ -17,11 +17,16 @@ protocol URLSessionRangeOperation: AnyObject, Sendable {
     )
     func receive(_ data: Data)
     func complete(error: (any Error)?)
+    /// 以 `error` 结束：取消 task、解除登记并交付这个失败；已结束时是空操作。
+    ///
+    /// 由 transport 在 delegate 回调里判定失败、而这个判定不会再经 `receive(_:completionHandler:)` 交给
+    /// operation 时调用（拒绝重定向）。
+    func fail(_ error: HTTPRangeResponseError)
 }
 
 /// Range client 共用的 URLSession delegate 与 task 生命周期。
 ///
-/// 拒绝重定向；session 在首次请求时才于锁内创建，`invalidate` 后取消在途 operation 且不再创建新 task。
+/// 拒绝重定向，并在重定向回调里直接以该 3xx 状态结束 operation；session 在首次请求时才于锁内创建，`invalidate` 后取消在途 operation 且不再创建新 task。
 /// 可变状态只经 `Mutex` 访问；operation 的 `cancel()` 与 session 失效都在锁外执行。
 final class URLSessionRangeTransport: NSObject, URLSessionDataDelegate, Sendable {
     /// operation 登记表、懒创建的 session 与失效标记；只在 `state` 锁内读写。
@@ -98,6 +103,10 @@ final class URLSessionRangeTransport: NSObject, URLSessionDataDelegate, Sendable
         completionHandler: @escaping (URLRequest?) -> Void
     ) {
         completionHandler(nil)
+        // 拒绝之后 URLSession 要等这个 3xx 的正文传完才把它当最终响应交给 delegate；正文卡住或持续涓流时，
+        // 请求要到空闲超时才失败，媒体请求会挂住同样久。所以在这里就以该状态码结束并取消 task，不等正文。
+        // 见 SECURITY-MODEL §4。
+        operation(for: task.taskIdentifier)?.fail(.statusCode(response.statusCode))
     }
 
     func urlSession(

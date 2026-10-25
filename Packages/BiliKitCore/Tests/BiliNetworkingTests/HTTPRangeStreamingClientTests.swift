@@ -97,6 +97,23 @@ struct HTTPRangeStreamingClientTests {
         }
     }
 
+    /// 被拒绝的重定向在重定向回调里就以它的状态码失败并取消上游，不等 3xx 正文传完。
+    @Test
+    func rejectedRedirectFailsWithoutWaitingForItsBody() async throws {
+        StreamingRangeURLProtocol.state.configure(
+            statusCode: 302,
+            headers: ["Location": "https://redirect.example/video.mp4"],
+            chunks: [],
+            withholdsBody: true
+        )
+        let events = StreamEventRecorder()
+        await #expect(throws: HTTPRangeResponseError.statusCode(302)) {
+            try await streamFourBytes(events: events)
+        }
+        #expect(await events.values.isEmpty)
+        await StreamingRangeURLProtocol.state.waitUntilStopped()
+    }
+
     @Test
     func rejectsShortAndLongBodies() async throws {
         let headers = [
