@@ -123,9 +123,9 @@ protocol PlaybackSourcePreferenceStoring: AnyObject, Sendable {
 /// 播放偏好的 UserDefaults 实现：schema 版本、线路选择与响度均一化开关三个键
 /// （见 SECURITY-MODEL §6）。
 ///
-/// schema 不符或线路选择是未知值时整体回退默认（响度开关也回到关闭）；
-/// 响度开关类型不对时按关闭处理。每次读取都删除另一个含义不同的响度偏好键
-/// （`legacyLoudnessNormalizationEnabled`），不读取它的值。
+/// 三个键都只接受类型严格匹配的值：schema 不符或类型错写、线路选择不是字符串或是未知值时，
+/// 整体回退默认（响度开关也回到关闭）；只有响度开关类型不对时按关闭处理。
+/// 每次读取都删除另一个含义不同的响度偏好键（`legacyLoudnessNormalizationEnabled`），不读取它的值。
 ///
 /// `@unchecked Sendable`：只持有不可变的 `let defaults`，`UserDefaults` 本身可以跨线程读写；
 /// 三个键不是原子写入，生产调用方只有 MainActor 上的 `AppSettingsModel`。
@@ -147,8 +147,10 @@ final class UserDefaultsPlaybackSourcePreferenceStore:
 
     func load() -> PlaybackSourcePreferenceRecord {
         defaults.removeObject(forKey: Key.legacyLoudnessNormalizationEnabled)
-        guard defaults.integer(forKey: Key.schema) == Self.schemaVersion,
-            let raw = defaults.string(forKey: Key.selection),
+        // 不用 `integer(forKey:)`／`string(forKey:)`：它们会把字符串 "1"、`true`、`1.9` 读成 schema 1，
+        // 把数字转成字符串，类型错写的值就不再回退默认（见 SECURITY-MODEL §6）。
+        guard defaults.strictInteger(forKey: Key.schema) == Self.schemaVersion,
+            let raw = defaults.object(forKey: Key.selection) as? String,
             let selection = PlaybackSourceSelection(rawValue: raw)
         else { return .defaults }
         return PlaybackSourcePreferenceRecord(

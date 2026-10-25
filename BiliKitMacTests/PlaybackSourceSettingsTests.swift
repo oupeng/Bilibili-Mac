@@ -38,6 +38,55 @@ struct PlaybackSourceSettingsTests {
     }
 
     @Test @MainActor
+    func storeFallsBackWhenSchemaHasWrongType() {
+        withIsolatedDefaults { defaults in
+            let store = UserDefaultsPlaybackSourcePreferenceStore(defaults: defaults)
+            let saved = PlaybackSourcePreferenceRecord(
+                selection: .huaweiMainland,
+                loudnessNormalizationEnabled: true
+            )
+            let schemaKey = "playbackSourcePreference.schema"
+
+            store.save(saved)
+            defaults.set("1", forKey: schemaKey)
+            #expect(store.load() == .defaults)
+
+            store.save(saved)
+            // 已存的 schema 是整数 1：UserDefaults 视 `true` 与它相等而不覆盖，先移除才能真正写入 Bool。
+            defaults.removeObject(forKey: schemaKey)
+            defaults.set(true, forKey: schemaKey)
+            #expect(store.load() == .defaults)
+
+            store.save(saved)
+            defaults.set(1.9, forKey: schemaKey)
+            #expect(store.load() == .defaults)
+        }
+    }
+
+    @Test @MainActor
+    func storeFallsBackWhenSelectionIsNotAString() {
+        withIsolatedDefaults { defaults in
+            let store = UserDefaultsPlaybackSourcePreferenceStore(defaults: defaults)
+            store.save(PlaybackSourcePreferenceRecord(selection: .huaweiMainland))
+            defaults.set(1, forKey: "playbackSourcePreference.selection")
+            #expect(store.load() == .defaults)
+        }
+    }
+
+    @Test
+    func speedTextUsesOneFractionDigitWithLocaleGrouping() {
+        let result = PlaybackRouteMeasurement(
+            target: .serverAkamai,
+            effectiveBitsPerSecond: 1_234_500_000
+        )
+        let text = PlaybackSourceSettingsView.resultText(
+            result,
+            locale: Locale(identifier: "en_US")
+        )
+        #expect(text.contains("1,234.5 Mbps"))
+    }
+
+    @Test @MainActor
     func loudnessSettingDefaultsOffPersistsAndFallsBackOffWhenDamaged() {
         withIsolatedDefaults { defaults in
             let store = UserDefaultsPlaybackSourcePreferenceStore(
