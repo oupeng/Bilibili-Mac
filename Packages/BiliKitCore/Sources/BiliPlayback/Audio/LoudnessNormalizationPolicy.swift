@@ -11,7 +11,7 @@ public struct LoudnessNormalizationPolicy: Sendable {
     /// B 站热门视频的 integrated loudness 中位数约 −12.6 LUFS；−18 让约 86% 的视频被拉到同一响度，
     /// 同时多数视频只压低约 5 dB。
     public static let targetIntegratedLUFS = -18.0
-    /// 增益下限，最多压低 12 dB（见 docs/ARCHITECTURE.md「响度均一化（macOS 27 起）」）。
+    /// 增益下限，最多压低 12 dB。
     ///
     /// 放宽会让极响的视频被压得更低，收紧则这类视频播放时仍比目标响。
     public static let maximumAttenuationDB = -12.0

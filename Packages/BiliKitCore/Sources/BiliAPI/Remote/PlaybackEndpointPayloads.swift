@@ -190,7 +190,7 @@ struct DURLPayload: Decodable, Sendable {
 /// `voice_balance=1` 时返回的响度测量值，映射为 `PlaybackLoudnessMetadata`。
 ///
 /// 任一值不在合理范围或门限高于积分响度时整体无效（`model` 为 nil），原音量播放；未测量视频的
-/// `0.001` 占位因此被拒绝。见 docs/ARCHITECTURE.md「响度均一化（macOS 27 起）」。
+/// `0.001` 占位因此被拒绝；不自行测量响度。
 struct PlaybackVolumePayload: Decodable, Sendable {
     let measuredIntegrated: Double
     let measuredLoudnessRange: Double

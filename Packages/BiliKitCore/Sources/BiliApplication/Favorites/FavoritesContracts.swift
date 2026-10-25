@@ -94,7 +94,7 @@ public struct FavoritesUseCase: Sendable {
     /// 已登录用户自己视角下必有默认收藏夹。Cookie 失效时接口不报 -101，而是悄悄退化成访客视角（列表为空或只剩公开
     /// 夹），所以没有默认收藏夹按凭据失效报告，交给窗口复核账户；复核后仍然如此时由调用方的复核规则停止自动重试。
     /// 这只能发现一部分失效：默认收藏夹公开时访客视角仍会返回它，失效后列表只是少了私密收藏夹，这时要靠其他账户读取
-    /// 返回 -101 触发复核。见 SECURITY-MODEL §3、§9。
+    /// 返回 -101 触发复核。见 SECURITY-MODEL §9。
     public func folders(ownerID: Int64) async throws -> [FavoriteFolder] {
         guard ownerID > 0 else { throw ContentApplicationError.invalidRequest }
         let folders = try await repository.favoriteFolders(ownerID: ownerID)

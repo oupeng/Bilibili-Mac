@@ -235,6 +235,9 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     /// 规划尺寸逐个维度取屏幕与窗口的较大者，所以窗口跨屏变得比屏幕大时，新表排好后也不会露出规划画布
     /// 之外；规划尺寸或 scale 变了才整张重排。窗口尺寸变化本身只移动锚定边并按新取景框对齐：放大时补上
     /// 新露出的、正在飞的弹幕（缺纹理的就绪后出现），缩小时立即移除被裁掉的。
+    ///
+    /// 窗口比旧规划尺寸大（换到更大的屏幕、跨屏拖大）时，新表排好之前滚动弹幕在 x = 窗口宽 − 旧规划宽处
+    /// 提前消失，新表排好后原位换车道；换到更大的屏幕时整张重排一次，跨屏拖大时每次变大都重排。
     public func updateSurface(
         width: Double,
         height: Double,

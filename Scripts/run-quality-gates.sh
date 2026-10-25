@@ -83,6 +83,7 @@ set -- "$derived_data"/Build/Products/*.xctestrun
 }
 
 echo "[Gate] app tests"
+# App 测试由 xcodebuild 判定：宿主中途退出时没跑完的测试记为失败，所以不像包测试那样另做逐项核对。
 isolated xcode-home xcodebuild \
     -quiet \
     -xctestrun "$1" \

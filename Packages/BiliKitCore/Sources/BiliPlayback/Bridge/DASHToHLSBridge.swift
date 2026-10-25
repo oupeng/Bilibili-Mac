@@ -205,6 +205,8 @@ public struct DASHToHLSBridge: Sendable {
         else {
             throw DASHToHLSBridgeError.unsupportedAudioTrackCount(0)
         }
+        // 同一 AUDIO group 的音轨按同一条时间线互相切换，以原声 SIDX 起点为准；起点不一致的 AI 音轨在生成
+        // master 前丢弃，与配音请求失败一样只少一条配音，不让播放失败。
         let audioRenditions = loadedAudioRenditions.filter { rendition in
             rendition.selectedTrack.track.isDefault
                 || hasMatchingAudioTimeline(

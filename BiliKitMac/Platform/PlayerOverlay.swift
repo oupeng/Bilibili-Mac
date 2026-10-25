@@ -365,6 +365,9 @@ final class PlayerOverlayModel {
 
     /// 播放器阻塞期间（换视频、切分 P、准备播放）player 还没挂上 item 时补一个转圈；item 一挂上，
     /// 未就绪期间由 AVKit 自己的转圈接手，两者不同时出现。
+    ///
+    /// AVKit 只在“有 item 且未就绪”时画转圈，item 挂上后约 1.5 秒才出现，不受 `controlsStyle` 影响；没有
+    /// item 时只是黑屏，开播后的 seek 与缓冲卡住也不画，所以这两段由浮层转圈补上。
     func setPreparationActivity(isPreparing: Bool, hasCurrentItem: Bool) {
         let shows = isPreparing && !hasCurrentItem
         guard showsPreparationActivity != shows else { return }

@@ -5,11 +5,16 @@ import Synchronization
 
 /// 弹幕的时钟层：一个普通 `CALayer`，本地时间跟随绑定的播放 item timebase 的媒体时间。
 ///
-/// 时钟层在 timebase 每次速率变化或时间跳变时与它同步；两次之间按当时的速率外推。timebase 相对宿主时钟
-/// 有微小漂移且不为此发通知，长时间不暂停、不 seek 时会累积每小时几十毫秒量级的偏差，下一次变化时消除。
+/// 时钟层在 timebase 每次速率变化或时间跳变时与它同步；两次之间按当时的速率外推，不做周期性重新同步。
+/// 以下数值都是 macOS 27 实测。timebase 相对宿主时钟有微小漂移且不为此发通知，长时间不暂停、不 seek 时
+/// 累积约 38ms/小时的偏差，下一次变化时消除；蓝牙输出下 timebase 还会无通知地静默重锚（最多 ±49ms），
+/// 同样等下一次通知纠正，暂停或卡顿时表现为一次几 pt 的跳动。
 ///
 /// 单调下限：同一纪元里播放中（速率 > 0）显示时间 D 只进不退，timebase 此刻低于 D 时原地等它追上，规则见
-/// `DanmakuClockWrite.following`。等待没有上限：播放中真的往回跳（4x HLS 的跳变风暴）也原地等到追上。
+/// `DanmakuClockWrite.following`。等待没有上限：播放中真的往回跳也原地等到追上，4x HLS 的跳变风暴里每次
+/// 约 1 秒，弹幕最多领先画面 4 媒体秒；队列错过 seek 的速率 0 窗口（19～43ms，拖动时 131ms；队列延迟不到
+/// 1ms）时冻结 seek 的距离，几乎不发生。在等待窗口里暂停时 D 会后退（有线约 5pt，蓝牙最多约 31pt）：
+/// 暂停按速率 0 严格跟随。
 ///
 /// 发布：每次写入时钟层之后，把这次写入的直线（`DanmakuClockWrite`）连同绑定纪元发布出去，任意线程经
 /// `displayTime()` 用同一个 `DanmakuClockWrite.displayTime(at:)` 求出此刻的显示时间 D，与 Core Animation 渲染的是
@@ -21,8 +26,9 @@ import Synchronization
 ///
 /// 驱动方式：timebase 的通知由播放器的多个内部队列在持有 MediaToolbox 锁的线程上同步发出。回调只向
 /// `queue` 投递一次同步，其余都在队列上做：读当前绑定的 timebase 的最新速率与锚点，平移到此刻，用显式
-/// `CATransaction` 写时钟层的 `beginTime`／`timeOffset`／`speed`。整个过程不经过主线程，所以主线程被
-/// 播放器挡住（暂停时等音频暂停握手、设置 `rate`）时，时钟层照样在 timebase 停下的那一刻停下。
+/// `CATransaction` 写时钟层的 `beginTime`／`timeOffset`／`speed`。整个过程不经过主线程：`pause()` 后约 1ms
+/// timebase 速率变 0，而播放器持锁等音频暂停握手（约 30ms）、设置 `rate`（35～135ms）期间主线程被挡住，
+/// 时钟层照样在 timebase 停下的那一刻停下。
 ///
 /// 线程隔离（`@unchecked Sendable` 的依据）：
 /// - 时钟层的 `beginTime`、`timeOffset`、`speed` 与 `written`、`syncedEpoch` 只由 `queue` 读写（`init` 在对象

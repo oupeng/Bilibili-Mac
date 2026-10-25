@@ -81,7 +81,8 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
     let refinement = NativePlaybackSidebarRefinementScheduler()
     /// 评论分页判断；快照更新、条目原地变化与 `tearDown` 时取消。
     let pagination = NativePlaybackSidebarPaginationScheduler()
-    /// 评论近尾分页的布防状态：同一尾部只请求一次，离开阈值后才重新布防（阈值比一页评论矮，见 ARCHITECTURE「原生 AppKit 集合视图」）。
+    /// 评论近尾分页的布防状态：同一尾部只请求一次，离开阈值后才重新布防（阈值比一页评论矮，见
+    /// `NearEndPagination.TailChangeInsideThreshold.requiresExit`）。
     var commentsPagination = NearEndPagination<NativePlaybackCommentsPaginationIdentity>(
         tailChangeInsideThreshold: .requiresExit
     )
