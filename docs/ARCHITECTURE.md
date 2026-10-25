@@ -181,6 +181,10 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
   游标”，去重与条目上限只在那里（集合层的 `NativeVideoCardContents` 另按卡片 ID 兜底）；收藏夹与 UP 主空间按页整体替换，翻页状态是 `PageReplacementPaging`。
 - 已有内容、且条件与解析出的请求不变时，刷新原地进行：网格不卸载，成功后整体替换并回顶，失败保留已显示内容。网格的 snapshot 不做
   差异动画：动画结束前新卡片不会创建，而整体替换紧接着回顶，视野会空白一段。
+- 卡片菜单：各来源的网格与相关推荐横排共用一份菜单描述 `NativeVideoCardMenu`，由拥有来源的 Feature 按来源与卡片
+  构造、经 `cardMenu` 注入，不经 App 插槽。右键、Control-点按与读屏「显示菜单」走集合视图基类的同一条右键路径，卡片的
+  读屏自定义操作取同一份描述，项、顺序与标题与菜单一致。右键与访达、「音乐」一致，不改选中、不移动键盘选择框。链接项
+  只给卡片 ID 是合法 BVID 的可播放卡片，打开只经系统 `OpenURLAction`（见 `SECURITY-MODEL.md` §4）。
 - **UP 主空间列表**：头部与投稿行是同一个 `NSCollectionView` 的原生 item，随列表滚到工具栏下由系统做边缘
   模糊。列表不接收键盘焦点，方向键、空格留给播放器快捷键。
 - 图片由窗口级匿名、有界的 `NativeVideoImagePipeline` 加载（Now Playing 封面另有进程级实例）；cell 离屏、复用
