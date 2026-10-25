@@ -64,7 +64,7 @@ let package = Package(
         ),
         .target(
             name: "BiliAuthFeature",
-            dependencies: ["BiliApplication", "BiliModels"],
+            dependencies: ["BiliApplication", "BiliModels", "BiliUI"],
             resources: [.process("Resources")]
         ),
         .target(

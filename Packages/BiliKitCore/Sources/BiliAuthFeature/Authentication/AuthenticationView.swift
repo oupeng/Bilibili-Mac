@@ -1,11 +1,13 @@
 import BiliApplication
+import BiliUI
 import SwiftUI
 
 /// 账号 sheet 的内容：按 `AuthenticationViewModel` 的状态显示未登录、进度、二维码、已登录或失败，
 /// 并转发登录、取消、重试与退出意图。
 ///
 /// 只负责呈现；出现时触发一次启动恢复并等待当前操作，消失时经 `cancelPresentedLoginWork`
-/// 只取消本界面发起的登录挑战，恢复、确认与登出仍在模型里继续。
+/// 只取消本界面发起的登录挑战，恢复、确认与登出仍在模型里继续。状态变化按 `AuthenticationStatusText`
+/// 的规则通告给读屏。
 public struct AuthenticationView: View {
     @Environment(\.dismiss) private var dismiss
     private let model: AuthenticationViewModel
@@ -42,6 +44,7 @@ public struct AuthenticationView: View {
         }
         .frame(width: 420)
         .frame(minHeight: 420)
+        .accessibilityAnnouncement(announcement, trigger: announcement)
         .task {
             model.restoreIfNeeded()
             await model.waitForCurrentTask()
@@ -49,6 +52,10 @@ public struct AuthenticationView: View {
         .onDisappear {
             model.cancelPresentedLoginWork()
         }
+    }
+
+    private var announcement: String? {
+        AuthenticationStatusText.announcement(for: model.state)
     }
 
     private var dismissalHint: String {
@@ -69,7 +76,10 @@ public struct AuthenticationView: View {
         switch model.state {
         case .signedOut:
             ContentUnavailableView {
-                Label(AuthFeatureStrings.localized("尚未登录"), systemImage: "person.crop.circle")
+                Label(
+                    AuthenticationStatusText.title(for: model.state),
+                    systemImage: "person.crop.circle"
+                )
             } description: {
                 Text(AuthFeatureStrings.localized("使用哔哩哔哩手机客户端扫码确认登录。"))
             } actions: {
@@ -78,25 +88,24 @@ public struct AuthenticationView: View {
                 }
                 .buttonStyle(.borderedProminent)
             }
-        case .restoring:
-            progress(AuthFeatureStrings.localized("正在检查本机登录状态…"))
-        case .requestingQRCode:
-            progress(AuthFeatureStrings.localized("正在获取登录二维码…"))
+        case .restoring, .requestingQRCode, .finalizing, .signingOut:
+            progress(AuthenticationStatusText.title(for: model.state))
         case .awaitingScan:
             qrContent(
-                title: AuthFeatureStrings.localized("请扫码登录"),
+                title: AuthenticationStatusText.title(for: model.state),
                 detail: AuthFeatureStrings.localized("打开哔哩哔哩手机客户端，扫描二维码。")
             )
         case .awaitingConfirmation:
             qrContent(
-                title: AuthFeatureStrings.localized("请在手机上确认"),
+                title: AuthenticationStatusText.title(for: model.state),
                 detail: AuthFeatureStrings.localized("二维码已扫描，等待手机客户端确认登录。")
             )
-        case .finalizing:
-            progress(AuthFeatureStrings.localized("正在验证并安全保存登录状态…"))
         case .signedIn:
             ContentUnavailableView {
-                Label(AuthFeatureStrings.localized("已登录"), systemImage: "checkmark.circle.fill")
+                Label(
+                    AuthenticationStatusText.title(for: model.state),
+                    systemImage: "checkmark.circle.fill"
+                )
             } description: {
                 Text(AuthFeatureStrings.localized("登录凭据仅保存在本机 Keychain。"))
             } actions: {
@@ -104,19 +113,17 @@ public struct AuthenticationView: View {
                     model.logout()
                 }
             }
-        case .signingOut:
-            progress(AuthFeatureStrings.localized("正在清除本机登录状态…"))
         case .expired:
             terminalContent(
-                title: AuthFeatureStrings.localized("二维码已过期"),
+                title: AuthenticationStatusText.title(for: model.state),
                 systemImage: "clock.badge.exclamationmark",
                 detail: AuthFeatureStrings.localized("请重新生成二维码。")
             )
         case .failed(let failure):
             terminalContent(
-                title: AuthFeatureStrings.localized("登录未完成"),
+                title: AuthenticationStatusText.title(for: model.state),
                 systemImage: "exclamationmark.triangle",
-                detail: message(for: failure)
+                detail: AuthenticationStatusText.detail(for: failure)
             )
         }
     }
@@ -186,19 +193,6 @@ public struct AuthenticationView: View {
                 }
                 .buttonStyle(.borderedProminent)
             }
-        }
-    }
-
-    private func message(for failure: AuthenticationFailure) -> String {
-        switch failure {
-        case .network:
-            AuthFeatureStrings.localized("网络暂时不可用，请稍后重试。")
-        case .serviceUnavailable:
-            AuthFeatureStrings.localized("登录服务未接受本次请求，请重新扫码。")
-        case .invalidResponse:
-            AuthFeatureStrings.localized("登录协议返回了无法安全处理的数据。")
-        case .credentialUnavailable:
-            AuthFeatureStrings.localized("无法访问本机 Keychain；请解锁 Mac 后重试。")
         }
     }
 }

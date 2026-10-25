@@ -426,6 +426,14 @@ struct PlayerOverlayView: View {
             .overlay(alignment: .bottomLeading) { resumeButton }
             .overlay(alignment: .bottom) { previewEndedBadge }
             .coordinateSpace(.named(PlayerOverlayLayout.coordinateSpace))
+            // 快捷键的结果只在徽标上停留片刻，读屏焦点也不在播放器浮层上，所以每条新反馈都通告一次；按反馈的
+            // id 触发，连按同一个键也逐次报。高优先级让连按或长按时只读最新结果。临时倍速只在按下时报，松开时
+            // 徽标消失、不再通告。
+            .accessibilityAnnouncement(
+                model.feedback?.content.accessibilityLabel,
+                trigger: model.feedback?.id,
+                interruptsPrevious: true
+            )
             .task(id: model.loadingID) {
                 guard let loadingID = model.loadingID else { return }
                 try? await Task.sleep(for: PlayerLoadingPolicy.presentationDelay)
