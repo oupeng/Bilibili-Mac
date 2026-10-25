@@ -46,7 +46,7 @@ BiliNetworking 不依赖任何 Bili 模块
 | target | 拥有 | 不得依赖 |
 | --- | --- | --- |
 | `BiliModels` | 跨层稳定实体与值类型 | 任何 Bili 模块、SwiftUI、AppKit、AVFoundation、Network |
-| `BiliApplication` | Use Case 与 port、应用级错误、界面可用的账户投影、窗口账户复核的参与者契约（Feature ViewModel 实现、App 汇总，不是 adapter 实现的 port），以及 Feature 共用的并发原语与列表状态机（`LatestTask`、`AsyncBroadcast`、`PagedVideoList`、`PageReplacementPaging`） | 除 `BiliModels` 外的 Bili 模块、UI/播放/网络框架、DTO、Keychain、Cookie |
+| `BiliApplication` | Use Case 与 port、应用级错误、界面可用的账户投影、窗口账户复核的参与者契约（Feature ViewModel 实现、App 汇总，不是 adapter 实现的 port），以及 Feature 共用的并发原语、列表状态机与有界缓存（`LatestTask`、`AsyncBroadcast`、`PagedVideoList`、`PageReplacementPaging`、`CostBoundedLRUCache`） | 除 `BiliModels` 外的 Bili 模块、UI/播放/网络框架、DTO、Keychain、Cookie |
 | `BiliNetworking` | 无业务语义的 HTTP 与 Range client、`HTTPRequestAuthorizing`、URL 形状策略与 JSON 响应判定 | Bili 模块、`Security`、UI/播放框架 |
 | `BiliAPI` | endpoint DTO、WBI、解码、protobuf wire、远端错误映射，并实现 Application 仓库 port | `BiliAuth`（只接受注入的授权器） |
 | `BiliAuth` | Web QR 状态机、Cookie envelope、Keychain store、请求授权器，实现 `AuthenticationServicing` | `BiliAPI`、`BiliPlayback`、`BiliDanmaku`、Feature、UI 框架 |

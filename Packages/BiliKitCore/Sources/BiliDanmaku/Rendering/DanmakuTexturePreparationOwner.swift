@@ -1,3 +1,4 @@
+import BiliApplication
 import BiliModels
 import Foundation
 
@@ -23,12 +24,12 @@ final class DanmakuTexturePreparationOwner {
             maximumConcurrentOperations: 2,
             maximumOutstandingRequests:
                 DanmakuLaneConfiguration.hardMaximumActiveCount,
-            cacheLimits: .production
+            cacheLimits: .danmakuTextures
         )
 
         let maximumConcurrentOperations: Int
         let maximumOutstandingRequests: Int
-        let cacheLimits: DanmakuTextureLRUCache.Limits
+        let cacheLimits: CostBoundedLRUCacheLimits
     }
 
     typealias Completion =
@@ -51,7 +52,11 @@ final class DanmakuTexturePreparationOwner {
         var requestIDs: [UInt64]
     }
 
-    private var cache: DanmakuTextureLRUCache
+    /// 按纹理字节计成本的 LRU 缓存，让文本、字号、颜色与 scale 都相同的弹幕复用已栅格化的像素。
+    ///
+    /// 已就绪待挂上的纹理也只存在这里：`prepared` 只记 key，在挂上前被淘汰时 `consume` 取不到像素，
+    /// 这条弹幕不挂上。
+    private let cache: CostBoundedLRUCache<DanmakuTextureCacheKey, DanmakuTexturePayload>
     /// 已发起、等待栅格化结果的请求，按准备 ID。
     private var requests: [UInt64: Request] = [:]
     /// 已就绪、等 `consume` 取走的准备；像素本身只在 `cache` 里。
@@ -72,7 +77,7 @@ final class DanmakuTexturePreparationOwner {
         precondition(configuration.maximumOutstandingRequests > 0)
         self.configuration = configuration
         self.rasterize = rasterize
-        cache = DanmakuTextureLRUCache(limits: configuration.cacheLimits)
+        cache = CostBoundedLRUCache(limits: configuration.cacheLimits)
         queue = OperationQueue()
         queue.name = "com.shiinayane.BiliKit.danmaku-texture-preparation"
         queue.qualityOfService = .userInitiated
@@ -205,7 +210,7 @@ final class DanmakuTexturePreparationOwner {
     ) {
         guard let work = inflight.removeValue(forKey: key) else { return }
         let acceptedPayload = payload.flatMap { value in
-            cache.insert(value, for: key) ? value : nil
+            cache.insert(value, cost: value.byteCost, for: key) ? value : nil
         }
         for preparationID in work.requestIDs {
             guard let request = requests.removeValue(forKey: preparationID)
@@ -238,4 +243,16 @@ final class DanmakuTexturePreparationOwner {
             completion(.rejected(.capacity))
         }
     }
+}
+
+extension CostBoundedLRUCacheLimits {
+    /// 弹幕纹理缓存：单项上限等于栅格化器的 8 MiB 纹理上限；总量 32 MiB 至少能放下四个最大纹理，
+    /// 也低于在屏纹理的 64 MiB 上限。
+    ///
+    /// 调大总量提高重复文本的命中率、已就绪纹理也更少在挂上前被淘汰，但常驻内存随之增加；
+    /// 调小则更常重新栅格化。
+    static let danmakuTextures = CostBoundedLRUCacheLimits(
+        maximumItemCost: DanmakuTextureRasterizer.maximumTextureByteCost,
+        maximumTotalCost: 32 * 1_024 * 1_024
+    )
 }

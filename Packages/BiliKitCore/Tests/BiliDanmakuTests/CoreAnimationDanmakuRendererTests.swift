@@ -112,7 +112,7 @@ struct CoreAnimationDanmakuRendererTests {
             configuration: .init(
                 maximumConcurrentOperations: 1,
                 maximumOutstandingRequests: 16,
-                cacheLimits: .production
+                cacheLimits: .danmakuTextures
             ),
             rasterize: { gate.rasterize($0) }
         )
@@ -166,7 +166,7 @@ struct CoreAnimationDanmakuRendererTests {
             configuration: .init(
                 maximumConcurrentOperations: 1,
                 maximumOutstandingRequests: 1,
-                cacheLimits: .production
+                cacheLimits: .danmakuTextures
             ),
             rasterize: { _ in fixtureTexturePayload(byteCost: 64) }
         )

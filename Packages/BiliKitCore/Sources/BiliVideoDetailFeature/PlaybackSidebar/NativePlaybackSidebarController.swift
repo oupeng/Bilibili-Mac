@@ -18,7 +18,10 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
     let rootView = NativePlaybackSidebarRootView()
     let collectionView = NSCollectionView()
     let layout = NativePlaybackSidebarLayout()
-    let heightCache = NativePlaybackSidebarHeightCache()
+    /// 行高缓存：只在主线程使用；换视频不清空（身份已不同），拆除时清空。
+    let heightCache = CostBoundedLRUCache<NativePlaybackSidebarHeightCacheKey, CGFloat>(
+        limits: .sidebarRowHeights
+    )
     let imagePipeline: any VideoDetailImageLoading
     private let commentAssetURLResolver: CommentAssetURLResolver
     lazy var commentTextRenderer = NativePlaybackCommentTextRenderer(
