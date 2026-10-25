@@ -52,17 +52,13 @@ extension BiliAPIClient {
             ("tid", "0"),
             ("platform", "web")
         ]
-        var encodedPairs: [String] = []
-        for (name, value) in parameters {
-            guard let encoded = URLQueryUnreservedEncoding.encode(value) else {
-                throw BiliAPIError.invalidRequest
-            }
-            encodedPairs.append("\(name)=\(encoded)")
+        guard let query = URLQueryUnreservedEncoding.query(parameters) else {
+            throw BiliAPIError.invalidRequest
         }
         let payload: FavoriteFolderPagePayload = try await get(
             url: try endpoint(
                 path: BiliAccountReadPath.favoriteFolderContent,
-                percentEncodedQuery: encodedPairs.joined(separator: "&")
+                percentEncodedQuery: query
             ),
             referer: "https://space.bilibili.com/",
             access: .accountRead(missingCredential: .fail)
