@@ -5,8 +5,8 @@ import Testing
 
 @testable import BiliVideoDetailFeature
 
-/// 相关推荐横排按页滚动并露出下一张，视口通知推迟到布局之后；加载骨架按可见宽度铺满；拆除时清掉横排里的第一
-/// 响应者，键盘激活按稳定 ID 找卡片、不依赖可见项实例；换视频时整体替换并作废旧的封面请求；被遮挡时不给卡片菜单。
+/// 相关推荐横排按页滚动并露出下一张，任何滚动条样式下都不为滚动条让出卡片高度，视口通知推迟到布局之后；加载骨架按
+/// 可见宽度铺满；拆除时清掉横排里的第一响应者，键盘激活按稳定 ID 找卡片、不依赖可见项实例；换视频时整体替换并作废旧的封面请求；被遮挡时不给卡片菜单。
 struct NativeVideoShelfTests {
     @Test
     @MainActor
@@ -37,6 +37,20 @@ struct NativeVideoShelfTests {
         #expect(
             NativeVideoShelfGeometry.placeholderCount(viewportWidth: sample.width) == sample.count
         )
+    }
+
+    @Test(arguments: [NSScroller.Style.legacy, .overlay])
+    @MainActor
+    func scrollerNeverTakesRowHeight(_ scrollerStyle: NSScroller.Style) {
+        let scrollView = NativeVideoShelfScrollView(
+            frame: NSRect(x: 0, y: 0, width: 900, height: 232)
+        )
+        scrollView.install(collectionView: NSCollectionView())
+        scrollView.scrollerStyle = scrollerStyle
+        scrollView.tile()
+
+        #expect(scrollView.contentView.frame.height == scrollView.bounds.height)
+        scrollView.reset()
     }
 
     @Test(.timeLimit(.minutes(1)))
