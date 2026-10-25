@@ -73,7 +73,7 @@ struct PlaybackSourceSettingsTests {
         }
     }
 
-    @Test
+    @Test @MainActor
     func speedTextUsesOneFractionDigitWithLocaleGrouping() {
         let result = PlaybackRouteMeasurement(
             target: .serverAkamai,
