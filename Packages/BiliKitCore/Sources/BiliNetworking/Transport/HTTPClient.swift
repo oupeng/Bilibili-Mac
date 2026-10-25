@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// 传输层允许的 HTTP 方法。
 ///
@@ -71,7 +72,8 @@ public protocol HTTPTransport: Sendable {
 /// 可以立即取消在途请求并作废 session 的 transport。
 ///
 /// 持有 transport 的一方（API client、授权器、QR 会话、短链解析）在会话失效、登出或关窗时调用；
-/// 失效后的 session 不能再发请求，API client 随即换入新 transport。
+/// 可以与已取出这个 transport 的请求并发。失效后的 `send` 不再发出请求，与被打断的在途请求一样以
+/// `URLError(.cancelled)` 结束；API client 随即换入新 transport。
 public protocol HTTPTransportInvalidating: Sendable {
     func invalidateAndCancel()
 }
@@ -131,10 +133,17 @@ extension URLSessionConfiguration {
 /// `URLSession` adapter：按调用方给出的用途专属配置自建并拥有 session，一律拒绝跟随重定向。
 ///
 /// 来源校验只作用于发出的 URL，跟随重定向会绕过它，所以没有可跟随的选项（见 SECURITY-MODEL §4）；
-/// 也没有回落到 `URLSession.shared` 的入口（见 §1）。transport 释放时让 session 完成在途任务后
-/// 失效，session 与 delegate 随之释放；`invalidateAndCancel` 立即取消在途请求。
+/// 也没有回落到 `URLSession.shared` 的入口（见 §1）。
+///
+/// owner 是构造它的一方（API client、授权器、QR 会话、短链解析、字幕正文）。`invalidateAndCancel()` 立即取消
+/// 在途请求并永久关闭 session；transport 释放时让 session 完成在途任务后失效，session 与 delegate 随之释放。
+/// 在已失效的 session 上建 task 会抛 Objective-C 异常直接终止进程，而持有方失效 transport 与另一个 actor 上
+/// 已取出它的请求并发（例如 `BiliAPIClient` 换号时）。所以失效标记由 `isInvalidated` 这把 `Mutex` 保护：
+/// 建 task 并 `resume()` 与“置位并失效 session”都在锁内完成，两者严格先后；失效之后的 `send` 不建 task，
+/// 与在途请求被失效打断一样以 `URLError(.cancelled)` 结束。
 public final class URLSessionTransport: HTTPTransport, HTTPTransportInvalidating, Sendable {
     private let session: URLSession
+    private let isInvalidated = Mutex(false)
 
     public convenience init(configuration: URLSessionConfiguration) {
         self.init(
@@ -152,10 +161,15 @@ public final class URLSessionTransport: HTTPTransport, HTTPTransportInvalidating
     }
 
     deinit {
-        // 已被 `invalidateAndCancel` 失效的 session 再次失效是 no-op。
+        // 已被 `invalidateAndCancel` 失效的 session 再次失效是 no-op；释放时不可能还有并发的 `send`，不需要闸门。
         session.finishTasksAndInvalidate()
     }
 
+    /// 调用方 Task 被取消时抛 `CancellationError`；transport 失效（在途被打断或失效后才发）而调用方没被取消时抛
+    /// `URLError(.cancelled)`；其余失败原样抛出 URLSession 的错误。
+    ///
+    /// 两种取消刻意区分：页面对 `CancellationError` 不做任何事，而失效打断的是页面仍在等的请求，要按传输失败
+    /// 报告（`BiliAPIClient` 映射为可重试的失败；需要认证的请求另由 epoch 比对改判为取消，交给账户变化的重载）。
     public func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         var urlRequest = URLRequest(url: request.url)
         urlRequest.httpMethod = request.method.rawValue
@@ -164,27 +178,62 @@ public final class URLSessionTransport: HTTPTransport, HTTPTransportInvalidating
             urlRequest.setValue(value, forHTTPHeaderField: name)
         }
 
-        let (data, response) = try await session.data(for: urlRequest)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw HTTPClientError.nonHTTPResponse
+        try Task.checkCancellation()
+        // 每次请求一个 OneShotResult，唯一等待方是下面的 `value()`。
+        let outcome = OneShotResult<HTTPResponse>()
+        let task = try isInvalidated.withLock { isInvalidated in
+            guard !isInvalidated else { throw URLError(.cancelled) }
+            let task = session.dataTask(with: urlRequest) { data, response, error in
+                outcome.resolve(Self.result(data: data, response: response, error: error))
+            }
+            task.resume()
+            return task
         }
+        // task 在装上取消处理之前已经存在：调用方此前或此后取消，`onCancel` 都能拿到它。
+        do {
+            return try await withTaskCancellationHandler {
+                try await outcome.value()
+            } onCancel: {
+                task.cancel()
+            }
+        } catch let error as URLError where error.code == .cancelled && Task.isCancelled {
+            // URLSession 对两种取消都报 `.cancelled`；只有调用方自己被取消时才改成 `CancellationError`。
+            throw CancellationError()
+        }
+    }
 
+    public func invalidateAndCancel() {
+        isInvalidated.withLock { isInvalidated in
+            guard !isInvalidated else { return }
+            isInvalidated = true
+            session.invalidateAndCancel()
+        }
+    }
+
+    private static func result(
+        data: Data?,
+        response: URLResponse?,
+        error: (any Error)?
+    ) -> Result<HTTPResponse, any Error> {
+        if let error {
+            return .failure(error)
+        }
+        guard let httpResponse = response as? HTTPURLResponse else {
+            return .failure(HTTPClientError.nonHTTPResponse)
+        }
         let headers = httpResponse.allHeaderFields.reduce(
             into: [String: String](),
             { result, entry in
                 result[String(describing: entry.key)] = String(describing: entry.value)
             }
         )
-
-        return HTTPResponse(
-            statusCode: httpResponse.statusCode,
-            headers: headers,
-            body: data
+        return .success(
+            HTTPResponse(
+                statusCode: httpResponse.statusCode,
+                headers: headers,
+                body: data ?? Data()
+            )
         )
-    }
-
-    public func invalidateAndCancel() {
-        session.invalidateAndCancel()
     }
 }
 
