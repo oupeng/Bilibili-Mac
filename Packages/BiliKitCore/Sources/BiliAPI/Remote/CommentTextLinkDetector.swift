@@ -1,4 +1,5 @@
 import BiliModels
+import BiliNetworking
 import Foundation
 
 /// 在评论正文的纯文字里识别接口没有标出的链接：网址、b23.tv 短链、BV 号、av 号与时间戳。
@@ -109,8 +110,7 @@ enum CommentTextLinkDetector {
     /// `http` 只在指向站内目标时升级为 HTTPS，否则不生成链接；外链必须能通过公开 HTTPS 复核，
     /// 避免显示成点了没反应的链接。
     private static func urlTarget(_ text: String) -> CommentLinkTarget? {
-        let isInsecure = text.lowercased().hasPrefix("http://")
-        let secure = isInsecure ? "https://" + text.dropFirst("http://".count) : text
+        let (secure, isInsecure) = RemoteURLString.upgradingInsecureHTTP(text)
         guard let target = CommentRemoteLink.target(secure) else { return nil }
         switch target {
         case .video, .member, .space, .shortLink, .timestamp:

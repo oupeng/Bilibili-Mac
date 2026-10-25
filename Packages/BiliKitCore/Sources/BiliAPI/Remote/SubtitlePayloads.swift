@@ -1,4 +1,5 @@
 import BiliModels
+import BiliNetworking
 import Foundation
 
 /// 字幕目录（`/x/player/wbi/v2`）的 `data`，由 `BiliAPIClient.subtitleResources` 映射为
@@ -128,8 +129,7 @@ struct SubtitleTrackPayload: Decodable, Sendable {
     }
 
     private static func url(_ value: String) -> URL? {
-        let absolute = value.hasPrefix("//") ? "https:\(value)" : value
-        return URL(string: absolute)
+        URL(string: RemoteURLString.resolvingProtocolRelative(value))
     }
 }
 

@@ -183,9 +183,10 @@ enum CommentRemoteLink {
     }
 
     private static func components(_ value: String?) -> URLComponents? {
-        guard var value, !value.isEmpty else { return nil }
-        if value.hasPrefix("//") { value = "https:\(value)" }
-        guard let components = URLComponents(string: value),
+        guard let value, !value.isEmpty,
+            let components = URLComponents(
+                string: RemoteURLString.resolvingProtocolRelative(value)
+            ),
             components.scheme?.lowercased() == "https",
             components.host != nil,
             components.user == nil,
