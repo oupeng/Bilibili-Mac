@@ -5,6 +5,7 @@ import Testing
 @testable import BiliNetworking
 @testable import BiliPlayback
 
+/// SIDX 只接受合规的直接引用 box 并换算成绝对字节范围；独立分段与 I-frame 判定只认 SAP 字段。
 @Suite(.timeLimit(.minutes(1)))
 struct SIDXParserTests {
     @Test
@@ -185,6 +186,54 @@ struct SIDXParserTests {
                 == Int64(box.offset + box.size) + Int64(index.firstOffset)
         )
         #expect(index.references[0].byteRange.endInclusive < Int64(media.count))
+    }
+
+    @Test(arguments: [
+        (startsWithSAP: true, sapType: UInt8(1), sapDeltaTime: UInt32(0), expected: true),
+        (startsWithSAP: false, sapType: UInt8(1), sapDeltaTime: UInt32(0), expected: false),
+        (startsWithSAP: true, sapType: UInt8(2), sapDeltaTime: UInt32(0), expected: false),
+        (startsWithSAP: true, sapType: UInt8(1), sapDeltaTime: UInt32(1), expected: false)
+    ])
+    func requiresEveryReferenceToStartWithType1SAPAtZeroDelta(
+        startsWithSAP: Bool,
+        sapType: UInt8,
+        sapDeltaTime: UInt32,
+        expected: Bool
+    ) throws {
+        let independent = SegmentReference(
+            byteRange: try MediaByteRange(start: 0, endInclusive: 99),
+            duration: 1,
+            startsWithSAP: true,
+            sapType: 1,
+            sapDeltaTime: 0
+        )
+        let candidate = SegmentReference(
+            byteRange: try MediaByteRange(start: 100, endInclusive: 199),
+            duration: 1,
+            startsWithSAP: startsWithSAP,
+            sapType: sapType,
+            sapDeltaTime: sapDeltaTime
+        )
+
+        #expect(
+            segmentIndex(references: [independent, candidate])
+                .allReferencesStartWithType1SAP == expected
+        )
+    }
+
+    @Test
+    func leavesEmptyReferenceHandlingToCallers() {
+        #expect(segmentIndex(references: []).allReferencesStartWithType1SAP)
+    }
+
+    private func segmentIndex(references: [SegmentReference]) -> SegmentIndex {
+        SegmentIndex(
+            referenceID: 1,
+            timescale: 1,
+            earliestPresentationTime: 0,
+            firstOffset: 0,
+            references: references
+        )
     }
 
     private func fixtureData() throws -> Data {

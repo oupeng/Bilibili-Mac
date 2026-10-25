@@ -399,14 +399,9 @@ public struct DASHToHLSBridge: Sendable {
         }
     }
 
-    /// 只有全部 reference 从 type-1 SAP 开始且 `SAP_delta_time` 为 0 时才发布 I-frame rendition。
+    /// 非空且每段都以独立帧开始时才发布 I-frame rendition；不合格只是不提供快进预览，不让播放失败。
     private func isEligibleForIFramePlaylist(_ index: SegmentIndex) -> Bool {
-        !index.references.isEmpty
-            && index.references.allSatisfy { reference in
-                reference.startsWithSAP
-                    && reference.sapType == 1
-                    && reference.sapDeltaTime == 0
-            }
+        !index.references.isEmpty && index.allReferencesStartWithType1SAP
     }
 
     func hasMatchingSubtitleTimeline(
