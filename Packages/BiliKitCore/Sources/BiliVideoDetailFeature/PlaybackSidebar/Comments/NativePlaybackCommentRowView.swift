@@ -152,11 +152,6 @@ final class NativePlaybackCommentRowView: NSView {
         needsLayout = true
     }
 
-    override func resetCursorRects() {
-        super.resetCursorRects()
-        authorEntry.addCursorRects()
-    }
-
     override func layout() {
         super.layout()
         guard let comment else { return }

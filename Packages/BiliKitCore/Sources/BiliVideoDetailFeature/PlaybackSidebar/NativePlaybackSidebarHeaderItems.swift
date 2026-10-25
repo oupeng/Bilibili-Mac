@@ -206,12 +206,6 @@ private final class NativePlaybackSidebarUploaderView: NSView {
         return nameRow.union(avatar.frame)
     }
 
-    /// 与视频卡片一致：可点进入的区域显示手形指针。
-    override func resetCursorRects() {
-        super.resetCursorRects()
-        spaceRegion.addCursorRects()
-    }
-
     func cancelImageRequest() {
         generation &+= 1
         imageTask?.cancel()

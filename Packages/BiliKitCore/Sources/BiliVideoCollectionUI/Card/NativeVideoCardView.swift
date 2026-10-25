@@ -336,7 +336,7 @@ package final class NativeVideoCollectionItem: NSCollectionViewItem, NativeHover
 /// 卡片视图：封面、头像与文字层的排版，悬停、按下、键盘选中与菜单目标的外观，读屏按钮语义。
 ///
 /// 不取图，图片由 `NativeVideoCollectionItem` 设置；悬停变化经回调交给集合项。不可用卡片
-/// （`NativeVideoCardAvailability.unavailable`）变暗并显示原因角标，不画悬停与按下、不显示手形指针，读屏呈现为
+/// （`NativeVideoCardAvailability.unavailable`）变暗并显示原因角标，不画悬停与按下，读屏呈现为
 /// 不可用的按钮且按下不激活；键盘选中框照常显示，焦点可以停在上面。网格另在自己的激活入口拦截。
 /// 读屏自定义操作与「显示菜单」经 `menuHost` 取所在集合视图的卡片菜单，与右键菜单同源。
 @MainActor
@@ -612,11 +612,6 @@ final class NativeVideoCardView: NSView {
         trackingArea = updated
     }
 
-    override func resetCursorRects() {
-        guard isActivatable else { return }
-        addCursorRect(bounds, cursor: .pointingHand)
-    }
-
     override func mouseEntered(with event: NSEvent) { setHovered(true) }
     override func mouseExited(with event: NSEvent) { setHovered(false) }
 
@@ -640,14 +635,13 @@ final class NativeVideoCardView: NSView {
         menuHost?.presentCardMenu() ?? false
     }
 
-    /// 可用性变化时同步变暗、指针与读屏可用状态；外观由 `updateInteractionAppearance` 按它忽略悬停与按下。
+    /// 可用性变化时同步变暗与读屏可用状态；外观由 `updateInteractionAppearance` 按它忽略悬停与按下。
     private func setActivatable(_ activatable: Bool) {
         let opacity: Float = activatable ? 1 : NativeVideoCardLayout.unavailableContentOpacity
         textRenderer.setContentOpacity(opacity)
         avatar.alphaValue = CGFloat(opacity)
         guard isActivatable != activatable else { return }
         isActivatable = activatable
-        window?.invalidateCursorRects(for: self)
         updateInteractionAppearance(animated: false)
     }
 

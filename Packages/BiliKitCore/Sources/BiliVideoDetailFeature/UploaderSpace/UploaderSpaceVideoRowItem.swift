@@ -327,12 +327,6 @@ final class UploaderSpaceVideoRowView: NSView {
         onHoverChange?(false)
     }
 
-    /// 与视频卡片一致：整行显示手形指针。
-    override func resetCursorRects() {
-        super.resetCursorRects()
-        addCursorRect(bounds, cursor: .pointingHand)
-    }
-
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         refreshBackground()
