@@ -43,7 +43,7 @@ struct VideoDetailView<PlayerContent: View>: View {
             .loading
         case .loaded(let bvid, let videos) where bvid == context.detail.bvid:
             .loaded(
-                videos.map { RelatedVideoCardPresentation(video: $0, locale: locale) }
+                videos.map { RelatedVideoCardPresentation(video: $0) }
             )
         case .empty(let bvid) where bvid == context.detail.bvid:
             .empty
@@ -58,9 +58,9 @@ struct VideoDetailView<PlayerContent: View>: View {
     private var toolbarSubtitle: String {
         let statistics = context.detail.statistics
         return [
-            VideoMetadataFormatting.viewCountText(statistics.viewCount, locale: locale),
-            VideoMetadataFormatting.danmakuCountText(statistics.danmakuCount, locale: locale),
-            VideoMetadataFormatting.fullPublishedDate(context.detail.publishedAt, locale: locale),
+            VideoMetadataFormatting.viewCountText(statistics.viewCount),
+            VideoMetadataFormatting.danmakuCountText(statistics.danmakuCount),
+            VideoMetadataFormatting.fullPublishedDate(context.detail.publishedAt),
             accessNotice
         ].compactMap { $0 }.joined(separator: " · ")
     }
@@ -72,14 +72,8 @@ struct VideoDetailView<PlayerContent: View>: View {
         case .upowerExclusive:
             return VideoDetailFeatureStrings.localized("充电专属", locale: locale)
         case .upowerPreview(let previewDurationSeconds, let fullDurationSeconds):
-            let preview = VideoDurationFormatting.string(
-                seconds: previewDurationSeconds,
-                locale: locale
-            )
-            let full = VideoDurationFormatting.string(
-                seconds: fullDurationSeconds,
-                locale: locale
-            )
+            let preview = VideoDurationFormatting.string(seconds: previewDurationSeconds)
+            let full = VideoDurationFormatting.string(seconds: fullDurationSeconds)
             let durationNotice = String(
                 format: VideoDetailFeatureStrings.localized(
                     "可试看至 %@ / 完整视频 %@",

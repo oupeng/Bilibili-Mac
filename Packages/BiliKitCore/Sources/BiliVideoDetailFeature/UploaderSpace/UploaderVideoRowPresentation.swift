@@ -16,7 +16,7 @@ public struct UploaderVideoRowPresentation: Identifiable, Equatable, Sendable {
     public let collaborationText: String
     public let accessibilityLabel: String
 
-    public init(video: UploaderVideo, locale: Locale = .current) {
+    public init(video: UploaderVideo, locale: Locale = InterfaceLocale.current) {
         bvid = video.bvid
         title = video.title
         coverURL = video.coverURL

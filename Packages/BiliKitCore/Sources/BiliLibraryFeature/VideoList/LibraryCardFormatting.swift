@@ -9,7 +9,7 @@ enum LibraryCardFormatting {
     static func progress(
         progressSeconds: Int,
         durationSeconds: Int,
-        locale: Locale = .current
+        locale: Locale = InterfaceLocale.current
     ) -> String {
         let duration = max(0, durationSeconds)
         let progress = min(max(0, progressSeconds), duration)
@@ -28,7 +28,7 @@ enum LibraryCardFormatting {
         _ date: Date,
         now: Date = .now,
         calendar: Calendar = .current,
-        locale: Locale = .current
+        locale: Locale = InterfaceLocale.current
     ) -> String {
         let time = DateDisplayFormatting.formatted(
             date,

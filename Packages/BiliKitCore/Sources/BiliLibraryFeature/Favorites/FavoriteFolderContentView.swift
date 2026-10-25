@@ -167,7 +167,7 @@ struct FavoriteFolderContentView: View {
 
     private func grid(_ items: [FavoriteItem]) -> some View {
         NativeVideoGridView(
-            items: items.map { FavoriteCardPresentation(item: $0, locale: locale).nativeCard },
+            items: items.map { FavoriteCardPresentation(item: $0).nativeCard },
             accessibilityLabel: LibraryFeatureStrings.localized("收藏夹视频", locale: locale),
             tailState: .end,
             bottomInset: showsPager ? PageNumberPagerGeometry.reservedHeight : 0,

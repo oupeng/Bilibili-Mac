@@ -2,56 +2,54 @@ import Foundation
 
 /// 视频卡片、投稿行、相关推荐、播放页详情与评论共用的计数和发布日期文字。
 ///
-/// 只拥有格式与对应文案；用到哪些字段、如何拼进卡片由各 Feature 的 presentation 决定。
+/// 只拥有格式与对应文案；用到哪些字段、如何拼进卡片由各 Feature 的 presentation 决定。`locale` 默认取
+/// `InterfaceLocale.current`，与文案同一种语言。
 package enum VideoMetadataFormatting {
     /// “12万播放”：播放数与单位文字的本地化组合。
-    package static func viewCountText(_ count: Int64, locale: Locale = .current) -> String {
+    package static func viewCountText(
+        _ count: Int64,
+        locale: Locale = InterfaceLocale.current
+    ) -> String {
         viewCountText(compactText: compactCount(count, locale: locale), locale: locale)
     }
 
     /// 已经算好紧凑计数（如卡片封面上的“12万”）时直接组合，不再重复格式化。
-    package static func viewCountText(compactText: String, locale: Locale = .current) -> String {
+    package static func viewCountText(
+        compactText: String,
+        locale: Locale = InterfaceLocale.current
+    ) -> String {
         BiliUIStrings.localized("\(compactText)播放", locale: locale)
     }
 
     /// “3000弹幕”：弹幕数与单位文字的本地化组合。
-    package static func danmakuCountText(_ count: Int64, locale: Locale = .current) -> String {
+    package static func danmakuCountText(
+        _ count: Int64,
+        locale: Locale = InterfaceLocale.current
+    ) -> String {
         danmakuCountText(compactText: compactCount(count, locale: locale), locale: locale)
     }
 
-    package static func danmakuCountText(compactText: String, locale: Locale = .current) -> String {
+    package static func danmakuCountText(
+        compactText: String,
+        locale: Locale = InterfaceLocale.current
+    ) -> String {
         BiliUIStrings.localized("\(compactText)弹幕", locale: locale)
     }
 
-    package static func compactCount(_ count: Int64, locale: Locale = .current) -> String {
-        let normalizedCount = max(0, count)
-        if locale.language.languageCode?.identifier == "en" {
-            if normalizedCount >= 1_000_000_000 {
-                return compactUnit(normalizedCount, divisor: 1_000_000_000, suffix: "B")
-            }
-            if normalizedCount >= 1_000_000 {
-                return compactUnit(normalizedCount, divisor: 1_000_000, suffix: "M")
-            }
-            if normalizedCount >= 1_000 {
-                return compactUnit(normalizedCount, divisor: 1_000, suffix: "K")
-            }
-            return normalizedCount.formatted(.number.locale(locale))
-        }
-        if normalizedCount >= 100_000_000 {
-            return compactUnit(
-                normalizedCount,
-                divisor: 100_000_000,
-                suffix: BiliUIStrings.localized("亿", locale: locale)
-            )
-        }
-        if normalizedCount >= 10_000 {
-            return compactUnit(
-                normalizedCount,
-                divisor: 10_000,
-                suffix: BiliUIStrings.localized("万", locale: locale)
-            )
-        }
-        return String(normalizedCount)
+    /// 紧凑计数：系统按语言给单位（万／萬／億、K／M／B），最多一位小数且向下截断，负数按 0。
+    ///
+    /// 截断是 B 站的惯例：默认的紧凑格式四舍五入、只留两位有效数字，99,999 会显示成「10万」、123,456 成「12万」。
+    package static func compactCount(
+        _ count: Int64,
+        locale: Locale = InterfaceLocale.current
+    ) -> String {
+        max(0, count).formatted(
+            .number
+                .notation(.compactName)
+                .precision(.fractionLength(0...1))
+                .rounded(rule: .down)
+                .locale(locale)
+        )
     }
 
     /// 发布日期：当天“N小时前”、前一天“昨天”、同年“M月D日”，更早给完整日期。
@@ -59,7 +57,7 @@ package enum VideoMetadataFormatting {
         _ date: Date,
         relativeTo now: Date = .now,
         calendar: Calendar = .current,
-        locale: Locale = .current
+        locale: Locale = InterfaceLocale.current
     ) -> String {
         switch DateDisplayFormatting.dayRelation(of: date, relativeTo: now, calendar: calendar) {
         case .today:
@@ -82,7 +80,7 @@ package enum VideoMetadataFormatting {
     package static func fullPublishedDate(
         _ date: Date,
         calendar: Calendar = .current,
-        locale: Locale = .current
+        locale: Locale = InterfaceLocale.current
     ) -> String {
         DateDisplayFormatting.formatted(
             date,
@@ -91,18 +89,5 @@ package enum VideoMetadataFormatting {
             calendar: calendar,
             locale: locale
         )
-    }
-
-    private static func compactUnit(
-        _ count: Int64,
-        divisor: Int64,
-        suffix: String
-    ) -> String {
-        let whole = count / divisor
-        let fraction = count % divisor * 10 / divisor
-        if fraction == 0 {
-            return "\(whole)\(suffix)"
-        }
-        return "\(whole).\(fraction)\(suffix)"
     }
 }

@@ -83,7 +83,7 @@ struct LibraryVideoListContentView<Item: Sendable & Equatable, Cursor: Equatable
     @Environment(\.videoCardAccountWriting) private var accountWriting
     let model: LibraryVideoListModel<Item, Cursor>
     let text: LibraryVideoListText
-    let card: (Item, Locale) -> NativeVideoCardPresentation
+    let card: (Item) -> NativeVideoCardPresentation
     /// 卡片菜单的稍后再看写操作：稍后再看页是移除，观看历史是加入。
     let watchLaterAction: NativeVideoCardMenu.WatchLaterAction
     let gridHost: NativeVideoGridHostContext
@@ -188,7 +188,7 @@ struct LibraryVideoListContentView<Item: Sendable & Equatable, Cursor: Equatable
         _ surface: LibraryVideoListLoadedSurface<Item, Cursor>
     ) -> some View {
         NativeVideoGridView(
-            items: surface.items.map { card($0, locale) },
+            items: surface.items.map(card),
             accessibilityLabel: text.gridAccessibilityLabel,
             // 尾标只在可自动加载时存在：显式继续门、加载更多失败与原地刷新都暂停近尾触发。
             tailState: NativeVideoGridTailState(

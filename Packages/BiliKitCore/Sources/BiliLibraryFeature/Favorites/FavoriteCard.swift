@@ -22,7 +22,7 @@ public struct FavoriteCardPresentation: Sendable, Equatable {
     public let unavailableReason: String?
     public let accessibilityLabel: String
 
-    public init(item: FavoriteItem, locale: Locale = .current) {
+    public init(item: FavoriteItem, locale: Locale = InterfaceLocale.current) {
         let favoritedAt = item.favoritedAt.map {
             LibraryCardFormatting.timestamp($0, locale: locale)
         }

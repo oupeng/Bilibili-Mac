@@ -18,7 +18,7 @@ public struct PopularVideoCardPresentation: Sendable, Equatable {
     public let footerText: String
     public let accessibilityLabel: String
 
-    public init(video: PopularVideo, locale: Locale = .current) {
+    public init(video: PopularVideo, locale: Locale = InterfaceLocale.current) {
         bvid = video.bvid
         title = video.title
         coverURL = BiliImageThumbnail.url(video.coverURL, size: .videoCover)
@@ -67,7 +67,7 @@ public struct RecommendedVideoCardPresentation: Sendable, Equatable {
     public let recommendationReason: String?
     public let accessibilityLabel: String
 
-    public init(video: RecommendedVideo, locale: Locale = .current) {
+    public init(video: RecommendedVideo, locale: Locale = InterfaceLocale.current) {
         bvid = video.bvid
         title = video.title
         coverURL = BiliImageThumbnail.url(video.coverURL, size: .videoCover)
@@ -117,7 +117,7 @@ public struct SearchVideoCardPresentation: Sendable, Equatable {
     public let footerText: String
     public let accessibilityLabel: String
 
-    public init(video: SearchVideo, locale: Locale = .current) {
+    public init(video: SearchVideo, locale: Locale = InterfaceLocale.current) {
         bvid = video.bvid
         title = video.title
         coverURL = BiliImageThumbnail.url(video.coverURL, size: .videoCover)

@@ -7,7 +7,7 @@ public enum CommentTimeFormatter {
         for date: Date,
         relativeTo referenceDate: Date = Date(),
         calendar: Calendar = .current,
-        locale: Locale = .current
+        locale: Locale = InterfaceLocale.current
     ) -> String {
         let elapsed = max(0, referenceDate.timeIntervalSince(date))
         if elapsed < 60 {

@@ -22,7 +22,7 @@ public struct WatchLaterCardPresentation: Sendable, Equatable {
     public let unavailableReason: String?
     public let accessibilityLabel: String
 
-    public init(item: WatchLaterItem, locale: Locale = .current) {
+    public init(item: WatchLaterItem, locale: Locale = InterfaceLocale.current) {
         let addedAt = item.addedAt.map { LibraryCardFormatting.timestamp($0, locale: locale) }
         let reason = item.unavailability.map {
             LibraryUnavailabilityFormatting.reason($0, locale: locale)

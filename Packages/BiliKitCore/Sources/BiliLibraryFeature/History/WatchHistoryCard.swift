@@ -19,7 +19,7 @@ public struct WatchHistoryCardPresentation: Sendable, Equatable {
     public let footerTrailingSymbolName: String?
     public let accessibilityLabel: String
 
-    public init(item: WatchHistoryItem, locale: Locale = .current) {
+    public init(item: WatchHistoryItem, locale: Locale = InterfaceLocale.current) {
         let progress = LibraryCardFormatting.progress(
             progressSeconds: item.progressSeconds,
             durationSeconds: item.durationSeconds,

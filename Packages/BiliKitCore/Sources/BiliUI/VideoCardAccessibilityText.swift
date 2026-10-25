@@ -9,7 +9,7 @@ package enum VideoCardAccessibilityText {
     package static var selectedValue: String { BiliUIStrings.localized("已选择") }
 
     /// 读屏标签里的时长片段；`durationText` 是已格式化的时长（`VideoDurationFormatting`）。
-    package static func duration(_ durationText: String, locale: Locale = .current) -> String {
+    package static func duration(_ durationText: String, locale: Locale = InterfaceLocale.current) -> String {
         BiliUIStrings.localized("时长 \(durationText)", locale: locale)
     }
 

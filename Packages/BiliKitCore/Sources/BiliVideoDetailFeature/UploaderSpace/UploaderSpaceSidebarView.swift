@@ -96,7 +96,7 @@ public struct UploaderSpaceSidebarView: View {
         guard let owner = model.owner else { return nil }
         let rows: [UploaderVideoRowPresentation]
         if case .loaded(let page) = model.state {
-            rows = page.videos.map { UploaderVideoRowPresentation(video: $0, locale: locale) }
+            rows = page.videos.map { UploaderVideoRowPresentation(video: $0) }
         } else {
             rows = []
         }

@@ -37,7 +37,7 @@ public struct RelatedVideoCardPresentation: Identifiable, Equatable, Sendable {
         self.accessibilityLabel = accessibilityLabel
     }
 
-    init(video: RelatedVideo, locale: Locale = .current) {
+    init(video: RelatedVideo, locale: Locale = InterfaceLocale.current) {
         bvid = video.bvid
         title = video.title
         coverURL = video.coverURL
