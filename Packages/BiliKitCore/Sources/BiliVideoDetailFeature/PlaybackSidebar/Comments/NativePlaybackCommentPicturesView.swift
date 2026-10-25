@@ -141,6 +141,8 @@ struct NativePlaybackCommentPictureLayout: Equatable {
 public struct NativePlaybackCommentPictureGallery {
     let references: [CommentAssetReference]
     let selectedIndex: Int
+    /// 被点开的格子此刻所在的窗口，预览面板挂在它上面；格子已离开窗口时为 nil。
+    let sourceWindow: () -> NSWindow?
     let restoreFocus: () -> Void
 }
 
@@ -238,6 +240,7 @@ final class NativePlaybackCommentPicturesView: NSView {
             NativePlaybackCommentPictureGallery(
                 references: validSlots.map(\.reference),
                 selectedIndex: selectedIndex,
+                sourceWindow: { [weak sourceTile] in sourceTile?.window },
                 restoreFocus: { [weak sourceTile] in
                     guard
                         let sourceTile,

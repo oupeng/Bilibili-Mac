@@ -5,7 +5,8 @@ import Observation
 /// 评论图片预览的「保存图片」：先弹系统保存面板，选好位置后再取原图原样写入（GIF 仍是 GIF）。
 ///
 /// 窗口级 owner：用户确认后的保存不随预览关闭而丢失，关窗时才取消。原图经图片管线同一套响应校验重新
-/// 请求、不缓存，只写出 ImageIO 能识别的位图；写入在后台进行，失败时在发起保存的窗口上提示。
+/// 请求、不缓存，只写出 ImageIO 能识别的位图；写入在后台进行，失败时在预览面板上提示，面板已关闭则在它挂靠的
+/// 窗口上提示。
 @MainActor
 @Observable
 public final class NativeCommentImageSaver {
@@ -18,7 +19,10 @@ public final class NativeCommentImageSaver {
 
     public init() {}
 
-    /// 面板以 sheet 挂在 `window` 上；预览不在窗口里时不保存。
+    /// 面板以 sheet 挂在 `window`（预览面板）上；预览不在窗口里时不保存。
+    ///
+    /// 预览面板是父窗口的子窗口，关闭后不再显示：此刻记下它的父窗口，保存失败时预览已关闭就改在父窗口上提示，
+    /// 不在已隐藏的面板上挂 sheet。
     func save(
         _ reference: CommentAssetReference,
         loader: NativePlaybackCommentPictureLoader,
@@ -26,18 +30,26 @@ public final class NativeCommentImageSaver {
     ) {
         guard !isBusy, let window else { return }
         isBusy = true
+        let parentWindow = window.parent
         let panel = NSSavePanel()
         panel.nameFieldStringValue =
             loader.suggestedFileName(for: reference) ?? Self.fallbackFileName
         panel.canCreateDirectories = true
         panel.isExtensionHidden = false
-        panel.beginSheetModal(for: window) { [weak self, weak window] response in
+        panel.beginSheetModal(for: window) {
+            [weak self, weak window, weak parentWindow] response in
             guard let self else { return }
             guard response == .OK, let destination = panel.url else {
                 self.isBusy = false
                 return
             }
-            self.write(reference, loader: loader, to: destination, window: window)
+            self.write(
+                reference,
+                loader: loader,
+                to: destination,
+                window: window,
+                parentWindow: parentWindow
+            )
         }
     }
 
@@ -52,9 +64,10 @@ public final class NativeCommentImageSaver {
         _ reference: CommentAssetReference,
         loader: NativePlaybackCommentPictureLoader,
         to destination: URL,
-        window: NSWindow?
+        window: NSWindow?,
+        parentWindow: NSWindow?
     ) {
-        task = Task { [weak self, weak window] in
+        task = Task { [weak self, weak window, weak parentWindow] in
             let data = await loader.originalData(for: reference)
             guard !Task.isCancelled else { return }
             let saved: Bool
@@ -69,7 +82,7 @@ public final class NativeCommentImageSaver {
             self.isBusy = false
             self.task = nil
             if !saved {
-                Self.presentFailure(in: window)
+                Self.presentFailure(in: window?.isVisible == true ? window : parentWindow)
             }
         }
     }

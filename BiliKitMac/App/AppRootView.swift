@@ -49,7 +49,7 @@ struct AppRootView: View {
             commentAssetURLResolver: window.commentAssetURLResolver,
             commentLinkRouter: window.commentLinkRouter,
             commentShortLinks: window.commentShortLinks,
-            commentImageSaver: window.commentImageSaver,
+            commentImagePreview: window.commentImagePreview,
             seekPlayback: window.seekPlayback,
             imagePipeline: window.imagePipeline,
             accountWrites: window.accountWrites,

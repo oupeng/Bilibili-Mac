@@ -1,6 +1,5 @@
 import AppKit
 import BiliPlayback
-import BiliVideoDetailFeature
 
 /// 播放器键盘快捷键：本地 key monitor、长按临时倍速、离散快捷键与焦点让渡规则。
 ///
@@ -226,12 +225,12 @@ final class PlayerKeyboardShortcutController {
         cancelInputSession()
     }
 
-    /// 只有正在输入的文本与声明为 `PlayerKeyboardFocusOwner` 的浮层（例如评论图片预览）拿走快捷键。
+    /// 播放窗口里只有正在输入的文本拿走快捷键。
     ///
-    /// 按钮、列表等其余控件即使持有焦点（点击空白、关闭预览后交还给缩略图、AVKit 全屏控件）
-    /// 也不让出，空格、方向键始终控制播放；只可选择、不可编辑的文本同样不拦截。
+    /// 按钮、列表等其余控件即使持有焦点（点击空白、关闭评论图片预览后交还给缩略图、AVKit 全屏控件）
+    /// 也不让出，空格、方向键始终控制播放；只可选择、不可编辑的文本同样不拦截。评论图片预览在自己的子窗口
+    /// 面板里，事件不属于播放窗口，不经这里判断。
     static func focusedResponderOwnsKeys(_ responder: NSResponder?) -> Bool {
-        if focusOwnerHoldsFocus(responder) { return true }
         switch responder {
         case let textView as NSTextView:
             return textView.isEditable
@@ -240,16 +239,6 @@ final class PlayerKeyboardShortcutController {
         default:
             return false
         }
-    }
-
-    /// 第一响应者位于 `PlayerKeyboardFocusOwner` 浮层之内。
-    static func focusOwnerHoldsFocus(_ responder: NSResponder?) -> Bool {
-        var ancestor = responder as? NSView
-        while let current = ancestor {
-            if current is PlayerKeyboardFocusOwner { return true }
-            ancestor = current.superview
-        }
-        return false
     }
 
     private nonisolated static func keyboardSnapshot(

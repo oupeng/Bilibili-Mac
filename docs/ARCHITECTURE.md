@@ -74,7 +74,7 @@ BiliNetworking 不依赖任何 Bili 模块
   BiliUI 的组件只负责排版与措辞，标签、动作与“是否可重试”由调用方给出。视频卡片的缩略参数只由
   `BiliImageThumbnail` 追加；评论资源是不透明引用，其图片地址只由 BiliAPI 的 resolver 生成。
 - Feature 视图直接渲染自己的网格、横排与 loading／empty／failure，不经 App 填充的泛型内容插槽；App 只注入
-  窗口级依赖（取图 port、每个来源一个 `NativeVideoGridHostContext`、评论资源地址闭包、保存图片的 owner）。
+  窗口级依赖（取图 port、每个来源一个 `NativeVideoGridHostContext`、评论资源地址闭包、评论图片预览与保存图片的 owner）。
 - 图片只经 port 取：卡片与网格经 `NativeVideoImageLoading`（只分封面与头像、结果只带图与是否淡入），某个
   Feature 自己的图片用途另设该 Feature 的窄 port，不放宽卡片 port。实现都是 App 的 `NativeVideoImagePipeline`，
   无凭据 session、来源与响应校验、缓存上界只在那里（见 `SECURITY-MODEL.md` §4、§6）。App 自己的侧栏账号头像与
@@ -93,7 +93,7 @@ BiliNetworking 不依赖任何 Bili 模块
   组装路径。
 - 窗口出现时先把当前账户范围同步为观看进度的上报权限，再 `open()`（同时把本窗口的写入效果路由登记进集线器）。窗口消失时 `close()`（不可逆）按序：
   从进程级测速注销本窗口 → 关闭播放并恢复新窗口的来源 → 各来源丢弃内容 → 取消认证临时任务与评论 → 取消在途账户写入并从集线器注销 → 取消短链
-  解析与图片保存 → 停止观看进度与 Now Playing → 关闭图片管线 → adapter 取消内存压力监听、停止偏好持久化、
+  解析 → 关闭评论图片预览（挂在上面的保存面板按取消结束）→ 取消图片保存 → 停止观看进度与 Now Playing → 关闭图片管线 → adapter 取消内存压力监听、停止偏好持久化、
   注销会话并失效短链 session。adapter 这一步只在窗口打开过之后执行。
 
 ### 播放：DASH→HLS loopback bridge
@@ -195,6 +195,11 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
 - 图片由窗口级匿名、有界的 `NativeVideoImagePipeline` 加载（Now Playing 封面另有进程级实例）；cell 离屏、复用
   和 teardown 取消等待者，缓存上界只在 `NativeVideoImageCacheLimits`。
 - 评论图片预览的图片区是 AppKit `NSScrollView`：SwiftUI 没有现成的“触控板双指缩放 + 两指平移 + 回弹”容器。
+- 评论图片预览由铺满父窗口的子窗口面板承载，父窗口是被点开的格子所在的窗口（AVKit detached 全屏时仍是主窗口）。
+  面板是自己的 key window，而播放器快捷键只截获播放窗口的事件，Esc、←→ 与 ⌘S 直接交给预览；导航、侧栏与工具栏
+  不必为预览守护，换视频、退出播放与关窗时由窗口级 owner 关闭。不采用主窗口里的全屏 overlay（要另行接管第一响应者、
+  隐藏工具栏并拦截导航写入）、sheet（失去灯箱观感与点背景关闭），也不采用 Quick Look（要本地文件，违反
+  `SECURITY-MODEL.md` §6 不落盘）。
 
 ### 播放页布局
 
