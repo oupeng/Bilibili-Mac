@@ -32,12 +32,17 @@ public struct HTTPRequest: Sendable, Equatable {
 }
 
 extension HTTPResponse {
+    /// 按 HTTP 规则不区分大小写地取响应头；响应侧读取单个头都经这里。
+    ///
+    /// `headers` 保留 transport 交来的原样键，需要整张表的调用方（QR 登录读 `Set-Cookie`）直接用它。
+    public func headerValue(_ name: String) -> String? {
+        headers.first { $0.key.caseInsensitiveCompare(name) == .orderedSame }?.value
+    }
+
     /// 解码前拒绝 HTML 风控页等非 JSON 响应：Content-Type 必须声明 JSON，正文须以对象（或允许时数组）开头。
     public func looksLikeJSON(allowsTopLevelArray: Bool = false) -> Bool {
         guard
-            let contentType = headers.first(where: {
-                $0.key.caseInsensitiveCompare("Content-Type") == .orderedSame
-            })?.value.lowercased(),
+            let contentType = headerValue("Content-Type")?.lowercased(),
             contentType.contains("json"),
             let firstByte = body.first(where: { ![9, 10, 13, 32].contains($0) })
         else {

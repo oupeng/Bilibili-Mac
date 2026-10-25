@@ -131,9 +131,7 @@ extension BiliAPIClient {
 
     private static func looksLikeProtobuf(_ response: HTTPResponse) -> Bool {
         guard
-            let contentType = response.headers.first(where: {
-                $0.key.caseInsensitiveCompare("Content-Type") == .orderedSame
-            })?.value.lowercased(),
+            let contentType = response.headerValue("Content-Type")?.lowercased(),
             contentType.contains("application/octet-stream")
         else {
             return false
