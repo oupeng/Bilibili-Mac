@@ -156,101 +156,142 @@ struct NativeVideoCardMenuTests {
         case accessibilityShowMenu
     }
 
-    /// Control-点按与读屏「显示菜单」都走右键同一条菜单路径。
+    /// Control-点按与读屏「显示菜单」都转进右键路径，由 `menu(for:)` 按位置向来源取这张卡片的菜单，且不激活卡片。
     ///
-    /// 取这张卡片的菜单并弹出，打开期间画上下文描边，不当作点击激活。用例观察的是进程内所有菜单的跟踪通知，并行会互相关掉对方的菜单，所以串行。
-    @Test(.serialized, .timeLimit(.minutes(1)), arguments: MenuEntry.allCases) @MainActor
-    func entriesOpenTheCardMenuThroughTheRightClickPath(entry: MenuEntry) async throws {
+    /// 包测试进程里不能弹出真实菜单：菜单跟踪循环之后，AppKit 的事件线程会不断停掉主 run loop，Swift 并发的主执行器
+    /// 随之 `exit(0)`。所以右键路径取菜单时来源返回 nil，AppKit 不弹菜单；读屏入口先确认有菜单才排队，来源只在这次
+    /// 确认时给出菜单。
+    @Test(.timeLimit(.minutes(1)), arguments: MenuEntry.allCases) @MainActor
+    func entriesRouteToTheRightClickMenuWithoutActivating(entry: MenuEntry) async throws {
         var requestedIDs: [String] = []
         var selections: [String] = []
-        let coordinator = NativeVideoGridView.Coordinator(
-            items: [Self.card(id: "BV1Menu0", availability: .available)],
-            initialScrollOffsetY: 0,
-            accessibilityLabel: "网格",
-            tailState: .end,
-            bottomInset: 0,
-            scrollResetRequestID: 0,
-            acknowledgedScrollResetRequestID: 0,
-            imagePipeline: StubCardImageLoader(),
-            onScroll: { _ in },
-            onAcknowledgeScrollReset: { _ in },
+        let grid = try await GridHarness(
             actions: NativeVideoGridActions(
                 onNearEnd: {},
                 onSelect: { selections.append($0) },
                 cardMenu: { card in
                     requestedIDs.append(card.id)
+                    guard entry == .accessibilityShowMenu, requestedIDs.count == 1 else {
+                        return nil
+                    }
                     return NativeVideoCardMenu(
                         items: [NativeVideoCardMenu.Item(title: "菜单项", systemImage: "link") {}]
                     )
                 }
             )
         )
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        let scrollView = coordinator.makeScrollView()
-        window.contentView = scrollView
-        defer {
-            coordinator.reset()
-            window.contentView = NSView()
-        }
-        await withCheckedContinuation { continuation in
-            DispatchQueue.main.async { continuation.resume() }
-        }
-        scrollView.layoutSubtreeIfNeeded()
-        let collectionView = try #require(scrollView.documentView as? NSCollectionView)
-        let card = try #require(collectionView.visibleItems().first?.view)
-        let event = try #require(
-            NSEvent.mouseEvent(
-                with: .leftMouseDown,
-                location: card.convert(NSPoint(x: card.bounds.midX, y: card.bounds.midY), to: nil),
-                modifierFlags: .control,
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber,
-                context: nil,
-                eventNumber: 0,
-                clickCount: 1,
-                pressure: 1
-            )
-        )
-        // 菜单进入跟踪循环后，在循环里记下卡片的描边再关闭菜单。
-        var borderWidthWhileOpen: CGFloat?
-        let observer = NotificationCenter.default.addObserver(
-            forName: NSMenu.didBeginTrackingNotification,
-            object: nil,
-            queue: nil
-        ) { notification in
-            nonisolated(unsafe) let menu = notification.object as? NSMenu
-            RunLoop.current.perform(inModes: [.eventTracking, .default]) {
-                MainActor.assumeIsolated {
-                    borderWidthWhileOpen = card.layer?.borderWidth
-                    menu?.cancelTrackingWithoutAnimation()
-                }
-            }
-        }
-        defer { NotificationCenter.default.removeObserver(observer) }
 
         switch entry {
         case .controlClick:
-            collectionView.mouseDown(with: event)
+            grid.collectionView.mouseDown(with: try grid.cardEvent(.leftMouseDown, .control))
         case .accessibilityShowMenu:
-            #expect(card.accessibilityPerformShowMenu())
-            // 读屏入口推到下一轮主队列才弹出；等菜单开始跟踪，超时由 time limit 兜底。
-            while borderWidthWhileOpen == nil {
+            #expect(grid.card.accessibilityPerformShowMenu())
+            // 读屏入口推到下一轮主队列才走右键路径；等第二次取菜单，超时由 time limit 兜底。
+            while requestedIDs.count < 2 {
                 await withCheckedContinuation { continuation in
                     DispatchQueue.main.async { continuation.resume() }
                 }
             }
         }
 
-        #expect(Set(requestedIDs) == ["BV1Menu0"])
-        #expect((borderWidthWhileOpen ?? 0) > 0)
-        #expect(card.layer?.borderWidth == 0)
+        #expect(requestedIDs == (entry == .controlClick ? ["BV1Menu0"] : ["BV1Menu0", "BV1Menu0"]))
         #expect(selections.isEmpty)
-        #expect(collectionView.selectionIndexPaths.isEmpty)
+        #expect(grid.collectionView.selectionIndexPaths.isEmpty)
+    }
+
+    /// 右键路径给出的就是来源的菜单；上下文描边只由 `willOpenMenu` 画、`didCloseMenu` 撤。
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func rightClickMenuIsTheSourceMenuAndRingFollowsOpenAndClose() async throws {
+        let grid = try await GridHarness(
+            actions: NativeVideoGridActions(
+                onNearEnd: {},
+                onSelect: { _ in },
+                cardMenu: { _ in
+                    NativeVideoCardMenu(
+                        items: [NativeVideoCardMenu.Item(title: "菜单项", systemImage: "link") {}]
+                    )
+                }
+            )
+        )
+        let event = try grid.cardEvent(.rightMouseDown, [])
+
+        let menu = try #require(grid.collectionView.menu(for: event))
+        #expect(menu.items.map(\.title) == ["菜单项"])
+        #expect(grid.card.layer?.borderWidth == 0)
+
+        grid.collectionView.willOpenMenu(menu, with: event)
+        #expect((grid.card.layer?.borderWidth ?? 0) > 0)
+
+        grid.collectionView.didCloseMenu(menu, with: event)
+        #expect(grid.card.layer?.borderWidth == 0)
+    }
+
+    /// 只有一张可用卡片 `BV1Menu0` 的网格，挂在不显示的窗口里；析构时拆除网格。
+    @MainActor
+    private final class GridHarness {
+        let coordinator: NativeVideoGridView.Coordinator
+        let window: NSWindow
+        let collectionView: NSCollectionView
+        let card: NSView
+
+        init(actions: NativeVideoGridActions) async throws {
+            coordinator = NativeVideoGridView.Coordinator(
+                items: [NativeVideoCardMenuTests.card(id: "BV1Menu0", availability: .available)],
+                initialScrollOffsetY: 0,
+                accessibilityLabel: "网格",
+                tailState: .end,
+                bottomInset: 0,
+                scrollResetRequestID: 0,
+                acknowledgedScrollResetRequestID: 0,
+                imagePipeline: StubCardImageLoader(),
+                onScroll: { _ in },
+                onAcknowledgeScrollReset: { _ in },
+                actions: actions
+            )
+            window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+                styleMask: [.borderless],
+                backing: .buffered,
+                defer: false
+            )
+            let scrollView = coordinator.makeScrollView()
+            window.contentView = scrollView
+            // makeScrollView 把首次排版排到下一轮主队列；等它跑完再取卡片。
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+            scrollView.layoutSubtreeIfNeeded()
+            collectionView = try #require(scrollView.documentView as? NSCollectionView)
+            card = try #require(collectionView.visibleItems().first?.view)
+        }
+
+        isolated deinit {
+            coordinator.reset()
+            window.contentView = nil
+        }
+
+        /// 落在卡片中心的鼠标事件。
+        func cardEvent(
+            _ type: NSEvent.EventType,
+            _ modifierFlags: NSEvent.ModifierFlags
+        ) throws -> NSEvent {
+            try #require(
+                NSEvent.mouseEvent(
+                    with: type,
+                    location: card.convert(
+                        NSPoint(x: card.bounds.midX, y: card.bounds.midY),
+                        to: nil
+                    ),
+                    modifierFlags: modifierFlags,
+                    timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber,
+                    context: nil,
+                    eventNumber: 0,
+                    clickCount: 1,
+                    pressure: 1
+                )
+            )
+        }
     }
 
     private static func card(
