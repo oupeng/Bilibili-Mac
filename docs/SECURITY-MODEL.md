@@ -77,8 +77,8 @@
 搜索规则规范化（≤ 100 字），结果只在内存中用于当次菜单。唯一的非凭据例外是搜索 `/x/web-interface/wbi/search/type`：
 该接口要求 Cookie 含 `buvid3`，`BiliAPI` 为此在进程内存中随机生成一个 `buvid3=<小写 UUID>infoc`，
 不持久化、不激活、不与账户关联；匿名与账户读取两条搜索路径都在授权之后附加它（账户读取时与授权器
-给出的 Cookie 并列），任何其他请求（含 WBI nav）都不携带。只有两个授权器，均由 Composition 注入
-`BiliAPI`：
+给出的 Cookie 并列），任何其他请求（含 WBI nav 与写请求）都不携带。只有三个授权器，均由 Composition 注入
+`BiliAPI`：账户读取、自动的观看进度写入，与用户发起的账户写入。
 
 **账户读取**（`BiliCredentialRequestAuthorizer`）
 
@@ -93,7 +93,7 @@
 - `BiliAPIClient` 的 endpoint 扩展逐请求决定匿名或账户读取，并独占 path/query schema；请求 builder
   只在 `BiliAPI` 内部可见，adapter 不构造 `RequestAccess`；授权器不复制业务规则。
 - 业务码 -101 只在请求实际带凭据发出时映射为凭据失效；匿名发出的请求收到 -101 是“需要登录”，不触发
-  复核。heartbeat 写请求自行把 -101／-111 视为凭据失效，见下文。
+  复核。两种写请求自行把 -101／-111 视为凭据失效，见下文。
 - 只按账户读取的 endpoint（观看历史、稍后再看、收藏夹、UP 主空间投稿（匿名会被间歇风控）、字幕目录、测速样本等）在本地无凭据时
   直接失败，不匿名回退；其余登录增强读取匿名请求同一 endpoint，主播放 playurl 改用带游客参数的匿名请求。
   以窗口账户 mid 为参数的读取（收藏夹列表），mid 只取自窗口账户范围，认证仍在确认、或其他窗口换号而本窗口
@@ -108,7 +108,7 @@
   所有签名读取共用 `BiliAPIClient.signedRequest`：取 nav、换 key 重试与响应返回期间认证 epoch 变化时丢弃结果，
   不以新会话补发；会话失效后返回的 nav 也不写回 key 缓存。
 
-**唯一写能力：观看进度**（`BiliPlaybackHeartbeatRequestAuthorizer`）
+**自动写入：观看进度**（`BiliPlaybackHeartbeatRequestAuthorizer`）
 
 - 仅 `POST https://api.bilibili.com:443/x/click-interface/web/heartbeat`；header 集合固定为 `Accept`、
   `Content-Type`、`Referer`、`User-Agent`，query 与表单字段按固定 schema 逐项校验并交叉核对。
@@ -116,7 +116,32 @@
 - 游客不创建写意图。403/412、认证、网络、解析或业务失败只关闭匹配的报告会话，不触发认证重校验，
   不影响 AVPlayer。进程内单并发，每窗口有界合并，最终退出边界优先。
 - 不建立离线队列，不持久化位置或待发送请求，不崩溃恢复写入。
-- 任何其他写操作都需要新的产品决定、精确 endpoint／method／schema 和对应授权器，不得泛化此授权器。
+- 这个授权器只放行 heartbeat；用户发起的写入走下面的独立授权器，两者不互相泛化。
+
+**用户发起的账户写入**（`BiliAccountWriteRequestAuthorizer`）
+
+防：点错或被构造的请求改动账号；写入落到另一个账户；一次写入扩大成批量或清空。
+
+- 目前只有稍后再看的加入（`POST /x/v2/history/toview/add`）与移除（`POST /x/v2/history/toview/del`）。`toview/del` 的 `aid`
+  在接口文档里可选、带 `viewed=true` 会删除全部已看完的视频；schema 强制要求 `aid` 并拒绝 `viewed`，所以发不出“一次清空”，
+  不得把 `aid` 改成可选。换用其他移除接口时同样只收单个正整数，不收批量；需要 WBI 签名或 multipart 正文时，要给 schema
+  加对应维度并封闭校验，不得放宽成接受任意正文或 query。
+- 只有窗口主 API 注入这个授权器，写 allowlist 由 `LiveAPIClients` 声明、只引用 BiliAPI 的 `BiliAccountWritePath`；测速与
+  观看进度 client 没有写能力。新增写操作需要 ROADMAP 里的产品决定，并在授权器的 schema 表里逐条登记 path、表单字段与
+  取值形状、固定 Referer 与 Cookie 白名单，不得放宽为通用写入。
+- 每个请求必须精确命中：`https://api.bilibili.com`、端口缺省或 443、POST、无 query／userinfo／fragment、path 同时在
+  allowlist 与 schema 表里；header 集合固定（`Accept`、urlencoded `Content-Type`、`Origin: https://www.bilibili.com`、该 path
+  规定的固定 `Referer`、`User-Agent`）；表单有大小上限，字段名恰为 schema 的必需字段加可选字段的子集，同名字段重复、调用方
+  自带 `csrf` 或凭据类 header 一律拒绝。
+- 账户绑定：写请求带窗口账户的 mid（`RequestAccess.accountWrite(expectedAccountID:)`），授权器每次读 Keychain，凭据的
+  `DedeUserID` 不等于它时按凭据失效拒绝，但不删除凭据（多半是本窗口范围过期、Keychain 里已是另一窗口登录的账户）。损坏或
+  过期的凭据照常删除；Keychain 不可用一律失败关闭，不读“已确认未登录”。
+- 只发送该 path 白名单里的 Cookie（目前只有 `SESSDATA`），`bili_jct` 只作为表单 `csrf` 由授权器拼在末尾；不附加搜索用的
+  随机 `buvid3`。
+- 只在窗口账户已确认登录且 mid 已知、不在复核、没有其他窗口换号待复核时发出（与收藏夹列表同一规则）；认证 epoch 推进时
+  在途写入按取消结束、结果不写回。
+- 响应只判定状态 envelope（有大小上限、须像 JSON，不解码 `data`、不回显 message）：-101、-111 与账户不符为凭据失效，触发
+  一次窗口复核；风控按受限；其余业务码的分类在 `AccountWriteError`。一律不自动重试、不排队、不持久化待写入请求或结果。
 
 **永不携带凭据**：WBI nav、图片、视频／音频 CDN、字幕正文、loopback server、二维码 URL、评论外链与短链解析、
 Sparkle 更新网络，以及任何 redirect 后的主机。只认精确主机，不使用 `*.bilibili.com` 后缀匹配：后缀匹配会把凭据交给任何子域。
