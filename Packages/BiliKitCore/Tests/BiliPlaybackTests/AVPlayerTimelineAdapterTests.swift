@@ -624,34 +624,4 @@ struct AVPlayerTimelineAdapterTests {
         #expect(timeline.currentSnapshot.rate == 1.5)
         #expect(timeline.currentSnapshot.state == .playing)
     }
-
-    @Test
-    @MainActor
-    func setRateWhilePausedOnlyChangesThePermanentDefaultRate() throws {
-        let player = AVPlayer()
-        let timeline = AVPlayerTimelineAdapter(player: player)
-
-        try timeline.setRate(2)
-
-        #expect(player.defaultRate == 2)
-        #expect(player.rate == 0)
-    }
-
-    @Test
-    @MainActor
-    func setRateWhileWaitingChangesDefaultAndImmediatePlaybackRate() throws {
-        let player = AVPlayer()
-        let timeline = AVPlayerTimelineAdapter(player: player)
-        timeline.begin(
-            identity: PlaybackItemIdentity(bvid: "BV1RateFixture", cid: 102)
-        )
-        timeline.play()
-
-        try timeline.setRate(2)
-
-        #expect(player.defaultRate == 2)
-        #expect(player.rate == 2)
-        #expect(timeline.currentSnapshot.rate == 2)
-        #expect(timeline.currentSnapshot.state == .playing)
-    }
 }

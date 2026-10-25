@@ -451,10 +451,6 @@ public final class AVPlayerEngine:
         }
     }
 
-    public func setRate(_ rate: Double) throws {
-        try timeline.setRate(rate)
-    }
-
     /// 临时改变当前播放速率，但不覆盖用户选择的永久速率。
     public func beginMomentaryPlaybackRate(_ rate: Double) throws -> UUID? {
         try timeline.beginMomentaryRate(rate)

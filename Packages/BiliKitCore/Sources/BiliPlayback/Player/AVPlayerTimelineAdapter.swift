@@ -325,17 +325,6 @@ final class AVPlayerTimelineAdapter {
         store.update(token: token, rate: 0, state: .paused)
     }
 
-    func setRate(_ rate: Double) throws {
-        guard PlaybackRate.isSupported(rate) else {
-            throw AVPlayerEngineError.invalidPlaybackRate
-        }
-        momentaryRateSession = nil
-        player.defaultRate = Float(rate)
-        guard player.rate > 0, let token else { return }
-        player.rate = Float(rate)
-        store.update(token: token, rate: rate, state: .playing)
-    }
-
     func beginMomentaryRate(_ rate: Double) throws -> UUID? {
         guard PlaybackRate.isSupported(rate) else {
             throw AVPlayerEngineError.invalidPlaybackRate
