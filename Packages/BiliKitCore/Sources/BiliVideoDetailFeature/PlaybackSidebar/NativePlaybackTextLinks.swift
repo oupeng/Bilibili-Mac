@@ -8,6 +8,7 @@ enum NativePlaybackTextLinks {
     private static let valuePrefix = "bilikit-comment-link-"
 
     /// 替换系统默认链接样式时要带上手形指针，否则链接（含 @）悬停时仍是文本光标。
+    ///
     /// 手形只用在这里：HIG 只给链接用手形，卡片、列表行与作者入口等应用内点击区保持箭头。
     static var textAttributes: [NSAttributedString.Key: Any] {
         [.foregroundColor: NSColor.linkColor, .cursor: NSCursor.pointingHand]
