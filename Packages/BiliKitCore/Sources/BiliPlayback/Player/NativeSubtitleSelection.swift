@@ -19,6 +19,10 @@ extension AVPlayerEngine {
         )
     }
 
+    /// 开启字幕时选哪一项：能恢复上次的选项就恢复，否则按系统偏好语言排序取第一项。
+    ///
+    /// 系统可能在字幕菜单里插入不在 BiliKit 目录里的翻译轨（例如有英文字幕时翻成界面语言），按系统排序取
+    /// 字幕时可能选中它；没有公开 API 可以排除它。
     static func subtitleOption(
         in group: AVMediaSelectionGroup,
         restoring preference: NativeSubtitleSelectionPreference?

@@ -15,8 +15,7 @@ import Synchronization
 final class LoudnessProcessingTap: @unchecked Sendable {
     /// 目标增益变化时逐帧线性过渡的时长，避免切换音轨时增益突变；调长过渡更慢，调短更接近突变。
     static let rampDurationSeconds = 0.150
-    /// 处理格式为 48 kHz 立体声：B 站 AAC 音轨均为立体声，多数为 44.1 kHz，由系统重采样（见
-    /// docs/ARCHITECTURE.md「响度均一化（macOS 27 起）」）。
+    /// 处理格式为 48 kHz 立体声：B 站 AAC 音轨均为立体声，多数为 44.1 kHz，由系统重采样。
     static let processingSampleRate = 48_000.0
     static let processingChannelCount: UInt32 = 2
 
@@ -120,8 +119,7 @@ extension LoudnessProcessingTap {
     /// `@unchecked Sendable`：跨线程的只有 `targetGainBits`（增益的位模式，`setTargetGain` 以
     /// releasing 写入、处理回调以 acquiring 读取）；其余 `var` 只在 prepare、process、unprepare
     /// 回调里读写，这些回调由 MediaToolbox 依次调用、彼此不并发，安全靠这一点而不是锁。process
-    /// 在实时音频线程运行，只读写这些固定字段与原子值，不分配、不加锁、不记日志（见
-    /// docs/ARCHITECTURE.md「响度均一化（macOS 27 起）」）。
+    /// 在实时音频线程运行，只读写这些固定字段与原子值，不分配、不加锁、不记日志。
     final class State: @unchecked Sendable {
         private let targetGainBits: Atomic<UInt32>
         private var formatIsSupported = false

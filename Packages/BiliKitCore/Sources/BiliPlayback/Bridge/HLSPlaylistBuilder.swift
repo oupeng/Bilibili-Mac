@@ -360,6 +360,7 @@ public struct HLSMasterPlaylistBuilder: Sendable {
                 audioAverageBitRate,
                 audioBitRates.average
             )
+            // macOS 27 的音轨菜单不显示音频的 NAME，B 站的配音标题在这里只用于 NAME 唯一性。
             let audioName = try safeAttribute(selectedAudio.track.displayName)
             // 没有语言标记的音轨（原声）不写 LANGUAGE：写 `und` 时系统菜单会附上“未知语言”。
             // 这样原声在菜单里的名字只来自 `_hls.localized-rendition-names`，缺这份会话数据时只剩

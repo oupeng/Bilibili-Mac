@@ -129,8 +129,8 @@ package struct NativeVideoGridView: NSViewRepresentable {
         private var documentLayoutNeedsInvalidation = true
         /// 内容身份变化的每次快照与 `reset()` 都推进；快照完成回调只在仍是最新一次时执行。
         private var updateEpoch = NativeVideoGridOperationEpoch()
-        /// 用户最后看到的视野首卡，视口尺寸变化与整体替换都按它恢复位置，恢复后不重新捕获（理由见
-        /// ARCHITECTURE「原生 AppKit 集合视图」的视口锚点条目）。
+        /// 用户最后看到的视野首卡，视口尺寸变化与整体替换都按它恢复位置，恢复后不重新捕获：连续宽度
+        /// 变化中逐帧重新捕获会让首卡逐行漂移。
         ///
         /// 捕获点：记录到一次滚动（不在视口尺寸过渡或重排 document 中）、应用待恢复偏移、整体替换没能按它恢复，
         /// 以及它缺失或卡片已不在内容里时在重排结束后补捕。`reset()` 清空。
