@@ -336,6 +336,8 @@ unity，播放不得失败。不自行测量响度。实时回调只读固定内
   选中的语言，地区与格式偏好沿用系统。系统语言都不受支持时目录回退到 zh-Hans，`Locale.current` 却是 en，直接用它会
   中英混排。格式化函数的默认参数取它；SwiftUI 环境 `locale` 仍是系统 locale（工程不在根上强制界面 locale，它同时
   决定排版语言与字形，见 `check-project-contract.sh`），视图不把环境 `locale` 传给格式化。
+  单位与词序（万／K、分钟前、昨天、月日）交给系统格式，字符串目录只存没有系统对应的「刚刚」；发布时间与评论时间
+  的相对时间规则只在 BiliUI 的 `DateDisplayFormatting`。
 
 ## 不采用
 

@@ -52,28 +52,36 @@ package enum VideoMetadataFormatting {
         )
     }
 
-    /// 发布日期：当天“N小时前”、前一天“昨天”、同年“M月D日”，更早给完整日期。
+    /// 发布时间：规则见 `DateDisplayFormatting.relativeDate`，昨天不带时刻。
     package static func publishedDate(
         _ date: Date,
         relativeTo now: Date = .now,
         calendar: Calendar = .current,
         locale: Locale = InterfaceLocale.current
     ) -> String {
-        switch DateDisplayFormatting.dayRelation(of: date, relativeTo: now, calendar: calendar) {
-        case .today:
-            let elapsedHours = calendar.dateComponents([.hour], from: date, to: now).hour ?? 0
-            let hours = max(1, elapsedHours)
-            return BiliUIStrings.localized("\(hours)小时前", locale: locale)
-        case .yesterday:
-            return BiliUIStrings.localized("昨天", locale: locale)
-        case .earlier:
-            return DateDisplayFormatting.calendarDate(
-                date,
-                relativeTo: now,
-                calendar: calendar,
-                locale: locale
-            )
-        }
+        DateDisplayFormatting.relativeDate(
+            date,
+            relativeTo: now,
+            yesterdayIncludesTime: false,
+            calendar: calendar,
+            locale: locale
+        )
+    }
+
+    /// 评论时间：与发布时间同一规则，昨天带时刻（「昨天 12:30」），在一天里看得出先后。
+    package static func commentDate(
+        _ date: Date,
+        relativeTo now: Date = .now,
+        calendar: Calendar = .current,
+        locale: Locale = InterfaceLocale.current
+    ) -> String {
+        DateDisplayFormatting.relativeDate(
+            date,
+            relativeTo: now,
+            yesterdayIncludesTime: true,
+            calendar: calendar,
+            locale: locale
+        )
     }
 
     /// 播放页详情里的完整发布时间（日期与时分秒）。
