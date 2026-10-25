@@ -74,7 +74,7 @@ final class DanmakuTexturePreparationOwner {
         self.rasterize = rasterize
         cache = DanmakuTextureLRUCache(limits: configuration.cacheLimits)
         queue = OperationQueue()
-        queue.name = "com.shirokyan.BiliKit.danmaku-texture-preparation"
+        queue.name = "com.shiinayane.BiliKit.danmaku-texture-preparation"
         queue.qualityOfService = .userInitiated
         queue.maxConcurrentOperationCount =
             configuration.maximumConcurrentOperations
