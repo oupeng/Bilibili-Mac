@@ -103,7 +103,8 @@ struct PlayerHostViewIdentityTests {
         let renderer = CoreAnimationDanmakuRenderer(
             beginTimeAtMediaZero: DanmakuTimebaseClock.beginTimeAtMediaZero
         )
-        let controller = DanmakuPresentationController(backend: renderer)
+        let backend = InstallSignalingBackend(renderer: renderer)
+        let controller = DanmakuPresentationController(backend: backend)
         let overlay = DanmakuOverlayView(
             renderer: renderer,
             controller: controller
@@ -131,7 +132,8 @@ struct PlayerHostViewIdentityTests {
         let beforeReparent = danmakuEvent(at: 1, id: "before-reparent", mode: .scrolling)
         controller.apply(pausedSnapshot(identity: identity, position: 1))
         controller.setSegments([1: [beforeReparent]], for: identity)
-        #expect(await waitUntil { danmakuLayers(of: renderer).count == 1 })
+        await backend.waitUntilInstalled(beforeReparent.id)
+        #expect(danmakuLayers(of: renderer).count == 1)
         let firstLayer = try #require(danmakuLayers(of: renderer).first)
 
         overlay.removeFromSuperview()
@@ -142,11 +144,10 @@ struct PlayerHostViewIdentityTests {
 
         overlay.frame = .zero
         overlay.layoutSubtreeIfNeeded()
-        controller.setSegments(
-            [1: [beforeReparent, danmakuEvent(at: 1.5, id: "during-reparent", mode: .top)]],
-            for: identity
-        )
-        #expect(await waitUntil { danmakuLayers(of: renderer).count == 2 })
+        let duringReparent = danmakuEvent(at: 1.5, id: "during-reparent", mode: .top)
+        controller.setSegments([1: [beforeReparent, duringReparent]], for: identity)
+        await backend.waitUntilInstalled(duringReparent.id)
+        #expect(danmakuLayers(of: renderer).count == 2)
 
         overlay.frame = secondWindow.contentView?.bounds ?? .zero
         secondWindow.contentView?.addSubview(overlay)
@@ -270,4 +271,66 @@ struct PlayerHostViewIdentityTests {
             discontinuityGeneration: 1
         )
     }
+}
+
+/// 把呈现控制器对 backend 的调用原样转给真实 renderer，并在弹幕挂上之后唤醒等它的测试。
+///
+/// 一条弹幕挂上之前要依次等时钟层第一次发布 D（时钟队列再回主线程）、后台排车道与后台栅格化，耗时随机器
+/// 负载变化；测试等「挂上」这个事件，再同步检查 layer 树，不按固定时长轮询，超时只由 suite 的时间上限兜底。
+@MainActor
+private final class InstallSignalingBackend: DanmakuRenderingBackend {
+    let renderer: CoreAnimationDanmakuRenderer
+    /// 挂上过的弹幕 ID；之后被移除也不删，测试另行检查此刻的 layer 树。
+    private var installedEventIDs: Set<String> = []
+    private var waiters: [(eventID: String, continuation: CheckedContinuation<Void, Never>)] = []
+
+    init(renderer: CoreAnimationDanmakuRenderer) {
+        self.renderer = renderer
+    }
+
+    /// 等到 `eventID` 挂上过一次；已挂上过时立即返回。
+    func waitUntilInstalled(_ eventID: String) async {
+        guard !installedEventIDs.contains(eventID) else { return }
+        await withCheckedContinuation { continuation in
+            waiters.append((eventID, continuation))
+        }
+    }
+
+    func prepare(
+        _ event: DanmakuEvent,
+        preparationID: UInt64,
+        completion: @escaping @MainActor @Sendable (DanmakuPreparationResult) -> Void
+    ) {
+        renderer.prepare(event, preparationID: preparationID, completion: completion)
+    }
+
+    @discardableResult
+    func install(
+        _ placement: DanmakuLanePlacement,
+        preparationID: UInt64,
+        at position: Double
+    ) -> DanmakuInstallResult {
+        let result = renderer.install(placement, preparationID: preparationID, at: position)
+        guard result.isInstalled else { return result }
+        let eventID = placement.request.event.id
+        installedEventIDs.insert(eventID)
+        let ready = waiters.filter { $0.eventID == eventID }
+        waiters.removeAll { $0.eventID == eventID }
+        for waiter in ready { waiter.continuation.resume() }
+        return result
+    }
+
+    @discardableResult
+    func update(_ placement: DanmakuLanePlacement) -> Bool { renderer.update(placement) }
+    func discardPreparation(preparationID: UInt64) {
+        renderer.discardPreparation(preparationID: preparationID)
+    }
+    func cancelAllPreparations() { renderer.cancelAllPreparations() }
+    func remove(eventID: String) { renderer.remove(eventID: eventID) }
+    func clearAll() { renderer.clearAll() }
+    func setOpacity(_ opacity: DanmakuOpacity) { renderer.setOpacity(opacity) }
+    func updateSurfaceSize(width: Double, height: Double, backingScale: Double) {
+        renderer.updateSurfaceSize(width: width, height: height, backingScale: backingScale)
+    }
+    func stop() { renderer.stop() }
 }
