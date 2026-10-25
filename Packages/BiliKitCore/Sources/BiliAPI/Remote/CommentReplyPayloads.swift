@@ -259,11 +259,7 @@ struct CommentMemberPayload: Decodable, Sendable {
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        if let value = try? container.decode(String.self, forKey: .mid) {
-            mid = value
-        } else {
-            mid = String(try container.decode(Int64.self, forKey: .mid))
-        }
+        mid = try container.decodeIntegerText(forKey: .mid)
         name = try container.decode(String.self, forKey: .name)
         avatar = container.decodeLossyIfPresent(String.self, forKey: .avatar)
         sex = container.decodeLossyIfPresent(String.self, forKey: .sex)

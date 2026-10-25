@@ -234,11 +234,7 @@ struct CommentMentionPayload: Decodable, Sendable {
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        if let value = try? container.decode(String.self, forKey: .mid) {
-            mid = value
-        } else {
-            mid = String(try container.decode(Int64.self, forKey: .mid))
-        }
+        mid = try container.decodeIntegerText(forKey: .mid)
         name = try container.decode(String.self, forKey: .name)
         // 头像只用于空间头部，异常时按没有头像处理，不影响 @ 链接本身。
         avatar = try? container.decodeIfPresent(String.self, forKey: .avatar)

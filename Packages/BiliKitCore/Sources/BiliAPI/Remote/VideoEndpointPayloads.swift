@@ -134,19 +134,14 @@ struct UploaderCardPayload: Decodable, Sendable {
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        if let numericMID = try? container.decode(Int64.self, forKey: .mid) {
-            mid = numericMID
-        } else {
-            let stringMID = try container.decode(String.self, forKey: .mid)
-            guard let numericMID = Int64(stringMID) else {
-                throw DecodingError.dataCorruptedError(
-                    forKey: .mid,
-                    in: container,
-                    debugDescription: "Uploader MID is not an integer"
-                )
-            }
-            mid = numericMID
+        guard let numericMID = Int64(try container.decodeIntegerText(forKey: .mid)) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .mid,
+                in: container,
+                debugDescription: "Uploader MID is not an integer"
+            )
         }
+        mid = numericMID
         // 名字与头像只在只凭 MID 打开的空间里补齐头部，字段异常时按缺省处理，不拖累签名。
         name = try? container.decodeIfPresent(String.self, forKey: .name)
         face = try? container.decodeIfPresent(String.self, forKey: .face)
