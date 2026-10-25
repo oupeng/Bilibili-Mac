@@ -4,10 +4,11 @@ import BiliUI
 /// 网格的分页尾部状态；尾部身份是来源列表的尾标计数（`PagedVideoList`），变化即视为新尾部。
 package typealias NativeVideoGridTailState = NearEndTailState<UInt64>
 
-/// 一次内容更新相对上一次的差异：决定是否应用新快照、只重配内容变了的可见卡片，以及是否保持视口锚点。
+/// 一次内容更新相对上一次的差异：决定是否应用新快照、是否做差异动画、只重配内容变了的可见卡片，以及怎样保持
+/// 视口锚点。
 ///
 /// 网格与 BiliVideoDetailFeature 的相关推荐横排（`NativeVideoShelfView`）共用这一份差异计算；
-/// 横排只读 `identityChanged` 与 `changedExistingIDs`，锚点与尾部追加判断只属于网格。
+/// 横排只读 `identityChanged` 与 `changedExistingIDs`，锚点、动画与尾部追加判断只属于网格。
 package struct NativeVideoGridUpdatePlan: Equatable {
     /// ID 序列（含顺序）变了，需要应用新快照。
     package let identityChanged: Bool
@@ -16,13 +17,38 @@ package struct NativeVideoGridUpdatePlan: Equatable {
     /// 前后都在、内容变了的卡片：ID 序列不变时只重配这些可见卡片。
     package let changedExistingIDs: Set<String>
     let isStrictTailAppend: Bool
+    /// 纯删除时每张被删卡片的后继：旧顺序里它之后第一张仍在的卡片。
+    ///
+    /// 纯删除指只删不增、其余卡片相对顺序不变，例如稍后再看的乐观移除；不是纯删除时为空。
+    private let successorsOfRemovedIDs: [String: String]
 
     /// 严格尾部追加不改变已有卡片的位置，不需要锚点。
     var restoresViewportAnchor: Bool { identityChanged && !isStrictTailAppend }
 
-    /// 锚点卡片仍在更新后的内容里时才有位置可保持；它被替换掉时网格回到顶部。
-    func retains(_ anchor: NativeVideoGridViewportAnchor) -> Bool {
-        !removedIDs.contains(anchor.id)
+    /// 更新后要保持的视口锚点；nil 表示回到顶部（ARCHITECTURE「原生 AppKit 集合视图」的视口锚点条目）。
+    ///
+    /// 锚点卡片还在时就是它。纯删除删掉了它时，由后继按同一距离接替：后继正好补进被删卡片的位置，视野不跳。
+    /// 其余情况（整体替换掉了它，或删掉的是它及其后的全部卡片，例如刷新把列表收回第一页）回到顶部：停在旧偏移会
+    /// 被新内容高度截断到新内容底部，还会据此误判翻页。
+    func retainedAnchor(
+        _ anchor: NativeVideoGridViewportAnchor
+    ) -> NativeVideoGridViewportAnchor? {
+        guard removedIDs.contains(anchor.id) else { return anchor }
+        return successorsOfRemovedIDs[anchor.id].map {
+            NativeVideoGridViewportAnchor(
+                id: $0,
+                offsetFromViewportTop: anchor.offsetFromViewportTop
+            )
+        }
+    }
+
+    /// 是否做差异动画：身份变化、不是严格尾部追加、网格已在窗口里排过版、没开「减少动态效果」。
+    ///
+    /// 整体替换也做：卡片基本都不同时几乎看不出动画，历史、稍后再看刷新里相同的卡片会滑到新位置。尾部追加在视野
+    /// 之下，动画看不见，却会让其后约 250ms 里的每次滚动都补建一次卡片（`NativeVideoGridClipView`），所以不做。
+    /// 还没排过版时没有可见的旧位置可动画。
+    func animatesDifferences(isLaidOut: Bool, reducesMotion: Bool) -> Bool {
+        identityChanged && !isStrictTailAppend && isLaidOut && !reducesMotion
     }
 
     package init<Content: Equatable>(
@@ -46,6 +72,18 @@ package struct NativeVideoGridUpdatePlan: Equatable {
             && Array(updatedIDs.prefix(previousIDs.count)) == previousIDs
             && removedIDs.isEmpty
             && insertedIDs == Array(updatedIDs.dropFirst(previousIDs.count))
+        var successors: [String: String] = [:]
+        if insertedIDs.isEmpty, updatedIDs == previousIDs.filter({ updatedSet.contains($0) }) {
+            var next: String?
+            for id in previousIDs.reversed() {
+                if updatedSet.contains(id) {
+                    next = id
+                } else if let next {
+                    successors[id] = next
+                }
+            }
+        }
+        successorsOfRemovedIDs = successors
     }
 }
 
@@ -162,20 +200,6 @@ struct NativeVideoScrollBindingBridge {
             supersededOffsetY = synchronizedOffsetY
         }
         synchronizedOffsetY = offsetY
-    }
-}
-
-/// 异步操作的代次：每次发起都 `advance()`，完成时只有仍等于当前值的结果被接受。
-struct NativeVideoGridOperationEpoch {
-    private(set) var value: UInt64 = 0
-
-    mutating func advance() -> UInt64 {
-        value &+= 1
-        return value
-    }
-
-    func accepts(_ candidate: UInt64) -> Bool {
-        candidate == value
     }
 }
 
