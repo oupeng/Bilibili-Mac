@@ -240,6 +240,7 @@ func makeTestAdapters(
     watchLater: any WatchLaterRepository = WatchLaterRepositoryStub(),
     watchLaterWrite: any WatchLaterWriteRepository = AccountWriteRepositoryStub(),
     favoritesWrite: any FavoritesWriteRepository = AccountWriteRepositoryStub(),
+    videoEngagement: any VideoEngagementRepository = AccountWriteRepositoryStub(),
     authentication: any AuthenticationServicing = AuthenticationServiceStub(
         restoreState: .signedOut
     ),
@@ -266,6 +267,7 @@ func makeTestAdapters(
         watchLaterWriteRepository: watchLaterWrite,
         favoritesRepository: favorites,
         favoritesWriteRepository: favoritesWrite,
+        videoEngagementRepository: videoEngagement,
         commentAssetURLResolver: { _, _ in nil },
         commentLinkRouter: { _ in nil },
         authenticationService: authentication,
@@ -274,7 +276,7 @@ func makeTestAdapters(
         makePlaybackAuthenticationInvalidations: { AsyncStream { $0.finish() } },
         danmakuPresentation: RecordingDanmakuPresentation(),
         danmakuPreferences: DefaultDanmakuPreferencesStore(),
-        makePlayerContent: { _, _ in AnyView(EmptyView()) },
+        makePlayerContent: { _, _, _ in AnyView(EmptyView()) },
         seekPlayback: { _, _ in },
         nowPlayingConnection: .idle,
         makeWatchProgressConnection: { _ in watchProgress },

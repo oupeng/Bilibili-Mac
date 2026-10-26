@@ -73,6 +73,7 @@ struct AccountRevalidationParticipantsTests {
             (owner.navigationCoordinator.uploaderSpace, nil),
             (owner.favoriteFolderList, nil),
             (owner.accountWrites, nil),
+            (owner.engagementModel, nil),
             (owner.watchLaterModel, .watchLater),
             (owner.historyModel, .history),
             (owner.favoriteFolders, .favorites)

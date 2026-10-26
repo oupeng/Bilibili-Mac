@@ -29,6 +29,8 @@ public enum BiliAccountReadPath {
     public static let watchLater = "/x/v2/history/toview/web"
     /// 自己创建的收藏夹列表（只按账户读取）。
     public static let favoriteFolders = "/x/v3/fav/folder/created/list-all"
+    /// 当前账户对一个视频的点赞、投币与收藏状态。
+    public static let videoRelation = "/x/web-interface/archive/relation"
     /// 收藏夹内的一页（只按账户读取）。
     public static let favoriteFolderContent = "/x/v3/fav/resource/list"
     /// 热门。

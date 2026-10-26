@@ -40,9 +40,11 @@ enum PlayerShortcutFeedback: Equatable {
     case playback(Bool)
     case danmaku(Bool)
     case subtitles(NativeSubtitleToggleResult)
+    case engagement(PlayerEngagementFeedback)
 
     var label: String {
         switch self {
+        case .engagement(let feedback): feedback.label
         case .momentaryRate(let rate): rate.label
         case .relativeSeek(let seconds):
             seconds < 0
@@ -61,6 +63,7 @@ enum PlayerShortcutFeedback: Equatable {
 
     var symbolName: String {
         switch self {
+        case .engagement(let feedback): feedback.symbolName
         case .momentaryRate(let rate): rate.symbolName
         case .relativeSeek(let seconds):
             seconds < 0 ? "gobackward.5" : "goforward.5"
@@ -78,6 +81,7 @@ enum PlayerShortcutFeedback: Equatable {
 
     var accessibilityLabel: String {
         switch self {
+        case .engagement(let feedback): feedback.accessibilityLabel
         case .momentaryRate(let rate): rate.accessibilityLabel
         case .relativeSeek(let seconds):
             seconds < 0
@@ -113,7 +117,11 @@ private struct PlayerShortcutFeedbackBadge: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: feedback.symbolName)
+            if feedback == .engagement(.tripleProgress) {
+                PlayerTripleProgressRing()
+            } else {
+                Image(systemName: feedback.symbolName)
+            }
             Text(feedback.label)
                 .monospacedDigit()
                 .lineLimit(1)
@@ -316,6 +324,16 @@ final class PlayerOverlayModel {
 
     func endMomentaryRate() {
         guard case .momentaryRate = feedback?.content else { return }
+        fadeOutFeedback()
+    }
+
+    /// 按住 Q 显示三连进度：按住期间保持显示，由 `endTripleProgress` 收起。
+    func showTripleProgress() {
+        feedback = Feedback(content: .engagement(.tripleProgress), dismissesAutomatically: false)
+    }
+
+    func endTripleProgress() {
+        guard feedback?.content == .engagement(.tripleProgress) else { return }
         fadeOutFeedback()
     }
 

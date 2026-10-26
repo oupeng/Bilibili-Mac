@@ -233,19 +233,62 @@ struct WatchLaterRepositoryStub: WatchLaterRepository {
     }
 }
 
-/// 稍后再看与收藏两个写入 port 的唯一测试替身：记录每次写入，按顺序取 `outcomes`（用完后一律成功）；`holdsWrites` 时
-/// 每次写入挂起到 `releaseWrites()` 或任务取消。
-actor AccountWriteRepositoryStub: WatchLaterWriteRepository, FavoritesWriteRepository {
+/// 稍后再看、收藏与播放页互动三个写入 port 的唯一测试替身：记录每次写入，按顺序取 `outcomes`（用完后一律成功）；
+/// `holdsWrites` 时每次写入挂起到 `releaseWrites()` 或任务取消。互动读取返回 `engagement`，不计入写入。
+actor AccountWriteRepositoryStub: WatchLaterWriteRepository, FavoritesWriteRepository,
+    VideoEngagementRepository
+{
     private var outcomes: [AccountWriteError?]
     private let holdsWrites: Bool
+    private let engagementState: VideoEngagementState
+    private let tripleOutcome: VideoTripleOutcome
     private(set) var calls: [String] = []
     private var callWaiters = CountWaiters()
     private var held: [CheckedContinuation<Void, Never>] = []
     private var released = false
 
-    init(outcomes: [AccountWriteError?] = [], holdsWrites: Bool = false) {
+    init(
+        outcomes: [AccountWriteError?] = [],
+        holdsWrites: Bool = false,
+        engagement: VideoEngagementState = VideoEngagementState(
+            isLiked: false,
+            coinCount: 0,
+            isFavorited: false
+        ),
+        tripleOutcome: VideoTripleOutcome = VideoTripleOutcome(
+            isLiked: true,
+            isCoined: true,
+            isFavorited: true,
+            addedCoinCount: 2
+        )
+    ) {
         self.outcomes = outcomes
         self.holdsWrites = holdsWrites
+        engagementState = engagement
+        self.tripleOutcome = tripleOutcome
+    }
+
+    func engagement(of target: VideoWriteTarget) async throws -> VideoEngagementState {
+        engagementState
+    }
+
+    func setLiked(_ isLiked: Bool, target: VideoWriteTarget, accountID: Int64) async throws {
+        try await record("\(isLiked ? "like" : "unlike") \(target.bvid) \(accountID)")
+    }
+
+    func addCoins(
+        _ count: Int,
+        alsoLike: Bool,
+        target: VideoWriteTarget,
+        accountID: Int64
+    ) async throws -> Bool {
+        try await record("coin \(count) \(alsoLike ? "+like " : "")\(target.bvid) \(accountID)")
+        return alsoLike
+    }
+
+    func triple(target: VideoWriteTarget, accountID: Int64) async throws -> VideoTripleOutcome {
+        try await record("triple \(target.bvid) \(accountID)")
+        return tripleOutcome
     }
 
     func add(_ target: VideoWriteTarget, accountID: Int64) async throws {

@@ -53,6 +53,7 @@ struct AppRootView: View {
             seekPlayback: window.seekPlayback,
             imagePipeline: window.imagePipeline,
             accountWrites: window.accountWrites,
+            engagementModel: window.engagementModel,
             isAuthenticationPresented: $isAuthenticationPresented
         )
         .task(id: browseActivation) {

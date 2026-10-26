@@ -8,11 +8,13 @@ import SwiftUI
 ///
 /// 详情上下文一旦可用就选择同一 BVID/CID；状态回到 idle/loading/failed 时 identity 变为
 /// `nil`，由 `.task(id:)` 完整 reset 弹幕支线。原生字幕由 AVPlayerEngine 随媒体 load 拥有。
-/// 相关推荐横排由本 Feature 直接渲染，App 只注入窗口图片管线（经卡片取图 port）。
+/// 相关推荐横排由本 Feature 直接渲染，App 只注入窗口图片管线（经卡片取图 port）。展示的详情变化时交给
+/// `VideoEngagementModel` 重读互动状态（窗口账户变化由 App 另行交给它）。
 public struct VideoPlaybackView<PlayerContent: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let model: VideoViewModel
     private let danmakuModel: DanmakuControlsViewModel
+    private let engagementModel: VideoEngagementModel
     private let onRetry: () -> Void
     private let onSelectRelatedVideo: (String) -> Void
     private let relatedImageLoader: any NativeVideoImageLoading
@@ -21,6 +23,7 @@ public struct VideoPlaybackView<PlayerContent: View>: View {
     public init(
         model: VideoViewModel,
         danmakuModel: DanmakuControlsViewModel,
+        engagementModel: VideoEngagementModel,
         onRetry: @escaping () -> Void,
         onSelectRelatedVideo: @escaping (String) -> Void = { _ in },
         relatedImageLoader: any NativeVideoImageLoading,
@@ -28,6 +31,7 @@ public struct VideoPlaybackView<PlayerContent: View>: View {
     ) {
         self.model = model
         self.danmakuModel = danmakuModel
+        self.engagementModel = engagementModel
         self.onRetry = onRetry
         self.onSelectRelatedVideo = onSelectRelatedVideo
         self.relatedImageLoader = relatedImageLoader
@@ -54,6 +58,9 @@ public struct VideoPlaybackView<PlayerContent: View>: View {
                 return
             }
             danmakuModel.selectVideo(playbackIdentity)
+        }
+        .onChange(of: currentContext?.detail, initial: true) { _, detail in
+            engagementModel.present(detail)
         }
     }
 
@@ -83,6 +90,7 @@ public struct VideoPlaybackView<PlayerContent: View>: View {
             VideoDetailView(
                 context: currentContext,
                 danmakuModel: danmakuModel,
+                engagementModel: engagementModel,
                 relatedVideoState: model.relatedVideoState,
                 onSelectRelatedVideo: onSelectRelatedVideo,
                 onRetryRelatedVideos: model.retryRelatedVideos,

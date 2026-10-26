@@ -144,7 +144,7 @@ extension BiliAPIClient {
                     url: url,
                     referer: "https://www.bilibili.com/",
                     access: .accountRead(missingCredential: .useAnonymousRequest),
-                    additionalCookie: Self.searchBuvid3Cookie
+                    additionalCookie: Self.buvid3Cookie
                 ).payload
             }
         )

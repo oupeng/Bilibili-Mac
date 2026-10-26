@@ -15,6 +15,9 @@ struct BiliAccountWriteRequestAuthorizerTests {
     private static let favoriteDealBody =
         "rid=170001&type=2&add_media_ids=11,12&del_media_ids=&platform=web"
     private static let favoriteRemoveBody = "resources=170001:2&media_id=11&platform=web"
+    private static let likePath = "/x/web-interface/archive/like"
+    private static let coinPath = "/x/web-interface/coin/add"
+    private static let triplePath = "/x/web-interface/archive/like/triple"
     private static let accountID = "42"
 
     @Test(arguments: [
@@ -40,6 +43,11 @@ struct BiliAccountWriteRequestAuthorizerTests {
     }
 
     @Test(arguments: [
+        (likePath, "aid=170001&like=1"),
+        (likePath, "aid=170001&like=2"),
+        (coinPath, "aid=170001&multiply=1&select_like=0"),
+        (coinPath, "aid=170001&multiply=2&select_like=1"),
+        (triplePath, "aid=170001"),
         (favoriteDealPath, favoriteDealBody),
         (favoriteDealPath, "rid=170001&type=2&add_media_ids=&del_media_ids=13&platform=web"),
         (favoriteRemovePath, favoriteRemoveBody)
@@ -84,6 +92,32 @@ struct BiliAccountWriteRequestAuthorizerTests {
         await #expect(throws: BiliRequestAuthorizationError.requestNotAllowed) {
             try await authorizer.authorize(
                 try writeRequest(path: Self.favoriteDealPath, body: body),
+                boundTo: Self.accountID
+            )
+        }
+    }
+
+    /// 点赞、投币与三连只收单个稿件与固定取值：投币不超过 2 枚，网页的统计字段与 `cross_domain` 都不收。
+    @Test(arguments: [
+        (likePath, "aid=170001&like=0"),
+        (likePath, "aid=170001&like=3"),
+        (likePath, "aid=170001"),
+        (likePath, "aid=170001,170002&like=1"),
+        (likePath, "aid=170001&like=1&spmid=333.788.0.0"),
+        (coinPath, "aid=170001&multiply=3&select_like=0"),
+        (coinPath, "aid=170001&multiply=0&select_like=0"),
+        (coinPath, "aid=170001&multiply=1"),
+        (coinPath, "aid=170001&multiply=1&select_like=2"),
+        (coinPath, "aid=170001&multiply=1&select_like=0&cross_domain=true"),
+        (triplePath, "aid=170001&ga=1"),
+        (triplePath, "bvid=BV17x411w7KC")
+    ])
+    func rejectsEngagementBodiesOutsideTheSchema(path: String, body: String) async throws {
+        let authorizer = try makeAuthorizer()
+
+        await #expect(throws: BiliRequestAuthorizationError.requestNotAllowed) {
+            try await authorizer.authorize(
+                try writeRequest(path: path, body: body),
                 boundTo: Self.accountID
             )
         }

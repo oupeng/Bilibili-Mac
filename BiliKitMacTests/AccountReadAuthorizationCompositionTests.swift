@@ -59,6 +59,7 @@ struct AccountReadAuthorizationCompositionTests {
                 "/x/v3/fav/folder/created/list-all",
                 "/x/v3/fav/resource/list",
                 "/x/web-interface/archive/related",
+                "/x/web-interface/archive/relation",
                 "/x/web-interface/card",
                 "/x/web-interface/history/cursor",
                 "/x/web-interface/popular",
@@ -94,6 +95,7 @@ struct AccountReadAuthorizationCompositionTests {
             (BiliAccountReadPath.watchLater, "/x/v2/history/toview/web"),
             (BiliAccountReadPath.favoriteFolders, "/x/v3/fav/folder/created/list-all"),
             (BiliAccountReadPath.favoriteFolderContent, "/x/v3/fav/resource/list"),
+            (BiliAccountReadPath.videoRelation, "/x/web-interface/archive/relation"),
             (BiliAccountReadPath.popular, "/x/web-interface/popular"),
             (BiliAccountReadPath.recommendations, "/x/web-interface/wbi/index/top/feed/rcmd"),
             (BiliAccountReadPath.videoSearch, "/x/web-interface/wbi/search/type")
@@ -160,7 +162,12 @@ struct AccountWriteAuthorizationCompositionTests {
             ),
             BiliAccountWritePath.favoriteFolderEntryRemove: (
                 "https://www.bilibili.com/", "resources=170001:2&media_id=11&platform=web"
-            )
+            ),
+            BiliAccountWritePath.videoLike: ("https://www.bilibili.com/", "aid=170001&like=1"),
+            BiliAccountWritePath.videoCoin: (
+                "https://www.bilibili.com/", "aid=170001&multiply=1&select_like=1"
+            ),
+            BiliAccountWritePath.videoTriple: ("https://www.bilibili.com/", "aid=170001")
         ]
         #expect(Set(requests.keys) == LiveAPIClients.mainAccountWriteAllowedPaths)
 

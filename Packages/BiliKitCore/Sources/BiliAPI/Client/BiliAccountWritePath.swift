@@ -25,4 +25,10 @@ public enum BiliAccountWritePath {
     /// 相同；网页从 space 子域发出，这里与其他写入一样用 www 的 Origin 与 Referer，实机可用。接口接受逗号分隔的多个条目，
     /// 这里只发一个。
     public static let favoriteFolderEntryRemove = "/x/v3/fav/resource/batch-del"
+    /// 点赞或取消（`aid`、`like=1|2`、`csrf`，urlencoded，不签 WBI）。
+    public static let videoLike = "/x/web-interface/archive/like"
+    /// 投币（`aid`、`multiply=1|2`、`select_like=0|1`、`csrf`，urlencoded，不签 WBI）。
+    public static let videoCoin = "/x/web-interface/coin/add"
+    /// 三连（`aid`、`csrf`，urlencoded，不签 WBI）；收藏进默认收藏夹。
+    public static let videoTriple = "/x/web-interface/archive/like/triple"
 }

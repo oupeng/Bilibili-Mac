@@ -1,8 +1,8 @@
 import BiliNetworking
 import Foundation
 
-/// 只授权用户发起的账户写入（稍后再看的加入与移除、收藏到收藏夹与从收藏夹移除），并在 `BiliAuth` 内绑定账户、注入最小
-/// Cookie 与 CSRF。
+/// 只授权用户发起的账户写入（稍后再看的加入与移除、收藏到收藏夹与从收藏夹移除、点赞、投币与三连），并在 `BiliAuth` 内
+/// 绑定账户、注入最小 Cookie 与 CSRF。
 ///
 /// 每个请求必须精确命中：`https://api.bilibili.com`（端口缺省或 443）、POST、无 query／userinfo／fragment、path 同时在
 /// Composition 声明的 allowlist 与本类型封闭的 schema 表里；header 集合固定为 `Accept`、`Content-Type`、`Origin`、
@@ -52,6 +52,8 @@ public struct BiliAccountWriteRequestAuthorizer: HTTPSubjectBoundRequestAuthoriz
         case positiveInteger
         /// 固定取值（`type=2`、`platform=web`）。
         case literal(String)
+        /// 几个固定取值之一（`like=1|2`、`multiply=1|2`、`select_like=0|1`）。
+        case oneOf(Set<String>)
         /// 逗号分隔、互不重复的正整数，可以为空串（`fav/resource/deal` 没有要加入或移出的夹时那一侧传空串）；最多
         /// `maximumListCount` 个。
         case positiveIntegerList
@@ -67,6 +69,8 @@ public struct BiliAccountWriteRequestAuthorizer: HTTPSubjectBoundRequestAuthoriz
                 Self.isPositiveInteger(value)
             case .literal(let expected):
                 value == expected
+            case .oneOf(let allowed):
+                allowed.contains(value)
             case .positiveIntegerList:
                 Self.isPositiveIntegerList(value)
             case .singleVideoResource:
@@ -112,6 +116,10 @@ public struct BiliAccountWriteRequestAuthorizer: HTTPSubjectBoundRequestAuthoriz
     /// 收藏只登记两条：`fav/resource/deal` 一次改一个视频在若干收藏夹里的归属（`rid` 单个、`type` 固定为视频），
     /// `fav/resource/batch-del` 从一个收藏夹移除一个视频条目（`resources` 只收单个 `<aid>:2`，挡住一次移除多条）。
     /// 网页附带的 `spmid`、`statistics` 等统计字段不发送，schema 也不接受。
+    ///
+    /// 点赞、投币与三连各一条，只收单个稿件：点赞 `like` 只能是 1（赞）或 2（取消）；投币 `multiply` 只能是 1 或 2（单个
+    /// 稿件的上限），`select_like` 0 或 1；三连只有 `aid`。网页同样附带的统计字段与 `cross_domain` 不发送。这三个接口
+    /// 要求 Cookie 带 `buvid3`，它不是凭据、不在这里注入，由 BiliAPI 在授权之后附加（见 SECURITY-MODEL §3）。
     static let schemas: [String: Schema] = [
         "/x/v2/history/toview/add": Schema(
             requiredFields: ["aid": .positiveInteger],
@@ -135,6 +143,28 @@ public struct BiliAccountWriteRequestAuthorizer: HTTPSubjectBoundRequestAuthoriz
             ],
             optionalFields: [:],
             crossFieldRules: [.disjointNonEmptyLists("add_media_ids", "del_media_ids")],
+            referer: "https://www.bilibili.com/",
+            cookieNames: [.session]
+        ),
+        "/x/web-interface/archive/like": Schema(
+            requiredFields: ["aid": .positiveInteger, "like": .oneOf(["1", "2"])],
+            optionalFields: [:],
+            referer: "https://www.bilibili.com/",
+            cookieNames: [.session]
+        ),
+        "/x/web-interface/coin/add": Schema(
+            requiredFields: [
+                "aid": .positiveInteger,
+                "multiply": .oneOf(["1", "2"]),
+                "select_like": .oneOf(["0", "1"])
+            ],
+            optionalFields: [:],
+            referer: "https://www.bilibili.com/",
+            cookieNames: [.session]
+        ),
+        "/x/web-interface/archive/like/triple": Schema(
+            requiredFields: ["aid": .positiveInteger],
+            optionalFields: [:],
             referer: "https://www.bilibili.com/",
             cookieNames: [.session]
         ),

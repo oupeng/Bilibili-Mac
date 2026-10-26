@@ -101,11 +101,11 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
     /// 调小可能误拒较大的正常列表，调大放宽单次解码的输入规模。
     private static let maximumResponseSize = 5 * 1_024 * 1_024
 
-    /// 搜索接口要求的 `buvid3`，进程内随机生成一次，只附加到视频搜索请求。
+    /// 搜索、点赞、投币与三连接口要求的 `buvid3`，进程内随机生成一次，只附加到这几种请求。
     ///
     /// 只在内存中，不持久化、不关联账户；格式与 yt-dlp 相同（小写 UUID + `infoc`）。见
     /// SECURITY-MODEL §3。
-    static let searchBuvid3Cookie = "buvid3=\(UUID().uuidString.lowercased())infoc"
+    static let buvid3Cookie = "buvid3=\(UUID().uuidString.lowercased())infoc"
 
     private var httpClient: HTTPClient
     private var transport: any HTTPTransport

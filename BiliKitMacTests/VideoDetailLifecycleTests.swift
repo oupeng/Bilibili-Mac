@@ -32,6 +32,10 @@ struct VideoDetailLifecycleTests {
                 VideoPlaybackView(
                     model: videoModel,
                     danmakuModel: danmakuModel,
+                    engagementModel: VideoEngagementModel(
+                        useCase: VideoEngagementUseCase(repository: AccountWriteRepositoryStub()),
+                        accountID: { nil }
+                    ),
                     onRetry: {},
                     relatedImageLoader: NoImageCardLoader()
                 ) {

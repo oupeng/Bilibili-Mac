@@ -70,6 +70,13 @@ package enum AccountWriteStatusText {
                     BiliUIStrings.localized("已更新收藏")
                 }
             case .removedFromFavoriteFolder: BiliUIStrings.localized("已从收藏夹移除")
+            case .likeChanged(_, let isLiked):
+                isLiked ? BiliUIStrings.localized("已点赞") : BiliUIStrings.localized("已取消点赞")
+            case .coinsAdded(_, let count, let alsoLiked):
+                alsoLiked
+                    ? BiliUIStrings.localized("已投 \(count) 枚硬币并点赞")
+                    : BiliUIStrings.localized("已投 \(count) 枚硬币")
+            case .tripled: BiliUIStrings.localized("已三连")
             }
         }
         let reason = reason(for: failure, change: report.change)
@@ -78,6 +85,12 @@ package enum AccountWriteStatusText {
         case .watchLaterRemoved: BiliUIStrings.localized("无法从稍后再看移除：\(reason)")
         case .favoriteMembershipChanged: BiliUIStrings.localized("无法更新收藏：\(reason)")
         case .removedFromFavoriteFolder: BiliUIStrings.localized("无法从收藏夹移除：\(reason)")
+        case .likeChanged(_, let isLiked):
+            isLiked
+                ? BiliUIStrings.localized("无法点赞：\(reason)")
+                : BiliUIStrings.localized("无法取消点赞：\(reason)")
+        case .coinsAdded: BiliUIStrings.localized("无法投币：\(reason)")
+        case .tripled: BiliUIStrings.localized("无法三连：\(reason)")
         }
     }
 
@@ -85,7 +98,7 @@ package enum AccountWriteStatusText {
     {
         let isFavorites =
             switch change {
-            case .watchLaterAdded, .watchLaterRemoved: false
+            case .watchLaterAdded, .watchLaterRemoved, .likeChanged, .coinsAdded, .tripled: false
             case .favoriteMembershipChanged, .removedFromFavoriteFolder: true
             }
         return switch failure {
@@ -104,6 +117,12 @@ package enum AccountWriteStatusText {
             isFavorites
                 ? BiliUIStrings.localized("收藏夹或视频已不存在。")
                 : BiliUIStrings.localized("视频不存在或已删除。")
+        case .coinsInsufficient:
+            BiliUIStrings.localized("硬币不足。")
+        case .coinLimitReached:
+            BiliUIStrings.localized("这个视频的投币已达上限。")
+        case .ownVideo:
+            BiliUIStrings.localized("不能给自己的视频投币。")
         case .rejected(let code):
             BiliUIStrings.localized("服务拒绝了这次操作（错误码 \(code)）。")
         case .unavailable:

@@ -1,14 +1,17 @@
 import BiliApplication
 import BiliLibraryFeature
+import BiliVideoDetailFeature
 import Observation
 
-/// 一个窗口里用户发起的账户写入的 owner：卡片菜单、读屏操作、⌘⌫ 与「收藏到…」面板发出的意图都交给它。
+/// 一个窗口里用户发起的账户写入的 owner：卡片菜单、读屏操作、⌘⌫、「收藏到…」面板，以及播放页的点赞、投币、三连按钮与
+/// 快捷键发出的意图都交给它。
 ///
 /// 拥有每个在途写入的 Task（同一改动同时只有一个）、正在显示的「收藏到…」面板（`favoritePicker`，同时只有一个；归属的
 /// 读取 Task 归面板模型）、写入结果胶囊显示的最新结果与它的消失计时，以及窗口复核的参与者代次。不拥有门槛的判断
 /// （`writableAccount` 由 `WindowComposition` 按窗口账户算出）、写请求本身（`WatchLaterWriteUseCase`、
-/// `FavoritesWriteUseCase`）、列表内容（乐观移除与回滚在 `WatchLaterViewModel`、`FavoriteFolderViewModel`），也不直接刷新
-/// 其他视图（效果交给本窗口的 `AccountWriteEffectRouter`，并经进程级集线器转给其他窗口）。
+/// `FavoritesWriteUseCase`、`VideoEngagementUseCase`）、列表与互动状态（乐观改动与回滚在 `WatchLaterViewModel`、
+/// `FavoriteFolderViewModel`、`VideoEngagementModel`），也不直接刷新其他视图（效果交给本窗口的
+/// `AccountWriteEffectRouter`，并经进程级集线器转给其他窗口）。
 ///
 /// 每次执行都重新核对：卡片 ID 必须是合法 BVID、窗口此刻满足写入门槛，否则不发请求（菜单项可能是在门槛变化前构造的）。
 /// 失败不重试、不排队；凭据类失败（`requiresAccountRevalidation`）递增一次复核代次，此后在同一账户与会话代次里直到下一次
@@ -41,6 +44,8 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
     /// 面板读取归属用的读取 use case。
     @ObservationIgnored private let favorites: FavoritesUseCase
     @ObservationIgnored private let favoriteFolders: FavoriteFolderViewModel
+    @ObservationIgnored private let engagement: VideoEngagementUseCase
+    @ObservationIgnored private let engagementModel: VideoEngagementModel
     @ObservationIgnored private let writableAccount: @MainActor () -> WritableAccount?
     @ObservationIgnored private let publish:
         @MainActor (AccountWriteEffectDelivery, _ appliedLocally: Bool) -> Void
@@ -63,6 +68,8 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
         favoritesWrite: FavoritesWriteUseCase,
         favorites: FavoritesUseCase,
         favoriteFolders: FavoriteFolderViewModel,
+        engagement: VideoEngagementUseCase,
+        engagementModel: VideoEngagementModel,
         writableAccount: @escaping @MainActor () -> WritableAccount?,
         publish: @escaping @MainActor (AccountWriteEffectDelivery, _ appliedLocally: Bool) -> Void
     ) {
@@ -71,6 +78,8 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
         self.favoritesWrite = favoritesWrite
         self.favorites = favorites
         self.favoriteFolders = favoriteFolders
+        self.engagement = engagement
+        self.engagementModel = engagementModel
         self.writableAccount = writableAccount
         self.publish = publish
     }
@@ -111,6 +120,76 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
             },
             write: { [watchLater] in
                 try await watchLater.remove(target, accountID: account.accountID)
+            }
+        )
+    }
+
+    /// 点赞或取消：先在播放页的互动状态里乐观改动，失败或被取消时放回（此间换了视频或重读过时由模型丢弃这次回滚）。
+    ///
+    /// 同一视频反方向的改动还在途时不发：两个请求到达服务端的顺序不可知，最终状态可能与按钮相反。
+    func setLiked(_ isLiked: Bool, bvid: String) {
+        guard let target = VideoWriteTarget(bvid: bvid), let account = currentAccount() else {
+            return
+        }
+        let change = AccountWriteChange.likeChanged(target, isLiked: isLiked)
+        let opposite = AccountWriteChange.likeChanged(target, isLiked: !isLiked)
+        guard inFlight[change] == nil, inFlight[opposite] == nil else { return }
+        let snapshot = engagementModel.applyLike(isLiked, bvid: bvid)
+        start(
+            change,
+            account: account,
+            appliedLocally: { snapshot != nil },
+            rollback: { [engagementModel] in
+                if let snapshot { engagementModel.restore(snapshot) }
+            },
+            write: { [engagement] in
+                try await engagement.setLiked(isLiked, target: target, accountID: account.accountID)
+            }
+        )
+    }
+
+    /// 投币：成功后才改播放页的已投数与计数（不可撤回，不做乐观改动）。
+    func addCoins(_ count: Int, alsoLike: Bool, bvid: String) {
+        guard let target = VideoWriteTarget(bvid: bvid), let account = currentAccount() else {
+            return
+        }
+        start(
+            .coinsAdded(target, count: count, alsoLiked: alsoLike),
+            account: account,
+            appliedLocally: { true },
+            write: { [engagement, engagementModel] in
+                let effect = try await engagement.addCoins(
+                    count,
+                    alsoLike: alsoLike,
+                    target: target,
+                    accountID: account.accountID
+                )
+                if case .coinsAdded(_, let added, let liked) = effect.change {
+                    engagementModel.applyCoins(added, alsoLiked: liked, bvid: bvid)
+                }
+                return effect
+            }
+        )
+    }
+
+    /// 三连：成功后按服务端逐项结果改播放页的状态；收藏进默认收藏夹，由效果路由刷新收藏夹。
+    func triple(bvid: String) {
+        guard let target = VideoWriteTarget(bvid: bvid), let account = currentAccount() else {
+            return
+        }
+        start(
+            .tripled(target, nil),
+            account: account,
+            appliedLocally: { true },
+            write: { [engagement, engagementModel] in
+                let effect = try await engagement.triple(
+                    target: target,
+                    accountID: account.accountID
+                )
+                if case .tripled(_, let outcome?) = effect.change {
+                    engagementModel.applyTriple(outcome, bvid: bvid)
+                }
+                return effect
             }
         )
     }
