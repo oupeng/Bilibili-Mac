@@ -1,7 +1,7 @@
 import AppKit
 import BiliVideoCollectionUI
 
-/// 相关推荐横排的滚动视图：隐藏的横向滚动条、指针悬停或键盘焦点在横排内时出现的左右翻页按钮。
+/// 相关推荐横排的滚动视图：不带滚动条的横向滚动、指针悬停或键盘焦点在横排内时出现的左右翻页按钮。
 ///
 /// 视口布局与焦点变化各自合并到下一轮主队列再通知（`DispatchQueue.main.async`），不在当前布局过程中改动
 /// 集合视图；两个“已安排”标志保证每轮最多一次，`reset()` 清掉视口那一个并断开回调。按钮隐藏前若持有焦点，先把焦点交给集合视图。
@@ -59,14 +59,15 @@ final class NativeVideoShelfScrollView: NSScrollView {
 
     func install(collectionView: NSCollectionView) {
         documentView = collectionView
-        hasHorizontalScroller = true
-        horizontalScroller = NativeVideoShelfHiddenScroller()
+        // 不要滚动条：滚轮与触控板照常横向滚动，传统滚动条模式下也不在卡片下方占位；翻页交给左右按钮。
+        hasHorizontalScroller = false
         hasVerticalScroller = false
         verticalScroller = nil
         drawsBackground = false
         automaticallyAdjustsContentInsets = true
         usesPredominantAxisScrolling = true
-        horizontalScrollElasticity = .automatic
+        // 没有可见的横向滚动条时，`.automatic` 只在卡片比视口宽时回弹；显式允许，卡片不满一排时也照常回弹。
+        horizontalScrollElasticity = .allowed
         verticalScrollElasticity = .none
         contentView.postsBoundsChangedNotifications = true
     }
@@ -279,19 +280,6 @@ final class NativeVideoShelfPageButton: NSButton {
         if accepted { onFocusChange?() }
         return accepted
     }
-}
-
-/// 宽度为 0、不绘制的滚动条：保留横向滚动与触控板手势，不在卡片下方占位。
-@MainActor
-final class NativeVideoShelfHiddenScroller: NSScroller {
-    override class func scrollerWidth(
-        for controlSize: NSControl.ControlSize,
-        scrollerStyle: NSScroller.Style
-    ) -> CGFloat {
-        0
-    }
-
-    override func draw(_ dirtyRect: NSRect) {}
 }
 
 /// 横排的集合视图：键盘获得焦点时选中第一张可见卡片，交互关闭（被遮挡）时不接受焦点。

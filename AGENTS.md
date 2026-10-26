@@ -17,7 +17,7 @@ BiliKit 是原生、macOS-first、非官方 B 站浏览与播放客户端：Swif
 ## 架构与安全
 
 ```text
-Bili*Feature ──> BiliApplication ──> BiliModels      Browse/VideoDetail/Library ──> BiliUI ──> Application
+Bili*Feature ──> BiliApplication ──> BiliModels      Bili*Feature ──> BiliUI ──> Application
                         ^ ports
 BiliAPI / BiliAuth / BiliPlayback ──> BiliNetworking    BiliDanmaku ──> Application/Models
 App（Composition、AppKit/AVKit 宿主）组装以上全部    Browse/VideoDetail/Library ──> BiliVideoCollectionUI（AppKit 卡片与网格）──> BiliUI

@@ -47,11 +47,10 @@ public struct AccountWriteStatusCapsule: View {
             LoadingStateTransition.animation(reduceMotion: reduceMotion),
             value: report == nil
         )
-        .onChange(of: sequence) { _, _ in
-            guard let report else { return }
-            AccessibilityNotification.Announcement(AccountWriteStatusText.message(for: report))
-                .post()
-        }
+        .accessibilityAnnouncement(
+            report.map(AccountWriteStatusText.message(for:)),
+            trigger: sequence
+        )
     }
 }
 

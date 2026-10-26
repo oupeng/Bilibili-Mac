@@ -84,8 +84,4 @@ final class NativePlaybackCommentAuthorEntry {
         }
         region.setRects([avatar.frame, nameLabel.frame])
     }
-
-    func addCursorRects() {
-        region.addCursorRects()
-    }
 }

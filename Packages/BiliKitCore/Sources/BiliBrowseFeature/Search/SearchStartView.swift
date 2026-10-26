@@ -11,8 +11,6 @@ enum SearchStartLayout {
     static let headerSpacing: CGFloat = 12
     static let historyChipSpacing: CGFloat = 8
     static let historyChipMaximumWidth: CGFloat = 240
-    static let historyChipHorizontalPadding: CGFloat = 12
-    static let historyChipVerticalPadding: CGFloat = 5
     static let inlineSpacing: CGFloat = 8
     static let trendingColumnCount = 2
     static let trendingColumnSpacing: CGFloat = 24
@@ -101,6 +99,9 @@ struct SearchStartView: View {
         }
     }
 
+    /// 历史词是系统胶囊按钮：按下高亮、全键盘访问的焦点环与增强对比度下的边框都由系统给。
+    ///
+    /// macOS 26 起也不用玻璃样式：胶囊在内容层里，玻璃留给浮在内容之上的控件（例如评论图片预览的按钮）。
     private func historyChip(_ query: String) -> some View {
         let removeTitle = BrowseFeatureStrings.localized("删除", locale: locale)
         return Button {
@@ -109,13 +110,10 @@ struct SearchStartView: View {
             Text(query)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .padding(.horizontal, SearchStartLayout.historyChipHorizontalPadding)
-                .padding(.vertical, SearchStartLayout.historyChipVerticalPadding)
                 .frame(maxWidth: SearchStartLayout.historyChipMaximumWidth)
-                .background(.quaternary, in: Capsule())
-                .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.capsule)
         .help(query)
         .contextMenu {
             Button(removeTitle, role: .destructive) {
