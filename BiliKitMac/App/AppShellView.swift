@@ -33,7 +33,8 @@ struct AppShellView: View {
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentLinkRouter: CommentLinkRouter
     let commentShortLinks: CommentShortLinkResolution
-    let commentImageSaver: NativeCommentImageSaver
+    /// 窗口的评论图片预览面板；换视频与退出播放时关闭，关窗时由窗口组装关闭。
+    let commentImagePreview: NativeCommentImagePreviewPresenter
     let seekPlayback: @MainActor (_ bvid: String, _ seconds: Int) -> Void
     let imagePipeline: NativeVideoImagePipeline
     /// 窗口的账户写入：经环境交给各来源的卡片菜单，结果胶囊盖在主区底部。
@@ -41,7 +42,6 @@ struct AppShellView: View {
     @Binding var isAuthenticationPresented: Bool
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var gridScroll = SourceGridScrollStates()
-    @State private var commentImagePreview: NativeCommentImagePreviewRequest?
     /// 侧栏「收藏夹」组是否展开；只在窗口内存里，默认展开。
     ///
     /// 放在这里而不是侧栏里：进入、退出播放时导航侧栏会重建。
@@ -49,7 +49,7 @@ struct AppShellView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        NavigationSplitView(columnVisibility: guardedColumnVisibility) {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             // 侧栏 = 底层（导航或播放详情）+ 可选的上下文层（UP 主空间）。两层并列叠放，
             // 各自按安全区布局；上下文层打开时底层保留状态（关闭后评论位置还在），但不可见、
             // 不可点、对辅助功能隐藏。播放详情是 AppKit，另经 `isObscured` 设 `isHidden`：
@@ -94,7 +94,7 @@ struct AppShellView: View {
                 max: sidebarMaximumWidth
             )
         } detail: {
-            NavigationStack(path: guardedPlaybackPath) {
+            NavigationStack(path: Bindable(navigationCoordinator).playbackPath) {
                 selectedSourceRoot
                     .navigationDestination(
                         for: PlaybackDestination.self
@@ -117,27 +117,7 @@ struct AppShellView: View {
         // 来源网格、相关推荐横排与它们的卡片菜单都在这棵树里；写入口只转发意图，门槛与请求在 `AccountWriteCoordinator`。
         .environment(\.videoCardAccountWriting, accountWriting)
         .navigationSplitViewStyle(.balanced)
-        .toolbarVisibility(
-            isCommentImagePreviewPresented ? .hidden : .automatic,
-            for: .windowToolbar
-        )
         .frame(minWidth: 760, minHeight: 560)
-        .overlay {
-            if let commentImagePreview,
-                commentImagePreview.bvid
-                    == navigationCoordinator.currentPlaybackBVID
-            {
-                NativeCommentImagePreviewView(
-                    request: commentImagePreview,
-                    imagePipeline: imagePipeline,
-                    resolveURL: commentAssetURLResolver,
-                    imageSaver: commentImageSaver,
-                    onDismiss: {
-                        dismissCommentImagePreview(restoringFocus: true)
-                    }
-                )
-            }
-        }
         .sheet(isPresented: $isAuthenticationPresented) {
             AuthenticationView(model: authenticationModel)
         }
@@ -165,7 +145,7 @@ struct AppShellView: View {
             previousBVID,
             currentBVID in
             guard previousBVID != currentBVID else { return }
-            dismissCommentImagePreview(restoringFocus: false)
+            commentImagePreview.playbackDidChange(to: currentBVID)
         }
     }
 
@@ -191,32 +171,6 @@ struct AppShellView: View {
         navigationCoordinator.currentPlaybackBVID == nil
             ? "navigation"
             : "playback"
-    }
-
-    private var isCommentImagePreviewPresented: Bool {
-        guard let commentImagePreview else { return false }
-        return commentImagePreview.bvid
-            == navigationCoordinator.currentPlaybackBVID
-    }
-
-    private var guardedColumnVisibility: Binding<NavigationSplitViewVisibility> {
-        Binding(
-            get: { columnVisibility },
-            set: { nextVisibility in
-                guard !isCommentImagePreviewPresented else { return }
-                columnVisibility = nextVisibility
-            }
-        )
-    }
-
-    private var guardedPlaybackPath: Binding<[PlaybackDestination]> {
-        Binding(
-            get: { navigationCoordinator.playbackPath },
-            set: { path in
-                guard !isCommentImagePreviewPresented else { return }
-                navigationCoordinator.playbackPath = path
-            }
-        )
     }
 
     private var historyAccountScope: AccountSessionScope {
@@ -328,17 +282,7 @@ struct AppShellView: View {
         guard let bvid = navigationCoordinator.currentPlaybackBVID,
             let request = NativeCommentImagePreviewRequest(bvid: bvid, gallery: gallery)
         else { return }
-        commentImagePreview = request
-    }
-
-    private func dismissCommentImagePreview(restoringFocus: Bool) {
-        guard let request = commentImagePreview else { return }
-        commentImagePreview = nil
-        guard restoringFocus else { return }
-        Task { @MainActor in
-            await Task.yield()
-            request.restoreFocus()
-        }
+        commentImagePreview.present(request)
     }
 
     @ViewBuilder

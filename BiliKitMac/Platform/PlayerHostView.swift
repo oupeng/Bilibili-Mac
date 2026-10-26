@@ -434,12 +434,7 @@ final class NativePlayerHostView: AVPlayerView {
         else { return }
         pendingInitialFocusIdentity = nil
         lastInitialFocusIdentity = identity
-        // 播放就绪时评论图片预览可能已打开；不抢走它的焦点，否则 Esc 与方向键会失效。
-        guard
-            !PlayerKeyboardShortcutController.focusOwnerHoldsFocus(
-                window.firstResponder
-            )
-        else { return }
+        // 评论图片预览在自己的子窗口面板里，这里只改播放窗口的第一响应者，不影响已打开的预览。
         window.makeFirstResponder(self)
     }
 

@@ -3,15 +3,16 @@ import BiliModels
 import BiliVideoCollectionUI
 import SwiftUI
 
-/// App 壳打开一次评论图片预览的请求：只在 `bvid` 仍是当前播放视频时显示，关闭后由 App 调用
-/// `restoreFocus`。
+/// App 壳打开一次评论图片预览的请求，交给 `NativeCommentImagePreviewPresenter`：面板挂在被点开的格子所在的
+/// 窗口上，播放的视频不再是 `bvid` 时关闭；用户关闭后把焦点交还格子（`restoreFocus`）。
 @MainActor
 public struct NativeCommentImagePreviewRequest: Identifiable {
     public let id = UUID()
     public let bvid: String
     let references: [CommentAssetReference]
     let selectedIndex: Int
-    public let restoreFocus: () -> Void
+    let sourceWindow: () -> NSWindow?
+    let restoreFocus: () -> Void
 
     /// 侧栏点开的一组评论图片属于 `bvid`；没有图片时为 nil，App 不打开预览。
     public init?(bvid: String, gallery: NativePlaybackCommentPictureGallery) {
@@ -19,63 +20,50 @@ public struct NativeCommentImagePreviewRequest: Identifiable {
         self.bvid = bvid
         references = gallery.references
         selectedIndex = gallery.selectedIndex
+        sourceWindow = gallery.sourceWindow
         restoreFocus = gallery.restoreFocus
     }
 }
 
-/// 预览所在宿主视图的弱引用：保存面板以 sheet 挂在预览自己的窗口上，不取当时的 key window。
+/// 预览面板的弱引用：保存面板以 sheet 挂在预览自己的面板上，不取当时的 key window。
+///
+/// 面板由 `NativeCommentImagePreviewPresenter` 创建后写入，内容只读。
 @MainActor
 final class NativeCommentImagePreviewAnchor {
-    weak var view: NSView?
+    weak var window: NSWindow?
 }
 
-/// 评论图片预览浮层：原图经 `VideoDetailImageLoading` 加载，列表缩小图作占位；保存交给窗口级的
-/// `NativeCommentImageSaver`，关闭时调用 `onDismiss`。
-public struct NativeCommentImagePreviewView: View {
+/// 评论图片预览面板的根视图。
+///
+/// 原图经 `VideoDetailImageLoading` 加载，列表缩小图作占位；保存交给窗口级的 `NativeCommentImageSaver`，关闭时
+/// 调用 `onDismiss`。由 `NativeCommentImagePreviewPresenter` 放进面板，每次打开一个新的宿主，关闭时随宿主一起
+/// 释放（取消在途加载、释放原图）。
+struct NativeCommentImagePreviewView: View {
     let request: NativeCommentImagePreviewRequest
     let imagePipeline: any VideoDetailImageLoading
     let resolveURL: CommentAssetURLResolver
     /// 窗口级的保存 owner：预览关闭后已确认的保存照常完成。
     let imageSaver: NativeCommentImageSaver
+    let anchor: NativeCommentImagePreviewAnchor
     let onDismiss: () -> Void
 
-    @State private var anchor = NativeCommentImagePreviewAnchor()
-
-    public init(
-        request: NativeCommentImagePreviewRequest,
-        imagePipeline: any VideoDetailImageLoading,
-        resolveURL: @escaping CommentAssetURLResolver,
-        imageSaver: NativeCommentImageSaver,
-        onDismiss: @escaping () -> Void
-    ) {
-        self.request = request
-        self.imagePipeline = imagePipeline
-        self.resolveURL = resolveURL
-        self.imageSaver = imageSaver
-        self.onDismiss = onDismiss
-    }
-
-    public var body: some View {
-        NativeCommentImagePreviewHost(
+    var body: some View {
+        NativeCommentImagePreviewContent(
+            request: request,
+            loader: NativePlaybackCommentPictureLoader(
+                imagePipeline: imagePipeline,
+                resolveURL: resolveURL,
+                purpose: .commentPicturePreview
+            ),
+            placeholderLoader: NativePlaybackCommentPictureLoader(
+                imagePipeline: imagePipeline,
+                resolveURL: resolveURL,
+                purpose: .commentPicture
+            ),
+            saver: imageSaver,
             anchor: anchor,
-            content: NativeCommentImagePreviewContent(
-                request: request,
-                loader: NativePlaybackCommentPictureLoader(
-                    imagePipeline: imagePipeline,
-                    resolveURL: resolveURL,
-                    purpose: .commentPicturePreview
-                ),
-                placeholderLoader: NativePlaybackCommentPictureLoader(
-                    imagePipeline: imagePipeline,
-                    resolveURL: resolveURL,
-                    purpose: .commentPicture
-                ),
-                saver: imageSaver,
-                anchor: anchor,
-                onDismiss: onDismiss
-            )
+            onDismiss: onDismiss
         )
-        .id(request.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea()
     }
@@ -107,48 +95,6 @@ struct NativeCommentImagePreviewSelection: Equatable {
         guard canSelectNext else { return false }
         index += 1
         return true
-    }
-}
-
-/// 预览打开时独占键盘：播放器的按键监视看到第一响应者在它之内，就把方向键与 Esc 留给预览。
-@MainActor
-final class NativeCommentImagePreviewHostingView<Content: View>: NSHostingView<Content>,
-    PlayerKeyboardFocusOwner
-{
-    override var acceptsFirstResponder: Bool { true }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        guard window != nil else { return }
-        // 与原 AppKit 实现一样延后一轮：等 SwiftUI 建好焦点树后再接管第一响应者。
-        Task { @MainActor [weak self] in
-            await Task.yield()
-            guard let self, let window = self.window else { return }
-            window.makeFirstResponder(self)
-        }
-    }
-}
-
-private struct NativeCommentImagePreviewHost<Content: View>: NSViewRepresentable {
-    let anchor: NativeCommentImagePreviewAnchor
-    let content: Content
-
-    func makeNSView(context: Context) -> NativeCommentImagePreviewHostingView<Content> {
-        let view = NativeCommentImagePreviewHostingView(rootView: content)
-        anchor.view = view
-        view.sizingOptions = []
-        // 预览铺满整个窗口（含隐藏工具栏后的标题栏区域），不按窗口安全区缩进背景与布局。
-        view.safeAreaRegions = []
-        // Tab 走完预览内的控件后回到预览自身，不落到被遮住的侧栏或推荐列表上。
-        view.nextKeyView = view
-        return view
-    }
-
-    func updateNSView(
-        _ view: NativeCommentImagePreviewHostingView<Content>,
-        context: Context
-    ) {
-        view.rootView = content
     }
 }
 
@@ -427,13 +373,13 @@ private struct NativeCommentImagePreviewContent: View {
         }
     }
 
-    /// 保存当前这张的原图，保存面板挂在预览自己的窗口上。
+    /// 保存当前这张的原图，保存面板挂在预览自己的面板上。
     private func saveCurrentImage() {
         guard request.references.indices.contains(selection.index) else { return }
         saver.save(
             request.references[selection.index],
             loader: loader,
-            in: anchor.view?.window
+            in: anchor.window
         )
     }
 

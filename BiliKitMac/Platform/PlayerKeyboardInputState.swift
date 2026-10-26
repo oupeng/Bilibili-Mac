@@ -238,8 +238,8 @@ struct PlayerKeyboardInputState: Equatable, Sendable {
 
 /// 播放器是否接管一个按键事件的判定。
 ///
-/// 快捷键启用、没有 ⌘⌃⌥⇧ 修饰键、事件来自锚点所在窗口，且焦点不在拿走按键的响应者（可编辑文本、
-/// `PlayerKeyboardFocusOwner` 浮层）上时才接管。
+/// 快捷键启用、没有 ⌘⌃⌥⇧ 修饰键、事件来自锚点所在窗口，且焦点不在拿走按键的响应者（可编辑文本）上时
+/// 才接管。其他窗口（含评论图片预览的子窗口面板）里的事件一律放行。
 enum PlayerKeyboardEventScope {
     static func captures(
         isEnabled: Bool,
