@@ -63,7 +63,7 @@ SCOPES = {
     f"{SOURCES}/BiliPlayback": (
         {
             "BiliModels", "BiliApplication", "BiliNetworking",
-            "AVFoundation", "AudioToolbox", "MediaToolbox", "Network",
+            "AVFoundation", "Network",
         },
         "BiliPlayback 不能依赖 API、Auth 或界面框架",
     ),
@@ -177,15 +177,15 @@ SUBTREE_DENIED = {
         "Sparkle 只属于 App target，Package 测试不链接它",
     ),
     f"{SOURCES}/BiliPlayback/Bridge": (
-        {"AVFoundation", "AudioToolbox", "MediaToolbox"},
+        {"AVFoundation"},
         "DASH→HLS bridge 与 loopback 是不可信输入与本地服务器边界，不依赖 AVFoundation",
     ),
     f"{SOURCES}/BiliPlayback/MediaIndex": (
-        {"AVFoundation", "AudioToolbox", "MediaToolbox"},
+        {"AVFoundation"},
         "媒体索引解析是纯逻辑，不依赖 AVFoundation",
     ),
     f"{SOURCES}/BiliPlayback/CDN": (
-        {"AVFoundation", "AudioToolbox", "MediaToolbox"},
+        {"AVFoundation"},
         "线路偏好与测速是纯逻辑，不依赖 AVFoundation",
     ),
     f"{SOURCES}/BiliDanmaku/Session": (

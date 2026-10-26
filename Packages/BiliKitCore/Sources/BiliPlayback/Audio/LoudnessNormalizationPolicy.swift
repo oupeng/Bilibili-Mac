@@ -1,7 +1,7 @@
 import BiliModels
 import Foundation
 
-/// 把一条完整语义音轨的静态响度元数据转换为透明的线性 PCM 增益。
+/// 把一条完整语义音轨的静态响度元数据转换为线性音量增益。
 ///
 /// 只压低、不放大：比目标响的音轨压到目标响度，比目标安静的保持原样。增益不超过 unity，输出
 /// 不会高于原始峰值，因此不需要峰值余量或限幅器。
@@ -16,15 +16,15 @@ public struct LoudnessNormalizationPolicy: Sendable {
     /// 放宽会让极响的视频被压得更低，收紧则这类视频播放时仍比目标响。
     public static let maximumAttenuationDB = -12.0
 
-    /// 官方支持对 HLS 混音挂 `MTAudioProcessingTap` 的系统版本起才提供这项功能。
+    /// macOS 27 起 HLS item 的全部音轨混音才能经 `AVAudioMixInputParametersTrackID.mixID` 设音量，
+    /// 更早的系统不提供这项功能。
     public static var isSupported: Bool {
         if #available(macOS 27.0, *) { true } else { false }
     }
 
     public init() {}
 
-    /// 至少一条音轨需要压低时才值得安装 tap：tap 会把整段播放转成固定处理格式（多数音源为
-    /// 44.1 kHz，会多一次重采样），全都不需要压低时不装。
+    /// 至少一条音轨需要压低时才给 item 挂 audio mix 并跟随音轨选择；全都不需要压低时 item 保持原样。
     func needsAttenuation(_ tracks: [PlaybackAudioTrack]) -> Bool {
         tracks.contains { linearGain(for: $0.loudnessMetadata) < 1 }
     }
