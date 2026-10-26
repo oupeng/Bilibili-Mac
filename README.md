@@ -33,7 +33,14 @@
 </p>
 
 <p align="center">
-  <img src="Design/Marketing/v1/BiliKit-Home.png" alt="BiliKit 首页">
+  <strong>简体中文</strong> · <a href="README.en.md">English</a> · <a href="README.ja.md">日本語</a>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="Design/Marketing/v2/BiliKit-Home-Dark.png">
+    <img src="Design/Marketing/v2/BiliKit-Home-Light.png" alt="BiliKit 首页：侧栏的资料库与收藏夹，右侧是推荐视频网格">
+  </picture>
 </p>
 
 ## 为什么用 BiliKit
@@ -52,15 +59,21 @@
 
 ## 能做什么
 
-- **浏览**：首页推荐、热门、搜索，以及侧栏「资料库」里的稍后再看和观看历史，每个入口记得自己的滚动位置；搜索页有本机搜索历史和 B 站热搜，输入时有联想；观看历史标出在哪种设备上看的；稍后再看可以按添加时间排序、按进度／添加时间／时长筛选和搜索，番剧、课程和已失效视频会标出原因、不能点开；登录后侧栏「收藏夹」逐个列出自己创建的收藏夹，点开直接按页看夹内视频，可以排序和在当前收藏夹里搜索，合集、音频、番剧和已失效条目同样标出原因。
-- **播放**：自动画质、倍速、画中画、全屏，系统字幕菜单，Now Playing 和媒体键。
+- **浏览**：首页推荐、热门、搜索，每个入口记得自己的滚动位置；搜索页有本机搜索历史和 B 站热搜，输入时有联想。
+- **资料库**（登录后）：侧栏「资料库」里有稍后再看和观看历史，「收藏夹」逐个列出自己创建的收藏夹。观看历史标出在哪种设备上看的；稍后再看可以按添加时间排序、按进度／添加时间／时长筛选和搜索；收藏夹点开直接按页看夹内视频，可以排序和在当前收藏夹里搜索。番剧、课程、合集、音频和已失效的条目会标出原因、不能点开。
+- **卡片菜单**：视频卡片的右键菜单可以拷贝链接、在浏览器中打开；登录后还能添加到稍后再看，在稍后再看页右键或按 ⌘⌫ 移除。
+- **播放**：自动画质、倍速、画中画、全屏，系统字幕与音轨菜单，Now Playing 和媒体键。
 - **弹幕**：和画面走同一条时间轴，拖动、暂停、倍速都不会错位，拖动进度条后弹幕直接出现在应有的位置；速度、显示区域、密度和透明度可以调，大会员彩色弹幕照样显示。
-- **视频页**：分 P、简介、只读评论（楼中楼、图片与动图）和相关推荐，都在播放器旁边；简介和评论里的视频链接、@ 和时间戳在应用内直接打开或跳转。
+- **视频页**：分 P、简介、只读评论（楼中楼、图片与动图）和相关推荐，都在播放器旁边；简介和评论里的视频链接、@ 和时间戳在应用内直接打开或跳转。登录后点开 UP 主，可以在侧栏按投稿连续观看，正在播放的视频不中断。
 - **登录**：用 B 站 App 扫码登录，观看进度会同步到你的 B 站观看历史。
 - **更新**：安装包经 Apple 签名和公证，新版本在应用内提示。
+- **界面语言**：简体中文、繁体中文、英文和日文，跟随系统语言。
 
 <p align="center">
-  <img src="Design/Marketing/v1/BiliKit-Video-Detail.png" alt="BiliKit 视频页">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="Design/Marketing/v2/BiliKit-Video-Detail-Dark.png">
+    <img src="Design/Marketing/v2/BiliKit-Video-Detail-Light.png" alt="BiliKit 视频页：播放器上的弹幕与字幕，侧栏的简介与评论，下方的相关推荐">
+  </picture>
 </p>
 
 ## 快捷键
@@ -121,7 +134,7 @@ sh Scripts/run-quality-gates.sh app
 ```
 
 [架构](docs/ARCHITECTURE.md) · [安全模型](docs/SECURITY-MODEL.md) · [发布流程](docs/release/README.md) ·
-[安全问题报告](SECURITY.md) · [App Icon 源文件](Design/AppIcon/v1/) · [宣传截图](Design/Marketing/v1/)
+[安全问题报告](SECURITY.md) · [App Icon 源文件](Design/AppIcon/v1/) · [宣传截图](Design/Marketing/v2/)
 </details>
 
 ## 许可证与声明

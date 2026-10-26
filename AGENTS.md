@@ -78,6 +78,8 @@ App（Composition、AppKit/AVKit 宿主）组装以上全部    Browse/VideoDeta
 - 各文档只收自己那一类：ARCHITECTURE 收模块边界、仍约束代码的决定（连同不采用的替代）与跨文件不变量；
   SECURITY-MODEL 收安全与隐私规则，每节写明防什么；ROADMAP 收目标、阶段、候选与非目标，能力每项一行。
   只改单个类型的行为、取值或实测数据的提交不改这些文档，改该类型的注释与测试。
+- `README.md` 是中文原文，`README.en.md` 与 `README.ja.md` 是它的译文，界面用词取 App 本地化里的对应译名；
+  改 README 的提交同时改三份，其余文档只有中文。
 
 ## 工作与验证
 
