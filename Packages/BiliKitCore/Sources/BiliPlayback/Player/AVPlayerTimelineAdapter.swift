@@ -300,15 +300,28 @@ final class AVPlayerTimelineAdapter {
         store.markFailed(token: token)
     }
 
+    /// 按 `defaultRate` 起播；空格、Now Playing 远程播放、评论时间戳跳转与从头播放都经这里。
+    ///
+    /// 用 `play()` 而不用 `playImmediately(atRate:)`，与 AVKit 自带播放按钮一致：落点处没有缓冲时系统先等到
+    /// 数据够了再开播，而不是开播后立刻卡住；等数据期间由 App 播放器浮层的加载转圈呈现。
     func play() {
         guard let token else { return }
         let preferredRate = Self.validatedPlaybackRate(player.defaultRate) ?? 1
         player.defaultRate = preferredRate
-        player.playImmediately(atRate: preferredRate)
+        player.play()
+        publishRequestedPlayback(token: token)
+    }
+
+    /// 发出播放请求后按播放器当下的状态写时间线：已在播放写 `.playing`，等数据写 `.buffering`，速率取
+    /// `defaultRate`。
+    ///
+    /// 不乐观写 `.playing`：系统等数据时 KVO 随后会报 waiting，时间线会从 `.playing` 退回 `.buffering` 再前进，
+    /// Now Playing 与观看进度多看到一次翻转；按当下状态写，之后的 KVO 只会把 `.buffering` 推进到 `.playing`。
+    private func publishRequestedPlayback(token: PlaybackTimelineItemToken) {
         store.update(
             token: token,
-            rate: Double(preferredRate),
-            state: .playing
+            rate: Double(player.defaultRate),
+            state: player.timeControlStatus == .playing ? .playing : .buffering
         )
     }
 
@@ -372,13 +385,7 @@ final class AVPlayerTimelineAdapter {
         case .resumeAtDefaultRate:
             player.play()
         }
-        let restoredState: PlaybackTimelineState =
-            player.timeControlStatus == .playing ? .playing : .buffering
-        store.update(
-            token: token,
-            rate: Double(player.defaultRate),
-            state: restoredState
-        )
+        publishRequestedPlayback(token: token)
     }
 
     func prepareResumeRestart(operationID: UUID) {

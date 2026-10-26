@@ -608,7 +608,7 @@ struct AVPlayerTimelineAdapterTests {
 
     @Test
     @MainActor
-    func playImmediatelyUsesValidatedDefaultRateWhileWaitingForMedia() {
+    func playStartsAtValidatedDefaultRateAndReportsBufferingWhileWaitingForMedia() {
         let player = AVPlayer()
         player.defaultRate = 1.5
         let timeline = AVPlayerTimelineAdapter(player: player)
@@ -622,6 +622,6 @@ struct AVPlayerTimelineAdapterTests {
         #expect(player.rate == 1.5)
         #expect(player.timeControlStatus == .waitingToPlayAtSpecifiedRate)
         #expect(timeline.currentSnapshot.rate == 1.5)
-        #expect(timeline.currentSnapshot.state == .playing)
+        #expect(timeline.currentSnapshot.state == .buffering)
     }
 }
