@@ -30,6 +30,11 @@ struct NativeVideoImageLoadResult: Sendable {
 /// 是否动图按解码出的帧数判断：接口没有可靠的动图标记。
 enum NativeAnimatedImagePolicy {
     /// 帧数上限，超过时只显示第一帧。
+    ///
+    /// 1000 是取舍，没有实测依据，意在只拦下帧数极多的长动画。播放边解码边显示、不预先解出所有帧，
+    /// 解码后的帧不随帧数累积，所以它约束的是放行哪类源：帧数越多，留在 cache 里的编码数据通常越大。
+    /// 调大会放行更长的动图，可见期间持续逐帧解码；调小会让更多动图只显示第一帧。
+    /// SECURITY-MODEL 的图片管线一节写明了这个值，改动时同步。
     static let maximumFrameCount = 1_000
     /// 每帧像素数上限：动图按原尺寸逐帧解码，过大的原图只显示第一帧，避免持续占用 CPU。
     static let maximumPixelCount = 2_048 * 2_048

@@ -22,6 +22,19 @@ public struct SegmentIndex: Sendable, Equatable {
         self.firstOffset = firstOffset
         self.references = references
     }
+
+    /// 每个 reference 都从 type-1 SAP 开始且 `SAP_delta_time` 为 0，即每段第一个样本就是闭合 GOP 的
+    /// 可独立解码帧；I-frame rendition 与 master playlist 的 `EXT-X-INDEPENDENT-SEGMENTS` 都只认这一条件。
+    ///
+    /// `references` 为空时按 `allSatisfy` 返回 true：空索引如何处理（判不合格或报无分段）由调用方
+    /// 自己先判断，不在这里决定。
+    var allReferencesStartWithType1SAP: Bool {
+        references.allSatisfy { reference in
+            reference.startsWithSAP
+                && reference.sapType == 1
+                && reference.sapDeltaTime == 0
+        }
+    }
 }
 
 /// 一个分段的绝对字节范围、以 `timescale` 计的时长与 SAP 信息；独立分段与 I-frame 判定依赖 SAP

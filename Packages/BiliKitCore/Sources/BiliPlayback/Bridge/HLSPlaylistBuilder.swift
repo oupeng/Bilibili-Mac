@@ -135,13 +135,7 @@ public struct HLSIFramePlaylistBuilder: Sendable {
         guard index.timescale > 0 else {
             throw HLSPlaylistBuilderError.invalidTimescale
         }
-        guard
-            index.references.allSatisfy({ reference in
-                reference.startsWithSAP
-                    && reference.sapType == 1
-                    && reference.sapDeltaTime == 0
-            })
-        else {
+        guard index.allReferencesStartWithType1SAP else {
             throw HLSPlaylistBuilderError.nonIndependentIFrameSegments
         }
 
@@ -488,13 +482,8 @@ public struct HLSMasterPlaylistBuilder: Sendable {
                     representationID: video.id
                 )
             }
-            guard
-                variant.index.references.allSatisfy({ reference in
-                    reference.startsWithSAP
-                        && reference.sapType == 1
-                        && reference.sapDeltaTime == 0
-                })
-            else {
+            // 空索引不在这里拒绝，交给下面 `bitRates(for:)` 报 `noMediaSegments`。
+            guard variant.index.allReferencesStartWithType1SAP else {
                 throw HLSPlaylistBuilderError.nonIndependentIFrameSegments
             }
             let bitRates = try bitRates(for: variant.index)
@@ -565,13 +554,9 @@ public struct HLSMasterPlaylistBuilder: Sendable {
         try safeCharacteristics([role.hlsCharacteristic])
     }
 
+    /// 空索引没有可声明独立的分段，不算独立。
     private func isIndependent(_ index: SegmentIndex) -> Bool {
-        !index.references.isEmpty
-            && index.references.allSatisfy {
-                $0.startsWithSAP
-                    && $0.sapType == 1
-                    && $0.sapDeltaTime == 0
-            }
+        !index.references.isEmpty && index.allReferencesStartWithType1SAP
     }
 
     private func yesNo(_ value: Bool) -> String {
