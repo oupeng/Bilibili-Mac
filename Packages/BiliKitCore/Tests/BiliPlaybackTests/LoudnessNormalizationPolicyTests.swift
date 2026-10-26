@@ -1,5 +1,4 @@
 @preconcurrency import AVFoundation
-import AudioToolbox
 import Foundation
 import Testing
 
@@ -43,115 +42,9 @@ struct LoudnessNormalizationPolicyTests {
         #expect(policy.linearGain(for: nil) == 1)
     }
 
+    /// 只有至少一条音轨需要压低时才挂 audio mix；全都不比目标响（或没有响度数据）时不挂。
     @Test
-    func float32ProcessorHandlesInterleavedAndBoundedBuffers() {
-        let state = LoudnessProcessingTap.State(initialGain: 2)
-        state.prepare(floatFormat(sampleRate: 10, channels: 2, interleaved: true))
-        var samples: [Float] = [1, -1, 0.5, -0.5, 7]
-        samples.withUnsafeMutableBytes { bytes in
-            var bufferList = AudioBufferList(
-                mNumberBuffers: 1,
-                mBuffers: AudioBuffer(
-                    mNumberChannels: 2,
-                    mDataByteSize: 4 * UInt32(MemoryLayout<Float>.size),
-                    mData: bytes.baseAddress
-                )
-            )
-            state.process(buffers: &bufferList, frameCount: 3, discontinuity: false)
-        }
-
-        #expect(samples == [2, -2, 1, -1, 7])
-    }
-
-    @Test
-    func float32ProcessorHandlesNonInterleavedRampAndUnsupportedFormat() {
-        let state = LoudnessProcessingTap.State(initialGain: 1)
-        state.prepare(floatFormat(sampleRate: 10, channels: 2, interleaved: false))
-        state.setTargetGain(2)
-        var left: [Float] = [1, 1]
-        var right: [Float] = [1, 1]
-        withUnsafeMutablePointer(to: &left) { leftArray in
-            withUnsafeMutablePointer(to: &right) { rightArray in
-                leftArray.pointee.withUnsafeMutableBytes { leftBytes in
-                    rightArray.pointee.withUnsafeMutableBytes { rightBytes in
-                        let size =
-                            MemoryLayout<AudioBufferList>.size
-                            + MemoryLayout<AudioBuffer>.size
-                        let storage = UnsafeMutableRawPointer.allocate(
-                            byteCount: size,
-                            alignment: MemoryLayout<AudioBufferList>.alignment
-                        )
-                        defer { storage.deallocate() }
-                        let list = storage.assumingMemoryBound(
-                            to: AudioBufferList.self
-                        )
-                        list.pointee.mNumberBuffers = 2
-                        let buffers = UnsafeMutableAudioBufferListPointer(list)
-                        buffers[0] = AudioBuffer(
-                            mNumberChannels: 1,
-                            mDataByteSize: UInt32(leftBytes.count),
-                            mData: leftBytes.baseAddress
-                        )
-                        buffers[1] = AudioBuffer(
-                            mNumberChannels: 1,
-                            mDataByteSize: UInt32(rightBytes.count),
-                            mData: rightBytes.baseAddress
-                        )
-                        state.process(
-                            buffers: list,
-                            frameCount: 2,
-                            discontinuity: false
-                        )
-                    }
-                }
-            }
-        }
-        #expect(abs(left[0] - 1.5) < 0.001)
-        #expect(left == right)
-
-        let unsupported = LoudnessProcessingTap.State(initialGain: 2)
-        var format = floatFormat(sampleRate: 10, channels: 1, interleaved: true)
-        format.mBitsPerChannel = 16
-        unsupported.prepare(format)
-        var untouched: [Float] = [1]
-        untouched.withUnsafeMutableBytes { bytes in
-            var list = AudioBufferList(
-                mNumberBuffers: 1,
-                mBuffers: AudioBuffer(
-                    mNumberChannels: 1,
-                    mDataByteSize: UInt32(bytes.count),
-                    mData: bytes.baseAddress
-                )
-            )
-            unsupported.process(buffers: &list, frameCount: 1, discontinuity: false)
-        }
-        #expect(untouched == [1])
-    }
-
-    @Test
-    func discontinuityResetsAnInFlightRampToTheLatestTarget() {
-        let state = LoudnessProcessingTap.State(initialGain: 1)
-        state.prepare(floatFormat(sampleRate: 48_000, channels: 1, interleaved: true))
-        state.setTargetGain(2)
-        var samples: [Float] = [1]
-        samples.withUnsafeMutableBytes { bytes in
-            var list = AudioBufferList(
-                mNumberBuffers: 1,
-                mBuffers: AudioBuffer(
-                    mNumberChannels: 1,
-                    mDataByteSize: UInt32(bytes.count),
-                    mData: bytes.baseAddress
-                )
-            )
-            state.process(buffers: &list, frameCount: 1, discontinuity: true)
-        }
-
-        #expect(samples == [2])
-    }
-
-    /// 只有至少一条音轨需要压低时才安装 tap；全都不比目标响（或没有响度数据）时不装。
-    @Test
-    func tapIsInstalledOnlyWhenSomeTrackNeedsAttenuation() {
+    func audioMixIsInstalledOnlyWhenSomeTrackNeedsAttenuation() {
         let quiet = audioTrack(role: .original, metadata: metadata(measuredI: -25, measuredTP: -3))
         let loud = audioTrack(
             role: .machineGenerated,
@@ -163,6 +56,52 @@ struct LoudnessNormalizationPolicyTests {
         #expect(!policy.needsAttenuation([quiet, unmeasured]))
         #expect(policy.needsAttenuation([quiet, loud]))
         #expect(!policy.needsAttenuation([]))
+    }
+
+    /// 从原声切到更响的配音：mix 只设在全部音轨的混音（mixID）上，锚点之前就是新音量，从切换时的 item
+    /// 时间起短过渡，之后保持新音量；gain 不变或停在开头时整段都是同一音量，不做过渡。
+    @Test
+    func trackSwitchAudioMixRampsMixVolumeFromTheCurrentItemTime() throws {
+        guard #available(macOS 27.0, *) else { return }
+        let originalGain = policy.linearGain(for: metadata(measuredI: -20, measuredTP: -3))
+        let dubGain = policy.linearGain(for: metadata(measuredI: -6, measuredTP: 1))
+        #expect(originalGain == 1)
+        #expect(abs(dubGain - Float(pow(10, -12.0 / 20))) < 0.0001)
+        let switchTime = CMTime(seconds: 42, preferredTimescale: 600)
+
+        let switched = try #require(
+            LoudnessAudioMix.make(
+                volume: dubGain,
+                rampingFrom: originalGain,
+                at: switchTime
+            ).inputParameters.only
+        )
+
+        #expect(switched.trackID == AVAudioMixInputParametersTrackID.mixID.rawValue)
+        let beforeAnchor = try #require(volumeRamp(of: switched, at: 10))
+        #expect(beforeAnchor.start == dubGain)
+        #expect(beforeAnchor.end == dubGain)
+        let ramp = try #require(volumeRamp(of: switched, at: 42.05))
+        #expect(ramp.start == originalGain)
+        #expect(ramp.end == dubGain)
+        #expect(ramp.timeRange.start == switchTime)
+        #expect(ramp.timeRange.duration == LoudnessAudioMix.rampDuration)
+        // 过渡结束后没有更多音量段，系统沿用最后的音量（新 gain）。
+        #expect(volumeRamp(of: switched, at: 60) == nil)
+
+        for constant in [
+            LoudnessAudioMix.make(volume: dubGain),
+            LoudnessAudioMix.make(volume: dubGain, rampingFrom: dubGain, at: switchTime),
+            LoudnessAudioMix.make(volume: dubGain, rampingFrom: originalGain, at: .zero)
+        ] {
+            let parameters = try #require(constant.inputParameters.only)
+            #expect(parameters.trackID == AVAudioMixInputParametersTrackID.mixID.rawValue)
+            let whole = try #require(volumeRamp(of: parameters, at: 60))
+            #expect(whole.start == dubGain)
+            #expect(whole.end == dubGain)
+            #expect(whole.timeRange.start == .zero)
+            #expect(!whole.timeRange.duration.isNumeric)
+        }
     }
 
     /// 语言按 BCP 47 补全后比较：同一语言的不同写法能对上，不同语言或文字不能。
@@ -258,25 +197,34 @@ struct LoudnessNormalizationPolicyTests {
             targetTruePeakDBTP: -1
         )
     }
+}
 
-    private func floatFormat(
-        sampleRate: Double,
-        channels: UInt32,
-        interleaved: Bool
-    ) -> AudioStreamBasicDescription {
-        AudioStreamBasicDescription(
-            mSampleRate: sampleRate,
-            mFormatID: kAudioFormatLinearPCM,
-            mFormatFlags:
-                kAudioFormatFlagIsFloat
-                | kAudioFormatFlagIsPacked
-                | (interleaved ? 0 : kAudioFormatFlagIsNonInterleaved),
-            mBytesPerPacket: 4 * (interleaved ? channels : 1),
-            mFramesPerPacket: 1,
-            mBytesPerFrame: 4 * (interleaved ? channels : 1),
-            mChannelsPerFrame: channels,
-            mBitsPerChannel: 32,
-            mReserved: 0
+/// 某一 item 时间所在的音量段：起止音量与时间范围。
+private struct VolumeRamp: Equatable {
+    let start: Float
+    let end: Float
+    let timeRange: CMTimeRange
+}
+
+private func volumeRamp(
+    of parameters: AVAudioMixInputParameters,
+    at seconds: Double
+) -> VolumeRamp? {
+    var start: Float = 0
+    var end: Float = 0
+    var timeRange = CMTimeRange()
+    guard
+        parameters.getVolumeRamp(
+            for: CMTime(seconds: seconds, preferredTimescale: 600),
+            startVolume: &start,
+            endVolume: &end,
+            timeRange: &timeRange
         )
-    }
+    else { return nil }
+    return VolumeRamp(start: start, end: end, timeRange: timeRange)
+}
+
+extension Array {
+    /// 恰好一个元素时返回它。
+    fileprivate var only: Element? { count == 1 ? first : nil }
 }

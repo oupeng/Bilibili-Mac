@@ -50,7 +50,7 @@ BiliNetworking 不依赖任何 Bili 模块
 | `BiliNetworking` | 无业务语义的 HTTP 与 Range client、`HTTPRequestAuthorizing`、URL 形状策略与 JSON 响应判定 | Bili 模块、`Security`、UI/播放框架 |
 | `BiliAPI` | endpoint DTO、WBI、解码、protobuf wire、远端错误映射，并实现 Application 仓库 port | `BiliAuth`（只接受注入的授权器） |
 | `BiliAuth` | Web QR 状态机、Cookie envelope、Keychain store、请求授权器，实现 `AuthenticationServicing` | `BiliAPI`、`BiliPlayback`、`BiliDanmaku`、Feature、UI 框架 |
-| `BiliPlayback` | DASH→HLS bridge、loopback server、SIDX、`AVPlayerEngine`、线路偏好与测速、响度 tap | `BiliAPI`、`BiliAuth` |
+| `BiliPlayback` | DASH→HLS bridge、loopback server、SIDX、`AVPlayerEngine`、线路偏好与测速、响度均一化 | `BiliAPI`、`BiliAuth` |
 | `BiliDanmaku` | 弹幕会话与分段缓存、车道布局、按媒体时间的 materializer、Core Animation renderer。`Session/`、`Layout/`、`Presentation/` 是纯逻辑，渲染框架只在 `Rendering/` | `BiliAPI`、`BiliAuth`、`BiliNetworking`、`BiliPlayback`、Feature、SwiftUI |
 | `Bili*Feature` | SwiftUI View 与 `@MainActor` ViewModel：Browse（推荐、热门、搜索）、Library（观看历史、稍后再看、收藏夹）、Auth（扫码登录、登出与账户投影的来源）。来源条目到卡片的网格包装在拥有该来源的 Feature | adapter target、其他 Feature、直接 import AppKit/AVKit/AVFoundation |
 | `BiliVideoDetailFeature` | 播放页与侧栏上下文层的 UP 主空间：视频与分 P 意图、续播与链接起播、评论、弹幕设置、空间投稿，以及这些页面的呈现投影与 AppKit 视图（播放侧栏、评论图片预览、相关推荐横排、空间列表）。导航给出的选择意图怎样落到当前视频、失败后由谁重试，以及播放页失败的文案与是否可重试，只在这里 | 同其他 Feature，但可 import AppKit、CoreText（评论排版）与 ImageIO（动图逐帧解码）；不依赖 AVKit/AVFoundation、网络与 adapter；下载、校验、首帧解码、动图门槛与缓存只在 App 管线 |
@@ -304,10 +304,17 @@ Settings 窗口，从不自动改选。
 
 ### 响度均一化（macOS 27 起）
 
-UGC playurl 带 `voice_balance=1` 时返回 loudness 元数据。macOS 27 起 Apple 官方支持对 HLS item 的
-全部音轨混音挂 `MTAudioProcessingTap`；更早系统不提供此功能，不依赖未文档化行为。默认关闭，新 load 读一次
-设置。gain 只压低不放大，所以没有峰值余量项与限幅器；元数据缺失、音轨无法唯一映射或 tap 失败时保持
-unity，播放不得失败。不自行测量响度。实时回调只读固定内存／原子值，不分配、不加锁、不记日志。
+UGC playurl 带 `voice_balance=1` 时返回 loudness 元数据。macOS 27 起 HLS item 的全部音轨混音可以经
+`AVAudioMixInputParametersTrackID.mixID` 设 audio mix 参数；更早系统没有官方接入点，不提供此功能，不依赖
+未文档化行为。默认关闭，新 load 读一次设置。gain 只压低不放大，所以没有峰值余量项与限幅器；元数据缺失、
+音轨无法唯一映射或查询失败时保持 unity，播放不得失败。不自行测量响度。
+
+- gain 是混音 audio mix 上的 volume：只压低时 volume ≤ 1 就能表达。macOS 27 的 HLS item 上实测按 mixID
+  设的 volume 精确生效、切换音轨后保持，播放中换上新 mix 几十毫秒内生效且不断流。
+- 选中音轨变化使 gain 改变时换一个新 mix，从当前 item 时间起用短 volume ramp 过渡；音量曲线定义在 item
+  时间上，锚点之前也设为新 gain，往回 seek 不会回到旧 gain。
+- 不用 `MTAudioProcessingTap`：恒定增益不需要逐帧处理，tap 却要求固定处理格式（多一次重采样）、实时回调
+  与手动内存管理。
 
 ### 分发
 
