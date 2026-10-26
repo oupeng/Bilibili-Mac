@@ -2,7 +2,8 @@ import BiliModels
 import BiliNetworking
 import Foundation
 
-/// 写请求共用的表单管线（观看进度 heartbeat 与用户发起的账户写入），以及稍后再看与收藏的写入。
+/// 写请求共用的表单管线（观看进度 heartbeat 与用户发起的账户写入），以及稍后再看与收藏的写入；点赞、投币与三连在
+/// `BiliAPIClient+VideoEngagement`。
 ///
 /// 表单编码、固定 header、响应上限、状态 envelope 与 -101／-111 映射只在 `postForm` 一处；各写 endpoint 只给出 path、
 /// 字段、Referer 与授权方式。用户发起的写入只在注入了账户写授权器的 client（窗口主 API）上可用，并绑定窗口账户的 mid。
@@ -12,7 +13,7 @@ extension BiliAPIClient {
     /// 写请求的响应只有状态 envelope，16 KiB 远超正常大小；更大的正文按异常响应失败关闭。
     private static let maximumWriteResponseSize = 16 * 1_024
     /// 用户发起的写入固定带的 `Origin`，与授权器 `BiliAccountWriteRequestAuthorizer.origin` 相同。
-    private static let accountWriteOrigin = "https://www.bilibili.com"
+    static let accountWriteOrigin = "https://www.bilibili.com"
     /// 加入稍后再看的 Referer：卡片可能来自任何页面，用固定的站点首页，不随来源变化。
     private static let watchLaterAddReferer = "https://www.bilibili.com/"
     /// 移除稍后再看的 Referer：与网页稍后再看页一致。
@@ -100,18 +101,21 @@ extension BiliAPIClient {
     }
 
     /// 表单写请求的唯一管线：urlencoded 编码字段，固定 `Accept`、`Content-Type`、`Referer`、`User-Agent`（`origin` 给出时
-    /// 另带 `Origin`），经 `access` 对应的授权器发出，再判定状态 envelope。
+    /// 另带 `Origin`），经 `access` 对应的授权器发出，再判定状态 envelope；成功时返回响应正文，需要 `data` 的写入自己解码。
     ///
     /// 写请求总是带凭据发出：业务码 -101（未登录）与 -111（csrf 校验失败）都说明凭据失效，映射为
-    /// `authenticationInvalid`；其他非零码为 `apiRejected`，不解码 `data`。不像 JSON 的正文（HTML 风控页等）按
-    /// `nonJSONResponse` 失败关闭。调用方不得自行附加 csrf：授权器在拼好的表单末尾注入，表单里已有就拒绝。
+    /// `authenticationInvalid`；其他非零码为 `apiRejected`。不像 JSON 的正文（HTML 风控页等）按 `nonJSONResponse` 失败
+    /// 关闭。调用方不得自行附加 csrf：授权器在拼好的表单末尾注入，表单里已有就拒绝。`additionalCookie` 在授权之后附加，
+    /// 只给要求 `buvid3` 的点赞、投币与三连（见 SECURITY-MODEL §3）。
+    @discardableResult
     func postForm(
         url: URL,
         fields: [(String, String)],
         referer: String,
         origin: String?,
-        access: RequestAccess
-    ) async throws {
+        access: RequestAccess,
+        additionalCookie: String? = nil
+    ) async throws -> Data {
         var headers = [
             "Accept": "application/json",
             "Content-Type": "application/x-www-form-urlencoded",
@@ -129,7 +133,8 @@ extension BiliAPIClient {
                 body: try Self.formBody(fields)
             ),
             access: access,
-            maximumResponseSize: Self.maximumWriteResponseSize
+            maximumResponseSize: Self.maximumWriteResponseSize,
+            additionalCookie: additionalCookie
         )
         guard authorizedResponse.response.looksLikeJSON(allowsTopLevelArray: true) else {
             throw BiliAPIError.nonJSONResponse
@@ -149,6 +154,7 @@ extension BiliAPIClient {
         guard status.code == 0 else {
             throw BiliAPIError.apiRejected(code: status.code, message: status.message ?? "")
         }
+        return authorizedResponse.response.body
     }
 
     /// 稍后再看写入的共同部分：BVID 在本地换算为 aid（写接口一律传 aid），表单只有 `aid`，csrf 由授权器注入。

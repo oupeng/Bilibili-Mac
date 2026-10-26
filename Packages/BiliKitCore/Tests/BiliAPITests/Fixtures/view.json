@@ -19,8 +19,10 @@
       "view": 12345,
       "danmaku": 234,
       "like": 3456,
+      "coin": 78,
       "favorite": 456
     },
+    "copyright": 2,
     "dimension": {
       "width": 1920,
       "height": 1080,

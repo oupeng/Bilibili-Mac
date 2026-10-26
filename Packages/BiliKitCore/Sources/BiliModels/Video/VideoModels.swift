@@ -233,6 +233,8 @@ public struct VideoDetail: Identifiable, Sendable, Equatable {
     public let pages: [VideoPage]
     public let collection: VideoCollection?
     public let access: VideoAccess
+    /// 播放页点赞、投币、收藏按钮旁的计数与投币上限需要的事实；接口没给时计数为 nil。
+    public let engagementSummary: VideoEngagementSummary
 
     public init(
         bvid: String,
@@ -248,7 +250,8 @@ public struct VideoDetail: Identifiable, Sendable, Equatable {
         aid: Int64? = nil,
         pages: [VideoPage] = [],
         collection: VideoCollection? = nil,
-        access: VideoAccess = VideoAccess()
+        access: VideoAccess = VideoAccess(),
+        engagementSummary: VideoEngagementSummary = VideoEngagementSummary()
     ) {
         self.aid = aid
         self.bvid = bvid
@@ -264,6 +267,21 @@ public struct VideoDetail: Identifiable, Sendable, Equatable {
         self.pages = pages
         self.collection = collection
         self.access = access
+        self.engagementSummary = engagementSummary
+    }
+}
+
+/// 视频详情里与点赞、投币、收藏有关的部分：投币数与收藏数（点赞数在 `VideoStatistics`），以及是否为转载。
+public struct VideoEngagementSummary: Sendable, Equatable {
+    public let coinCount: Int64?
+    public let favoriteCount: Int64?
+    /// 转载稿件（接口 `copyright` 为 2）最多投 1 枚币；1（自制）与 3（未填写）按自制处理。
+    public let isReposted: Bool
+
+    public init(coinCount: Int64? = nil, favoriteCount: Int64? = nil, isReposted: Bool = false) {
+        self.coinCount = coinCount
+        self.favoriteCount = favoriteCount
+        self.isReposted = isReposted
     }
 }
 

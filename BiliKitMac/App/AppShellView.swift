@@ -39,6 +39,8 @@ struct AppShellView: View {
     let imagePipeline: NativeVideoImagePipeline
     /// 窗口的账户写入：经环境交给各来源的卡片菜单，结果胶囊盖在主区底部。
     let accountWrites: AccountWriteCoordinator
+    /// 播放页点赞、投币、收藏按钮的状态；窗口写入账户变化时交给它重读。
+    let engagementModel: VideoEngagementModel
     @Binding var isAuthenticationPresented: Bool
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var gridScroll = SourceGridScrollStates()
@@ -96,26 +98,36 @@ struct AppShellView: View {
         } detail: {
             NavigationStack(path: Bindable(navigationCoordinator).playbackPath) {
                 selectedSourceRoot
+                    // 写入结果胶囊挂在各页上而不是整个栈外：macOS 把压栈的播放页放在单独一层并铺了不透明背景，
+                    // 挂在栈外的胶囊会被它盖住。播放页打开时根页面仍在渲染，这里不再显示，免得读屏把同一条结果
+                    // 通告两次；播放页自己挂一份。
+                    .overlay(alignment: .bottom) {
+                        if navigationCoordinator.currentPlaybackBVID == nil {
+                            AccountWriteStatusOverlay(accountWrites: accountWrites)
+                        }
+                    }
                     .navigationDestination(
                         for: PlaybackDestination.self
                     ) { _ in
                         PlaybackDestinationView(
                             model: videoModel,
                             danmakuModel: danmakuModel,
+                            engagementModel: engagementModel,
                             playerContent: playerContent,
                             imagePipeline: imagePipeline,
                             onRetry: retryPlayback,
                             onSelectRelatedVideo:
                                 navigationCoordinator.openPlayback
                         )
+                        .overlay(alignment: .bottom) {
+                            AccountWriteStatusOverlay(accountWrites: accountWrites)
+                        }
                     }
-            }
-            .overlay(alignment: .bottom) {
-                AccountWriteStatusOverlay(accountWrites: accountWrites)
             }
         }
         // 来源网格、相关推荐横排与它们的卡片菜单都在这棵树里；写入口只转发意图，门槛与请求在 `AccountWriteCoordinator`。
         .environment(\.videoCardAccountWriting, accountWriting)
+        .environment(\.videoEngagementActions, engagementActions)
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 760, minHeight: 560)
         .sheet(isPresented: $isAuthenticationPresented) {
@@ -130,8 +142,9 @@ struct AppShellView: View {
             )
         }
         .onChange(of: accountWrites.currentWritableAccount) {
-            // 登出、换号、其他窗口换号待复核：属于旧账户的「收藏到…」面板立即关闭。
+            // 登出、换号、其他窗口换号待复核：属于旧账户的「收藏到…」面板立即关闭，播放页按新账户重读互动状态。
             accountWrites.writableAccountDidChange()
+            engagementModel.present(videoModel.presentedContext?.detail)
         }
         .onChange(of: searchSession.submittedCriteria) { previousCriteria, criteria in
             guard previousCriteria != criteria else { return }
@@ -170,6 +183,17 @@ struct AppShellView: View {
             removeFromWatchLater: { accountWrites.removeFromWatchLater(bvid: $0) },
             chooseFavoriteFolders: { accountWrites.chooseFavoriteFolders(bvid: $0) },
             removeFromFavoriteFolder: { accountWrites.removeFromFavoriteFolder($0) }
+        )
+    }
+
+    /// 播放页点赞、投币、收藏按钮的写入口：门槛在按钮求值时读取，动作转给窗口的写入协调者。
+    private var engagementActions: VideoEngagementActions {
+        let accountWrites = accountWrites
+        return VideoEngagementActions(
+            isAvailable: { accountWrites.isWritable },
+            setLiked: { accountWrites.setLiked($0, bvid: $1) },
+            addCoins: { accountWrites.addCoins($0, alsoLike: $1, bvid: $2) },
+            chooseFavoriteFolders: { accountWrites.chooseFavoriteFolders(bvid: $0) }
         )
     }
 
@@ -396,6 +420,7 @@ private struct SourceGridScrollStates {
 private struct PlaybackDestinationView: View {
     let model: VideoViewModel
     let danmakuModel: DanmakuControlsViewModel
+    let engagementModel: VideoEngagementModel
     let playerContent: AnyView
     let imagePipeline: NativeVideoImagePipeline
     let onRetry: () -> Void
@@ -405,6 +430,7 @@ private struct PlaybackDestinationView: View {
         VideoPlaybackView(
             model: model,
             danmakuModel: danmakuModel,
+            engagementModel: engagementModel,
             onRetry: onRetry,
             onSelectRelatedVideo: onSelectRelatedVideo,
             relatedImageLoader: imagePipeline

@@ -3,6 +3,7 @@ import BiliApplication
 import BiliAuthFeature
 import BiliLibraryFeature
 import BiliModels
+import BiliVideoDetailFeature
 import Foundation
 import Testing
 
@@ -11,7 +12,9 @@ import Testing
 /// 账户写入只在窗口账户可信（已登录且 mid 已知、不在复核、没有待复核的外部换号）时发出，并绑定该账户；成功后给出结果
 /// 并让本窗口与其他窗口的稍后再看在下次出现时刷新（本窗口乐观移除过的不再刷新）；稍后再看页与收藏夹页的移除先在本地
 /// 删掉、失败放回原位；「收藏到…」面板确认时只提交勾选的差异，成功后侧栏收藏夹重读；窗口账户一变面板就关闭，重试与
-/// 确认也不在另一个账户下进行；写入或面板读取的凭据类失败只请求一次复核，直到下一次写入成功；关窗后不再接受意图。
+/// 确认也不在另一个账户下进行；播放页点赞乐观改动、失败放回，反方向的点赞在途时不再发，投币与三连成功后才改状态、三连
+/// 刷新收藏夹；快捷键在未登录、状态未知与全屏时给出提示；写入或面板读取的凭据类失败只请求一次复核，直到下一次写入成功；
+/// 关窗后不再接受意图。
 @Suite(.timeLimit(.minutes(1)))
 @MainActor
 struct AccountWriteCoordinatorTests {
@@ -176,6 +179,7 @@ struct AccountWriteCoordinatorTests {
             watchLaterModel: window.watchLaterModel,
             favoriteFolderList: window.favoriteFolderList,
             favoriteFolders: window.favoriteFolders,
+            engagementModel: window.engagementModel,
             writableAccount: { WritableAccount(accountID: 7, sessionGeneration: 3) }
         )
 
@@ -220,7 +224,10 @@ struct AccountWriteCoordinatorTests {
                 "/x/v2/history/toview/add",
                 "/x/v2/history/toview/del",
                 "/x/v3/fav/resource/deal",
-                "/x/v3/fav/resource/batch-del"
+                "/x/v3/fav/resource/batch-del",
+                "/x/web-interface/archive/like",
+                "/x/web-interface/coin/add",
+                "/x/web-interface/archive/like/triple"
             ]
         )
         #expect(BiliAccountWritePath.watchLaterAdd == "/x/v2/history/toview/add")
@@ -395,6 +402,7 @@ struct AccountWriteCoordinatorTests {
         favorites: FavoritesRepositoryStub = FavoritesRepositoryStub()
     ) -> AccountWriteCoordinator {
         let favoritesUseCase = FavoritesUseCase(repository: favorites)
+        let engagementUseCase = VideoEngagementUseCase(repository: writes)
         return AccountWriteCoordinator(
             watchLater: WatchLaterWriteUseCase(repository: writes),
             watchLaterModel: WatchLaterViewModel(
@@ -409,13 +417,177 @@ struct AccountWriteCoordinatorTests {
                     accountScope: { .signedOut }
                 )
             ),
+            engagement: engagementUseCase,
+            engagementModel: VideoEngagementModel(
+                useCase: engagementUseCase,
+                accountID: { session.account?.accountID }
+            ),
             writableAccount: { session.account },
             publish: { _, _ in }
         )
     }
 
+    @Test
+    func likeIsOptimisticAndRollsBackOnFailure() async throws {
+        let writes = AccountWriteRepositoryStub(outcomes: [.restricted])
+        let window = try await signedInWindow(process: makeTestProcess(), writes: writes)
+        defer { window.close() }
+        await presentEngagement(in: window)
+
+        window.accountWrites.setLiked(true, bvid: "BV17x411w7KC")
+        #expect(window.engagementModel.engagement?.isLiked == true)
+        await waitForObservedState { window.accountWrites.report != nil }
+
+        #expect(window.engagementModel.engagement?.isLiked == false)
+        #expect(window.accountWrites.report?.failure == .restricted)
+        #expect(await writes.calls == ["like BV17x411w7KC 7"])
+    }
+
+    /// 反方向的点赞还在途时不发：两个请求到达服务端的顺序不可知。
+    @Test
+    func oppositeLikeWaitsForTheInFlightOne() async throws {
+        let writes = AccountWriteRepositoryStub(holdsWrites: true)
+        let window = try await signedInWindow(process: makeTestProcess(), writes: writes)
+        defer { window.close() }
+        await presentEngagement(in: window)
+
+        window.accountWrites.setLiked(true, bvid: "BV17x411w7KC")
+        await writes.waitForCallCount(1)
+        window.accountWrites.setLiked(false, bvid: "BV17x411w7KC")
+        await writes.releaseWrites()
+        await waitForObservedState { window.accountWrites.report != nil }
+
+        #expect(await writes.calls == ["like BV17x411w7KC 7"])
+        #expect(window.engagementModel.engagement?.isLiked == true)
+    }
+
+    @Test
+    func coinsAndTripleApplyOnSuccessAndTripleRefreshesFavorites() async throws {
+        let writes = AccountWriteRepositoryStub(
+            tripleOutcome: VideoTripleOutcome(
+                isLiked: true,
+                isCoined: true,
+                isFavorited: true,
+                addedCoinCount: 1
+            )
+        )
+        let favorites = FavoritesRepositoryStub()
+        let window = try await signedInWindow(
+            process: makeTestProcess(),
+            writes: writes,
+            favorites: favorites
+        )
+        defer { window.close() }
+        window.favoriteFolderList.synchronize()
+        await favorites.waitForFolderRequestCount(1)
+        await waitForObservedState { !window.favoriteFolderList.folders.isEmpty }
+        await presentEngagement(in: window)
+
+        window.accountWrites.addCoins(1, alsoLike: true, bvid: "BV17x411w7KC")
+        #expect(window.engagementModel.engagement?.coinCount == 0)
+        await waitForObservedState { window.accountWrites.report != nil }
+        #expect(
+            window.engagementModel.engagement
+                == VideoEngagementState(isLiked: true, coinCount: 1, isFavorited: false)
+        )
+
+        let sequence = window.accountWrites.reportSequence
+        window.accountWrites.triple(bvid: "BV17x411w7KC")
+        await waitForObservedState { window.accountWrites.reportSequence != sequence }
+
+        #expect(
+            window.engagementModel.engagement
+                == VideoEngagementState(isLiked: true, coinCount: 2, isFavorited: true)
+        )
+        #expect(await writes.calls == ["coin 1 +like BV17x411w7KC 7", "triple BV17x411w7KC 7"])
+        // 三连的收藏进默认收藏夹：侧栏收藏夹在后台重读条数。
+        await favorites.waitForFolderRequestCount(2)
+    }
+
+    @Test
+    func shortcutsExplainWhyTheyCannotAct() async throws {
+        let signedOut = WindowComposition(process: makeTestProcess(), adapters: makeTestAdapters())
+        signedOut.authenticationModel.restoreIfNeeded()
+        await signedOut.authenticationModel.waitForCurrentTask()
+        defer { signedOut.close() }
+        let signedOutShortcuts = PlayerEngagementShortcuts.make(
+            accountWrites: signedOut.accountWrites,
+            engagementModel: signedOut.engagementModel,
+            videoModel: signedOut.videoModel
+        )
+        #expect(signedOutShortcuts.toggleLike() == .signInRequired)
+
+        let fixture = VideoFixture(bvid: "BV17x411w7KC")
+        let window = try await signedInWindow(
+            process: makeTestProcess(),
+            video: FixtureVideoRepository(fixtures: [fixture])
+        )
+        defer { window.close() }
+        let shortcuts = PlayerEngagementShortcuts.make(
+            accountWrites: window.accountWrites,
+            engagementModel: window.engagementModel,
+            videoModel: window.videoModel
+        )
+        // 播放页还没有展示这个视频：不响应。
+        await presentEngagement(in: window)
+        #expect(shortcuts.triple() == .unavailable)
+
+        window.videoModel.loadVideo(fixture.bvid)
+        await waitForObservedState {
+            window.videoModel.presentedBVID == fixture.bvid
+                && !window.videoModel.blocksPresentedContext
+        }
+        #expect(shortcuts.openCoinPanel(true) == .exitFullScreenToCoin)
+        #expect(!window.engagementModel.isCoinPanelPresented)
+        #expect(shortcuts.openCoinPanel(false) == nil)
+        #expect(window.engagementModel.isCoinPanelPresented)
+        #expect(shortcuts.chooseFavoriteFolders(true) == .exitFullScreenToFavorite)
+        #expect(window.accountWrites.favoritePicker == nil)
+        #expect(shortcuts.chooseFavoriteFolders(false) == nil)
+        #expect(window.accountWrites.favoritePicker != nil)
+        #expect(shortcuts.toggleLike() == .liked)
+    }
+
+    /// 给播放页一个视频详情并等互动状态读到。
+    private func presentEngagement(in window: WindowComposition) async {
+        window.engagementModel.present(
+            VideoDetail(
+                bvid: "BV17x411w7KC",
+                title: "标题",
+                summary: "",
+                coverURL: nil,
+                owner: VideoOwner(id: 1, name: "作者"),
+                statistics: VideoStatistics(viewCount: 1, danmakuCount: 1, likeCount: 1),
+                durationSeconds: 60,
+                publishedAt: Date(timeIntervalSince1970: 1_700_000_000)
+            )
+        )
+        await waitForObservedState { window.engagementModel.engagement != nil }
+    }
+
+    /// 同一视频的点赞、投币、三连同时只发一个；投币不超过此刻的可投数。
+    @Test
+    func oneEngagementWritePerVideoAndCoinsWithinTheRemainder() async throws {
+        let writes = AccountWriteRepositoryStub(holdsWrites: true)
+        let window = try await signedInWindow(process: makeTestProcess(), writes: writes)
+        defer { window.close() }
+        await presentEngagement(in: window)
+
+        #expect(window.accountWrites.triple(bvid: "BV17x411w7KC"))
+        await writes.waitForCallCount(1)
+        #expect(!window.accountWrites.setLiked(true, bvid: "BV17x411w7KC"))
+        #expect(!window.accountWrites.addCoins(1, alsoLike: false, bvid: "BV17x411w7KC"))
+        await writes.releaseWrites()
+        await waitForObservedState { window.accountWrites.report != nil }
+
+        #expect(window.engagementModel.remainingCoins == 0)
+        #expect(!window.accountWrites.addCoins(1, alsoLike: false, bvid: "BV17x411w7KC"))
+        #expect(await writes.calls == ["triple BV17x411w7KC 7"])
+    }
+
     private func signedInWindow(
         process: ProcessComposition,
+        video: any VideoRepository = FixtureVideoRepository(fixtures: []),
         writes: AccountWriteRepositoryStub = AccountWriteRepositoryStub(),
         watchLater bvids: [String] = [],
         favorites: FavoritesRepositoryStub = FavoritesRepositoryStub()
@@ -423,10 +595,12 @@ struct AccountWriteCoordinatorTests {
         let window = WindowComposition(
             process: process,
             adapters: makeTestAdapters(
+                video: video,
                 favorites: favorites,
                 watchLater: WatchLaterRepositoryStub(bvids: bvids),
                 watchLaterWrite: writes,
                 favoritesWrite: writes,
+                videoEngagement: writes,
                 authentication: AuthenticationServiceStub(
                     restoreState: .signedIn(
                         AccountIdentity(id: 7, displayName: "账号", avatarURL: nil)

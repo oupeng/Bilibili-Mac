@@ -35,6 +35,8 @@ struct WindowAdapters {
     let favoritesRepository: any FavoritesRepository
     /// 收藏到收藏夹与从收藏夹移除；生产实现走窗口 API 的账户写授权器，绑定窗口账户。
     let favoritesWriteRepository: any FavoritesWriteRepository
+    /// 播放页的互动读取与点赞、投币、三连；生产实现走窗口 API 的账户读取与账户写授权器。
+    let videoEngagementRepository: any VideoEngagementRepository
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentLinkRouter: CommentLinkRouter
     let authenticationService: any AuthenticationServicing
@@ -46,7 +48,8 @@ struct WindowAdapters {
     let danmakuPresentation: any DanmakuSessionControlling
     let danmakuPreferences: any DanmakuPreferencesStoring
     /// 播放器宿主视图；窗口组装时调用一次，结果随窗口存活。
-    let makePlayerContent: @MainActor (VideoViewModel, DanmakuControlsViewModel) -> AnyView
+    let makePlayerContent:
+        @MainActor (VideoViewModel, DanmakuControlsViewModel, PlayerEngagementShortcuts) -> AnyView
     /// 在当前视频的播放器里跳到某秒并播放；播放器 item 不属于该视频时不动作。
     let seekPlayback: @MainActor (_ bvid: String, _ seconds: Int) -> Void
     let nowPlayingConnection: SystemNowPlayingPlaybackConnection
@@ -122,6 +125,7 @@ extension WindowAdapters {
             watchLaterWriteRepository: BiliWatchLaterWriteRepository(client: api),
             favoritesRepository: BiliFavoritesRepository(client: api),
             favoritesWriteRepository: BiliFavoritesWriteRepository(client: api),
+            videoEngagementRepository: BiliVideoEngagementRepository(client: api),
             commentAssetURLResolver: { reference, box in
                 commentAssetResolver.imageURL(for: reference, fitting: box)
             },
@@ -134,7 +138,7 @@ extension WindowAdapters {
             makePlaybackAuthenticationInvalidations: subtitleAuthenticationInvalidations.makeStream,
             danmakuPresentation: danmaku.session,
             danmakuPreferences: UserDefaultsDanmakuPreferencesStore(),
-            makePlayerContent: { videoModel, danmakuModel in
+            makePlayerContent: { videoModel, danmakuModel, engagementShortcuts in
                 AnyView(
                     PlayerHostView(
                         player: player,
@@ -162,6 +166,7 @@ extension WindowAdapters {
                         toggleSubtitles: {
                             await playerEngine.toggleNativeSubtitles()
                         },
+                        engagementShortcuts: engagementShortcuts,
                         timelineUpdates: {
                             playerEngine.timelineUpdates()
                         }

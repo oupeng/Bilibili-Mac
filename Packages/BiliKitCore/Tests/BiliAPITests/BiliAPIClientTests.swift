@@ -33,7 +33,7 @@ struct BiliAPIClientTests {
         #expect(
             cookies.map { Array($0.dropFirst()) }
                 == (testCase.path == "/x/web-interface/wbi/search/type"
-                    ? [BiliAPIClient.searchBuvid3Cookie] : [])
+                    ? [BiliAPIClient.buvid3Cookie] : [])
         )
         // WBI key 的 nav 请求始终匿名。
         #expect(requests.dropLast().allSatisfy { $0.headers["Cookie"] == nil })
@@ -215,7 +215,7 @@ struct BiliAPIClientTests {
         #expect(
             searches.allSatisfy {
                 $0.headers["Cookie"]
-                    == "\(StubAuthorizer.cookie); \(BiliAPIClient.searchBuvid3Cookie)"
+                    == "\(StubAuthorizer.cookie); \(BiliAPIClient.buvid3Cookie)"
             }
         )
         let signatures = searches.map {

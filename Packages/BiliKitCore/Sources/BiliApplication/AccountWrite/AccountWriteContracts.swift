@@ -1,11 +1,14 @@
 import BiliModels
+import Foundation
 
-/// 用户发起的账户写入（稍后再看的加入与移除、收藏到收藏夹与从收藏夹移除）共用的应用级错误。
+/// 用户发起的账户写入（稍后再看、收藏、点赞、投币与三连）共用的应用级错误。
 ///
 /// 由 BiliAPI 的写 adapter 映射：-101、-111 与凭据账户不符为 `authenticationInvalid`；窗口以为已登录、本地却没有凭据为
 /// `authenticationRequired`；Keychain 不可用为 `authenticationUnavailable`；HTTP 403／412、-352 等风控为 `restricted`；
 /// 稍后再看的业务码 90000 为 `unsupportedContent`，90001 为 `listFull`，90003 与内容不存在类业务码为 `contentUnavailable`；
-/// 收藏的业务码 11203 为 `listFull`，11010（收藏夹不存在）为 `contentUnavailable`；其他非零
+/// 收藏的业务码 11203 为 `listFull`，11010（收藏夹不存在）为 `contentUnavailable`；投币的 -104 为 `coinsInsufficient`，
+/// 34005 为 `coinLimitReached`，34002 为 `ownVideo`，34004 为 `restricted`；点赞、投币、三连的 -403（账号异常）为
+/// `declinedForClient`，三连报告的风控为 `restricted`；其他非零
 /// 业务码为 `rejected`，不回显服务端 message；网络与无法判定结果的响应为 `unavailable`。是否复核账户只读
 /// `requiresAccountRevalidation`，调用方不各自判断；提示措辞按 case 由写入结果胶囊的文案决定（写入从不自动重试，没有
 /// 另一个需要“是否可重试”的调用方）。写入不自动重试、不排队、不持久化（见 SECURITY-MODEL §3）。
@@ -26,6 +29,17 @@ public enum AccountWriteError: Error, Sendable, Equatable {
     case unsupportedContent
     /// 稿件不存在或已删除。
     case contentUnavailable
+    /// 硬币不足（业务码 -104）。
+    case coinsInsufficient
+    /// 这个视频已投满（业务码 34005）。
+    case coinLimitReached
+    /// 不能给自己的视频投币（业务码 34002）。
+    case ownVideo
+    /// B 站拒绝了这个客户端的点赞、投币或三连（业务码 -403，账号异常）。
+    ///
+    /// 实测按稿件出现：同一账号有的稿件能点赞、有的被拒；照网页补统计字段、视频页 Referer 与 B 站下发的 buvid 都没有
+    /// 改善。网页上可以完成，所以结果里给出在浏览器中打开这个视频（`AccountWriteReport.webFallbackURL`）。
+    case declinedForClient
     /// 其他业务拒绝。
     case rejected(code: Int)
     /// 网络失败或无法判定结果。
@@ -41,7 +55,8 @@ extension AccountWriteError {
         case .authenticationRequired, .authenticationInvalid:
             true
         case .invalidRequest, .authenticationUnavailable, .restricted, .listFull,
-            .unsupportedContent, .contentUnavailable, .rejected, .unavailable:
+            .unsupportedContent, .contentUnavailable, .coinsInsufficient, .coinLimitReached,
+            .ownVideo, .declinedForClient, .rejected, .unavailable:
             false
         }
     }
@@ -66,6 +81,12 @@ public enum AccountWriteChange: Sendable, Hashable {
     case favoriteMembershipChanged(FavoriteMembershipChange)
     /// 夹内「从此收藏夹移除」。
     case removedFromFavoriteFolder(FavoriteFolderEntry)
+    /// 点赞或取消点赞。
+    case likeChanged(VideoWriteTarget, isLiked: Bool)
+    /// 投币；`alsoLiked` 是附带点赞的结果（尝试中为请求时的选择）。
+    case coinsAdded(VideoWriteTarget, count: Int, alsoLiked: Bool)
+    /// 三连；尝试中的改动没有结果，成功的效果带服务端报告的逐项结果。
+    case tripled(VideoWriteTarget, VideoTripleOutcome?)
 }
 
 /// 写入成功后需要让其他视图知道的事实：哪个账户的哪项内容变了。
@@ -90,5 +111,19 @@ public struct AccountWriteReport: Sendable, Equatable {
     public init(change: AccountWriteChange, failure: AccountWriteError?) {
         self.change = change
         self.failure = failure
+    }
+
+    /// 被 B 站拒绝、但网页上可以完成的点赞、投币或三连：要在浏览器中打开的视频网页；其他结果为 nil。
+    ///
+    /// 结果胶囊据此给出「在浏览器中打开」，写入协调者据此让这条结果停留更久。
+    public var webFallbackURL: URL? {
+        guard failure == .declinedForClient else { return nil }
+        return switch change {
+        case .likeChanged(let target, _), .coinsAdded(let target, _, _), .tripled(let target, _):
+            BVID.webPageURL(target.bvid)
+        case .watchLaterAdded, .watchLaterRemoved, .favoriteMembershipChanged,
+            .removedFromFavoriteFolder:
+            nil
+        }
     }
 }

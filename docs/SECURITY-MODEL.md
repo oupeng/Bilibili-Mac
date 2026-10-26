@@ -74,10 +74,10 @@
 默认所有网络匿名，且不带任何 Cookie。搜索页的 B 站热搜（`/x/web-interface/search/square`）与
 搜索框联想（`/x/web-interface/suggest`）无论是否登录都匿名读取。联想是唯一会发送未提交输入的请求：
 只在搜索框获得焦点或编辑、系统索取联想时停顿后发出，新输入、提交、选中或失去焦点都取消在途请求；输入按
-搜索规则规范化（≤ 100 字），结果只在内存中用于当次菜单。唯一的非凭据例外是搜索 `/x/web-interface/wbi/search/type`：
-该接口要求 Cookie 含 `buvid3`，`BiliAPI` 为此在进程内存中随机生成一个 `buvid3=<小写 UUID>infoc`，
-不持久化、不激活、不与账户关联；匿名与账户读取两条搜索路径都在授权之后附加它（账户读取时与授权器
-给出的 Cookie 并列），任何其他请求（含 WBI nav 与写请求）都不携带。只有三个授权器，均由 Composition 注入
+搜索规则规范化（≤ 100 字），结果只在内存中用于当次菜单。唯一的非凭据 Cookie 是 `buvid3`：搜索
+`/x/web-interface/wbi/search/type` 与点赞、投币、三连三个写接口要求 Cookie 含它（缺它会触发风控），`BiliAPI` 为此在进程内存中
+随机生成一个 `buvid3=<小写 UUID>infoc`，不持久化、不激活、不与账户关联；这几种请求在授权之后附加它（与授权器给出的 Cookie
+并列），任何其他请求（含 WBI nav 与其余写请求）都不携带。只有三个授权器，均由 Composition 注入
 `BiliAPI`：账户读取、自动的观看进度写入，与用户发起的账户写入。
 
 **账户读取**（`BiliCredentialRequestAuthorizer`）
@@ -94,7 +94,7 @@
   只在 `BiliAPI` 内部可见，adapter 不构造 `RequestAccess`；授权器不复制业务规则。
 - 业务码 -101 只在请求实际带凭据发出时映射为凭据失效；匿名发出的请求收到 -101 是“需要登录”，不触发
   复核。两种写请求自行把 -101／-111 视为凭据失效，见下文。
-- 只按账户读取的 endpoint（观看历史、稍后再看、收藏夹、UP 主空间投稿（匿名会被间歇风控）、字幕目录、测速样本等）在本地无凭据时
+- 只按账户读取的 endpoint（观看历史、稍后再看、收藏夹、UP 主空间投稿（匿名会被间歇风控）、字幕目录、测速样本、播放页的点赞投币收藏状态等）在本地无凭据时
   直接失败，不匿名回退；其余登录增强读取匿名请求同一 endpoint，主播放 playurl 改用带游客参数的匿名请求。
   以窗口账户 mid 为参数的读取（收藏夹列表），mid 只取自窗口账户范围，认证仍在确认、或其他窗口换号而本窗口
   还没复核到时不读取，否则会用新账户的 Cookie 读旧账户的 mid。
@@ -123,8 +123,10 @@
 
 防：点错或被构造的请求改动账号；写入落到另一个账户；一次写入扩大成批量或清空。
 
-- 目前只有稍后再看的加入（`POST /x/v2/history/toview/add`）与移除（`POST /x/v2/history/toview/del`），以及收藏的归属改动
-  （`POST /x/v3/fav/resource/deal`）与夹内移除（`POST /x/v3/fav/resource/batch-del`）。`toview/del` 的 `aid` 在接口文档里
+- 目前只有稍后再看的加入（`POST /x/v2/history/toview/add`）与移除（`POST /x/v2/history/toview/del`），收藏的归属改动
+  （`POST /x/v3/fav/resource/deal`）与夹内移除（`POST /x/v3/fav/resource/batch-del`），以及播放页的点赞
+  （`POST /x/web-interface/archive/like`，`like` 只能是 1 或 2）、投币（`POST /x/web-interface/coin/add`，`multiply` 只能是 1
+  或 2、`select_like` 0 或 1）与三连（`POST /x/web-interface/archive/like/triple`，只有 `aid`）。`toview/del` 的 `aid` 在接口文档里
   可选、带 `viewed=true` 会删除全部已看完的视频；schema 强制要求 `aid` 并拒绝 `viewed`，所以发不出“一次清空”，不得把 `aid`
   改成可选。`batch-del` 接受逗号分隔的多个条目，schema 只收单个 `<aid>:2`；`deal` 只收单个视频、固定 `type=2`，两侧夹 id
   列表各自不重复、互不相交、至少一侧非空、有上限。换用其他接口时同样只收单个视频，不收批量；需要 WBI 签名或 multipart 正文时，要给 schema 加对应维度
@@ -139,12 +141,14 @@
 - 账户绑定：写请求带窗口账户的 mid（`RequestAccess.accountWrite(expectedAccountID:)`），授权器每次读 Keychain，凭据的
   `DedeUserID` 不等于它时按凭据失效拒绝，但不删除凭据（多半是本窗口范围过期、Keychain 里已是另一窗口登录的账户）。损坏或
   过期的凭据照常删除；Keychain 不可用一律失败关闭，不读“已确认未登录”。
-- 只发送该 path 白名单里的 Cookie（目前只有 `SESSDATA`），`bili_jct` 只作为表单 `csrf` 由授权器拼在末尾；不附加搜索用的
-  随机 `buvid3`。
+- 只发送该 path 白名单里的 Cookie（目前只有 `SESSDATA`），`bili_jct` 只作为表单 `csrf` 由授权器拼在末尾；点赞、投币、三连
+  另由 BiliAPI 在授权之后附加上文的随机 `buvid3`，其余写请求不附加。
 - 只在窗口账户已确认登录且 mid 已知、不在复核、没有其他窗口换号待复核时发出（与收藏夹列表同一规则）；认证 epoch 推进时
   在途写入按取消结束、结果不写回。
-- 响应只判定状态 envelope（有大小上限、须像 JSON，不解码 `data`、不回显 message）：-101、-111 与账户不符为凭据失效，触发
-  一次窗口复核；风控按受限；其余业务码的分类在 `AccountWriteError`。一律不自动重试、不排队、不持久化待写入请求或结果。
+- 响应先判定状态 envelope（有大小上限、须像 JSON，不回显 message）；只有投币（附带点赞是否成立）与三连（逐项结果、
+  `multiply`、风控标记）解码 `data`，三连报告风控时按受限处理：-101、-111 与账户不符为凭据失效，触发
+  一次窗口复核；风控按受限；点赞、投币、三连的 -403 是 B 站拒绝这个客户端（不复核、不重试，结果胶囊只经系统打开
+  视频网页，见 §4）；其余业务码的分类在 `AccountWriteError`。一律不自动重试、不排队、不持久化待写入请求或结果。
 
 **永不携带凭据**：WBI nav、图片、视频／音频 CDN、字幕正文、loopback server、二维码 URL、评论外链与短链解析、
 Sparkle 更新网络，以及任何 redirect 后的主机。只认精确主机，不使用 `*.bilibili.com` 后缀匹配：后缀匹配会把凭据交给任何子域。

@@ -36,8 +36,10 @@ final class WindowComposition {
     let favoriteFolderList: FavoriteFolderListModel
     /// 收藏夹来源的选择、条件与夹内内容；经收藏夹来源的描述绑定来源。
     let favoriteFolders: FavoriteFolderViewModel
-    /// 本窗口用户发起的账户写入（卡片菜单、读屏操作与 ⌘⌫）；窗口级复核参与者，关窗时取消在途写入。
+    /// 本窗口用户发起的账户写入（卡片菜单、读屏操作、⌘⌫ 与播放页的点赞投币）；窗口级复核参与者，关窗时取消在途写入。
     let accountWrites: AccountWriteCoordinator
+    /// 播放页点赞、投币、收藏按钮的状态；窗口级复核参与者，账户只取写入门槛的账户。
+    let engagementModel: VideoEngagementModel
     let trendingSearchModel: TrendingSearchViewModel
     let searchSuggestionSource: SearchSuggestionSource
     /// 搜索来源的草稿、筛选与已提交的条件；关窗时由搜索来源的描述 reset。
@@ -149,10 +151,19 @@ final class WindowComposition {
                 accountSession: accountSession
             )
         }
+        let engagementUseCase = VideoEngagementUseCase(
+            repository: adapters.videoEngagementRepository
+        )
+        let engagementModel = VideoEngagementModel(
+            useCase: engagementUseCase,
+            accountID: { writableAccount()?.accountID }
+        )
+        self.engagementModel = engagementModel
         let accountWriteEffectRouter = AccountWriteEffectRouter(
             watchLaterModel: watchLaterModel,
             favoriteFolderList: favoriteFolderList,
             favoriteFolders: favoriteFolders,
+            engagementModel: engagementModel,
             writableAccount: writableAccount
         )
         let accountWriteEffects = process.accountWriteEffects
@@ -163,6 +174,8 @@ final class WindowComposition {
             favoritesWrite: FavoritesWriteUseCase(repository: adapters.favoritesWriteRepository),
             favorites: favoritesUseCase,
             favoriteFolders: favoriteFolders,
+            engagement: engagementUseCase,
+            engagementModel: engagementModel,
             writableAccount: writableAccount,
             publish: { delivery, appliedLocally in
                 accountWriteEffectRouter.apply(delivery, appliedLocally: appliedLocally)
@@ -193,7 +206,7 @@ final class WindowComposition {
         // 收藏夹列表是侧栏常驻的元数据，窗口已登录就读取，不绑定来源；夹内页面经收藏夹来源的描述绑定。
         let windowWide: [any AccountRevalidationParticipant] = [
             videoModel, browseModel, danmakuModel, commentsModel, uploaderSpace, favoriteFolderList,
-            accountWrites
+            accountWrites, engagementModel
         ]
         revalidationParticipants = AccountRevalidationParticipants(
             entries: windowWide.map { .init(participant: $0, route: nil) }
@@ -201,7 +214,15 @@ final class WindowComposition {
                     source.revalidationParticipant.map { .init(participant: $0, route: source.id) }
                 }
         )
-        playerContent = adapters.makePlayerContent(videoModel, danmakuModel)
+        playerContent = adapters.makePlayerContent(
+            videoModel,
+            danmakuModel,
+            PlayerEngagementShortcuts.make(
+                accountWrites: accountWrites,
+                engagementModel: engagementModel,
+                videoModel: videoModel
+            )
+        )
         commentAssetURLResolver = adapters.commentAssetURLResolver
         commentLinkRouter = adapters.commentLinkRouter
         seekPlayback = adapters.seekPlayback
@@ -246,6 +267,7 @@ final class WindowComposition {
         authenticationModel.cancelTransientWork()
         commentsModel.reset()
         accountWrites.close()
+        engagementModel.reset()
         if let accountWriteEffectRegistration {
             process.accountWriteEffects.unregister(accountWriteEffectRegistration)
         }

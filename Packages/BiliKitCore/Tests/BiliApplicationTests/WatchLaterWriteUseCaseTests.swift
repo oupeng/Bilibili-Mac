@@ -56,7 +56,8 @@ struct WatchLaterWriteUseCaseTests {
         let all: [AccountWriteError] = [
             .invalidRequest, .authenticationRequired, .authenticationInvalid,
             .authenticationUnavailable, .restricted, .listFull, .unsupportedContent,
-            .contentUnavailable, .rejected(code: 1), .unavailable
+            .contentUnavailable, .coinsInsufficient, .coinLimitReached, .ownVideo,
+            .declinedForClient, .rejected(code: 1), .unavailable
         ]
         #expect(
             all.filter(\.requiresAccountRevalidation)

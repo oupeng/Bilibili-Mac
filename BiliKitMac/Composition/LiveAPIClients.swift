@@ -29,6 +29,7 @@ enum LiveAPIClients {
         BiliAccountReadPath.watchHistory,
         BiliAccountReadPath.watchLater,
         BiliAccountReadPath.favoriteFolders,
+        BiliAccountReadPath.videoRelation,
         BiliAccountReadPath.favoriteFolderContent,
         BiliAccountReadPath.popular,
         BiliAccountReadPath.recommendations,
@@ -41,7 +42,10 @@ enum LiveAPIClients {
         BiliAccountWritePath.watchLaterAdd,
         BiliAccountWritePath.watchLaterRemove,
         BiliAccountWritePath.favoriteMembershipUpdate,
-        BiliAccountWritePath.favoriteFolderEntryRemove
+        BiliAccountWritePath.favoriteFolderEntryRemove,
+        BiliAccountWritePath.videoLike,
+        BiliAccountWritePath.videoCoin,
+        BiliAccountWritePath.videoTriple
     ]
 
     static let cdnBenchmarkAccountReadAllowedPaths: Set<String> = [

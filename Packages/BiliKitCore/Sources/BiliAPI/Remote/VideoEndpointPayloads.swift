@@ -161,10 +161,14 @@ struct UploaderCardPayload: Decodable, Sendable {
 }
 
 /// 热门、推荐与视频详情共用的播放、弹幕与点赞数，映射为 `VideoStatistics`。
+///
+/// 投币与收藏数只有视频详情用，缺失或形状不对时为 nil，不影响列表与详情的解码。
 struct StatisticsPayload: Decodable, Sendable {
     let view: Int64
     let danmaku: Int64
     let like: Int64
+    let coin: LossyDecodable<Int64>?
+    let favorite: LossyDecodable<Int64>?
 
     func model() -> VideoStatistics {
         VideoStatistics(viewCount: view, danmakuCount: danmaku, likeCount: like)
@@ -194,9 +198,12 @@ struct VideoDetailPayload: Decodable, Sendable {
     let isUPowerExclusive: Bool?
     let isUPowerPreviewAvailable: Bool?
     let isUPowerPlayable: Bool?
+    /// 1 自制、2 转载、3 未填写；缺失或形状不对时按自制处理。
+    let copyright: LossyDecodable<Int>?
 
     private enum CodingKeys: String, CodingKey {
-        case aid, bvid, title, desc, pic, owner, stat, duration, pubdate, dimension, pages
+        case aid, bvid, title, desc, pic, owner, stat, duration, pubdate, dimension, pages,
+            copyright
         case descV2 = "desc_v2"
         case ugcSeason = "ugc_season"
         case isUPowerExclusive = "is_upower_exclusive"
@@ -236,9 +243,17 @@ struct VideoDetailPayload: Decodable, Sendable {
                 isUPowerExclusive: isUPowerExclusive,
                 isUPowerPreviewAvailable: isUPowerPreviewAvailable,
                 isUPowerPlayable: isUPowerPlayable
+            ),
+            engagementSummary: VideoEngagementSummary(
+                coinCount: stat.coin?.value.map { max(0, $0) },
+                favoriteCount: stat.favorite?.value.map { max(0, $0) },
+                isReposted: copyright?.value == Self.repostedCopyright
             )
         )
     }
+
+    /// `copyright` 的转载取值。
+    private static let repostedCopyright = 2
 }
 
 /// 分 P：cid、序号、标题、时长与画面尺寸，映射为 `VideoPage`。

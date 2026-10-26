@@ -328,6 +328,25 @@ struct BiliAPIClientVideoDetailTests {
         #expect(queryItems?.first { $0.name == "w_rid" }?.value?.count == 32)
     }
 
+    /// 播放页互动按钮的计数与投币上限来自详情：投币数、收藏数，`copyright` 2 为转载。
+    @Test
+    func videoDetailCarriesTheEngagementSummary() async throws {
+        let client = BiliAPIClient(
+            transport: StubTransport(
+                responses: [try fixtureResponse("view")],
+                answersWBINavOnce: true
+            ),
+            timestampProvider: { 1_700_000_000 }
+        )
+
+        let detail = try await client.videoDetail(for: "BV1FixtureA1")
+
+        #expect(
+            detail.engagementSummary
+                == VideoEngagementSummary(coinCount: 78, favoriteCount: 456, isReposted: true)
+        )
+    }
+
     @Test
     func cancellationIsNotCollapsedIntoTransportFailure() async {
         let client = BiliAPIClient(transport: StubTransport([.cancellation]))
