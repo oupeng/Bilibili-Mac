@@ -44,8 +44,8 @@ struct DanmakuTexturePayload: Sendable, Equatable {
     }
 }
 
-/// 把一条弹幕栅格化为带描边与阴影的纹理：Core Text 排版，vImage 生成描边与阴影，最后按预乘 alpha
-/// 合成。
+/// 把一条弹幕栅格化为带描边与阴影的纹理：Core Text 排版，描边、阴影的生成与预乘 alpha 合成都交给
+/// vImage。
 ///
 /// 在纹理准备 owner 的后台队列调用，不读写共享状态。彩色字形（emoji）保留 Core Text 填充的 RGBA；
 /// 描边与阴影的深浅只按弹幕声明的颜色、对整行字形的并集 mask 决定一次，不逐字形自适应，所以 emoji
@@ -111,14 +111,8 @@ enum DanmakuTextureRasterizer {
     static func rasterize(
         key: DanmakuTextureCacheKey
     ) -> DanmakuTexturePayload? {
-        let scale = CGFloat(key.backingScale)
-        let components = rgbComponents(key.colorRGB)
-        let foreground = CGColor(
-            srgbRed: components.red,
-            green: components.green,
-            blue: components.blue,
-            alpha: 1
-        )
+        let rgb = rgbComponents(key.colorRGB)
+        let foreground = CGColor(srgbRed: rgb.red, green: rgb.green, blue: rgb.blue, alpha: 1)
         guard
             let layout = lineLayout(
                 DanmakuTextMeasureKey(
@@ -127,236 +121,186 @@ enum DanmakuTextureRasterizer {
                     backingScale: key.backingScale
                 ),
                 foreground: foreground
+            ),
+            let fill = calloc(layout.bytesPerRow * layout.heightPixels, 1)
+        else {
+            return nil
+        }
+        guard draw(layout, scale: CGFloat(key.backingScale), into: fill) else {
+            free(fill)
+            return nil
+        }
+        guard
+            let pixels = composite(
+                fill: fill,
+                width: layout.widthPixels,
+                height: layout.heightPixels,
+                outlineRadiusPixels: layout.outlineRadiusPixels,
+                shadowRadiusPixels: layout.shadowRadiusPixels,
+                isLightDecoration: decorationIsLight(colorRGB: key.colorRGB),
+                gradientColumns: key.colorStyle == .vipGradient
+                    ? layout.paddingPixels..<(layout.widthPixels - layout.paddingPixels)
+                    : nil
             )
         else {
             return nil
         }
-        let widthPixels = layout.widthPixels
-        let heightPixels = layout.heightPixels
-        let bytesPerRow = layout.bytesPerRow
-        let paddingPixels = layout.paddingPixels
-        let outlineRadiusPixels = layout.outlineRadiusPixels
-        let shadowRadiusPixels = layout.shadowRadiusPixels
-        let line = layout.line
-        let descent = layout.descent
-
-        var fill = [UInt8](repeating: 0, count: bytesPerRow * heightPixels)
-        let drewLine = fill.withUnsafeMutableBytes { buffer -> Bool in
-            guard
-                let context = CGContext(
-                    data: buffer.baseAddress,
-                    width: widthPixels,
-                    height: heightPixels,
-                    bitsPerComponent: DanmakuTexturePayload.bitsPerComponent,
-                    bytesPerRow: bytesPerRow,
-                    space: DanmakuTexturePayload.colorSpace,
-                    bitmapInfo: DanmakuTexturePayload.bitmapInfo.rawValue
-                )
-            else {
-                return false
-            }
-            context.scaleBy(x: scale, y: scale)
-            let padding = CGFloat(paddingPixels) / scale
-            context.textPosition = CGPoint(x: padding, y: padding + descent)
-            CTLineDraw(line, context)
-            return true
-        }
-        guard drewLine else { return nil }
-
-        let fillAlpha = alpha(from: fill)
-        let ringAlpha = outerRing(
-            alpha: fillAlpha,
-            width: widthPixels,
-            height: heightPixels,
-            radiusPixels: outlineRadiusPixels
-        )
-        let isLightDecoration = decorationIsLight(colorRGB: key.colorRGB)
-        let ring: [UInt8]
-        switch key.colorStyle {
-        case .solid:
-            ring = monochromePixels(alpha: ringAlpha, isLight: isLightDecoration)
-        case .vipGradient:
-            ring = vipGradientPixels(
-                alpha: ringAlpha,
-                width: widthPixels,
-                textStartX: paddingPixels,
-                textEndX: widthPixels - paddingPixels
-            )
-        }
-        let decorated = sourceOver(foreground: fill, background: ring)
-        guard shadowRadiusPixels > 0 else {
-            return DanmakuTexturePayload(
-                pixels: Data(decorated),
-                widthPixels: widthPixels,
-                heightPixels: heightPixels,
-                bytesPerRow: bytesPerRow,
-                backingScale: key.backingScale
-            )
-        }
-        let blurredAlpha = tentBlur(
-            alpha: alpha(from: decorated),
-            width: widthPixels,
-            height: heightPixels,
-            radius: shadowRadiusPixels
-        )
-        let shadow = monochromePixels(
-            alpha: blurredAlpha,
-            isLight: isLightDecoration
-        )
-        let baked = sourceOver(foreground: decorated, background: shadow)
         return DanmakuTexturePayload(
-            pixels: Data(baked),
-            widthPixels: widthPixels,
-            heightPixels: heightPixels,
-            bytesPerRow: bytesPerRow,
+            pixels: pixels,
+            widthPixels: layout.widthPixels,
+            heightPixels: layout.heightPixels,
+            bytesPerRow: layout.bytesPerRow,
             backingScale: key.backingScale
         )
     }
 
-    /// 字形 alpha 向外膨胀 `radiusPixels` 后减去原 alpha，得到只在字形外侧的描边环；
-    /// 半径不足整像素时按比例减弱。
-    static func outerRing(
-        alpha: [UInt8],
+    /// 在 Core Text 画好的字形填充上合成描边环与阴影，返回最终的预乘 RGBA 像素；任一步 vImage 失败时为 nil。
+    ///
+    /// `fill` 是 `width × height`、每行 `width × 4` 字节的预乘 RGBA，必须由 `malloc`／`calloc` 分配，所有权交给
+    /// 这里：成功时由返回的 `Data` 接管、释放时 `free`，失败时在这里释放；调用方之后不得再访问。中间只另用一块
+    /// RGBA 与两块 Planar8，结果直接交给 `Data` 不再拷贝：`fill` 先放字形，最后被阴影与结果覆盖；另一块 RGBA
+    /// 先放描边环，叠上字形后是带描边的文字。`gradientColumns` 是文字所在的列，非 nil 时描边着大会员渐变，
+    /// 否则描边与阴影同为 `isLightDecoration` 决定的单色。
+    static func composite(
+        fill: UnsafeMutableRawPointer,
         width: Int,
         height: Int,
-        radiusPixels: Double
-    ) -> [UInt8] {
-        precondition(alpha.count == width * height)
-        guard !alpha.isEmpty, radiusPixels > 0 else {
-            return [UInt8](repeating: 0, count: alpha.count)
-        }
-        let radius = max(1, Int(ceil(radiusPixels)))
-        var source = alpha
-        var dilated = [UInt8](repeating: 0, count: alpha.count)
-        let kernelSize = vImagePixelCount(radius * 2 + 1)
-        let error = source.withUnsafeMutableBytes { sourceBuffer in
-            dilated.withUnsafeMutableBytes { destinationBuffer in
-                var sourceImage = vImage_Buffer(
-                    data: sourceBuffer.baseAddress,
-                    height: vImagePixelCount(height),
-                    width: vImagePixelCount(width),
-                    rowBytes: width
-                )
-                var destinationImage = vImage_Buffer(
-                    data: destinationBuffer.baseAddress,
-                    height: vImagePixelCount(height),
-                    width: vImagePixelCount(width),
-                    rowBytes: width
-                )
-                return vImageMax_Planar8(
-                    &sourceImage,
-                    &destinationImage,
-                    nil,
-                    0,
-                    0,
-                    kernelSize,
-                    kernelSize,
-                    vImage_Flags(kvImageEdgeExtend)
-                )
+        outlineRadiusPixels: Double,
+        shadowRadiusPixels: Int,
+        isLightDecoration: Bool,
+        gradientColumns: Range<Int>?
+    ) -> Data? {
+        let rgbaByteCount = width * 4 * height
+        let decoratedBytes = calloc(rgbaByteCount, 1)
+        let alphaBytes = calloc(width * height, 1)
+        let workBytes = calloc(width * height, 1)
+        var output: UnsafeMutableRawPointer?
+        defer {
+            for buffer in [fill, decoratedBytes, alphaBytes, workBytes] where buffer != output {
+                free(buffer)
             }
         }
-        guard error == kvImageNoError else {
-            return [UInt8](repeating: 0, count: alpha.count)
-        }
-        let edgeCoverage = min(radiusPixels / Double(radius), 1)
-        return zip(dilated, alpha).map { expanded, original in
-            guard expanded > original else { return 0 }
-            return UInt8(
-                min(
-                    255,
-                    Int((Double(expanded - original) * edgeCoverage).rounded())
-                )
+        guard let decoratedBytes, let alphaBytes, let workBytes else { return nil }
+        func image(_ data: UnsafeMutableRawPointer, bytesPerPixel: Int) -> vImage_Buffer {
+            vImage_Buffer(
+                data: data,
+                height: vImagePixelCount(height),
+                width: vImagePixelCount(width),
+                rowBytes: width * bytesPerPixel
             )
         }
-    }
+        let fillImage = image(fill, bytesPerPixel: 4)
+        let decorated = image(decoratedBytes, bytesPerPixel: 4)
+        let alpha = image(alphaBytes, bytesPerPixel: 1)
+        let work = image(workBytes, bytesPerPixel: 1)
 
-    /// 阴影用的 tent 模糊；vImage 失败时原样返回。
-    static func tentBlur(
-        alpha: [UInt8],
-        width: Int,
-        height: Int,
-        radius: Int
-    ) -> [UInt8] {
-        precondition(alpha.count == width * height)
-        guard !alpha.isEmpty, radius > 0 else { return alpha }
-        var source = alpha
-        var result = [UInt8](repeating: 0, count: alpha.count)
-        let kernelSize = UInt32(radius * 2 + 1)
-        let error = source.withUnsafeMutableBytes { sourceBuffer in
-            result.withUnsafeMutableBytes { destinationBuffer in
-                var sourceImage = vImage_Buffer(
-                    data: sourceBuffer.baseAddress,
-                    height: vImagePixelCount(height),
-                    width: vImagePixelCount(width),
-                    rowBytes: width
-                )
-                var destinationImage = vImage_Buffer(
-                    data: destinationBuffer.baseAddress,
-                    height: vImagePixelCount(height),
-                    width: vImagePixelCount(width),
-                    rowBytes: width
-                )
-                return vImageTentConvolve_Planar8(
-                    &sourceImage,
-                    &destinationImage,
-                    nil,
-                    0,
-                    0,
-                    kernelSize,
-                    kernelSize,
-                    0,
-                    vImage_Flags(kvImageEdgeExtend)
-                )
-            }
+        // `decorated` 由 calloc 清零，深色单色描边只需写 alpha。
+        guard extractAlpha(of: fillImage, into: alpha),
+            outerRing(alpha: alpha, into: work, radiusPixels: outlineRadiusPixels),
+            gradientColumns.map({ paintGradient(alpha: work, into: decorated, columns: $0) })
+                ?? paintMonochrome(alpha: work, into: decorated, isLight: isLightDecoration),
+            sourceOver(fillImage, onto: decorated)
+        else {
+            return nil
         }
-        return error == kvImageNoError ? result : alpha
+        guard shadowRadiusPixels > 0 else {
+            output = decoratedBytes
+            return Data(bytesNoCopy: decoratedBytes, count: rgbaByteCount, deallocator: .free)
+        }
+        // 字形已经叠进 `decorated`，`fill` 改放阴影；深色阴影只写 alpha，先清掉字形的 RGB。
+        if !isLightDecoration {
+            memset(fill, 0, rgbaByteCount)
+        }
+        guard extractAlpha(of: decorated, into: alpha),
+            tentBlur(alpha: alpha, into: work, radius: shadowRadiusPixels),
+            paintMonochrome(alpha: work, into: fillImage, isLight: isLightDecoration),
+            sourceOver(decorated, onto: fillImage)
+        else {
+            return nil
+        }
+        output = fill
+        return Data(bytesNoCopy: fill, count: rgbaByteCount, deallocator: .free)
     }
 
-    static func alpha(from pixels: [UInt8]) -> [UInt8] {
-        stride(from: 3, to: pixels.count, by: 4).map { pixels[$0] }
+    /// 取预乘 RGBA 的 alpha 通道到同尺寸的 Planar8。
+    static func extractAlpha(of image: vImage_Buffer, into alpha: vImage_Buffer) -> Bool {
+        var (image, alpha) = (image, alpha)
+        // 通道下标按内存顺序，RGBA 的 alpha 是 3；函数名里的 ARGB 只表示四个 8 位通道。
+        return vImageExtractChannel_ARGB8888(&image, &alpha, 3, noFlags) == kvImageNoError
     }
 
-    /// 用单一灰阶（浅为白、深为黑）和给定 alpha 生成预乘 RGBA。
-    static func monochromePixels(
-        alpha: [UInt8],
+    /// 字形 alpha 向外膨胀 `radiusPixels` 后减去原 alpha 写进 `ring`，得到只在字形外侧的描边环。
+    ///
+    /// 半径不足整像素时按比例减弱。两块都是每行恰好 `width` 字节的连续 Planar8。
+    static func outerRing(
+        alpha: vImage_Buffer,
+        into ring: vImage_Buffer,
+        radiusPixels: Double
+    ) -> Bool {
+        var (alpha, ring) = (alpha, ring)
+        let radius = max(1, Int(ceil(radiusPixels)))
+        let size = vImagePixelCount(radius * 2 + 1)
+        let error = vImageMax_Planar8(&alpha, &ring, nil, 0, 0, size, size, edgeExtend)
+        guard error == kvImageNoError else { return false }
+        // 膨胀核包含中心像素，膨胀结果逐像素不小于原 alpha，所以减法不会下溢，可以用不检查溢出的 `&-=`，
+        // 连续内存上的这段循环由编译器向量化。
+        let original = alpha.data.assumingMemoryBound(to: UInt8.self)
+        let expanded = ring.data.assumingMemoryBound(to: UInt8.self)
+        for index in 0..<Int(alpha.width * alpha.height) {
+            expanded[index] &-= original[index]
+        }
+        let coverage = min(max(radiusPixels, 0) / Double(radius), 1)
+        guard coverage < 1 else { return true }
+        let table = (0...255).map { UInt8((Double($0) * coverage).rounded()) }
+        return vImageTableLookUp_Planar8(&ring, &ring, table, noFlags) == kvImageNoError
+    }
+
+    /// 阴影用的 tent 模糊；`alpha` 与 `blurred` 是同尺寸的 Planar8。
+    static func tentBlur(alpha: vImage_Buffer, into blurred: vImage_Buffer, radius: Int) -> Bool {
+        var (alpha, blur) = (alpha, blurred)
+        let size = UInt32(radius * 2 + 1)
+        let error = vImageTentConvolve_Planar8(&alpha, &blur, nil, 0, 0, size, size, 0, edgeExtend)
+        return error == kvImageNoError
+    }
+
+    /// 用单一灰阶（浅为白、深为黑）和给定 alpha 铺出预乘 RGBA。
+    ///
+    /// 深色只写 alpha 通道，调用方必须保证 `image` 的 RGB 已经是 0。
+    static func paintMonochrome(
+        alpha: vImage_Buffer,
+        into image: vImage_Buffer,
         isLight: Bool
-    ) -> [UInt8] {
-        var pixels = [UInt8](repeating: 0, count: alpha.count * 4)
-        for index in alpha.indices {
-            let value = alpha[index]
-            let offset = index * 4
-            let channel = isLight ? value : 0
-            pixels[offset] = channel
-            pixels[offset + 1] = channel
-            pixels[offset + 2] = channel
-            pixels[offset + 3] = value
-        }
-        return pixels
+    ) -> Bool {
+        guard isLight else { return overwriteAlpha(of: image, with: alpha) }
+        var (alpha, image) = (alpha, image)
+        let error = vImageConvert_Planar8toARGB8888(&alpha, &alpha, &alpha, &alpha, &image, noFlags)
+        return error == kvImageNoError
     }
 
-    /// 按列着色的渐变描边（预乘 alpha）；文字左缘以左取首个色标，右缘以右取末个色标。
-    static func vipGradientPixels(
-        alpha: [UInt8],
-        width: Int,
-        textStartX: Int,
-        textEndX: Int
-    ) -> [UInt8] {
-        precondition(width > 0 && alpha.count % width == 0)
-        let span = Double(max(1, textEndX - textStartX))
-        let columns = (0..<width).map { column in
-            vipGradientColor(at: Double(column - textStartX) / span)
+    /// 按列着色的渐变描边（预乘 alpha）：`columns` 是文字所在的列，左缘以左取首个色标、右缘以右取末个色标。
+    static func paintGradient(
+        alpha: vImage_Buffer,
+        into image: vImage_Buffer,
+        columns: Range<Int>
+    ) -> Bool {
+        var image = image
+        let width = Int(image.width)
+        let pixels = image.data.assumingMemoryBound(to: UInt8.self)
+        let span = Double(max(1, columns.count))
+        // 颜色只随列变化：先在第一行写不透明颜色，复制到其余各行，再换上描边 alpha 并预乘。
+        for column in 0..<width {
+            let color = vipGradientColor(at: Double(column - columns.lowerBound) / span)
+            let offset = column * 4
+            pixels[offset] = color.red
+            pixels[offset + 1] = color.green
+            pixels[offset + 2] = color.blue
+            pixels[offset + 3] = 255
         }
-        var pixels = [UInt8](repeating: 0, count: alpha.count * 4)
-        for index in alpha.indices where alpha[index] > 0 {
-            let value = Int(alpha[index])
-            let color = columns[index % width]
-            let offset = index * 4
-            pixels[offset] = UInt8((Int(color.red) * value + 127) / 255)
-            pixels[offset + 1] = UInt8((Int(color.green) * value + 127) / 255)
-            pixels[offset + 2] = UInt8((Int(color.blue) * value + 127) / 255)
-            pixels[offset + 3] = UInt8(value)
+        for row in stride(from: 1, to: Int(image.height), by: 1) {
+            memcpy(pixels + row * image.rowBytes, pixels, width * 4)
         }
-        return pixels
+        return overwriteAlpha(of: image, with: alpha)
+            && vImagePremultiplyData_RGBA8888(&image, &image, noFlags) == kvImageNoError
     }
 
     /// 渐变上 `position`（0 为左缘、1 为右缘，超出时取端点）处的颜色。
@@ -375,36 +319,52 @@ enum DanmakuTextureRasterizer {
         return (mix(from.red, to.red), mix(from.green, to.green), mix(from.blue, to.blue))
     }
 
-    /// 预乘 alpha 的 source-over 合成：`foreground` 叠在 `background` 之上。
-    static func sourceOver(
-        foreground: [UInt8],
-        background: [UInt8]
-    ) -> [UInt8] {
-        precondition(foreground.count == background.count)
-        var result = background
-        for offset in stride(from: 0, to: result.count, by: 4) {
-            let foregroundAlpha = Int(foreground[offset + 3])
-            let inverseAlpha = 255 - foregroundAlpha
-            for channel in 0..<3 {
-                result[offset + channel] = UInt8(
-                    min(
-                        255,
-                        Int(foreground[offset + channel])
-                            + (Int(background[offset + channel])
-                                * inverseAlpha + 127) / 255
-                    )
-                )
-            }
-            result[offset + 3] = UInt8(
-                min(
-                    255,
-                    foregroundAlpha
-                        + (Int(background[offset + 3]) * inverseAlpha + 127)
-                        / 255
-                )
+    /// 预乘 alpha 的 source-over，原地写回 `background`：每个通道为
+    /// `前景 + ((255 − 前景 alpha) × 背景 + 127) / 255`。
+    ///
+    /// Swift 里 `_RGBA8888` 版本是 C 宏、不可调用；Alpha.h 注明 `_BGRA8888` 适用于任何 alpha 在末位的
+    /// 四通道格式，颜色通道各自按同一公式计算。
+    static func sourceOver(_ foreground: vImage_Buffer, onto background: vImage_Buffer) -> Bool {
+        var (top, bottom) = (foreground, background)
+        let error = vImagePremultipliedAlphaBlend_BGRA8888(&top, &bottom, &bottom, noFlags)
+        return error == kvImageNoError
+    }
+
+    private static let noFlags = vImage_Flags(kvImageNoFlags)
+    private static let edgeExtend = vImage_Flags(kvImageEdgeExtend)
+
+    /// 只把 `alpha` 写进 RGBA 的 alpha 通道，RGB 不变。
+    private static func overwriteAlpha(of image: vImage_Buffer, with alpha: vImage_Buffer) -> Bool {
+        var (alpha, image) = (alpha, image)
+        // copyMask 按 ARGB 记位，0x1 是内存里的第四个字节，也就是 RGBA 的 alpha。
+        return vImageOverwriteChannels_ARGB8888(&alpha, &image, &image, 0x1, noFlags)
+            == kvImageNoError
+    }
+
+    /// 把排好的一行字画进 `pixels`：`layout` 尺寸、已清零的预乘 RGBA。
+    private static func draw(
+        _ layout: DanmakuTextLineLayout,
+        scale: CGFloat,
+        into pixels: UnsafeMutableRawPointer
+    ) -> Bool {
+        guard
+            let context = CGContext(
+                data: pixels,
+                width: layout.widthPixels,
+                height: layout.heightPixels,
+                bitsPerComponent: DanmakuTexturePayload.bitsPerComponent,
+                bytesPerRow: layout.bytesPerRow,
+                space: DanmakuTexturePayload.colorSpace,
+                bitmapInfo: DanmakuTexturePayload.bitmapInfo.rawValue
             )
+        else {
+            return false
         }
-        return result
+        context.scaleBy(x: scale, y: scale)
+        let padding = CGFloat(layout.paddingPixels) / scale
+        context.textPosition = CGPoint(x: padding, y: padding + layout.descent)
+        CTLineDraw(layout.line, context)
+        return true
     }
 
     private static func decorationIsLight(colorRGB: UInt32) -> Bool {
