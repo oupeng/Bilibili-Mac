@@ -636,15 +636,24 @@ private final class CountingFailureSubscription {
 
 private struct PlayerStubFailure: Error {}
 
-/// `VideoDetailImageLoading` 的唯一测试替身：全部未命中、加载不返回图；本 target 的视图测试不验证取图。
+/// `VideoDetailImageLoading` 的唯一测试替身：默认全部未命中、加载不返回图；需要图片的测试按用途给出缓存命中
+/// 与加载结果。
 struct StubVideoDetailImageLoader: VideoDetailImageLoading {
-    func cachedImage(for url: URL, purpose: VideoDetailImagePurpose) -> CGImage? { nil }
+    var cachedImages: [VideoDetailImagePurpose: CGImage] = [:]
+    var cachedAnimations: [VideoDetailImagePurpose: NativeAnimatedImage] = [:]
+    var loadedImage: VideoDetailImage?
 
-    func cachedAnimation(for url: URL, purpose: VideoDetailImagePurpose) -> NativeAnimatedImage? {
-        nil
+    func cachedImage(for url: URL, purpose: VideoDetailImagePurpose) -> CGImage? {
+        cachedImages[purpose]
     }
 
-    func image(for url: URL, purpose: VideoDetailImagePurpose) async -> VideoDetailImage? { nil }
+    func cachedAnimation(for url: URL, purpose: VideoDetailImagePurpose) -> NativeAnimatedImage? {
+        cachedAnimations[purpose]
+    }
+
+    func image(for url: URL, purpose: VideoDetailImagePurpose) async -> VideoDetailImage? {
+        loadedImage
+    }
 
     func originalData(for url: URL, purpose: VideoDetailImagePurpose) async -> Data? { nil }
 }
