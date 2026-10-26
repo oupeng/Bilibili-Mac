@@ -6,8 +6,9 @@ import Testing
 @testable import BiliLibraryFeature
 
 /// 收藏写入在资料库一侧的契约：「从此收藏夹移除」只乐观移除显示中收藏夹里的那个视频条目、总数减一，回滚放回原位，
-/// 内容此间被整体替换过就不放回；别处改了显示中的收藏夹时，在本页就原地刷新，不在本页就回来时刷新；「收藏到…」面板的
-/// 勾选从服务端归属开始，确认的改动只是勾选与初始归属的差异。
+/// 内容此间被整体替换过就不放回，被替换过或仍有在途读取时也不再算作“已在本地改过”；别处改了显示中的收藏夹时，在本页
+/// 就原地刷新、不回顶部，不在本页就回来时刷新；「收藏到…」面板的勾选从服务端归属开始，确认的改动只是勾选与初始归属
+/// 的差异，读取遇到凭据失败时请求复核。
 @Suite(.timeLimit(.minutes(1)))
 @MainActor
 struct FavoriteFolderWriteTests {
@@ -56,6 +57,8 @@ struct FavoriteFolderWriteTests {
         let (model, repository) = await makeLoadedModel()
         let requestsBefore = await repository.requests.count
 
+        let generation = model.successfulReloadGeneration
+
         model.markNeedsReload(folderIDs: [20])
         #expect(!model.isRefreshing)
         model.markNeedsReload(folderIDs: [10, 20])
@@ -63,6 +66,25 @@ struct FavoriteFolderWriteTests {
         await model.waitForCurrentTask()
 
         #expect(await repository.requests.count == requestsBefore + 1)
+        // 写入引起的刷新不回顶部；工具栏刷新照常回顶部。
+        #expect(model.successfulReloadGeneration == generation)
+        model.reload()
+        await model.waitForCurrentTask()
+        #expect(model.successfulReloadGeneration == generation &+ 1)
+    }
+
+    /// 移除之后有刷新在途或已落地：写入前的快照可能把条目带回来，不能再算作“已在本地改过”。
+    @Test
+    func removalNoLongerCountsAsAppliedOnceAReadIntervenes() async throws {
+        let (model, _) = await makeLoadedModel()
+        let entry = try #require(FavoriteFolderEntry(folderID: 10, videoAID: 2))
+        let removal = try #require(model.removeItem(entry))
+        #expect(model.stillShowsRemoval(removal))
+
+        model.reload()
+        #expect(!model.stillShowsRemoval(removal))
+        await model.waitForCurrentTask()
+        #expect(!model.stillShowsRemoval(removal))
     }
 
     @Test
@@ -91,7 +113,8 @@ struct FavoriteFolderWriteTests {
         let picker = FavoritePickerModel(
             target: target,
             accountID: 7,
-            useCase: FavoritesUseCase(repository: repository)
+            useCase: FavoritesUseCase(repository: repository),
+            onCredentialFailure: {}
         )
 
         picker.load()
@@ -113,20 +136,31 @@ struct FavoriteFolderWriteTests {
         #expect(picker.change == nil)
     }
 
-    @Test
-    func pickerReportsAReadFailure() async throws {
-        let repository = FavoritesRepositoryStub(folders: .failure(.unavailable))
+    /// 读取失败给出可重试的失败；只有凭据缺失或失效交给协调者请求复核。
+    @Test(arguments: [
+        (ContentApplicationError.unavailable, 0),
+        (.authenticationInvalid, 1),
+        (.authenticationRequired, 1)
+    ])
+    func pickerReportsAReadFailure(
+        failure: ContentApplicationError,
+        revalidations: Int
+    ) async throws {
+        let repository = FavoritesRepositoryStub(folders: .failure(failure))
+        let requested = RevalidationRequests()
         let picker = FavoritePickerModel(
             target: try #require(VideoWriteTarget(bvid: "BV17x411w7KC")),
             accountID: 7,
-            useCase: FavoritesUseCase(repository: repository)
+            useCase: FavoritesUseCase(repository: repository),
+            onCredentialFailure: { requested.count += 1 }
         )
 
         picker.load()
         await waitForObservedState { picker.phase != FavoritePickerModel.Phase.loading }
 
-        #expect(picker.phase == FavoritePickerModel.Phase.failed(.unavailable))
+        #expect(picker.phase == FavoritePickerModel.Phase.failed(failure))
         #expect(picker.change == nil)
+        #expect(requested.count == revalidations)
     }
 
     /// 已登录、在收藏夹页上显示默认收藏夹（10）的第 1 页：三条视频条目，av 号 1–3。
@@ -162,4 +196,10 @@ struct FavoriteFolderWriteTests {
         guard case .loaded(_, let content) = model.phase else { return [] }
         return content.items.map(\.id)
     }
+}
+
+/// 面板请求账户复核的次数；回调在主线程调用。
+@MainActor
+private final class RevalidationRequests {
+    var count = 0
 }

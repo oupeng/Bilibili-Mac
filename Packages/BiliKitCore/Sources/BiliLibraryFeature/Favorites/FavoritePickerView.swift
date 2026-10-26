@@ -6,21 +6,25 @@ import SwiftUI
 /// 「收藏到…」面板（App 以 sheet 呈现）：自己的收藏夹逐个一行，顺序、名称与私密锁同侧栏，另显示条数；勾选表示视频在
 /// 这个夹里，确认后一次提交勾选与初始归属的差异。
 ///
-/// 不拥有读取与写入：归属与勾选在 `FavoritePickerModel`，取消与确认交回调用方（App 的写入协调者关闭面板、发出写入）。
+/// 不拥有读取与写入：归属与勾选在 `FavoritePickerModel`，取消、重试与确认交回调用方（App 的写入协调者关闭面板、核对账户、
+/// 发出写入）。
 /// 没有改动时确认禁用；第一版不提供新建收藏夹。Esc 取消，Return 确认。
 public struct FavoritePickerView: View {
     @Environment(\.locale) private var locale
     private let model: FavoritePickerModel
     private let onCancel: () -> Void
+    private let onRetry: () -> Void
     private let onConfirm: () -> Void
 
     public init(
         model: FavoritePickerModel,
         onCancel: @escaping () -> Void,
+        onRetry: @escaping () -> Void,
         onConfirm: @escaping () -> Void
     ) {
         self.model = model
         self.onCancel = onCancel
+        self.onRetry = onRetry
         self.onConfirm = onConfirm
     }
 
@@ -63,7 +67,7 @@ public struct FavoritePickerView: View {
                 .view(
                     error,
                     fallbackTitle: LibraryFeatureStrings.localized("无法加载收藏夹", locale: locale),
-                    retry: model.load
+                    retry: onRetry
                 )
         case .loaded(let memberships):
             List(memberships) { membership in
@@ -73,23 +77,28 @@ public struct FavoritePickerView: View {
                         FavoriteFolderTitle(folder: membership.folder)
                     }
                     .toggleStyle(.checkbox)
-                    // “私密”放进标签而不是值：勾选框的值是勾选状态，覆盖掉读屏就读不出是否已勾选。
-                    .accessibilityLabel(accessibilityTitle(membership.folder))
+                    // 私密与条数放进标签而不是值：勾选框的值是勾选状态，覆盖掉读屏就读不出是否已勾选；条数单独成元素
+                    // 时读屏只读出一个没有上下文的数字。
+                    .accessibilityLabel(accessibilityLabel(membership.folder))
                     Spacer(minLength: FavoritePickerGeometry.countSpacing)
-                    Text(
-                        membership.folder.mediaCount,
-                        format: .number.locale(InterfaceLocale.current)
-                    )
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
+                    Text(formattedCount(membership.folder))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
                 }
             }
         }
     }
 
-    private func accessibilityTitle(_ folder: FavoriteFolder) -> String {
-        guard folder.isPrivate else { return folder.title }
-        return LibraryFeatureStrings.localized("\(folder.title)（私密）", locale: locale)
+    private func formattedCount(_ folder: FavoriteFolder) -> String {
+        folder.mediaCount.formatted(.number.locale(InterfaceLocale.current))
+    }
+
+    private func accessibilityLabel(_ folder: FavoriteFolder) -> String {
+        let count = formattedCount(folder)
+        return folder.isPrivate
+            ? LibraryFeatureStrings.localized("\(folder.title)（私密），\(count) 个内容", locale: locale)
+            : LibraryFeatureStrings.localized("\(folder.title)，\(count) 个内容", locale: locale)
     }
 
     private func selection(_ folderID: Int64) -> Binding<Bool> {

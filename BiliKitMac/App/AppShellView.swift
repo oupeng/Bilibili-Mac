@@ -125,8 +125,13 @@ struct AppShellView: View {
             FavoritePickerView(
                 model: picker,
                 onCancel: accountWrites.dismissFavoritePicker,
+                onRetry: accountWrites.retryFavoritePicker,
                 onConfirm: accountWrites.confirmFavoritePicker
             )
+        }
+        .onChange(of: accountWrites.currentWritableAccount) {
+            // 登出、换号、其他窗口换号待复核：属于旧账户的「收藏到…」面板立即关闭。
+            accountWrites.writableAccountDidChange()
         }
         .onChange(of: searchSession.submittedCriteria) { previousCriteria, criteria in
             guard previousCriteria != criteria else { return }

@@ -21,7 +21,8 @@ public enum BiliAccountWritePath {
     public static let favoriteMembershipUpdate = "/x/v3/fav/resource/deal"
     /// 从一个收藏夹移除一个视频条目。
     ///
-    /// 字段 `resources=<aid>:2`、`media_id`、`platform=web`、`csrf`，urlencoded，不签 WBI；与网页收藏夹页的单条「取消收藏」
-    /// 一致。接口接受逗号分隔的多个条目，这里只发一个。
+    /// 字段 `resources=<aid>:2`、`media_id`、`platform=web`、`csrf`，urlencoded，不签 WBI，与网页收藏夹页的单条「取消收藏」
+    /// 相同；网页从 space 子域发出，这里与其他写入一样用 www 的 Origin 与 Referer，实机可用。接口接受逗号分隔的多个条目，
+    /// 这里只发一个。
     public static let favoriteFolderEntryRemove = "/x/v3/fav/resource/batch-del"
 }

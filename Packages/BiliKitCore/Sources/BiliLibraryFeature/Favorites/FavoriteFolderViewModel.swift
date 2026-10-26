@@ -41,6 +41,8 @@ public final class FavoriteFolderViewModel: AccountRevalidationParticipant {
         keyword.applied
     }
     /// 每次整体替换成功（含原地刷新）递增；App 只在它前进时把这个来源的网格滚回顶部。
+    ///
+    /// 写入引起的原地刷新不递增，见 `refresh(keepingPosition:)`。
     public private(set) var successfulReloadGeneration: UInt64 = 0
     /// 已有内容时的原地刷新正在进行。
     public private(set) var isRefreshing = false
@@ -153,7 +155,7 @@ public final class FavoriteFolderViewModel: AccountRevalidationParticipant {
         if paging.phase == .idle || needsReloadOnActivation {
             load(page: paging.currentPage)
         } else if isStale {
-            reload()
+            refresh(keepingPosition: true)
         }
     }
 
@@ -195,6 +197,12 @@ public final class FavoriteFolderViewModel: AccountRevalidationParticipant {
 
     /// 工具栏刷新与失败重试：已显示条目时原地重读当前页，否则重新读取当前页；没有选中收藏夹时重读收藏夹列表。
     public func reload() {
+        refresh(keepingPosition: false)
+    }
+
+    /// `reload` 与写入引起的刷新共用；`keepingPosition` 时成功也不推进 `successfulReloadGeneration`，网格不回顶部：写入
+    /// 只让本页多一条或少一条，用户正看着的位置不该跳走。
+    private func refresh(keepingPosition: Bool) {
         guard selectedFolderID != nil else {
             folderList.reload()
             return
@@ -208,7 +216,7 @@ public final class FavoriteFolderViewModel: AccountRevalidationParticipant {
         isStale = false
         isRefreshing = true
         paging.beginRefresh()
-        request(page: paging.currentPage, refreshing: true)
+        request(page: paging.currentPage, refreshing: true, keepingPosition: keepingPosition)
     }
 
     /// 离开收藏夹来源：取消请求，停止等待复核；被打断的加载与凭据失败页在回来时重新读取，已显示的内容保留。
@@ -247,7 +255,8 @@ public final class FavoriteFolderViewModel: AccountRevalidationParticipant {
 
     /// 乐观移除显示中的一条（「从此收藏夹移除」）。
     ///
-    /// `entry` 属于显示中的收藏夹、本页已显示且有这条视频条目时从页里删掉、总数减一，否则为 nil。服务端确认之前只是本地变化，写入失败或被取消时交回 `restoreItem`。由 App 的写入协调者调用，Task 也归它。
+    /// `entry` 属于显示中的收藏夹、本页已显示且有这条视频条目时从页里删掉、总数减一，否则为 nil。服务端确认之前只是本地
+    /// 变化，写入失败或被取消时交回 `restoreItem`。由 App 的写入协调者调用，Task 也归它。
     public func removeItem(_ entry: FavoriteFolderEntry) -> FavoriteFolderRemoval? {
         guard entry.folderID == selectedFolderID,
             case .loaded(_, let content) = paging.phase,
@@ -279,6 +288,17 @@ public final class FavoriteFolderViewModel: AccountRevalidationParticipant {
         _ = replaceDisplayedItems(items, of: content, totalCountDelta: 1)
     }
 
+    /// 写入成功时，显示的仍是这次乐观移除之后的内容：没有被整体替换过，也没有在途的读取。
+    ///
+    /// 期间落地的刷新或翻页带回的是写入前的快照，在途的读取也可能如此；这两种情况都要让效果路由按“未在本地改过”处理、
+    /// 重读一次，否则服务端已删除的条目会一直显示。
+    public func stillShowsRemoval(_ removal: FavoriteFolderRemoval) -> Bool {
+        guard removal.contentGeneration == contentGeneration, !isRefreshing,
+            case .loaded = paging.phase
+        else { return false }
+        return true
+    }
+
     /// 收藏夹 `folderIDs` 在服务端的内容被别处的写入改变了（「收藏到…」面板、另一窗口）。
     ///
     /// 显示中的是其中之一时，正在显示就原地刷新，不在本页就记下、回来时刷新；不涉及显示中的夹时不动作。由 App 的写入
@@ -287,7 +307,7 @@ public final class FavoriteFolderViewModel: AccountRevalidationParticipant {
         guard let selectedFolderID, folderIDs.contains(selectedFolderID) else { return }
         guard case .loaded = paging.phase else { return }
         if isRouteActive {
-            reload()
+            refresh(keepingPosition: true)
         } else {
             isStale = true
         }
@@ -334,11 +354,13 @@ public final class FavoriteFolderViewModel: AccountRevalidationParticipant {
         refreshError = nil
         needsReloadOnActivation = false
         paging.beginLoading(page: page)
-        request(page: page, refreshing: false)
+        request(page: page, refreshing: false, keepingPosition: false)
     }
 
     /// 发出 `page` 的请求；翻页状态已转为加载这一页，或正在原地刷新。
-    private func request(page: Int, refreshing: Bool) {
+    ///
+    /// `keepingPosition` 见 `refresh(keepingPosition:)`。
+    private func request(page: Int, refreshing: Bool, keepingPosition: Bool) {
         guard let folderID = selectedFolderID else { return }
         let pageRequest = FavoriteFolderRequest(
             folderID: folderID,
@@ -351,7 +373,7 @@ public final class FavoriteFolderViewModel: AccountRevalidationParticipant {
             do {
                 let result = try await useCase.page(pageRequest)
                 guard let self, isCurrent() else { return }
-                apply(result, page: page)
+                apply(result, page: page, keepingPosition: keepingPosition)
             } catch is CancellationError {
                 // 本任务未被取消却收到取消：认证会话在请求途中切换。原地刷新保留内容，其余回到空闲，由账户范围变化或
                 // 复核结果重新加载。
@@ -369,7 +391,7 @@ public final class FavoriteFolderViewModel: AccountRevalidationParticipant {
         }
     }
 
-    private func apply(_ result: FavoriteFolderPage, page: Int) {
+    private func apply(_ result: FavoriteFolderPage, page: Int, keepingPosition: Bool) {
         isRefreshing = false
         let outcome = paging.succeed(
             page: page,
@@ -382,10 +404,12 @@ public final class FavoriteFolderViewModel: AccountRevalidationParticipant {
         case .show:
             contentGeneration &+= 1
             revalidation.loadSucceeded()
-            successfulReloadGeneration &+= 1
+            if !keepingPosition {
+                successfulReloadGeneration &+= 1
+            }
         case .request(let target):
-            // 请求的页已越界（总数在翻页期间变少）：`paging` 改请求最后一页，或先回第 1 页取得新总数。
-            request(page: target, refreshing: false)
+            // 请求的页已越界（总数在翻页期间变少）：`paging` 改请求最后一页，或先回第 1 页取得新总数。换了页就回顶部。
+            request(page: target, refreshing: false, keepingPosition: false)
         }
     }
 

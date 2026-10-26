@@ -10,8 +10,8 @@ import Testing
 
 /// 账户写入只在窗口账户可信（已登录且 mid 已知、不在复核、没有待复核的外部换号）时发出，并绑定该账户；成功后给出结果
 /// 并让本窗口与其他窗口的稍后再看在下次出现时刷新（本窗口乐观移除过的不再刷新）；稍后再看页与收藏夹页的移除先在本地
-/// 删掉、失败放回原位；「收藏到…」面板确认时只提交勾选的差异，账户已变就不提交，成功后侧栏收藏夹重读；凭据类失败只请求
-/// 一次复核，直到下一次写入成功；关窗后不再接受意图。
+/// 删掉、失败放回原位；「收藏到…」面板确认时只提交勾选的差异，成功后侧栏收藏夹重读；窗口账户一变面板就关闭，重试与
+/// 确认也不在另一个账户下进行；写入或面板读取的凭据类失败只请求一次复核，直到下一次写入成功；关窗后不再接受意图。
 @Suite(.timeLimit(.minutes(1)))
 @MainActor
 struct AccountWriteCoordinatorTests {
@@ -295,6 +295,58 @@ struct AccountWriteCoordinatorTests {
         #expect(coordinator.report == nil)
     }
 
+    /// 窗口账户变了（登出、换号、会话代次变化）：面板关闭；变化发生在读取失败之后时，重试也只关闭面板、不再读取。
+    @Test
+    func accountChangesClosePickerInsteadOfRereading() async throws {
+        let favorites = FavoritesRepositoryStub(error: .unavailable)
+        let session = MutableWritableAccount()
+        session.account = WritableAccount(accountID: 7, sessionGeneration: 1)
+        let coordinator = standaloneCoordinator(
+            writes: AccountWriteRepositoryStub(),
+            session: session,
+            favorites: favorites
+        )
+        defer { coordinator.close() }
+
+        coordinator.chooseFavoriteFolders(bvid: "BV17x411w7KC")
+        let picker = try #require(coordinator.favoritePicker)
+        await favorites.waitForFolderRequestCount(1)
+        await waitForObservedState { picker.phase != .loading }
+        coordinator.writableAccountDidChange()
+        #expect(coordinator.favoritePicker === picker)
+
+        session.account = WritableAccount(accountID: 7, sessionGeneration: 2)
+        coordinator.retryFavoritePicker()
+        #expect(coordinator.favoritePicker == nil)
+        #expect(await favorites.folderOwnerIDs == [7])
+
+        coordinator.chooseFavoriteFolders(bvid: "BV17x411w7KC")
+        session.account = nil
+        coordinator.writableAccountDidChange()
+        #expect(coordinator.favoritePicker == nil)
+    }
+
+    /// 面板读取遇到凭据失效时请求一次窗口复核，与写入共用同一节流。
+    @Test
+    func pickerCredentialFailureRequestsOneRevalidation() async throws {
+        let session = MutableWritableAccount()
+        session.account = WritableAccount(accountID: 7, sessionGeneration: 1)
+        let coordinator = standaloneCoordinator(
+            writes: AccountWriteRepositoryStub(),
+            session: session,
+            favorites: FavoritesRepositoryStub(error: .authenticationInvalid)
+        )
+        defer { coordinator.close() }
+
+        for _ in 0..<2 {
+            coordinator.chooseFavoriteFolders(bvid: "BV17x411w7KC")
+            let picker = try #require(coordinator.favoritePicker)
+            await waitForObservedState { picker.phase != .loading }
+        }
+
+        #expect(coordinator.authenticationRevalidationGeneration == 1)
+    }
+
     @Test
     func folderEntryRemovalIsOptimisticAndRollsBackOnFailure() async throws {
         let writes = AccountWriteRepositoryStub(outcomes: [.unavailable])
@@ -339,9 +391,10 @@ struct AccountWriteCoordinatorTests {
 
     private func standaloneCoordinator(
         writes: AccountWriteRepositoryStub,
-        session: MutableWritableAccount
+        session: MutableWritableAccount,
+        favorites: FavoritesRepositoryStub = FavoritesRepositoryStub()
     ) -> AccountWriteCoordinator {
-        let favoritesUseCase = FavoritesUseCase(repository: FavoritesRepositoryStub())
+        let favoritesUseCase = FavoritesUseCase(repository: favorites)
         return AccountWriteCoordinator(
             watchLater: WatchLaterWriteUseCase(repository: writes),
             watchLaterModel: WatchLaterViewModel(

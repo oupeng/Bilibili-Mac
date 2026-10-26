@@ -7,7 +7,7 @@ import Foundation
 /// 每个请求必须精确命中：`https://api.bilibili.com`（端口缺省或 443）、POST、无 query／userinfo／fragment、path 同时在
 /// Composition 声明的 allowlist 与本类型封闭的 schema 表里；header 集合固定为 `Accept`、`Content-Type`、`Origin`、
 /// `Referer`、`User-Agent`，取值逐项相等，Referer 是该 path 规定的固定地址；表单不超过 `maximumBodySize`，字段名
-/// 恰为 schema 的必需字段加可选字段的子集，取值形状逐项校验。调用方自带 `csrf`、Cookie 等凭据类字段或 header 的请求
+/// 恰为 schema 的必需字段加可选字段的子集，取值形状逐项校验，再查字段之间的约束。调用方自带 `csrf`、Cookie 等凭据类字段或 header 的请求
 /// 都不在 schema 内，一律拒绝。任一校验不通过都按 `requestNotAllowed`（客户端编程错误）拒绝，不尝试修正请求。
 ///
 /// 每次授权都重新读 Keychain、不缓存：凭据的 `DedeUserID` 必须等于调用方给出的预期账户（`boundTo`），不符时按凭据失效
@@ -15,18 +15,40 @@ import Foundation
 /// Cookie 只放该 path 白名单里的项（目前只有 `SESSDATA`），`bili_jct` 只作为表单 `csrf` 拼在末尾。与观看进度的
 /// `BiliPlaybackHeartbeatRequestAuthorizer` 相互独立，新增写操作在 schema 表里逐条登记，不泛化（见 SECURITY-MODEL §3）。
 public struct BiliAccountWriteRequestAuthorizer: HTTPSubjectBoundRequestAuthorizing, Sendable {
-    /// 一个写 path 的封闭表单 schema：必需与可选字段及其取值形状、固定 Referer 与要发送的 Cookie。
+    /// 一个写 path 的封闭表单 schema：必需与可选字段及其取值形状、字段之间的约束、固定 Referer 与要发送的 Cookie。
     struct Schema: Sendable {
         let requiredFields: [String: FieldShape]
         let optionalFields: [String: FieldShape]
+        var crossFieldRules: [CrossFieldRule] = []
         let referer: String
         /// 按 path 列出的 Cookie 白名单；需要更多 Cookie 的写操作（例如点赞要求的 `buvid3`）在自己的 schema 里扩展。
         let cookieNames: [WebCredentialCookieName]
     }
 
+    /// 字段之间的约束，在逐字段的形状都通过之后检查。
+    enum CrossFieldRule: Sendable {
+        /// 两个夹 id 列表（`positiveIntegerList`）至少一个非空，且没有共同的 id：一次改动必须真有改动，同一个夹不能
+        /// 既加入又移出（服务端先做哪一侧不可知）。
+        case disjointNonEmptyLists(String, String)
+
+        func accepts(_ fields: [String: String]) -> Bool {
+            switch self {
+            case .disjointNonEmptyLists(let first, let second):
+                let firstIDs = Set(
+                    (fields[first] ?? "").split(separator: ",", omittingEmptySubsequences: true)
+                )
+                let secondIDs = Set(
+                    (fields[second] ?? "").split(separator: ",", omittingEmptySubsequences: true)
+                )
+                return !(firstIDs.isEmpty && secondIDs.isEmpty)
+                    && firstIDs.isDisjoint(with: secondIDs)
+            }
+        }
+    }
+
     /// 字段取值的形状。
     enum FieldShape: Sendable {
-        /// 正整数（稿件 aid、收藏夹 id 等），只由 ASCII 数字组成。
+        /// 正整数（稿件 aid、收藏夹 id 等），只由 ASCII 数字组成、没有前导零：同一个数只有一种写法，去重与比较按字面进行。
         case positiveInteger
         /// 固定取值（`type=2`、`platform=web`）。
         case literal(String)
@@ -53,7 +75,8 @@ public struct BiliAccountWriteRequestAuthorizer: HTTPSubjectBoundRequestAuthoriz
         }
 
         private static func isPositiveInteger<S: StringProtocol>(_ value: S) -> Bool {
-            value.allSatisfy { $0.isASCII && $0.isNumber }
+            value.first != "0"
+                && value.allSatisfy { $0.isASCII && $0.isNumber }
                 && WriteRequestAuthorizationSupport.positiveInteger(String(value))
         }
 
@@ -111,6 +134,7 @@ public struct BiliAccountWriteRequestAuthorizer: HTTPSubjectBoundRequestAuthoriz
                 "platform": .literal("web")
             ],
             optionalFields: [:],
+            crossFieldRules: [.disjointNonEmptyLists("add_media_ids", "del_media_ids")],
             referer: "https://www.bilibili.com/",
             cookieNames: [.session]
         ),
@@ -128,8 +152,8 @@ public struct BiliAccountWriteRequestAuthorizer: HTTPSubjectBoundRequestAuthoriz
 
     /// 写请求固定的 `Origin`：浏览器跨域 POST 会带它，B 站据此与 Referer 一起判断来源。
     static let origin = "https://www.bilibili.com"
-    /// 表单正文上限：最长的收藏改动带两列各至多 `FieldShape.maximumListCount` 个夹 id（逗号编码为 `%2C`），仍在 4 KiB
-    /// 以内；超出说明请求构造有误，直接拒绝。
+    /// 表单正文上限：最长的收藏改动带两列各至多 `FieldShape.maximumListCount` 个夹 id（写管线不编码逗号，按 19 位 id
+    /// 计约 4 KB），仍在 4 KiB 以内；超出说明请求构造有误，直接拒绝。
     private static let maximumBodySize = 4_096
     private typealias Support = WriteRequestAuthorizationSupport
 
@@ -216,7 +240,7 @@ public struct BiliAccountWriteRequestAuthorizer: HTTPSubjectBoundRequestAuthoriz
         else { return false }
         return fields.allSatisfy { name, value in
             (schema.requiredFields[name] ?? schema.optionalFields[name])?.accepts(value) ?? false
-        }
+        } && schema.crossFieldRules.allSatisfy { $0.accepts(fields) }
     }
 
     private static func hasExactHeaders(_ headers: [String: String], referer: String) -> Bool {

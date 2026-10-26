@@ -57,7 +57,8 @@ struct BiliAccountWriteRequestAuthorizerTests {
         #expect(sent == "\(body)&csrf=FIXTURE_bili_jct_VALUE")
     }
 
-    /// 收藏改动只收单个视频、固定类型与平台，夹 id 列表互不重复且有上限；网页的统计字段不收。
+    /// 收藏改动只收单个视频、固定类型与平台；夹 id 列表各自不重复、两侧不相交、至少一侧非空且有上限，数字不带前导零；
+    /// 网页的统计字段不收。
     @Test(arguments: [
         "rid=170001&type=2&add_media_ids=11&platform=web",
         "rid=170001&type=12&add_media_ids=11&del_media_ids=&platform=web",
@@ -68,6 +69,11 @@ struct BiliAccountWriteRequestAuthorizerTests {
         "rid=170001&type=2&add_media_ids=11,&del_media_ids=&platform=web",
         "rid=170001&type=2&add_media_ids=0&del_media_ids=&platform=web",
         "rid=170001&type=2&add_media_ids=11&del_media_ids=&platform=web&spmid=333.788.0.0",
+        "rid=170001&type=2&add_media_ids=11&del_media_ids=11&platform=web",
+        "rid=170001&type=2&add_media_ids=11,12&del_media_ids=13,12&platform=web",
+        "rid=170001&type=2&add_media_ids=&del_media_ids=&platform=web",
+        "rid=0170001&type=2&add_media_ids=11&del_media_ids=&platform=web",
+        "rid=170001&type=2&add_media_ids=11,011&del_media_ids=&platform=web",
         "rid=170001&type=2&add_media_ids="
             + (1...101).map(String.init).joined(separator: ",")
             + "&del_media_ids=&platform=web"

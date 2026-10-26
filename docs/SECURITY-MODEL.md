@@ -127,7 +127,7 @@
   （`POST /x/v3/fav/resource/deal`）与夹内移除（`POST /x/v3/fav/resource/batch-del`）。`toview/del` 的 `aid` 在接口文档里
   可选、带 `viewed=true` 会删除全部已看完的视频；schema 强制要求 `aid` 并拒绝 `viewed`，所以发不出“一次清空”，不得把 `aid`
   改成可选。`batch-del` 接受逗号分隔的多个条目，schema 只收单个 `<aid>:2`；`deal` 只收单个视频、固定 `type=2`，两侧夹 id
-  列表互不重复、有上限。换用其他接口时同样只收单个视频，不收批量；需要 WBI 签名或 multipart 正文时，要给 schema 加对应维度
+  列表各自不重复、互不相交、至少一侧非空、有上限。换用其他接口时同样只收单个视频，不收批量；需要 WBI 签名或 multipart 正文时，要给 schema 加对应维度
   并封闭校验，不得放宽成接受任意正文或 query。
 - 只有窗口主 API 注入这个授权器，写 allowlist 由 `LiveAPIClients` 声明、只引用 BiliAPI 的 `BiliAccountWritePath`；测速与
   观看进度 client 没有写能力。新增写操作需要 ROADMAP 里的产品决定，并在授权器的 schema 表里逐条登记 path、表单字段与

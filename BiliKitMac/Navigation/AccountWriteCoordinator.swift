@@ -12,8 +12,10 @@ import Observation
 ///
 /// 每次执行都重新核对：卡片 ID 必须是合法 BVID、窗口此刻满足写入门槛，否则不发请求（菜单项可能是在门槛变化前构造的）。
 /// 失败不重试、不排队；凭据类失败（`requiresAccountRevalidation`）递增一次复核代次，此后在同一账户与会话代次里直到下一次
-/// 写入成功都不再自动复核，避免“复核 → 仍失败 → 再复核”；换号或登出再登录后会话代次变化，节流随之作废。`close()`（关窗）
-/// 关闭面板、取消全部在途写入与计时，之后不再接受意图；被取消的写入只回滚本地移除、不显示结果。
+/// 写入成功都不再自动复核，避免“复核 → 仍失败 → 再复核”；换号或登出再登录后会话代次变化，节流随之作废。面板绑定打开时
+/// 的窗口账户（含会话代次）：窗口账户一变（`writableAccountDidChange`）就关闭，重试与确认前再核对一次，面板里的收藏夹
+/// 与归属不会在另一个账户下显示、重读或提交。`close()`（关窗）关闭面板、取消全部在途写入与计时，之后不再接受意图；
+/// 被取消的写入只回滚本地移除、不显示结果。
 @MainActor
 @Observable
 final class AccountWriteCoordinator: AccountRevalidationParticipant {
@@ -50,6 +52,8 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
     /// 失败时的账户与它相同就不再递增复核代次；写入成功时清空，账户或会话代次不同（换号、登出再登录）时视为作废，避免
     /// 上一会话的节流让新会话的写入再也不复核。
     @ObservationIgnored private var revalidationRequestedFor: WritableAccount?
+    /// 打开面板时的窗口账户；面板关闭时清空。
+    @ObservationIgnored private var favoritePickerAccount: WritableAccount?
     @ObservationIgnored private var isClosed = false
 
     /// `publish` 把成功的效果交给本窗口的效果路由与其他窗口（`WindowComposition` 接线）。
@@ -76,11 +80,16 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
         !isClosed && writableAccount() != nil
     }
 
+    /// 窗口此刻的写入账户；`AppShellView` 观察它的变化并调用 `writableAccountDidChange`。
+    var currentWritableAccount: WritableAccount? {
+        currentAccount()
+    }
+
     func addToWatchLater(bvid: String) {
         guard let target = VideoWriteTarget(bvid: bvid), let account = currentAccount() else {
             return
         }
-        start(.watchLaterAdded(target), account: account, appliedLocally: false) { [watchLater] in
+        start(.watchLaterAdded(target), account: account) { [watchLater] in
             try await watchLater.add(target, accountID: account.accountID)
         }
     }
@@ -96,7 +105,7 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
         start(
             change,
             account: account,
-            appliedLocally: removal != nil,
+            appliedLocally: { removal != nil },
             rollback: { [watchLaterModel] in
                 if let removal { watchLaterModel.restoreItem(removal) }
             },
@@ -117,9 +126,11 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
         let picker = FavoritePickerModel(
             target: target,
             accountID: account.accountID,
-            useCase: favorites
+            useCase: favorites,
+            onCredentialFailure: { [weak self] in self?.requestRevalidation(for: account) }
         )
         favoritePicker = picker
+        favoritePickerAccount = account
         picker.load()
     }
 
@@ -127,6 +138,26 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
     func dismissFavoritePicker() {
         favoritePicker?.cancel()
         favoritePicker = nil
+        favoritePickerAccount = nil
+    }
+
+    /// 面板读取失败后的重试：窗口账户已不是打开面板时的账户就关闭面板，否则重读。
+    ///
+    /// 面板的读取固定用打开时的 mid；账户变了还重读，就会用新账户的 Cookie 读旧账户的 mid（见 SECURITY-MODEL §3）。
+    func retryFavoritePicker() {
+        guard let picker = favoritePicker else { return }
+        guard currentAccount() == favoritePickerAccount else {
+            dismissFavoritePicker()
+            return
+        }
+        picker.load()
+    }
+
+    /// 窗口的写入账户变了（登出、换号、其他窗口换号待复核、会话代次变化）：属于旧账户的面板立即关闭，它列出的收藏夹
+    /// 与归属不再显示。
+    func writableAccountDidChange() {
+        guard favoritePicker != nil, currentAccount() != favoritePickerAccount else { return }
+        dismissFavoritePicker()
     }
 
     /// 面板的确认：关闭面板，有改动时提交。
@@ -134,19 +165,22 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
     /// 窗口账户此刻必须仍是打开面板时的账户：换号或登出后面板里的归属属于上一账户，按它提交会改动错的账户，直接丢弃。
     func confirmFavoritePicker() {
         guard let picker = favoritePicker else { return }
+        let pickerAccount = favoritePickerAccount
         dismissFavoritePicker()
         guard let change = picker.change,
             let account = currentAccount(),
-            account.accountID == picker.accountID
+            account == pickerAccount
         else { return }
-        start(.favoriteMembershipChanged(change), account: account, appliedLocally: false) {
-            [favoritesWrite] in
+        start(.favoriteMembershipChanged(change), account: account) { [favoritesWrite] in
             try await favoritesWrite.update(change, accountID: account.accountID)
         }
     }
 
     /// 收藏夹页的「从此收藏夹移除」：先在显示中的收藏夹里乐观移除，失败或被取消时放回原位（此间内容被整体替换时由模型
     /// 丢弃这次回滚）。
+    ///
+    /// 写入成功时页面是否仍是移除后的样子在那一刻判断：期间刷新落地（或仍在途）会带回写入前的快照，这时要让效果路由
+    /// 重读，不能沿用开始时“已在本地改过”的结论。
     func removeFromFavoriteFolder(_ entry: FavoriteFolderEntry) {
         guard let account = currentAccount() else { return }
         let change = AccountWriteChange.removedFromFavoriteFolder(entry)
@@ -155,7 +189,9 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
         start(
             change,
             account: account,
-            appliedLocally: removal != nil,
+            appliedLocally: { [favoriteFolders] in
+                removal.map(favoriteFolders.stillShowsRemoval) ?? false
+            },
             rollback: { [favoriteFolders] in
                 if let removal { favoriteFolders.restoreItem(removal) }
             },
@@ -181,10 +217,11 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
         return writableAccount()
     }
 
+    /// `appliedLocally` 在写入成功时求值：本窗口的视图此刻是否已经是写入后的样子。
     private func start(
         _ change: AccountWriteChange,
         account: WritableAccount,
-        appliedLocally: Bool,
+        appliedLocally: @escaping @MainActor () -> Bool = { false },
         rollback: @escaping @MainActor () -> Void = {},
         write: @escaping @MainActor () async throws -> AccountWriteEffect
     ) {
@@ -217,7 +254,7 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
         _ change: AccountWriteChange,
         effect: AccountWriteEffect,
         account: WritableAccount,
-        appliedLocally: Bool
+        appliedLocally: @MainActor () -> Bool
     ) {
         inFlight[change] = nil
         guard !isClosed else { return }
@@ -228,7 +265,7 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
                 effect: effect,
                 sessionGeneration: account.sessionGeneration
             ),
-            appliedLocally
+            appliedLocally()
         )
     }
 
@@ -240,10 +277,16 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
         inFlight[change] = nil
         guard !isClosed else { return }
         show(AccountWriteReport(change: change, failure: error))
-        if error.requiresAccountRevalidation, revalidationRequestedFor != account {
-            revalidationRequestedFor = account
-            authenticationRevalidationGeneration &+= 1
+        if error.requiresAccountRevalidation {
+            requestRevalidation(for: account)
         }
+    }
+
+    /// 写入或面板读取遇到凭据类失败：同一账户与会话代次里只请求一次复核，直到下一次写入成功。
+    private func requestRevalidation(for account: WritableAccount) {
+        guard !isClosed, revalidationRequestedFor != account else { return }
+        revalidationRequestedFor = account
+        authenticationRevalidationGeneration &+= 1
     }
 
     private func show(_ report: AccountWriteReport) {
