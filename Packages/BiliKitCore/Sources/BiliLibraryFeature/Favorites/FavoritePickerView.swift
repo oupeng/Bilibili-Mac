@@ -31,11 +31,14 @@ public struct FavoritePickerView: View {
                 .accessibilityAddTraits(.isHeader)
                 .padding([.horizontal, .top], FavoritePickerGeometry.padding)
                 .padding(.bottom, FavoritePickerGeometry.headerSpacing)
+            // 宽度只给下限与理想值：sheet 可能比理想宽度宽（系统的最小宽度），列表要跟着撑满，不能固定宽度靠左。
             content
                 .frame(
-                    width: FavoritePickerGeometry.width,
-                    height: FavoritePickerGeometry.listHeight
+                    minWidth: FavoritePickerGeometry.width,
+                    idealWidth: FavoritePickerGeometry.width,
+                    maxWidth: .infinity
                 )
+                .frame(height: FavoritePickerGeometry.listHeight)
             Divider()
             HStack {
                 Spacer()
