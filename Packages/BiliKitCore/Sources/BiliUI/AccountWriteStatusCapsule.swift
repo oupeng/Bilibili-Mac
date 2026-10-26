@@ -61,17 +61,34 @@ package enum AccountWriteStatusText {
             return switch report.change {
             case .watchLaterAdded: BiliUIStrings.localized("已添加到稍后再看")
             case .watchLaterRemoved: BiliUIStrings.localized("已从稍后再看移除")
+            case .favoriteMembershipChanged(let change):
+                if change.removedFolderIDs.isEmpty {
+                    BiliUIStrings.localized("已收藏")
+                } else if change.addedFolderIDs.isEmpty {
+                    BiliUIStrings.localized("已取消收藏")
+                } else {
+                    BiliUIStrings.localized("已更新收藏")
+                }
+            case .removedFromFavoriteFolder: BiliUIStrings.localized("已从收藏夹移除")
             }
         }
-        let reason = reason(for: failure)
+        let reason = reason(for: failure, change: report.change)
         return switch report.change {
         case .watchLaterAdded: BiliUIStrings.localized("无法添加到稍后再看：\(reason)")
         case .watchLaterRemoved: BiliUIStrings.localized("无法从稍后再看移除：\(reason)")
+        case .favoriteMembershipChanged: BiliUIStrings.localized("无法更新收藏：\(reason)")
+        case .removedFromFavoriteFolder: BiliUIStrings.localized("无法从收藏夹移除：\(reason)")
         }
     }
 
-    private static func reason(for failure: AccountWriteError) -> String {
-        switch failure {
+    private static func reason(for failure: AccountWriteError, change: AccountWriteChange) -> String
+    {
+        let isFavorites =
+            switch change {
+            case .watchLaterAdded, .watchLaterRemoved: false
+            case .favoriteMembershipChanged, .removedFromFavoriteFolder: true
+            }
+        return switch failure {
         case .authenticationRequired, .authenticationInvalid:
             BiliUIStrings.localized("登录状态可能已失效。")
         case .authenticationUnavailable:
@@ -79,11 +96,14 @@ package enum AccountWriteStatusText {
         case .restricted:
             BiliUIStrings.localized("请求受到限制，请稍后再试。")
         case .listFull:
-            BiliUIStrings.localized("稍后再看已满。")
+            isFavorites
+                ? BiliUIStrings.localized("收藏夹已满。") : BiliUIStrings.localized("稍后再看已满。")
         case .unsupportedContent:
             BiliUIStrings.localized("这个视频不能加入稍后再看。")
         case .contentUnavailable:
-            BiliUIStrings.localized("视频不存在或已删除。")
+            isFavorites
+                ? BiliUIStrings.localized("收藏夹或视频已不存在。")
+                : BiliUIStrings.localized("视频不存在或已删除。")
         case .rejected(let code):
             BiliUIStrings.localized("服务拒绝了这次操作（错误码 \(code)）。")
         case .unavailable:

@@ -39,7 +39,9 @@ enum LiveAPIClients {
     /// 窗口主 API 可发出的用户账户写入；只引用 BiliAPI 的 `BiliAccountWritePath`，授权器另按自己的 schema 表逐条校验。
     static let mainAccountWriteAllowedPaths: Set<String> = [
         BiliAccountWritePath.watchLaterAdd,
-        BiliAccountWritePath.watchLaterRemove
+        BiliAccountWritePath.watchLaterRemove,
+        BiliAccountWritePath.favoriteMembershipUpdate,
+        BiliAccountWritePath.favoriteFolderEntryRemove
     ]
 
     static let cdnBenchmarkAccountReadAllowedPaths: Set<String> = [

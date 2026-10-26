@@ -38,6 +38,8 @@ public struct FavoriteItem: Identifiable, Sendable, Equatable {
     public let favoritedAt: Date?
     /// nil 表示可以进入播放。
     public let unavailability: LibraryItemUnavailability?
+    /// 视频条目（接口 type 2，包括已失效的）的稿件 av 号，夹内移除用；合集、音频等其他类型为 nil，不能从夹内移除。
+    public let videoAID: Int64?
 
     public init(
         id: String,
@@ -46,7 +48,8 @@ public struct FavoriteItem: Identifiable, Sendable, Equatable {
         owner: VideoOwner?,
         durationSeconds: Int?,
         favoritedAt: Date?,
-        unavailability: LibraryItemUnavailability? = nil
+        unavailability: LibraryItemUnavailability? = nil,
+        videoAID: Int64? = nil
     ) {
         self.id = id
         self.title = title
@@ -55,5 +58,6 @@ public struct FavoriteItem: Identifiable, Sendable, Equatable {
         self.durationSeconds = durationSeconds
         self.favoritedAt = favoritedAt
         self.unavailability = unavailability
+        self.videoAID = videoAID
     }
 }

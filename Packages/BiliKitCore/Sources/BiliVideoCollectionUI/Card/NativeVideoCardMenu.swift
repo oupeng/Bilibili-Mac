@@ -109,22 +109,31 @@ extension NativeVideoCardMenu {
         case remove
     }
 
-    /// 各来源共用的卡片菜单：写操作一组（稍后再看），链接一组（拷贝链接、在浏览器中打开）。
+    /// 各来源共用的卡片菜单：写操作一组（稍后再看、收藏到…、收藏夹页的从此收藏夹移除），链接一组（拷贝链接、在浏览器
+    /// 中打开）。
     ///
-    /// `webPageURL` 由 Feature 用 BiliModels 的 `BVID.webPageURL` 按卡片 ID 构造，为 nil 表示卡片 ID 不是合法 BVID：没有任何
-    /// 项。链接项与「添加到稍后再看」只给可进入播放的卡片；「从稍后再看移除」也给不可用卡片（稍后再看里失效的视频
-    /// 只能移除）。`writing` 为 nil（没有注入写入口）时没有写操作项；有入口但此刻不满足门槛时写操作项显示为禁用。
+    /// `webPageURL` 由 Feature 用 BiliModels 的 `BVID.webPageURL` 按卡片 ID 构造，为 nil 表示卡片 ID 不是合法 BVID：只可能有
+    /// 「从此收藏夹移除」（收藏夹里没有 BVID 的失效视频）。链接项、「添加到稍后再看」与「收藏到…」只给可进入播放的卡片；
+    /// 两种移除也给不可用卡片（失效的视频只能移除）。`removeFromFavoriteFolder` 只由收藏夹页给出（视频条目才有），
+    /// 带 ⌘⌫；稍后再看页的移除占用 ⌘⌫，两者不会同时出现。`writing` 为 nil（没有注入写入口）时没有写操作项；有入口但
+    /// 此刻不满足门槛时写操作项显示为禁用。
     package static func video(
         for card: NativeVideoCardPresentation,
         webPageURL: URL?,
         openURL: OpenURLAction,
         writing: VideoCardAccountWriting?,
-        watchLater: WatchLaterAction
+        watchLater: WatchLaterAction,
+        removeFromFavoriteFolder: (@MainActor @Sendable () -> Void)? = nil
     ) -> NativeVideoCardMenu? {
-        guard let webPageURL else { return nil }
+        let folderRemoval = Item.favoriteFolderRemoval(removeFromFavoriteFolder, writing: writing)
+        guard let webPageURL else {
+            return NativeVideoCardMenu(sections: [folderRemoval])
+        }
         return NativeVideoCardMenu(
             sections: [
-                Item.watchLater(watchLater, for: card, writing: writing),
+                Item.watchLater(watchLater, for: card, writing: writing)
+                    + Item.favorites(for: card, writing: writing)
+                    + folderRemoval,
                 Item.videoLinks(for: card, webPageURL: webPageURL, openURL: openURL)
             ]
         )
@@ -190,6 +199,45 @@ extension NativeVideoCardMenu.Item {
                 ) { writing.removeFromWatchLater(bvid) }
             ]
         }
+    }
+}
+
+extension NativeVideoCardMenu.Item {
+    /// 「收藏到…」：只给可进入播放的卡片；动作只打开面板，写入在面板确认时由写入协调者发出。
+    @MainActor
+    static func favorites(
+        for card: NativeVideoCardPresentation,
+        writing: VideoCardAccountWriting?
+    ) -> [Self] {
+        guard let writing, card.isActivatable else { return [] }
+        let bvid = card.id
+        return [
+            Self(
+                id: "chooseFavoriteFolders",
+                title: VideoCardMenuText.addToFavorites,
+                systemImage: "star",
+                isEnabled: writing.isAvailable()
+            ) { writing.chooseFavoriteFolders(bvid) }
+        ]
+    }
+
+    /// 「从此收藏夹移除」：收藏夹页按显示中的收藏夹与条目给出动作，没有给出（其他来源、不是视频条目）时为空。
+    @MainActor
+    static func favoriteFolderRemoval(
+        _ action: (@MainActor @Sendable () -> Void)?,
+        writing: VideoCardAccountWriting?
+    ) -> [Self] {
+        guard let writing, let action else { return [] }
+        return [
+            Self(
+                id: "removeFromFavoriteFolder",
+                title: VideoCardMenuText.removeFromFavoriteFolder,
+                systemImage: "star.slash",
+                isEnabled: writing.isAvailable(),
+                keyEquivalent: .commandDelete,
+                action: action
+            )
+        ]
     }
 }
 

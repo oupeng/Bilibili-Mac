@@ -13,6 +13,11 @@ struct FavoriteFolderListPayload: Decodable, Sendable {
     func model() -> [FavoriteFolder] {
         (list ?? []).compactMap { $0.value?.model() }
     }
+
+    /// 带 `rid` 读取时的列表与归属；丢弃行的规则同 `model()`。
+    func memberships() throws -> [FavoriteFolderMembership] {
+        try (list ?? []).compactMap { try $0.value?.membership() }
+    }
 }
 
 /// 收藏夹列表的一行。
@@ -23,10 +28,13 @@ struct FavoriteFolderPayload: Decodable, Sendable {
     let title: String?
     let attr: Int?
     let mediaCount: Int?
+    /// 只在带 `rid` 读取时有意义：1 表示该视频在这个夹里，0 表示不在。
+    let favState: Int?
 
     private enum CodingKeys: String, CodingKey {
         case id, title, attr
         case mediaCount = "media_count"
+        case favState = "fav_state"
     }
 
     init(from decoder: any Decoder) throws {
@@ -35,6 +43,18 @@ struct FavoriteFolderPayload: Decodable, Sendable {
         title = container.decodeLossyIfPresent(String.self, forKey: .title)
         attr = container.decodeLossyIfPresent(Int.self, forKey: .attr)
         mediaCount = container.decodeLossyIfPresent(Int.self, forKey: .mediaCount)
+        favState = container.decodeLossyIfPresent(Int.self, forKey: .favState)
+    }
+
+    /// 保留下来的行缺 `fav_state` 或取值不是 0／1 时整份按解码失败：不知道归属就给不出勾选的初始状态，猜错会让确认
+    /// 时发出用户没有想要的加入或移出。
+    func membership() throws -> FavoriteFolderMembership? {
+        guard let folder = model() else { return nil }
+        switch favState {
+        case 0: return FavoriteFolderMembership(folder: folder, containsVideo: false)
+        case 1: return FavoriteFolderMembership(folder: folder, containsVideo: true)
+        default: throw BiliAPIError.decodingFailed
+        }
     }
 
     func model() -> FavoriteFolder? {
@@ -178,8 +198,15 @@ struct FavoriteMediaPayload: Decodable, Sendable {
                 avatarURL: upper.face.flatMap(WebImageURL.parse)
             ),
             durationSeconds: duration.map { max(0, $0) },
-            favoritedAt: Date(timeIntervalSince1970: TimeInterval(favoritedAt))
+            favoritedAt: Date(timeIntervalSince1970: TimeInterval(favoritedAt)),
+            videoAID: videoAID
         )
+    }
+
+    /// 视频条目（type 2）的 `id` 就是稿件 av 号；其他类型的 `id` 不是稿件，为 nil。
+    var videoAID: Int64? {
+        guard type == Self.videoType, let id, id > 0 else { return nil }
+        return id
     }
 
     /// 判定不可用的原因；type 2 的普通视频可以播放，返回 nil。
@@ -229,7 +256,8 @@ struct FavoriteMediaPayload: Decodable, Sendable {
             favoritedAt: favoritedAt.flatMap {
                 $0 > 0 ? Date(timeIntervalSince1970: TimeInterval($0)) : nil
             },
-            unavailability: unavailability
+            unavailability: unavailability,
+            videoAID: videoAID
         )
     }
 }

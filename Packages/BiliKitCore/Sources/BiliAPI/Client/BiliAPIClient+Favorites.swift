@@ -15,21 +15,48 @@ extension BiliAPIClient {
     /// `ownerID` 由调用方从窗口账户范围给出，这里不读取账户。`data` 为 null 时返回空数组：Cookie 失效时接口不报
     /// -101 而是退化为访客视角，是否可疑由 `FavoritesUseCase` 判断。
     public func favoriteFolders(ownerID: Int64) async throws -> [FavoriteFolder] {
+        try await favoriteFolderList(ownerID: ownerID, extraQueryItems: [])?.model() ?? []
+    }
+
+    /// 同一份收藏夹列表，附带 `bvid` 对应的视频是否在各夹里，供「收藏到…」面板用。
+    ///
+    /// 带 `type=2&rid=<aid>` 时每行有 `fav_state`；`data` 为 null 时同样返回空数组。
+    public func favoriteFolderMemberships(
+        ownerID: Int64,
+        bvid: String
+    ) async throws -> [FavoriteFolderMembership] {
+        guard BVID.isValid(bvid), let aid = BiliVideoAID.aid(fromBVID: bvid) else {
+            throw BiliAPIError.invalidRequest
+        }
+        let payload = try await favoriteFolderList(
+            ownerID: ownerID,
+            extraQueryItems: [
+                URLQueryItem(name: "type", value: "2"),
+                URLQueryItem(name: "rid", value: String(aid))
+            ]
+        )
+        return try payload?.memberships() ?? []
+    }
+
+    /// 列表读取的唯一请求形状；`data` 为 null 时为 nil。
+    private func favoriteFolderList(
+        ownerID: Int64,
+        extraQueryItems: [URLQueryItem]
+    ) async throws -> FavoriteFolderListPayload? {
         guard ownerID > 0 else { throw BiliAPIError.invalidRequest }
-        let payload: FavoriteFolderListPayload
         do {
-            payload = try await get(
+            return try await get(
                 url: try endpoint(
                     path: BiliAccountReadPath.favoriteFolders,
                     queryItems: [URLQueryItem(name: "up_mid", value: String(ownerID))]
+                        + extraQueryItems
                 ),
                 referer: "https://space.bilibili.com/\(ownerID)/favlist",
                 access: .accountRead(missingCredential: .fail)
             )
         } catch BiliAPIError.missingData {
-            return []
+            return nil
         }
-        return payload.model()
     }
 
     /// 按请求读取收藏夹内的一页（`pn` 从 1 开始）。

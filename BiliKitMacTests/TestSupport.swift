@@ -233,9 +233,9 @@ struct WatchLaterRepositoryStub: WatchLaterRepository {
     }
 }
 
-/// 稍后再看写入 port 的唯一测试替身：记录每次写入，按顺序取 `outcomes`（用完后一律成功）；`holdsWrites` 时每次写入
-/// 挂起到 `releaseWrites()` 或任务取消。
-actor WatchLaterWriteRepositoryStub: WatchLaterWriteRepository {
+/// 稍后再看与收藏两个写入 port 的唯一测试替身：记录每次写入，按顺序取 `outcomes`（用完后一律成功）；`holdsWrites` 时
+/// 每次写入挂起到 `releaseWrites()` 或任务取消。
+actor AccountWriteRepositoryStub: WatchLaterWriteRepository, FavoritesWriteRepository {
     private var outcomes: [AccountWriteError?]
     private let holdsWrites: Bool
     private(set) var calls: [String] = []
@@ -254,6 +254,16 @@ actor WatchLaterWriteRepositoryStub: WatchLaterWriteRepository {
 
     func remove(_ target: VideoWriteTarget, accountID: Int64) async throws {
         try await record("remove \(target.bvid) \(accountID)")
+    }
+
+    func update(_ change: FavoriteMembershipChange, accountID: Int64) async throws {
+        try await record(
+            "favorite \(change.target.bvid) +\(change.addedFolderIDs) -\(change.removedFolderIDs) \(accountID)"
+        )
+    }
+
+    func remove(_ entry: FavoriteFolderEntry, accountID: Int64) async throws {
+        try await record("unfavorite \(entry.videoAID) from \(entry.folderID) \(accountID)")
     }
 
     func waitForCallCount(_ target: Int) async {
@@ -277,15 +287,17 @@ actor WatchLaterWriteRepositoryStub: WatchLaterWriteRepository {
     }
 }
 
-/// 收藏夹 port 的唯一测试替身：返回固定的收藏夹列表（含默认收藏夹）与所请求页的空页，并记录列表请求的 mid；给了
-/// `error` 时每次读取都失败。
+/// 收藏夹 port 的唯一测试替身：返回固定的收藏夹列表（含默认收藏夹，视频只在默认收藏夹里）与所请求页（条目为
+/// `pageItems`），并记录列表请求的 mid；给了 `error` 时每次读取都失败。
 actor FavoritesRepositoryStub: FavoritesRepository {
     private let error: ContentApplicationError?
+    private let pageItems: [FavoriteItem]
     private(set) var folderOwnerIDs: [Int64] = []
     private var folderRequestWaiters = CountWaiters()
 
-    init(error: ContentApplicationError? = nil) {
+    init(error: ContentApplicationError? = nil, pageItems: [FavoriteItem] = []) {
         self.error = error
+        self.pageItems = pageItems
     }
 
     func waitForFolderRequestCount(_ target: Int) async {
@@ -310,13 +322,22 @@ actor FavoritesRepositoryStub: FavoritesRepository {
         ]
     }
 
+    func favoriteFolderMemberships(
+        ownerID: Int64,
+        video: VideoWriteTarget
+    ) async throws -> [FavoriteFolderMembership] {
+        try await favoriteFolders(ownerID: ownerID).map {
+            FavoriteFolderMembership(folder: $0, containsVideo: $0.isDefault)
+        }
+    }
+
     func favoriteFolderPage(request: FavoriteFolderRequest) async throws -> FavoriteFolderPage {
         if let error { throw error }
         return FavoriteFolderPage(
-            items: [],
+            items: pageItems,
             pageNumber: request.page,
             pageSize: 40,
-            totalCount: 0,
+            totalCount: pageItems.count,
             hasMore: false
         )
     }

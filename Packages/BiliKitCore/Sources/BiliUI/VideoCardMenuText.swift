@@ -8,4 +8,6 @@ package enum VideoCardMenuText {
     package static var openInBrowser: String { BiliUIStrings.localized("在浏览器中打开") }
     package static var addToWatchLater: String { BiliUIStrings.localized("添加到稍后再看") }
     package static var removeFromWatchLater: String { BiliUIStrings.localized("从稍后再看移除") }
+    package static var addToFavorites: String { BiliUIStrings.localized("收藏到…") }
+    package static var removeFromFavoriteFolder: String { BiliUIStrings.localized("从此收藏夹移除") }
 }

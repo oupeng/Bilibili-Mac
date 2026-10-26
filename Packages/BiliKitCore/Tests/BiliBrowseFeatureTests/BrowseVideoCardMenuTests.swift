@@ -7,7 +7,7 @@ import Testing
 
 @testable import BiliBrowseFeature
 
-/// 首页推荐、热门与搜索的卡片都有「添加到稍后再看」（交出的是这张卡片的 BVID）与「拷贝链接」「在浏览器中打开」，打开的是
+/// 首页推荐、热门与搜索的卡片都有「添加到稍后再看」（交出的是这张卡片的 BVID）、「收藏到…」与「拷贝链接」「在浏览器中打开」，打开的是
 /// 该视频的网页地址；ID 不是合法 BVID 时没有菜单。
 struct BrowseVideoCardMenuTests {
     private static let owner = VideoOwner(id: 1, name: "作者")
@@ -72,7 +72,9 @@ struct BrowseVideoCardMenuTests {
                     writing: VideoCardAccountWriting(
                         isAvailable: { true },
                         addToWatchLater: { added.ids.append($0) },
-                        removeFromWatchLater: { _ in }
+                        removeFromWatchLater: { _ in },
+                        chooseFavoriteFolders: { _ in },
+                        removeFromFavoriteFolder: { _ in }
                     )
                 )
             )
@@ -80,12 +82,13 @@ struct BrowseVideoCardMenuTests {
                 menu.items.map(\.title)
                     == [
                         VideoCardMenuText.addToWatchLater,
+                        VideoCardMenuText.addToFavorites,
                         VideoCardMenuText.copyLink,
                         VideoCardMenuText.openInBrowser
                     ]
             )
             menu.items[0].action()
-            menu.items[2].action()
+            menu.items[3].action()
             #expect(added.ids == [card.id])
             #expect(opened.map(\.absoluteString) == ["https://www.bilibili.com/video/\(card.id)"])
         }

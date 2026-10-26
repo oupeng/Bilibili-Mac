@@ -1,6 +1,7 @@
+import BiliApplication
 import SwiftUI
 
-/// 视频卡片菜单里账户写操作的入口：此刻是否满足写入门槛，以及按卡片 ID（BVID）发出写入意图。
+/// 视频卡片菜单里账户写操作的入口：此刻是否满足写入门槛，以及按卡片 ID（BVID）或收藏夹条目发出写入意图。
 ///
 /// 实现是 App 窗口的写入协调者（`AccountWriteCoordinator`），由 `AppShellView` 经 SwiftUI 环境
 /// `videoCardAccountWriting` 注入；各来源的网格、横排与菜单描述只读取它，不持有 Task、不判断账户。没有注入（预览、测试）
@@ -10,15 +11,23 @@ public struct VideoCardAccountWriting: Sendable {
     public let isAvailable: @MainActor @Sendable () -> Bool
     public let addToWatchLater: @MainActor @Sendable (_ bvid: String) -> Void
     public let removeFromWatchLater: @MainActor @Sendable (_ bvid: String) -> Void
+    /// 打开这个视频的「收藏到…」面板；写入在面板确认时才发出。
+    public let chooseFavoriteFolders: @MainActor @Sendable (_ bvid: String) -> Void
+    /// 收藏夹页的「从此收藏夹移除」；条目由收藏夹页按显示中的收藏夹与条目给出。
+    public let removeFromFavoriteFolder: @MainActor @Sendable (FavoriteFolderEntry) -> Void
 
     public init(
         isAvailable: @escaping @MainActor @Sendable () -> Bool,
         addToWatchLater: @escaping @MainActor @Sendable (_ bvid: String) -> Void,
-        removeFromWatchLater: @escaping @MainActor @Sendable (_ bvid: String) -> Void
+        removeFromWatchLater: @escaping @MainActor @Sendable (_ bvid: String) -> Void,
+        chooseFavoriteFolders: @escaping @MainActor @Sendable (_ bvid: String) -> Void,
+        removeFromFavoriteFolder: @escaping @MainActor @Sendable (FavoriteFolderEntry) -> Void
     ) {
         self.isAvailable = isAvailable
         self.addToWatchLater = addToWatchLater
         self.removeFromWatchLater = removeFromWatchLater
+        self.chooseFavoriteFolders = chooseFavoriteFolders
+        self.removeFromFavoriteFolder = removeFromFavoriteFolder
     }
 }
 

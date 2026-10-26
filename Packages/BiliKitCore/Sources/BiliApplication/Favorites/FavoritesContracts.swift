@@ -65,7 +65,7 @@ public struct FavoriteFolderPage: Sendable, Equatable {
     }
 }
 
-/// 收藏夹的认证读取 port：自己创建的收藏夹列表与夹内的一页。
+/// 收藏夹的认证读取 port：自己创建的收藏夹列表（可附带某个视频在各夹里的归属）与夹内的一页。
 ///
 /// 实现是 BiliAPI 的 `BiliFavoritesRepository`，只经 `FavoritesUseCase` 调用；只按账户读取，本地无凭据时失败，不退回
 /// 匿名请求。列表的 `ownerID` 由调用方从窗口账户范围给出，adapter 不自己取账户。失败统一抛出
@@ -73,6 +73,11 @@ public struct FavoriteFolderPage: Sendable, Equatable {
 public protocol FavoritesRepository: Sendable {
     /// 按接口返回顺序；接口没有给出列表（`data` 为 null）时为空数组，由 `FavoritesUseCase` 判断是否可疑。
     func favoriteFolders(ownerID: Int64) async throws -> [FavoriteFolder]
+    /// 同一份列表，附带 `video` 是否在各夹里；顺序与空列表的处理同 `favoriteFolders`。
+    func favoriteFolderMemberships(
+        ownerID: Int64,
+        video: VideoWriteTarget
+    ) async throws -> [FavoriteFolderMembership]
     func favoriteFolderPage(request: FavoriteFolderRequest) async throws -> FavoriteFolderPage
 }
 
@@ -102,6 +107,22 @@ public struct FavoritesUseCase: Sendable {
             throw ContentApplicationError.authenticationInvalid
         }
         return folders
+    }
+
+    /// 「收藏到…」面板的收藏夹与勾选初始状态；`ownerID` 不是正数时不发请求，没有默认收藏夹时的判断与 `folders` 相同。
+    public func memberships(
+        of video: VideoWriteTarget,
+        ownerID: Int64
+    ) async throws -> [FavoriteFolderMembership] {
+        guard ownerID > 0 else { throw ContentApplicationError.invalidRequest }
+        let memberships = try await repository.favoriteFolderMemberships(
+            ownerID: ownerID,
+            video: video
+        )
+        guard memberships.contains(where: \.folder.isDefault) else {
+            throw ContentApplicationError.authenticationInvalid
+        }
+        return memberships
     }
 
     /// 请求不合法时不发请求；响应的页码不是所请求的页时按无效响应失败。

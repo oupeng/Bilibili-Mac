@@ -1,7 +1,8 @@
 import BiliNetworking
 import Foundation
 
-/// 只授权用户发起的账户写入（目前是稍后再看的加入与移除），并在 `BiliAuth` 内绑定账户、注入最小 Cookie 与 CSRF。
+/// 只授权用户发起的账户写入（稍后再看的加入与移除、收藏到收藏夹与从收藏夹移除），并在 `BiliAuth` 内绑定账户、注入最小
+/// Cookie 与 CSRF。
 ///
 /// 每个请求必须精确命中：`https://api.bilibili.com`（端口缺省或 443）、POST、无 query／userinfo／fragment、path 同时在
 /// Composition 声明的 allowlist 与本类型封闭的 schema 表里；header 集合固定为 `Accept`、`Content-Type`、`Origin`、
@@ -25,15 +26,48 @@ public struct BiliAccountWriteRequestAuthorizer: HTTPSubjectBoundRequestAuthoriz
 
     /// 字段取值的形状。
     enum FieldShape: Sendable {
-        /// 正整数（稿件 aid 等），只由 ASCII 数字组成。
+        /// 正整数（稿件 aid、收藏夹 id 等），只由 ASCII 数字组成。
         case positiveInteger
+        /// 固定取值（`type=2`、`platform=web`）。
+        case literal(String)
+        /// 逗号分隔、互不重复的正整数，可以为空串（`fav/resource/deal` 没有要加入或移出的夹时那一侧传空串）；最多
+        /// `maximumListCount` 个。
+        case positiveIntegerList
+        /// 单个视频条目 `<aid>:2`：不收逗号分隔的多个条目，也不收视频以外的类型。
+        case singleVideoResource
+
+        /// 一次收藏改动最多涉及的收藏夹数：远多于一个账户实际拥有的夹数，超出说明请求构造有误。
+        static let maximumListCount = 100
 
         func accepts(_ value: String) -> Bool {
             switch self {
             case .positiveInteger:
-                WriteRequestAuthorizationSupport.positiveInteger(value)
-                    && value.allSatisfy { $0.isASCII && $0.isNumber }
+                Self.isPositiveInteger(value)
+            case .literal(let expected):
+                value == expected
+            case .positiveIntegerList:
+                Self.isPositiveIntegerList(value)
+            case .singleVideoResource:
+                Self.isSingleVideoResource(value)
             }
+        }
+
+        private static func isPositiveInteger<S: StringProtocol>(_ value: S) -> Bool {
+            value.allSatisfy { $0.isASCII && $0.isNumber }
+                && WriteRequestAuthorizationSupport.positiveInteger(String(value))
+        }
+
+        private static func isPositiveIntegerList(_ value: String) -> Bool {
+            guard !value.isEmpty else { return true }
+            let items = value.split(separator: ",", omittingEmptySubsequences: false)
+            return items.count <= maximumListCount
+                && Set(items).count == items.count
+                && items.allSatisfy { isPositiveInteger($0) }
+        }
+
+        private static func isSingleVideoResource(_ value: String) -> Bool {
+            let parts = value.split(separator: ":", omittingEmptySubsequences: false)
+            return parts.count == 2 && isPositiveInteger(parts[0]) && parts[1] == "2"
         }
     }
 
@@ -51,6 +85,10 @@ public struct BiliAccountWriteRequestAuthorizer: HTTPSubjectBoundRequestAuthoriz
     ///    正文末尾、要求没有 query，写管线 `postForm` 也只编码 urlencoded 且不经 `signedRequest`。换用它要给 schema 加正文
     ///    格式维度，封闭校验 multipart 的 boundary 与各 part，把 csrf 注入为单独的 part，并像 heartbeat 授权器那样校验签名
     ///    query（`w_rid`／`wts` 的形状），写管线另要取 WBI key 签名；不能放宽成接受任意正文或 query。
+    ///
+    /// 收藏只登记两条：`fav/resource/deal` 一次改一个视频在若干收藏夹里的归属（`rid` 单个、`type` 固定为视频），
+    /// `fav/resource/batch-del` 从一个收藏夹移除一个视频条目（`resources` 只收单个 `<aid>:2`，挡住一次移除多条）。
+    /// 网页附带的 `spmid`、`statistics` 等统计字段不发送，schema 也不接受。
     static let schemas: [String: Schema] = [
         "/x/v2/history/toview/add": Schema(
             requiredFields: ["aid": .positiveInteger],
@@ -63,13 +101,36 @@ public struct BiliAccountWriteRequestAuthorizer: HTTPSubjectBoundRequestAuthoriz
             optionalFields: [:],
             referer: "https://www.bilibili.com/watchlater/",
             cookieNames: [.session]
+        ),
+        "/x/v3/fav/resource/deal": Schema(
+            requiredFields: [
+                "rid": .positiveInteger,
+                "type": .literal("2"),
+                "add_media_ids": .positiveIntegerList,
+                "del_media_ids": .positiveIntegerList,
+                "platform": .literal("web")
+            ],
+            optionalFields: [:],
+            referer: "https://www.bilibili.com/",
+            cookieNames: [.session]
+        ),
+        "/x/v3/fav/resource/batch-del": Schema(
+            requiredFields: [
+                "resources": .singleVideoResource,
+                "media_id": .positiveInteger,
+                "platform": .literal("web")
+            ],
+            optionalFields: [:],
+            referer: "https://www.bilibili.com/",
+            cookieNames: [.session]
         )
     ]
 
     /// 写请求固定的 `Origin`：浏览器跨域 POST 会带它，B 站据此与 Referer 一起判断来源。
     static let origin = "https://www.bilibili.com"
-    /// 表单正文上限：现有 schema 只有一两个短字段，远小于 1 KiB，超出说明请求构造有误，直接拒绝。
-    private static let maximumBodySize = 1_024
+    /// 表单正文上限：最长的收藏改动带两列各至多 `FieldShape.maximumListCount` 个夹 id（逗号编码为 `%2C`），仍在 4 KiB
+    /// 以内；超出说明请求构造有误，直接拒绝。
+    private static let maximumBodySize = 4_096
     private typealias Support = WriteRequestAuthorizationSupport
 
     private let store: any WebCredentialStoring

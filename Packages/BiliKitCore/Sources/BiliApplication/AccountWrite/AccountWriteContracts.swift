@@ -1,10 +1,11 @@
 import BiliModels
 
-/// 用户发起的账户写入（稍后再看的加入与移除等）共用的应用级错误。
+/// 用户发起的账户写入（稍后再看的加入与移除、收藏到收藏夹与从收藏夹移除）共用的应用级错误。
 ///
 /// 由 BiliAPI 的写 adapter 映射：-101、-111 与凭据账户不符为 `authenticationInvalid`；窗口以为已登录、本地却没有凭据为
 /// `authenticationRequired`；Keychain 不可用为 `authenticationUnavailable`；HTTP 403／412、-352 等风控为 `restricted`；
-/// 业务码 90000 为 `unsupportedContent`，90001 为 `listFull`，90003 与内容不存在类业务码为 `contentUnavailable`；其他非零
+/// 稍后再看的业务码 90000 为 `unsupportedContent`，90001 为 `listFull`，90003 与内容不存在类业务码为 `contentUnavailable`；
+/// 收藏的业务码 11203 为 `listFull`，11010（收藏夹不存在）为 `contentUnavailable`；其他非零
 /// 业务码为 `rejected`，不回显服务端 message；网络与无法判定结果的响应为 `unavailable`。是否复核账户只读
 /// `requiresAccountRevalidation`，调用方不各自判断；提示措辞按 case 由写入结果胶囊的文案决定（写入从不自动重试，没有
 /// 另一个需要“是否可重试”的调用方）。写入不自动重试、不排队、不持久化（见 SECURITY-MODEL §3）。
@@ -19,7 +20,7 @@ public enum AccountWriteError: Error, Sendable, Equatable {
     case authenticationUnavailable
     /// 风控或限流。
     case restricted
-    /// 稍后再看已满（业务码 90001）。
+    /// 稍后再看已满（业务码 90001），或收藏夹已满（业务码 11203）。
     case listFull
     /// 这个稿件不能加入（业务码 90000：付费稿件）。
     case unsupportedContent
@@ -61,13 +62,10 @@ public struct VideoWriteTarget: Sendable, Hashable {
 public enum AccountWriteChange: Sendable, Hashable {
     case watchLaterAdded(VideoWriteTarget)
     case watchLaterRemoved(VideoWriteTarget)
-
-    public var target: VideoWriteTarget {
-        switch self {
-        case .watchLaterAdded(let target), .watchLaterRemoved(let target):
-            target
-        }
-    }
+    /// 「收藏到…」面板确认的归属改动。
+    case favoriteMembershipChanged(FavoriteMembershipChange)
+    /// 夹内「从此收藏夹移除」。
+    case removedFromFavoriteFolder(FavoriteFolderEntry)
 }
 
 /// 写入成功后需要让其他视图知道的事实：哪个账户的哪项内容变了。

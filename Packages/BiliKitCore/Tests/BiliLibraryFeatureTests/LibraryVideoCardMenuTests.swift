@@ -1,3 +1,4 @@
+import BiliApplication
 import BiliModels
 import BiliUI
 import BiliVideoCollectionUI
@@ -7,8 +8,9 @@ import Testing
 
 @testable import BiliLibraryFeature
 
-/// 观看历史与收藏夹里可以播放的卡片有「添加到稍后再看」，稍后再看页的卡片有「从稍后再看移除」（带 ⌘⌫），两者之后是
-/// 「拷贝链接」「在浏览器中打开」；稍后再看里失效的视频只能移除，其他来源的不可用卡片与 ID 不是 BVID 的收藏条目没有菜单。
+/// 观看历史与收藏夹里可以播放的卡片有「添加到稍后再看」，稍后再看页的卡片有「从稍后再看移除」（带 ⌘⌫），之后是「收藏到…」
+/// 与「拷贝链接」「在浏览器中打开」；收藏夹页的视频条目另有「从此收藏夹移除」（带 ⌘⌫），失效的也能移除；稍后再看里失效的
+/// 视频只能移除，其他不可用卡片与 ID 不是 BVID、也没有移除动作的收藏条目没有菜单。
 struct LibraryVideoCardMenuTests {
     @Test @MainActor
     func playableCardsOfferTheirWatchLaterActionAndVideoLinks() throws {
@@ -43,11 +45,19 @@ struct LibraryVideoCardMenuTests {
             )
             #expect(
                 menu.items.map(\.title)
-                    == [writeTitle, VideoCardMenuText.copyLink, VideoCardMenuText.openInBrowser]
+                    == [
+                        writeTitle, VideoCardMenuText.addToFavorites, VideoCardMenuText.copyLink,
+                        VideoCardMenuText.openInBrowser
+                    ]
             )
             menu.items[0].action()
-            menu.items[2].action()
-            #expect(writes.events == ["\(action == .add ? "add" : "remove") \(card.id)"])
+            menu.items[1].action()
+            menu.items[3].action()
+            #expect(
+                writes.events == [
+                    "\(action == .add ? "add" : "remove") \(card.id)", "choose \(card.id)"
+                ]
+            )
             #expect(opened.map(\.absoluteString) == ["https://www.bilibili.com/video/\(card.id)"])
         }
     }
@@ -72,6 +82,38 @@ struct LibraryVideoCardMenuTests {
         #expect(menu.items.map(\.title) == [VideoCardMenuText.removeFromWatchLater])
         menu.enabledItem(for: .commandDelete)?.action()
         #expect(writes.events == ["remove BV1LaterGone"])
+    }
+
+    /// 收藏夹页把显示中的收藏夹与条目的 av 号交给写入口；失效视频（有没有 BVID 都一样）只剩「从此收藏夹移除」。
+    @Test @MainActor
+    func favoriteFolderEntriesCanBeRemovedFromTheFolder() throws {
+        let writes = RecordedWrites()
+        let entry = try #require(FavoriteFolderEntry(folderID: 10, videoAID: 170_001))
+        let cards = [
+            FavoriteCardPresentation(item: favoriteItem("BV1Favorite", videoAID: 170_001))
+                .nativeCard,
+            FavoriteCardPresentation(
+                item: favoriteItem("fav-2-170001", unavailability: .invalid, videoAID: 170_001)
+            ).nativeCard
+        ]
+
+        let writing = writes.writing
+        let removal: @MainActor @Sendable () -> Void = { writing.removeFromFavoriteFolder(entry) }
+        let menus = cards.map {
+            LibraryVideoCardMenu.menu(
+                for: $0,
+                openURL: OpenURLAction { _ in .handled },
+                writing: writing,
+                watchLater: .add,
+                removeFromFavoriteFolder: removal
+            )
+        }
+
+        for menu in menus {
+            menu?.enabledItem(for: .commandDelete)?.action()
+        }
+        #expect(menus[1]?.items.map(\.title) == [VideoCardMenuText.removeFromFavoriteFolder])
+        #expect(writes.events == ["unfavorite 170001 from 10", "unfavorite 170001 from 10"])
     }
 
     @Test @MainActor
@@ -107,7 +149,11 @@ private final class RecordedWrites {
         VideoCardAccountWriting(
             isAvailable: { true },
             addToWatchLater: { [weak self] in self?.events.append("add \($0)") },
-            removeFromWatchLater: { [weak self] in self?.events.append("remove \($0)") }
+            removeFromWatchLater: { [weak self] in self?.events.append("remove \($0)") },
+            chooseFavoriteFolders: { [weak self] in self?.events.append("choose \($0)") },
+            removeFromFavoriteFolder: { [weak self] in
+                self?.events.append("unfavorite \($0.videoAID) from \($0.folderID)")
+            }
         )
     }
 }

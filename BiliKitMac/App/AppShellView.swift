@@ -121,6 +121,13 @@ struct AppShellView: View {
         .sheet(isPresented: $isAuthenticationPresented) {
             AuthenticationView(model: authenticationModel)
         }
+        .sheet(item: favoritePicker) { picker in
+            FavoritePickerView(
+                model: picker,
+                onCancel: accountWrites.dismissFavoritePicker,
+                onConfirm: accountWrites.confirmFavoritePicker
+            )
+        }
         .onChange(of: searchSession.submittedCriteria) { previousCriteria, criteria in
             guard previousCriteria != criteria else { return }
             scrollToTop(.search)
@@ -155,7 +162,20 @@ struct AppShellView: View {
         return VideoCardAccountWriting(
             isAvailable: { accountWrites.isWritable },
             addToWatchLater: { accountWrites.addToWatchLater(bvid: $0) },
-            removeFromWatchLater: { accountWrites.removeFromWatchLater(bvid: $0) }
+            removeFromWatchLater: { accountWrites.removeFromWatchLater(bvid: $0) },
+            chooseFavoriteFolders: { accountWrites.chooseFavoriteFolders(bvid: $0) },
+            removeFromFavoriteFolder: { accountWrites.removeFromFavoriteFolder($0) }
+        )
+    }
+
+    /// 「收藏到…」面板的呈现：面板由写入协调者持有，sheet 被系统关闭（例如关窗）时交回协调者。
+    private var favoritePicker: Binding<FavoritePickerModel?> {
+        let accountWrites = accountWrites
+        return Binding(
+            get: { accountWrites.favoritePicker },
+            set: { picker in
+                if picker == nil { accountWrites.dismissFavoritePicker() }
+            }
         )
     }
 
