@@ -26,6 +26,10 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
     ///
     /// 够读完两行说明；读屏另有通告，不依赖胶囊停留。调长会让连续操作时旧结果盖住新内容更久。
     static let reportDisplayDuration: Duration = .seconds(4)
+    /// 带「在浏览器中打开」的结果停留的时长（`AccountWriteReport.webFallbackURL`）。
+    ///
+    /// 要留出读完说明、再把指针移过去点按的时间；调短来不及点，调长会久久盖住相关推荐。
+    static let actionableReportDisplayDuration: Duration = .seconds(8)
 
     /// 胶囊显示的最新结果；nil 时不显示。
     private(set) var report: AccountWriteReport?
@@ -374,7 +378,10 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
         let sequence = reportSequence
         reportDismissal?.cancel()
         reportDismissal = Task { [weak self] in
-            try? await Task.sleep(for: Self.reportDisplayDuration)
+            try? await Task.sleep(
+                for: report.webFallbackURL == nil
+                    ? Self.reportDisplayDuration : Self.actionableReportDisplayDuration
+            )
             guard !Task.isCancelled, let self, self.reportSequence == sequence else { return }
             self.report = nil
         }

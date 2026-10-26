@@ -1,8 +1,9 @@
 import BiliApplication
+import Foundation
 import Testing
 
 /// 点赞、投币、三连只为正数账户发请求，投币只收 1 或 2 枚；成功时给出带账户的效果，投币效果带服务端报告的附带点赞，三连
-/// 效果带逐项结果；可投币数按转载与否的上限减去已投数。
+/// 效果带逐项结果；可投币数按转载与否的上限减去已投数；只有被 B 站拒绝的点赞、投币与三连给出在浏览器中打开的视频。
 @Suite(.timeLimit(.minutes(1)))
 struct VideoEngagementUseCaseTests {
     @Test
@@ -46,6 +47,31 @@ struct VideoEngagementUseCaseTests {
             try await useCase.addCoins(count, alsoLike: false, target: target, accountID: accountID)
         }
         #expect(await repository.calls.isEmpty)
+    }
+
+    @Test
+    func onlyDeclinedEngagementOffersTheWebFallback() throws {
+        let target = try #require(VideoWriteTarget(bvid: "BV17x411w7KC"))
+        let declined: [AccountWriteChange] = [
+            .likeChanged(target, isLiked: true),
+            .coinsAdded(target, count: 1, alsoLiked: false),
+            .tripled(target, nil)
+        ]
+
+        for change in declined {
+            #expect(
+                AccountWriteReport(change: change, failure: .declinedForClient).webFallbackURL?
+                    .absoluteString == "https://www.bilibili.com/video/BV17x411w7KC"
+            )
+            #expect(
+                AccountWriteReport(change: change, failure: .restricted).webFallbackURL == nil
+            )
+            #expect(AccountWriteReport(change: change, failure: nil).webFallbackURL == nil)
+        }
+        #expect(
+            AccountWriteReport(change: .watchLaterAdded(target), failure: .declinedForClient)
+                .webFallbackURL == nil
+        )
     }
 
     @Test(arguments: [

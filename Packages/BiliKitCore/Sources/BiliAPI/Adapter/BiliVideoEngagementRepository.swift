@@ -17,6 +17,10 @@ public struct BiliVideoEngagementRepository: VideoEngagementRepository {
     private static let coinLimitCode = 34_005
     /// 稿件不存在。
     private static let missingVideoCode = 10_003
+    /// 账号异常：B 站拒绝了这个客户端的这次操作（按稿件出现，网页上可以完成）。
+    ///
+    /// 通用映射把 -403 当作风控，这里先拦下。
+    private static let declinedForClientCode = -403
 
     private let client: BiliAPIClient
 
@@ -74,7 +78,10 @@ public struct BiliVideoEngagementRepository: VideoEngagementRepository {
     }
 
     private static func accountWriteError(for error: any Error) -> any Error {
-        AccountWriteErrorMapping.error(for: error) { code in
+        if case BiliAPIError.apiRejected(let code, _) = error, code == declinedForClientCode {
+            return AccountWriteError.declinedForClient
+        }
+        return AccountWriteErrorMapping.error(for: error) { code in
             switch code {
             case coinsInsufficientCode: .coinsInsufficient
             case ownVideoCode: .ownVideo

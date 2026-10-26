@@ -2268,6 +2268,34 @@
           }
         }
       }
+    },
+    "B 站拒绝了这个客户端的这次操作，可以在网页上完成。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilibili declined this action from this app. You can do it on the web."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilibili がこのアプリからの操作を拒否しました。Web で操作できます。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "B 站拒绝了这个客户端的这次操作，可以在网页上完成。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "B 站拒絕了這個用戶端的這次操作，可以在網頁上完成。"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

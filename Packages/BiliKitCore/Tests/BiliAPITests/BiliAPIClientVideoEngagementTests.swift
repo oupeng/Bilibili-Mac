@@ -7,7 +7,7 @@ import Testing
 
 /// 固定播放页互动契约：互动状态按账户读取、带 aid 与 bvid，缺字段整份失败；点赞、投币、三连只发最少字段，经账户写授权器
 /// 绑定账户，并在授权之后附加随机 `buvid3`；重复点赞与取消未赞按成功处理，投币与三连的业务码与风控映射为对应的写入
-/// 错误；详情带出投币数、收藏数与是否转载。
+/// 错误，-403（账号异常）是这个客户端被拒、网页上可以完成；详情带出投币数、收藏数与是否转载。
 @Suite(.timeLimit(.minutes(1)))
 struct BiliAPIClientVideoEngagementTests {
     private static let bvid = "BV17x411w7KC"
@@ -126,7 +126,7 @@ struct BiliAPIClientVideoEngagementTests {
             (false, 65_004, nil),
             (true, 65_004, AccountWriteError.rejected(code: 65_004)),
             (false, 65_006, .rejected(code: 65_006)),
-            (true, -403, .restricted)
+            (true, -403, .declinedForClient)
         ] as [(Bool, Int, AccountWriteError?)]
     )
     func likeTreatsTheTargetStateAsSuccess(
@@ -156,6 +156,7 @@ struct BiliAPIClientVideoEngagementTests {
         (34_002, .ownVideo),
         (34_004, .restricted),
         (34_005, .coinLimitReached),
+        (-403, .declinedForClient),
         (10_003, .contentUnavailable),
         (12_345, .rejected(code: 12_345))
     ])

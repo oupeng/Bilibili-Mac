@@ -98,6 +98,14 @@ struct AppShellView: View {
         } detail: {
             NavigationStack(path: Bindable(navigationCoordinator).playbackPath) {
                 selectedSourceRoot
+                    // 写入结果胶囊挂在各页上而不是整个栈外：macOS 把压栈的播放页放在单独一层并铺了不透明背景，
+                    // 挂在栈外的胶囊会被它盖住。播放页打开时根页面仍在渲染，这里不再显示，免得读屏把同一条结果
+                    // 通告两次；播放页自己挂一份。
+                    .overlay(alignment: .bottom) {
+                        if navigationCoordinator.currentPlaybackBVID == nil {
+                            AccountWriteStatusOverlay(accountWrites: accountWrites)
+                        }
+                    }
                     .navigationDestination(
                         for: PlaybackDestination.self
                     ) { _ in
@@ -111,10 +119,10 @@ struct AppShellView: View {
                             onSelectRelatedVideo:
                                 navigationCoordinator.openPlayback
                         )
+                        .overlay(alignment: .bottom) {
+                            AccountWriteStatusOverlay(accountWrites: accountWrites)
+                        }
                     }
-            }
-            .overlay(alignment: .bottom) {
-                AccountWriteStatusOverlay(accountWrites: accountWrites)
             }
         }
         // 来源网格、相关推荐横排与它们的卡片菜单都在这棵树里；写入口只转发意图，门槛与请求在 `AccountWriteCoordinator`。

@@ -5,10 +5,13 @@ import SwiftUI
 ///
 /// 外形与刷新、分页胶囊同源（`StatusCapsuleGeometry`），出现与消失按 `LoadingStateTransition` 淡入淡出。只负责排版、
 /// 措辞与通告；显示哪一条、显示多久由 App 的写入协调者决定（`sequence` 每条新结果递增，相同结果连续出现也会再通告）。
+/// 被 B 站拒绝、但网页上可以完成的点赞、投币与三连另带「在浏览器中打开」（`AccountWriteReport.webFallbackURL`），
+/// 只经系统 `OpenURLAction` 打开视频网页，不附加凭据（见 SECURITY-MODEL §4）；只有这个按钮接收点按与读屏焦点。
 public struct AccountWriteStatusCapsule: View {
     private typealias Geometry = StatusCapsuleGeometry
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.openURL) private var openURL
     private let report: AccountWriteReport?
     private let sequence: UInt64
 
@@ -20,22 +23,31 @@ public struct AccountWriteStatusCapsule: View {
     public var body: some View {
         ZStack {
             if let report {
-                Label {
-                    Text(AccountWriteStatusText.message(for: report))
-                        .lineLimit(Geometry.messageLineLimit)
-                } icon: {
-                    Image(
-                        systemName: report.failure == nil
-                            ? "checkmark.circle" : "exclamationmark.circle"
-                    )
+                HStack(spacing: Geometry.contentPadding) {
+                    Label {
+                        Text(AccountWriteStatusText.message(for: report))
+                            .lineLimit(Geometry.messageLineLimit)
+                    } icon: {
+                        Image(
+                            systemName: report.failure == nil
+                                ? "checkmark.circle" : "exclamationmark.circle"
+                        )
+                    }
+                    // 通告已经读出这句话，说明本身不再进入读屏焦点顺序。
+                    .accessibilityHidden(true)
+                    // 胶囊盖在网格与相关推荐上，说明不拦截停留期间的点按。
+                    .allowsHitTesting(false)
+                    if let url = report.webFallbackURL {
+                        Button(VideoCardMenuText.openInBrowser) {
+                            openURL(url)
+                        }
+                    }
                 }
                 .font(.callout)
                 .padding(Geometry.contentPadding)
                 .background(.regularMaterial, in: Capsule())
-                // 通告已经读出这句话，胶囊本身不再进入读屏焦点顺序。
-                .accessibilityHidden(true)
-                // 胶囊盖在网格与相关推荐上，不拦截停留期间的点按。
-                .allowsHitTesting(false)
+                // 没有按钮时整个胶囊都不拦截点按；有按钮时胶囊本身就是这个操作的入口。
+                .allowsHitTesting(report.webFallbackURL != nil)
                 .id(sequence)
                 .transition(.opacity)
             }
@@ -123,6 +135,8 @@ package enum AccountWriteStatusText {
             BiliUIStrings.localized("这个视频的投币已达上限。")
         case .ownVideo:
             BiliUIStrings.localized("不能给自己的视频投币。")
+        case .declinedForClient:
+            BiliUIStrings.localized("B 站拒绝了这个客户端的这次操作，可以在网页上完成。")
         case .rejected(let code):
             BiliUIStrings.localized("服务拒绝了这次操作（错误码 \(code)）。")
         case .unavailable:
