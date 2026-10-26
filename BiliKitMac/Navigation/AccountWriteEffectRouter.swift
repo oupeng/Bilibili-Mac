@@ -16,7 +16,8 @@ struct AccountWriteEffectDelivery: Equatable {
     let sessionGeneration: UInt64
 }
 
-/// 把写入效果落到本窗口的视图上：稍后再看列表只标记为过期，下次页面出现时原地刷新，不在后台读取。
+/// 把写入效果落到本窗口的视图上：稍后再看列表只标记为过期，下次页面出现时原地刷新，不在后台读取；收藏写入让侧栏的
+/// 收藏夹列表在后台重读条数（它本来就在已登录时常驻读取），受影响的收藏夹正在显示时原地刷新，否则回来时刷新。
 ///
 /// 每个窗口一个，由 `WindowComposition` 构造；本窗口的写入协调者直接交给它，其他窗口的效果经进程级 `AccountWriteEffectHub`
 /// 转来（窗口打开时登记、关闭时注销）。只处理与本窗口当前账户、会话代次都一致的效果，其余丢弃：换号或登出之后迟到的
@@ -24,18 +25,26 @@ struct AccountWriteEffectDelivery: Equatable {
 @MainActor
 final class AccountWriteEffectRouter {
     private let watchLaterModel: WatchLaterViewModel
+    private let favoriteFolderList: FavoriteFolderListModel
+    private let favoriteFolders: FavoriteFolderViewModel
     private let writableAccount: @MainActor () -> WritableAccount?
 
     init(
         watchLaterModel: WatchLaterViewModel,
+        favoriteFolderList: FavoriteFolderListModel,
+        favoriteFolders: FavoriteFolderViewModel,
         writableAccount: @escaping @MainActor () -> WritableAccount?
     ) {
         self.watchLaterModel = watchLaterModel
+        self.favoriteFolderList = favoriteFolderList
+        self.favoriteFolders = favoriteFolders
         self.writableAccount = writableAccount
     }
 
-    /// `appliedLocally` 为 true 表示本窗口的视图已经按这次写入改过（稍后再看页的乐观移除），不再标记过期：否则刚移除
-    /// 成功就会再刷新一次。
+    /// 把一次写入效果落到本窗口；不属于本窗口账户与会话代次的丢弃。
+    ///
+    /// `appliedLocally` 为 true 表示本窗口的视图已经按这次写入改过（稍后再看页与收藏夹页的乐观移除），不再刷新那一页：
+    /// 否则刚移除成功就会再刷新一次。侧栏收藏夹的条数没有乐观改动，总要重读。
     func apply(_ delivery: AccountWriteEffectDelivery, appliedLocally: Bool) {
         guard
             let account = writableAccount(),
@@ -46,6 +55,15 @@ final class AccountWriteEffectRouter {
         case .watchLaterAdded, .watchLaterRemoved:
             guard !appliedLocally else { return }
             watchLaterModel.markNeedsReload()
+        case .favoriteMembershipChanged(let change):
+            favoriteFolderList.refreshAfterWrite()
+            favoriteFolders.markNeedsReload(
+                folderIDs: Set(change.addedFolderIDs + change.removedFolderIDs)
+            )
+        case .removedFromFavoriteFolder(let entry):
+            favoriteFolderList.refreshAfterWrite()
+            guard !appliedLocally else { return }
+            favoriteFolders.markNeedsReload(folderIDs: [entry.folderID])
         }
     }
 }

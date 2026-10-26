@@ -149,13 +149,22 @@ struct AccountWriteAuthorizationCompositionTests {
             ),
             allowedPaths: LiveAPIClients.mainAccountWriteAllowedPaths
         )
-        let referers = [
-            BiliAccountWritePath.watchLaterAdd: "https://www.bilibili.com/",
-            BiliAccountWritePath.watchLaterRemove: "https://www.bilibili.com/watchlater/"
+        let requests = [
+            BiliAccountWritePath.watchLaterAdd: ("https://www.bilibili.com/", "aid=170001"),
+            BiliAccountWritePath.watchLaterRemove: (
+                "https://www.bilibili.com/watchlater/", "aid=170001"
+            ),
+            BiliAccountWritePath.favoriteMembershipUpdate: (
+                "https://www.bilibili.com/",
+                "rid=170001&type=2&add_media_ids=11,12&del_media_ids=&platform=web"
+            ),
+            BiliAccountWritePath.favoriteFolderEntryRemove: (
+                "https://www.bilibili.com/", "resources=170001:2&media_id=11&platform=web"
+            )
         ]
-        #expect(Set(referers.keys) == LiveAPIClients.mainAccountWriteAllowedPaths)
+        #expect(Set(requests.keys) == LiveAPIClients.mainAccountWriteAllowedPaths)
 
-        for (path, referer) in referers {
+        for (path, (referer, body)) in requests {
             let request = HTTPRequest(
                 url: try #require(URL(string: "https://api.bilibili.com\(path)")),
                 method: .post,
@@ -166,13 +175,13 @@ struct AccountWriteAuthorizationCompositionTests {
                     "Referer": referer,
                     "User-Agent": HTTPUserAgent.browserCompatible
                 ],
-                body: Data("aid=170001".utf8)
+                body: Data(body.utf8)
             )
 
             let authorized = try await authorizer.authorize(request, boundTo: "42")
 
             #expect(authorized.headers["Cookie"] == "SESSDATA=FIXTURE_SESSDATA_VALUE")
-            #expect(authorized.body == Data("aid=170001&csrf=FIXTURE_bili_jct_VALUE".utf8))
+            #expect(authorized.body == Data("\(body)&csrf=FIXTURE_bili_jct_VALUE".utf8))
         }
     }
 }

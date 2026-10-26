@@ -3,13 +3,15 @@ import BiliApplication
 import BiliAuthFeature
 import BiliLibraryFeature
 import BiliModels
+import Foundation
 import Testing
 
 @testable import BiliKit
 
 /// 账户写入只在窗口账户可信（已登录且 mid 已知、不在复核、没有待复核的外部换号）时发出，并绑定该账户；成功后给出结果
-/// 并让本窗口与其他窗口的稍后再看在下次出现时刷新（本窗口乐观移除过的不再刷新）；稍后再看页的移除先在本地删掉、失败
-/// 放回原位；凭据类失败只请求一次复核，直到下一次写入成功；关窗后不再接受意图。
+/// 并让本窗口与其他窗口的稍后再看在下次出现时刷新（本窗口乐观移除过的不再刷新）；稍后再看页与收藏夹页的移除先在本地
+/// 删掉、失败放回原位；「收藏到…」面板确认时只提交勾选的差异，成功后侧栏收藏夹重读；窗口账户一变面板就关闭，重试与
+/// 确认也不在另一个账户下进行；写入或面板读取的凭据类失败只请求一次复核，直到下一次写入成功；关窗后不再接受意图。
 @Suite(.timeLimit(.minutes(1)))
 @MainActor
 struct AccountWriteCoordinatorTests {
@@ -48,7 +50,7 @@ struct AccountWriteCoordinatorTests {
     @Test
     func addReportsSuccessAndMarksEveryWatchLaterListStale() async throws {
         let process = makeTestProcess()
-        let writes = WatchLaterWriteRepositoryStub()
+        let writes = AccountWriteRepositoryStub()
         let origin = try await signedInWindow(process: process, writes: writes)
         let other = try await signedInWindow(process: process)
         defer {
@@ -79,7 +81,7 @@ struct AccountWriteCoordinatorTests {
 
     @Test
     func removalIsOptimisticAndRollsBackOnFailure() async throws {
-        let writes = WatchLaterWriteRepositoryStub(outcomes: [.listFull, nil])
+        let writes = AccountWriteRepositoryStub(outcomes: [.listFull, nil])
         let window = try await signedInWindow(
             process: makeTestProcess(),
             writes: writes,
@@ -109,7 +111,7 @@ struct AccountWriteCoordinatorTests {
 
     @Test
     func credentialFailuresRequestOneRevalidationUntilAWriteSucceeds() async throws {
-        let writes = WatchLaterWriteRepositoryStub(
+        let writes = AccountWriteRepositoryStub(
             outcomes: [.authenticationInvalid, .authenticationRequired, nil, .authenticationInvalid]
         )
         let window = try await signedInWindow(process: makeTestProcess(), writes: writes)
@@ -128,18 +130,11 @@ struct AccountWriteCoordinatorTests {
     /// 节流只在同一账户与会话代次里生效：换号或登出再登录后，第一次凭据类失败照常请求复核。
     @Test
     func revalidationThrottleExpiresWithTheSession() async throws {
-        let writes = WatchLaterWriteRepositoryStub(
+        let writes = AccountWriteRepositoryStub(
             outcomes: [.authenticationInvalid, .authenticationInvalid, .authenticationInvalid]
         )
         let session = MutableWritableAccount()
-        let coordinator = AccountWriteCoordinator(
-            watchLater: WatchLaterWriteUseCase(repository: writes),
-            watchLaterModel: WatchLaterViewModel(
-                useCase: WatchLaterUseCase(repository: WatchLaterRepositoryStub())
-            ),
-            writableAccount: { session.account },
-            publish: { _, _ in }
-        )
+        let coordinator = standaloneCoordinator(writes: writes, session: session)
         defer { coordinator.close() }
 
         for (generation, expected) in [(UInt64(1), 1), (1, 1), (3, 2)] {
@@ -153,7 +148,7 @@ struct AccountWriteCoordinatorTests {
 
     @Test
     func closedGateSendsNothing() async throws {
-        let writes = WatchLaterWriteRepositoryStub()
+        let writes = AccountWriteRepositoryStub()
         let window = WindowComposition(
             process: makeTestProcess(),
             adapters: makeTestAdapters(watchLaterWrite: writes)
@@ -179,6 +174,8 @@ struct AccountWriteCoordinatorTests {
         let generation = window.watchLaterModel.successfulReloadGeneration
         let router = AccountWriteEffectRouter(
             watchLaterModel: window.watchLaterModel,
+            favoriteFolderList: window.favoriteFolderList,
+            favoriteFolders: window.favoriteFolders,
             writableAccount: { WritableAccount(accountID: 7, sessionGeneration: 3) }
         )
 
@@ -202,7 +199,7 @@ struct AccountWriteCoordinatorTests {
     /// 关窗取消在途写入：之后不显示结果，也不再接受新的意图。
     @Test
     func closingCancelsInFlightWrites() async throws {
-        let writes = WatchLaterWriteRepositoryStub(holdsWrites: true)
+        let writes = AccountWriteRepositoryStub(holdsWrites: true)
         let window = try await signedInWindow(process: makeTestProcess(), writes: writes)
 
         window.accountWrites.addToWatchLater(bvid: "BV17x411w7KC")
@@ -221,7 +218,9 @@ struct AccountWriteCoordinatorTests {
         #expect(
             LiveAPIClients.mainAccountWriteAllowedPaths == [
                 "/x/v2/history/toview/add",
-                "/x/v2/history/toview/del"
+                "/x/v2/history/toview/del",
+                "/x/v3/fav/resource/deal",
+                "/x/v3/fav/resource/batch-del"
             ]
         )
         #expect(BiliAccountWritePath.watchLaterAdd == "/x/v2/history/toview/add")
@@ -234,16 +233,200 @@ struct AccountWriteCoordinatorTests {
         }
     }
 
+    @Test
+    func pickerConfirmsOnlyTheDifferenceAndRefreshesTheFolderList() async throws {
+        let writes = AccountWriteRepositoryStub()
+        let favorites = FavoritesRepositoryStub()
+        let window = try await signedInWindow(
+            process: makeTestProcess(),
+            writes: writes,
+            favorites: favorites
+        )
+        defer { window.close() }
+        window.favoriteFolderList.synchronize()
+        await favorites.waitForFolderRequestCount(1)
+        await waitForObservedState { !window.favoriteFolderList.folders.isEmpty }
+
+        window.accountWrites.chooseFavoriteFolders(bvid: "BV17x411w7KC")
+        let picker = try #require(window.accountWrites.favoritePicker)
+        await waitForObservedState {
+            if case .loaded = picker.phase { true } else { false }
+        }
+        #expect(picker.selectedFolderIDs == [10])
+        picker.setSelected(false, folderID: 10)
+        picker.setSelected(true, folderID: 20)
+        window.accountWrites.confirmFavoritePicker()
+        #expect(window.accountWrites.favoritePicker == nil)
+        await waitForObservedState { window.accountWrites.report != nil }
+
+        #expect(await writes.calls == ["favorite BV17x411w7KC +[20] -[10] 7"])
+        #expect(window.accountWrites.report?.failure == nil)
+        // 面板一次读取归属，成功后侧栏收藏夹在后台重读条数。
+        await favorites.waitForFolderRequestCount(3)
+    }
+
+    /// 打开面板后换了账户：面板里的归属属于上一账户，确认时直接丢弃、不发请求；没有改动的确认同样不发请求。
+    @Test
+    func pickerConfirmationIsDroppedAfterAnAccountChange() async throws {
+        let writes = AccountWriteRepositoryStub()
+        let session = MutableWritableAccount()
+        session.account = WritableAccount(accountID: 7, sessionGeneration: 1)
+        let coordinator = standaloneCoordinator(writes: writes, session: session)
+        defer { coordinator.close() }
+
+        coordinator.chooseFavoriteFolders(bvid: "BV17x411w7KC")
+        let picker = try #require(coordinator.favoritePicker)
+        await waitForObservedState {
+            if case .loaded = picker.phase { true } else { false }
+        }
+        coordinator.confirmFavoritePicker()
+
+        coordinator.chooseFavoriteFolders(bvid: "BV17x411w7KC")
+        let changed = try #require(coordinator.favoritePicker)
+        await waitForObservedState {
+            if case .loaded = changed.phase { true } else { false }
+        }
+        changed.setSelected(true, folderID: 20)
+        session.account = WritableAccount(accountID: 8, sessionGeneration: 2)
+        coordinator.confirmFavoritePicker()
+
+        #expect(coordinator.favoritePicker == nil)
+        #expect(await writes.calls.isEmpty)
+        #expect(coordinator.report == nil)
+    }
+
+    /// 窗口账户变了（登出、换号、会话代次变化）：面板关闭；变化发生在读取失败之后时，重试也只关闭面板、不再读取。
+    @Test
+    func accountChangesClosePickerInsteadOfRereading() async throws {
+        let favorites = FavoritesRepositoryStub(error: .unavailable)
+        let session = MutableWritableAccount()
+        session.account = WritableAccount(accountID: 7, sessionGeneration: 1)
+        let coordinator = standaloneCoordinator(
+            writes: AccountWriteRepositoryStub(),
+            session: session,
+            favorites: favorites
+        )
+        defer { coordinator.close() }
+
+        coordinator.chooseFavoriteFolders(bvid: "BV17x411w7KC")
+        let picker = try #require(coordinator.favoritePicker)
+        await favorites.waitForFolderRequestCount(1)
+        await waitForObservedState { picker.phase != .loading }
+        coordinator.writableAccountDidChange()
+        #expect(coordinator.favoritePicker === picker)
+
+        session.account = WritableAccount(accountID: 7, sessionGeneration: 2)
+        coordinator.retryFavoritePicker()
+        #expect(coordinator.favoritePicker == nil)
+        #expect(await favorites.folderOwnerIDs == [7])
+
+        coordinator.chooseFavoriteFolders(bvid: "BV17x411w7KC")
+        session.account = nil
+        coordinator.writableAccountDidChange()
+        #expect(coordinator.favoritePicker == nil)
+    }
+
+    /// 面板读取遇到凭据失效时请求一次窗口复核，与写入共用同一节流。
+    @Test
+    func pickerCredentialFailureRequestsOneRevalidation() async throws {
+        let session = MutableWritableAccount()
+        session.account = WritableAccount(accountID: 7, sessionGeneration: 1)
+        let coordinator = standaloneCoordinator(
+            writes: AccountWriteRepositoryStub(),
+            session: session,
+            favorites: FavoritesRepositoryStub(error: .authenticationInvalid)
+        )
+        defer { coordinator.close() }
+
+        for _ in 0..<2 {
+            coordinator.chooseFavoriteFolders(bvid: "BV17x411w7KC")
+            let picker = try #require(coordinator.favoritePicker)
+            await waitForObservedState { picker.phase != .loading }
+        }
+
+        #expect(coordinator.authenticationRevalidationGeneration == 1)
+    }
+
+    @Test
+    func folderEntryRemovalIsOptimisticAndRollsBackOnFailure() async throws {
+        let writes = AccountWriteRepositoryStub(outcomes: [.unavailable])
+        let favorites = FavoritesRepositoryStub(
+            pageItems: [
+                favoriteItem("BV17x411w7KC", aid: 170_001), favoriteItem("BV1xx411c7mD", aid: 2)
+            ]
+        )
+        let window = try await signedInWindow(
+            process: makeTestProcess(),
+            writes: writes,
+            favorites: favorites
+        )
+        defer { window.close() }
+        window.favoriteFolderList.synchronize()
+        await waitForObservedState { !window.favoriteFolderList.folders.isEmpty }
+        window.favoriteFolders.activate()
+        await window.favoriteFolders.waitForCurrentTask()
+        let entry = try #require(FavoriteFolderEntry(folderID: 10, videoAID: 170_001))
+
+        #expect(window.favoriteFolders.totalCount == 2)
+        window.accountWrites.removeFromFavoriteFolder(entry)
+        #expect(window.favoriteFolders.totalCount == 1)
+        await waitForObservedState { window.accountWrites.report != nil }
+
+        #expect(window.favoriteFolders.totalCount == 2)
+        #expect(window.accountWrites.report?.failure == .unavailable)
+        #expect(await writes.calls == ["unfavorite 170001 from 10 7"])
+    }
+
+    @Test
+    func closedGateOpensNoPicker() async throws {
+        let window = WindowComposition(process: makeTestProcess(), adapters: makeTestAdapters())
+        window.authenticationModel.restoreIfNeeded()
+        await window.authenticationModel.waitForCurrentTask()
+        defer { window.close() }
+
+        window.accountWrites.chooseFavoriteFolders(bvid: "BV17x411w7KC")
+
+        #expect(window.accountWrites.favoritePicker == nil)
+    }
+
+    private func standaloneCoordinator(
+        writes: AccountWriteRepositoryStub,
+        session: MutableWritableAccount,
+        favorites: FavoritesRepositoryStub = FavoritesRepositoryStub()
+    ) -> AccountWriteCoordinator {
+        let favoritesUseCase = FavoritesUseCase(repository: favorites)
+        return AccountWriteCoordinator(
+            watchLater: WatchLaterWriteUseCase(repository: writes),
+            watchLaterModel: WatchLaterViewModel(
+                useCase: WatchLaterUseCase(repository: WatchLaterRepositoryStub())
+            ),
+            favoritesWrite: FavoritesWriteUseCase(repository: writes),
+            favorites: favoritesUseCase,
+            favoriteFolders: FavoriteFolderViewModel(
+                useCase: favoritesUseCase,
+                folderList: FavoriteFolderListModel(
+                    useCase: favoritesUseCase,
+                    accountScope: { .signedOut }
+                )
+            ),
+            writableAccount: { session.account },
+            publish: { _, _ in }
+        )
+    }
+
     private func signedInWindow(
         process: ProcessComposition,
-        writes: WatchLaterWriteRepositoryStub = WatchLaterWriteRepositoryStub(),
-        watchLater bvids: [String] = []
+        writes: AccountWriteRepositoryStub = AccountWriteRepositoryStub(),
+        watchLater bvids: [String] = [],
+        favorites: FavoritesRepositoryStub = FavoritesRepositoryStub()
     ) async throws -> WindowComposition {
         let window = WindowComposition(
             process: process,
             adapters: makeTestAdapters(
+                favorites: favorites,
                 watchLater: WatchLaterRepositoryStub(bvids: bvids),
                 watchLaterWrite: writes,
+                favoritesWrite: writes,
                 authentication: AuthenticationServiceStub(
                     restoreState: .signedIn(
                         AccountIdentity(id: 7, displayName: "账号", avatarURL: nil)
@@ -265,6 +448,18 @@ struct AccountWriteCoordinatorTests {
     private func bvids(_ model: WatchLaterViewModel) -> [String] {
         guard case .loaded(let items, _, _) = model.state else { return [] }
         return items.map(\.bvid)
+    }
+
+    private func favoriteItem(_ bvid: String, aid: Int64) -> FavoriteItem {
+        FavoriteItem(
+            id: bvid,
+            title: bvid,
+            coverURL: nil,
+            owner: VideoOwner(id: 1, name: "作者"),
+            durationSeconds: 60,
+            favoritedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            videoAID: aid
+        )
     }
 
     private func target() throws -> VideoWriteTarget {

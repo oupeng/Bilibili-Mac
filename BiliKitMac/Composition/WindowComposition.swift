@@ -151,6 +151,8 @@ final class WindowComposition {
         }
         let accountWriteEffectRouter = AccountWriteEffectRouter(
             watchLaterModel: watchLaterModel,
+            favoriteFolderList: favoriteFolderList,
+            favoriteFolders: favoriteFolders,
             writableAccount: writableAccount
         )
         let accountWriteEffects = process.accountWriteEffects
@@ -158,6 +160,9 @@ final class WindowComposition {
         let accountWrites = AccountWriteCoordinator(
             watchLater: WatchLaterWriteUseCase(repository: adapters.watchLaterWriteRepository),
             watchLaterModel: watchLaterModel,
+            favoritesWrite: FavoritesWriteUseCase(repository: adapters.favoritesWriteRepository),
+            favorites: favoritesUseCase,
+            favoriteFolders: favoriteFolders,
             writableAccount: writableAccount,
             publish: { delivery, appliedLocally in
                 accountWriteEffectRouter.apply(delivery, appliedLocally: appliedLocally)

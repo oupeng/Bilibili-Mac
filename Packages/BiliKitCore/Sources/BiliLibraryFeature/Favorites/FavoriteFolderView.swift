@@ -129,20 +129,7 @@ public struct FavoriteFolderSidebarSection<Tag: Hashable>: View {
 
     private func row(_ folder: FavoriteFolder) -> some View {
         Label {
-            // 锁紧跟在名称右边；名称过长时截断名称，锁固定尺寸、优先级更高，始终可见。
-            HStack(spacing: FavoriteFolderSidebarGeometry.titleLockSpacing) {
-                Text(folder.title)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                if folder.isPrivate {
-                    Image(systemName: "lock.fill")
-                        .imageScale(.small)
-                        .foregroundStyle(.secondary)
-                        .fixedSize()
-                        .layoutPriority(1)
-                        .accessibilityHidden(true)
-                }
-            }
+            FavoriteFolderTitle(folder: folder)
         } icon: {
             Image(systemName: "folder")
         }
@@ -163,8 +150,29 @@ public struct FavoriteFolderSidebarSection<Tag: Hashable>: View {
     }
 }
 
-/// 侧栏收藏夹行的几何。
-private enum FavoriteFolderSidebarGeometry {
+/// 收藏夹名称与私密锁，侧栏的行与「收藏到…」面板共用。
+///
+/// 锁紧跟在名称右边，名称过长时截断名称，锁固定尺寸、优先级更高，始终可见。锁对读屏隐藏，“私密”由使用处读给读屏
+/// （侧栏放进行的值，面板的勾选框放进标签）。
+struct FavoriteFolderTitle: View {
     /// 私密锁与名称之间的间距。
-    static let titleLockSpacing: CGFloat = 4
+    private static let titleLockSpacing: CGFloat = 4
+
+    let folder: FavoriteFolder
+
+    var body: some View {
+        HStack(spacing: Self.titleLockSpacing) {
+            Text(folder.title)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            if folder.isPrivate {
+                Image(systemName: "lock.fill")
+                    .imageScale(.small)
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+                    .layoutPriority(1)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
 }

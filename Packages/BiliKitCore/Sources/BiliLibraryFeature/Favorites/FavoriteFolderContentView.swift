@@ -174,12 +174,13 @@ struct FavoriteFolderContentView: View {
             host: gridHost,
             onNearEnd: {},
             onSelect: onSelect,
-            cardMenu: {
+            cardMenu: { card in
                 LibraryVideoCardMenu.menu(
-                    for: $0,
+                    for: card,
                     openURL: openURL,
                     writing: accountWriting,
-                    watchLater: .add
+                    watchLater: .add,
+                    removeFromFavoriteFolder: folderRemoval(cardID: card.id, in: items)
                 )
             }
         )
@@ -191,6 +192,19 @@ struct FavoriteFolderContentView: View {
                 errorMessage: model.refreshError.map(failures.message(for:))
             )
         }
+    }
+
+    /// 「从此收藏夹移除」的动作：显示中的收藏夹与这张卡片的视频条目（`videoAID`）都确定时才有，合集、音频等没有。
+    private func folderRemoval(
+        cardID: String,
+        in items: [FavoriteItem]
+    ) -> (@MainActor @Sendable () -> Void)? {
+        guard let accountWriting,
+            let folderID = model.selectedFolderID,
+            let videoAID = items.first(where: { $0.id == cardID })?.videoAID,
+            let entry = FavoriteFolderEntry(folderID: folderID, videoAID: videoAID)
+        else { return nil }
+        return { accountWriting.removeFromFavoriteFolder(entry) }
     }
 
     /// 失败文案按模型的账户复核进度区分（`LibraryContentFailure`）。

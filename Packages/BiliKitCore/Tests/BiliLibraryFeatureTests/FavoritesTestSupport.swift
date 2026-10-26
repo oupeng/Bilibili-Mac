@@ -10,6 +10,8 @@ actor FavoritesRepositoryStub: FavoritesRepository {
     private(set) var ownerIDs: [Int64] = []
     private(set) var requests: [FavoriteFolderRequest] = []
     private var folderResult: Result<[FavoriteFolder], ContentApplicationError>
+    /// 归属读取时视频所在的收藏夹。
+    private var containingFolderIDs: Set<Int64> = []
     private var pageResult:
         @Sendable (FavoriteFolderRequest) -> Result<FavoriteFolderPage, ContentApplicationError>
     private var heldFolderIDs: Set<Int64>
@@ -33,6 +35,10 @@ actor FavoritesRepositoryStub: FavoritesRepository {
 
     func setFolders(_ result: Result<[FavoriteFolder], ContentApplicationError>) {
         folderResult = result
+    }
+
+    func setContainingFolderIDs(_ folderIDs: Set<Int64>) {
+        containingFolderIDs = folderIDs
     }
 
     func setPage(
@@ -69,6 +75,15 @@ actor FavoritesRepositoryStub: FavoritesRepository {
         ownerIDs.append(ownerID)
         await folderCalls.signal()
         return try folderResult.get()
+    }
+
+    func favoriteFolderMemberships(
+        ownerID: Int64,
+        video: VideoWriteTarget
+    ) async throws -> [FavoriteFolderMembership] {
+        try await favoriteFolders(ownerID: ownerID).map {
+            FavoriteFolderMembership(folder: $0, containsVideo: containingFolderIDs.contains($0.id))
+        }
     }
 
     func favoriteFolderPage(request: FavoriteFolderRequest) async throws -> FavoriteFolderPage {
@@ -109,7 +124,8 @@ func favoritePage(
 
 func favoriteItem(
     _ id: String,
-    unavailability: LibraryItemUnavailability? = nil
+    unavailability: LibraryItemUnavailability? = nil,
+    videoAID: Int64? = nil
 ) -> FavoriteItem {
     FavoriteItem(
         id: id,
@@ -118,7 +134,8 @@ func favoriteItem(
         owner: VideoOwner(id: 1, name: "测试作者"),
         durationSeconds: 100,
         favoritedAt: Date(timeIntervalSince1970: 1_700_000_000),
-        unavailability: unavailability
+        unavailability: unavailability,
+        videoAID: videoAID
     )
 }
 

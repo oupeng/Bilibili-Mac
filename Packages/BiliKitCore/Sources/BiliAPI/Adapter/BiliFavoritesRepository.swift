@@ -21,6 +21,17 @@ public struct BiliFavoritesRepository: FavoritesRepository {
         }
     }
 
+    public func favoriteFolderMemberships(
+        ownerID: Int64,
+        video: VideoWriteTarget
+    ) async throws -> [FavoriteFolderMembership] {
+        do {
+            return try await client.favoriteFolderMemberships(ownerID: ownerID, bvid: video.bvid)
+        } catch {
+            throw BiliAPIError.contentApplicationError(for: error)
+        }
+    }
+
     public func favoriteFolderPage(
         request: FavoriteFolderRequest
     ) async throws -> FavoriteFolderPage {

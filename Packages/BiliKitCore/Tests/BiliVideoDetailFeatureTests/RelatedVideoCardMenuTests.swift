@@ -7,7 +7,7 @@ import Testing
 
 @testable import BiliVideoDetailFeature
 
-/// 相关推荐横排的卡片有「添加到稍后再看」（不满足写入门槛时禁用）与「拷贝链接」「在浏览器中打开」，打开的是该视频的网页
+/// 相关推荐横排的卡片有「添加到稍后再看」「收藏到…」（不满足写入门槛时禁用）与「拷贝链接」「在浏览器中打开」，打开的是该视频的网页
 /// 地址；ID 不是合法 BVID 时没有菜单。
 struct RelatedVideoCardMenuTests {
     @Test @MainActor
@@ -26,7 +26,9 @@ struct RelatedVideoCardMenuTests {
                 writing: VideoCardAccountWriting(
                     isAvailable: { false },
                     addToWatchLater: { _ in },
-                    removeFromWatchLater: { _ in }
+                    removeFromWatchLater: { _ in },
+                    chooseFavoriteFolders: { _ in },
+                    removeFromFavoriteFolder: { _ in }
                 )
             )
         )
@@ -35,12 +37,13 @@ struct RelatedVideoCardMenuTests {
             menu.items.map(\.title)
                 == [
                     VideoCardMenuText.addToWatchLater,
+                    VideoCardMenuText.addToFavorites,
                     VideoCardMenuText.copyLink,
                     VideoCardMenuText.openInBrowser
                 ]
         )
-        #expect(menu.items.map(\.isEnabled) == [false, true, true])
-        menu.items[2].action()
+        #expect(menu.items.map(\.isEnabled) == [false, false, true, true])
+        menu.items[3].action()
         #expect(opened.map(\.absoluteString) == ["https://www.bilibili.com/video/BV1Related"])
     }
 

@@ -33,6 +33,8 @@ struct WindowAdapters {
     /// 稍后再看的加入与移除；生产实现走窗口 API 的账户写授权器，绑定窗口账户。
     let watchLaterWriteRepository: any WatchLaterWriteRepository
     let favoritesRepository: any FavoritesRepository
+    /// 收藏到收藏夹与从收藏夹移除；生产实现走窗口 API 的账户写授权器，绑定窗口账户。
+    let favoritesWriteRepository: any FavoritesWriteRepository
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentLinkRouter: CommentLinkRouter
     let authenticationService: any AuthenticationServicing
@@ -119,6 +121,7 @@ extension WindowAdapters {
             watchLaterRepository: BiliWatchLaterRepository(client: api),
             watchLaterWriteRepository: BiliWatchLaterWriteRepository(client: api),
             favoritesRepository: BiliFavoritesRepository(client: api),
+            favoritesWriteRepository: BiliFavoritesWriteRepository(client: api),
             commentAssetURLResolver: { reference, box in
                 commentAssetResolver.imageURL(for: reference, fitting: box)
             },

@@ -174,8 +174,9 @@ struct BiliAPIClientAccountWriteTests {
         #expect(firstTransport.capturedRequests().isEmpty)
         #expect(replacementTransport.capturedRequests().isEmpty)
     }
+}
 
-    private func statusResponse(code: Int, status: Int = 200) -> HTTPResponse {
-        jsonResponse("{\"code\":\(code),\"message\":\"fixture\",\"ttl\":1}", statusCode: status)
-    }
+/// 写接口只有状态 envelope 的响应；稍后再看与收藏的写入测试共用。
+func statusResponse(code: Int, status: Int = 200) -> HTTPResponse {
+    jsonResponse("{\"code\":\(code),\"message\":\"fixture\",\"ttl\":1}", statusCode: status)
 }

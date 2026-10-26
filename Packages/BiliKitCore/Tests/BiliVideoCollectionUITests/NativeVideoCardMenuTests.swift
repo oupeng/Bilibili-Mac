@@ -7,8 +7,8 @@ import Testing
 
 /// 卡片菜单：右键菜单、读屏自定义操作与 ⌘⌫ 出自同一份描述。
 ///
-/// 写操作一组在前、链接一组在后，组间有分隔线；「拷贝链接」
-/// 「在浏览器中打开」与「添加到稍后再看」只给可进入播放的卡片，「从稍后再看移除」也给不可用卡片并带 ⌘⌫；不满足写入门槛时
+/// 写操作一组在前、链接一组在后，组间有分隔线；「拷贝链接」「在浏览器中打开」「添加到稍后再看」与「收藏到…」只给可进入
+/// 播放的卡片，「从稍后再看移除」与收藏夹页的「从此收藏夹移除」也给不可用卡片并带 ⌘⌫；不满足写入门槛时
 /// 写操作项在菜单里禁用、不进入读屏操作；读屏操作执行时按卡片 ID 重新核对；没有项时不弹菜单；Control-点按走右键同一条
 /// 菜单路径，不激活卡片。
 struct NativeVideoCardMenuTests {
@@ -18,6 +18,7 @@ struct NativeVideoCardMenuTests {
     func playableCardOffersWriteGroupThenLinks() throws {
         var opened: [URL] = []
         var added: [String] = []
+        var chosen: [String] = []
         let menu = try #require(
             NativeVideoCardMenu.video(
                 for: Self.card(id: "BV1Menu", availability: .available),
@@ -26,26 +27,75 @@ struct NativeVideoCardMenuTests {
                     opened.append(url)
                     return .handled
                 },
-                writing: Self.writing(isAvailable: true, added: { added.append($0) }),
+                writing: Self.writing(
+                    isAvailable: true,
+                    added: { added.append($0) },
+                    chosen: { chosen.append($0) }
+                ),
                 watchLater: .add
             )
         )
 
         #expect(
             menu.sections.map { $0.map(\.title) } == [
-                [VideoCardMenuText.addToWatchLater],
+                [VideoCardMenuText.addToWatchLater, VideoCardMenuText.addToFavorites],
                 [VideoCardMenuText.copyLink, VideoCardMenuText.openInBrowser]
             ]
         )
-        #expect(menu.items.map(\.systemImage) == ["text.badge.plus", "link", "globe"])
+        #expect(menu.items.map(\.systemImage) == ["text.badge.plus", "star", "link", "globe"])
         menu.items[0].action()
-        menu.items[2].action()
+        menu.items[1].action()
+        menu.items[3].action()
         #expect(added == ["BV1Menu"])
+        #expect(chosen == ["BV1Menu"])
         #expect(opened == [try #require(Self.webPage)])
 
         let nsMenu = menu.makeMenu()
         #expect(!nsMenu.autoenablesItems)
-        #expect(nsMenu.items.map(\.isSeparatorItem) == [false, true, false, false])
+        #expect(nsMenu.items.map(\.isSeparatorItem) == [false, false, true, false, false])
+    }
+
+    /// 收藏夹页给出的移除排在写操作一组末尾并带 ⌘⌫；卡片 ID 不是 BVID（没有网页）的失效视频只剩这一项。
+    @Test @MainActor
+    func favoriteFolderRemovalEndsTheWriteGroupAndCoversCardsWithoutAWebPage() throws {
+        let removals = RemovalCount()
+        let remove: @MainActor @Sendable () -> Void = { removals.value += 1 }
+        let openURL = OpenURLAction { _ in .handled }
+        let writing = Self.writing(isAvailable: true)
+
+        let playable = try #require(
+            NativeVideoCardMenu.video(
+                for: Self.card(id: "BV1Menu", availability: .available),
+                webPageURL: Self.webPage,
+                openURL: openURL,
+                writing: writing,
+                watchLater: .add,
+                removeFromFavoriteFolder: remove
+            )
+        )
+        #expect(
+            playable.sections.first?.map(\.title) == [
+                VideoCardMenuText.addToWatchLater,
+                VideoCardMenuText.addToFavorites,
+                VideoCardMenuText.removeFromFavoriteFolder
+            ]
+        )
+        playable.enabledItem(for: .commandDelete)?.action()
+        #expect(removals.value == 1)
+
+        let withoutWebPage = try #require(
+            NativeVideoCardMenu.video(
+                for: Self.card(id: "fav-2-170001", availability: .unavailable(badge: "已失效")),
+                webPageURL: nil,
+                openURL: openURL,
+                writing: writing,
+                watchLater: .add,
+                removeFromFavoriteFolder: remove
+            )
+        )
+        #expect(withoutWebPage.items.map(\.title) == [VideoCardMenuText.removeFromFavoriteFolder])
+        withoutWebPage.enabledItem(for: .commandDelete)?.action()
+        #expect(removals.value == 2)
     }
 
     /// 稍后再看页：失效等不可用卡片只有「从稍后再看移除」（带 ⌘⌫），可播放卡片另有链接；其他来源的不可用卡片没有菜单。
@@ -128,7 +178,11 @@ struct NativeVideoCardMenuTests {
 
         let nsMenu = menu.makeMenu()
         nsMenu.update()
-        #expect(nsMenu.items.filter { !$0.isSeparatorItem }.map(\.isEnabled) == [false, true, true])
+        #expect(
+            nsMenu.items.filter { !$0.isSeparatorItem }.map(\.isEnabled) == [
+                false, false, true, true
+            ]
+        )
         #expect(menu.enabledItem(for: .commandDelete) == nil)
         #expect(removed.isEmpty)
     }
@@ -326,6 +380,7 @@ struct NativeVideoCardMenuTests {
             menu.items.filter { !$0.isSeparatorItem }.map(\.title)
                 == [
                     VideoCardMenuText.addToWatchLater,
+                    VideoCardMenuText.addToFavorites,
                     VideoCardMenuText.copyLink,
                     VideoCardMenuText.openInBrowser
                 ]
@@ -344,14 +399,18 @@ struct NativeVideoCardMenuTests {
     private static func writing(
         isAvailable: Bool,
         added: @escaping (String) -> Void = { _ in },
-        removed: @escaping (String) -> Void = { _ in }
+        removed: @escaping (String) -> Void = { _ in },
+        chosen: @escaping (String) -> Void = { _ in }
     ) -> VideoCardAccountWriting {
         nonisolated(unsafe) let added = added
         nonisolated(unsafe) let removed = removed
+        nonisolated(unsafe) let chosen = chosen
         return VideoCardAccountWriting(
             isAvailable: { isAvailable },
             addToWatchLater: { added($0) },
-            removeFromWatchLater: { removed($0) }
+            removeFromWatchLater: { removed($0) },
+            chooseFavoriteFolders: { chosen($0) },
+            removeFromFavoriteFolder: { _ in }
         )
     }
 
@@ -468,4 +527,10 @@ private struct GridFixture {
         coordinator.reset()
         window.contentView = NSView()
     }
+}
+
+/// 收藏夹移除动作被执行的次数；动作在主线程调用。
+@MainActor
+private final class RemovalCount {
+    var value = 0
 }

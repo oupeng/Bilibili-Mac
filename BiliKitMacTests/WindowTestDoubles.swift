@@ -238,7 +238,8 @@ func makeTestAdapters(
     comments: any CommentRepository = CommentRepositoryStub(),
     favorites: any FavoritesRepository = FavoritesRepositoryStub(),
     watchLater: any WatchLaterRepository = WatchLaterRepositoryStub(),
-    watchLaterWrite: any WatchLaterWriteRepository = WatchLaterWriteRepositoryStub(),
+    watchLaterWrite: any WatchLaterWriteRepository = AccountWriteRepositoryStub(),
+    favoritesWrite: any FavoritesWriteRepository = AccountWriteRepositoryStub(),
     authentication: any AuthenticationServicing = AuthenticationServiceStub(
         restoreState: .signedOut
     ),
@@ -264,6 +265,7 @@ func makeTestAdapters(
         watchLaterRepository: watchLater,
         watchLaterWriteRepository: watchLaterWrite,
         favoritesRepository: favorites,
+        favoritesWriteRepository: favoritesWrite,
         commentAssetURLResolver: { _, _ in nil },
         commentLinkRouter: { _ in nil },
         authenticationService: authentication,

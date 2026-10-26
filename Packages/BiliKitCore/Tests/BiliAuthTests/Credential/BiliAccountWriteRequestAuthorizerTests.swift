@@ -4,11 +4,17 @@ import Testing
 
 @testable import BiliAuth
 
-/// 账户写入授权器只放行 schema 表里精确形状的 POST，绑定预期账户，只注入 `SESSDATA` 与表单 csrf。
+/// 账户写入授权器只放行 schema 表里精确形状的 POST，绑定预期账户，只注入 `SESSDATA` 与表单 csrf；收藏移除一次只收
+/// 一个视频条目。
 @Suite(.timeLimit(.minutes(1)))
 struct BiliAccountWriteRequestAuthorizerTests {
     private static let addPath = "/x/v2/history/toview/add"
     private static let removePath = "/x/v2/history/toview/del"
+    private static let favoriteDealPath = "/x/v3/fav/resource/deal"
+    private static let favoriteRemovePath = "/x/v3/fav/resource/batch-del"
+    private static let favoriteDealBody =
+        "rid=170001&type=2&add_media_ids=11,12&del_media_ids=&platform=web"
+    private static let favoriteRemoveBody = "resources=170001:2&media_id=11&platform=web"
     private static let accountID = "42"
 
     @Test(arguments: [
@@ -31,6 +37,78 @@ struct BiliAccountWriteRequestAuthorizerTests {
         #expect(authorized.method == .post)
         let body = try #require(authorized.body.flatMap { String(data: $0, encoding: .utf8) })
         #expect(body == "aid=170001&csrf=FIXTURE_bili_jct_VALUE")
+    }
+
+    @Test(arguments: [
+        (favoriteDealPath, favoriteDealBody),
+        (favoriteDealPath, "rid=170001&type=2&add_media_ids=&del_media_ids=13&platform=web"),
+        (favoriteRemovePath, favoriteRemoveBody)
+    ])
+    func authorizesFavoriteWritesWithCSRFAppended(path: String, body: String) async throws {
+        let authorizer = try makeAuthorizer()
+
+        let authorized = try await authorizer.authorize(
+            try writeRequest(path: path, body: body),
+            boundTo: Self.accountID
+        )
+
+        #expect(authorized.headers["Cookie"] == "SESSDATA=FIXTURE_SESSDATA_VALUE")
+        let sent = try #require(authorized.body.flatMap { String(data: $0, encoding: .utf8) })
+        #expect(sent == "\(body)&csrf=FIXTURE_bili_jct_VALUE")
+    }
+
+    /// 收藏改动只收单个视频、固定类型与平台；夹 id 列表各自不重复、两侧不相交、至少一侧非空且有上限，数字不带前导零；
+    /// 网页的统计字段不收。
+    @Test(arguments: [
+        "rid=170001&type=2&add_media_ids=11&platform=web",
+        "rid=170001&type=12&add_media_ids=11&del_media_ids=&platform=web",
+        "rid=170001&type=2&add_media_ids=11&del_media_ids=&platform=ios",
+        "rid=170001,170002&type=2&add_media_ids=11&del_media_ids=&platform=web",
+        "rid=170001&type=2&add_media_ids=11,11&del_media_ids=&platform=web",
+        "rid=170001&type=2&add_media_ids=11,,12&del_media_ids=&platform=web",
+        "rid=170001&type=2&add_media_ids=11,&del_media_ids=&platform=web",
+        "rid=170001&type=2&add_media_ids=0&del_media_ids=&platform=web",
+        "rid=170001&type=2&add_media_ids=11&del_media_ids=&platform=web&spmid=333.788.0.0",
+        "rid=170001&type=2&add_media_ids=11&del_media_ids=11&platform=web",
+        "rid=170001&type=2&add_media_ids=11,12&del_media_ids=13,12&platform=web",
+        "rid=170001&type=2&add_media_ids=&del_media_ids=&platform=web",
+        "rid=0170001&type=2&add_media_ids=11&del_media_ids=&platform=web",
+        "rid=170001&type=2&add_media_ids=11,011&del_media_ids=&platform=web",
+        "rid=170001&type=2&add_media_ids="
+            + (1...101).map(String.init).joined(separator: ",")
+            + "&del_media_ids=&platform=web"
+    ])
+    func rejectsFavoriteDealBodiesOutsideTheSchema(body: String) async throws {
+        let authorizer = try makeAuthorizer()
+
+        await #expect(throws: BiliRequestAuthorizationError.requestNotAllowed) {
+            try await authorizer.authorize(
+                try writeRequest(path: Self.favoriteDealPath, body: body),
+                boundTo: Self.accountID
+            )
+        }
+    }
+
+    /// 夹内移除一次只收一个视频条目：多个条目、其他类型与多个收藏夹都拒绝。
+    @Test(arguments: [
+        "resources=170001:2,170002:2&media_id=11&platform=web",
+        "resources=170001:12&media_id=11&platform=web",
+        "resources=170001&media_id=11&platform=web",
+        "resources=:2&media_id=11&platform=web",
+        "resources=170001:2:2&media_id=11&platform=web",
+        "resources=170001:2&media_id=11,12&platform=web",
+        "resources=170001:2&media_id=11",
+        "resources=170001:2&platform=web"
+    ])
+    func rejectsFavoriteRemovalBodiesOutsideTheSchema(body: String) async throws {
+        let authorizer = try makeAuthorizer()
+
+        await #expect(throws: BiliRequestAuthorizationError.requestNotAllowed) {
+            try await authorizer.authorize(
+                try writeRequest(path: Self.favoriteRemovePath, body: body),
+                boundTo: Self.accountID
+            )
+        }
     }
 
     @Test
@@ -280,7 +358,7 @@ struct BiliAccountWriteRequestAuthorizerTests {
     }
 
     private func makeAuthorizer(
-        allowedPaths: Set<String> = [addPath, removePath]
+        allowedPaths: Set<String> = Set(BiliAccountWriteRequestAuthorizer.schemas.keys)
     ) throws -> BiliAccountWriteRequestAuthorizer {
         BiliAccountWriteRequestAuthorizer(
             store: MemoryWebCredentialStore(
