@@ -356,20 +356,14 @@ public final class CoreAnimationDanmakuRenderer:
         else {
             return nil
         }
-        let colorSpace =
-            CGColorSpace(name: CGColorSpace.sRGB)
-            ?? CGColorSpaceCreateDeviceRGB()
-        let bitmapInfo = CGBitmapInfo(
-            rawValue: CGImageAlphaInfo.premultipliedLast.rawValue
-        ).union(.byteOrder32Big)
         return CGImage(
             width: payload.widthPixels,
             height: payload.heightPixels,
-            bitsPerComponent: 8,
-            bitsPerPixel: 32,
+            bitsPerComponent: DanmakuTexturePayload.bitsPerComponent,
+            bitsPerPixel: DanmakuTexturePayload.bitsPerComponent * 4,
             bytesPerRow: payload.bytesPerRow,
-            space: colorSpace,
-            bitmapInfo: bitmapInfo,
+            space: DanmakuTexturePayload.colorSpace,
+            bitmapInfo: DanmakuTexturePayload.bitmapInfo,
             provider: provider,
             decode: nil,
             shouldInterpolate: true,

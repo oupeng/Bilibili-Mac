@@ -1,3 +1,4 @@
+import BiliApplication
 import BiliModels
 import Foundation
 import Testing
@@ -244,21 +245,24 @@ struct DanmakuTextureRasterizerTests {
     }
 
     @Test
+    @MainActor
     func byteBoundedCacheUsesLRUAndRejectsOversizedItems() throws {
-        let limits = DanmakuTextureLRUCache.Limits(
+        let limits = CostBoundedLRUCacheLimits(
             maximumItemCost: 64,
             maximumTotalCost: 96
         )
-        let cache = DanmakuTextureLRUCache(limits: limits)
+        let cache = CostBoundedLRUCache<DanmakuTextureCacheKey, DanmakuTexturePayload>(
+            limits: limits
+        )
         let first = textureKey(text: "first")
         let second = textureKey(text: "second")
         let third = textureKey(text: "third")
         let payload = fixtureTexturePayload(byteCost: 48)
 
-        let insertedFirst = cache.insert(payload, for: first)
-        let insertedSecond = cache.insert(payload, for: second)
+        let insertedFirst = cache.insert(payload, cost: payload.byteCost, for: first)
+        let insertedSecond = cache.insert(payload, cost: payload.byteCost, for: second)
         let firstHit = cache.value(for: first)
-        let insertedThird = cache.insert(payload, for: third)
+        let insertedThird = cache.insert(payload, cost: payload.byteCost, for: third)
         let evictedSecond = cache.value(for: second)
         let retainedFirst = cache.value(for: first)
         let retainedThird = cache.value(for: third)
@@ -270,10 +274,8 @@ struct DanmakuTextureRasterizerTests {
         #expect(retainedFirst == payload)
         #expect(retainedThird == payload)
         #expect(cache.totalCost == 96)
-        let insertedOversized = cache.insert(
-            fixtureTexturePayload(byteCost: 68),
-            for: second
-        )
+        let oversized = fixtureTexturePayload(byteCost: 68)
+        let insertedOversized = cache.insert(oversized, cost: oversized.byteCost, for: second)
         #expect(!insertedOversized)
         #expect(cache.totalCost == 96)
         cache.removeAll()

@@ -18,6 +18,16 @@ struct DanmakuTextureCacheKey: Hashable, Sendable {
 ///
 /// `byteCost` 计入缓存与在屏纹理的字节上限；`metrics` 是含留白的 point 尺寸。
 struct DanmakuTexturePayload: Sendable, Equatable {
+    /// 像素格式约定只在这里，栅格化器建 `CGContext`、renderer 建 `CGImage` 都用这几项。
+    ///
+    /// 两边不一致时通道顺序、预乘或色彩空间会错位，弹幕颜色随之变掉。
+    static let bitsPerComponent = 8
+    static let bitmapInfo = CGBitmapInfo(
+        rawValue: CGImageAlphaInfo.premultipliedLast.rawValue
+    ).union(.byteOrder32Big)
+    static let colorSpace =
+        CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+
     let pixels: Data
     let widthPixels: Int
     let heightPixels: Int
@@ -102,9 +112,6 @@ enum DanmakuTextureRasterizer {
         key: DanmakuTextureCacheKey
     ) -> DanmakuTexturePayload? {
         let scale = CGFloat(key.backingScale)
-        let colorSpace =
-            CGColorSpace(name: CGColorSpace.sRGB)
-            ?? CGColorSpaceCreateDeviceRGB()
         let components = rgbComponents(key.colorRGB)
         let foreground = CGColor(
             srgbRed: components.red,
@@ -140,10 +147,10 @@ enum DanmakuTextureRasterizer {
                     data: buffer.baseAddress,
                     width: widthPixels,
                     height: heightPixels,
-                    bitsPerComponent: 8,
+                    bitsPerComponent: DanmakuTexturePayload.bitsPerComponent,
                     bytesPerRow: bytesPerRow,
-                    space: colorSpace,
-                    bitmapInfo: bitmapInfo.rawValue
+                    space: DanmakuTexturePayload.colorSpace,
+                    bitmapInfo: DanmakuTexturePayload.bitmapInfo.rawValue
                 )
             else {
                 return false
@@ -429,8 +436,4 @@ enum DanmakuTextureRasterizer {
             ? component / 12.92
             : pow((component + 0.055) / 1.055, 2.4)
     }
-
-    private static let bitmapInfo = CGBitmapInfo(
-        rawValue: CGImageAlphaInfo.premultipliedLast.rawValue
-    ).union(.byteOrder32Big)
 }

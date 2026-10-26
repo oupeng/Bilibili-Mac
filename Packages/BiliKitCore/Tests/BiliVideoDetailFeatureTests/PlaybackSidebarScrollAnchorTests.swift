@@ -300,7 +300,9 @@ struct PlaybackSidebarScrollAnchorTests: PlaybackSidebarFixtures {
     @Test
     @MainActor
     func commentHeightCacheIsBoundedAndUsesTrueLRURecency() {
-        let cache = NativePlaybackSidebarHeightCache(capacity: 2)
+        let cache = CostBoundedLRUCache<NativePlaybackSidebarHeightCacheKey, CGFloat>(
+            limits: CostBoundedLRUCacheLimits(maximumItemCost: 1, maximumTotalCost: 2)
+        )
         let first = heightKey(rootID: 1)
         let second = heightKey(rootID: 2)
         let third = heightKey(rootID: 3)

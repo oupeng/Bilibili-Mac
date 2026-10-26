@@ -55,7 +55,7 @@ final class DanmakuTimebaseClock: @unchecked Sendable {
     /// 弹幕的父层，本地时间跟随绑定的 timebase；未绑定时停在速率 0。
     let layer = CALayer()
     private let queue = DispatchQueue(
-        label: "BiliKit.DanmakuTimebaseClock",
+        label: "com.shiinayane.BiliKit.danmaku-timebase-clock",
         qos: .userInteractive
     )
     private let binding = Mutex(Binding())
