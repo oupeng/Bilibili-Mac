@@ -1,7 +1,6 @@
 @preconcurrency import AVFoundation
 import BiliApplication
 import Foundation
-import os
 
 /// 把 AVPlayer/KVO/notification 事件投影为平台无关、identity-safe 的播放时间线。
 ///
@@ -114,6 +113,10 @@ final class AVPlayerTimelineAdapter {
     }
 
     /// 为当前 item 安装位置、速率、状态、结束、失败与时间跳变观察，并替换旧观察集合。
+    ///
+    /// periodic observer 与 item 通知都指定 `queue: .main`，回调已在主线程，用 `MainActor.assumeIsolated`
+    /// 同步执行。三路 KVO（rate、timeControlStatus、item status）在改动发生的线程同步回调：在后台线程改速率
+    /// 或 seek 时实测会落在非主线程，所以仍经 Task 跳回主线程。
     func installObservers(for item: AVPlayerItem) {
         observers.reset()
         guard let token else { return }
@@ -126,7 +129,7 @@ final class AVPlayerTimelineAdapter {
             ),
             queue: .main
         ) { [weak self, weak item] time in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 guard let self, let item, self.player.currentItem === item,
                     self.token == token,
                     let seconds = Self.seconds(from: time)
@@ -225,7 +228,7 @@ final class AVPlayerTimelineAdapter {
             object: item,
             queue: .main
         ) { [weak self, weak item] _ in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 guard let self, let item else { return }
                 self.fail(item: item, token: token)
             }
@@ -236,7 +239,7 @@ final class AVPlayerTimelineAdapter {
             object: item,
             queue: .main
         ) { [weak self, weak item] _ in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 guard let self, let item, self.player.currentItem === item,
                     let position = Self.seconds(from: item.currentTime())
                 else { return }
@@ -247,12 +250,12 @@ final class AVPlayerTimelineAdapter {
         observers.replace(
             player: player,
             periodicTimeObserver: periodicTimeObserver,
-            rateObservation: rateObservation,
-            timeControlObservation: timeControlObservation,
-            statusObservation: statusObservation,
-            endNotificationObserver: endNotificationObserver,
-            failureNotificationObserver: failureNotificationObserver,
-            timeJumpNotificationObserver: timeJumpNotificationObserver
+            keyValueObservations: [rateObservation, timeControlObservation, statusObservation],
+            notificationObservers: [
+                endNotificationObserver,
+                failureNotificationObserver,
+                timeJumpNotificationObserver
+            ]
         )
     }
 
@@ -608,84 +611,48 @@ final class AVPlayerTimelineAdapter {
 
 /// 当前 item 的 AVPlayer 观察集合（periodic observer、KVO 与 item 通知 observer）。
 ///
-/// 替换或清空时在锁内整体换出，在锁外注销换出的旧集合；deinit 兜底注销。注销前已切回主线程的回调由
-/// adapter 比对 item 与 token 丢弃。
-///
-/// 用 `OSAllocatedUnfairLock(uncheckedState:)` 而不用 `Mutex`：`replace` 要把调用方传入的 observer
-/// （`Any`、`NSObjectProtocol` 等非 Sendable 值）存进锁内状态，`Mutex` 的 `inout sending` 闭包参数
-/// 不允许并入这类外部值。
-private final class PlayerTimelineObserverBag: Sendable {
-    /// 当前观察集合；`player` 用于注销 periodic observer，其余各项各自 invalidate 或从
-    /// NotificationCenter 移除。
-    private struct Storage {
-        var player: AVPlayer? = nil
-        var periodicTimeObserver: Any? = nil
-        var rateObservation: NSKeyValueObservation? = nil
-        var timeControlObservation: NSKeyValueObservation? = nil
-        var statusObservation: NSKeyValueObservation? = nil
-        var endNotificationObserver: NSObjectProtocol? = nil
-        var failureNotificationObserver: NSObjectProtocol? = nil
-        var timeJumpNotificationObserver: NSObjectProtocol? = nil
-    }
+/// 由 `AVPlayerTimelineAdapter` 独占持有：`replace` 先注销旧集合再记下新集合，`reset` 在换 item、失败与
+/// clear 时注销；isolated deinit 兜底注销。MainActor 隔离，不加锁：adapter 在主线程以外被释放时，运行时把
+/// deinit 排到主线程执行，注销晚一拍；这期间到达的回调按 item 与 token 比对，adapter 已释放时弱引用为
+/// nil，都不会写进时间线。
+@MainActor
+private final class PlayerTimelineObserverBag {
+    /// 安装 periodic observer 的 player，只用于注销它。
+    private var player: AVPlayer?
+    private var periodicTimeObserver: Any?
+    private var keyValueObservations: [NSKeyValueObservation] = []
+    private var notificationObservers: [any NSObjectProtocol] = []
 
-    private let storage = OSAllocatedUnfairLock(uncheckedState: Storage())
-
-    deinit {
+    isolated deinit {
         reset()
     }
 
     func replace(
         player: AVPlayer,
         periodicTimeObserver: Any,
-        rateObservation: NSKeyValueObservation,
-        timeControlObservation: NSKeyValueObservation,
-        statusObservation: NSKeyValueObservation,
-        endNotificationObserver: NSObjectProtocol,
-        failureNotificationObserver: NSObjectProtocol,
-        timeJumpNotificationObserver: NSObjectProtocol
+        keyValueObservations: [NSKeyValueObservation],
+        notificationObservers: [any NSObjectProtocol]
     ) {
-        let previous = storage.withLockUnchecked { storage -> Storage in
-            let previous = storage
-            storage = Storage(
-                player: player,
-                periodicTimeObserver: periodicTimeObserver,
-                rateObservation: rateObservation,
-                timeControlObservation: timeControlObservation,
-                statusObservation: statusObservation,
-                endNotificationObserver: endNotificationObserver,
-                failureNotificationObserver: failureNotificationObserver,
-                timeJumpNotificationObserver: timeJumpNotificationObserver
-            )
-            return previous
-        }
-        Self.remove(previous)
+        reset()
+        self.player = player
+        self.periodicTimeObserver = periodicTimeObserver
+        self.keyValueObservations = keyValueObservations
+        self.notificationObservers = notificationObservers
     }
 
     func reset() {
-        let previous = storage.withLockUnchecked { storage -> Storage in
-            let previous = storage
-            storage = Storage()
-            return previous
-        }
-        Self.remove(previous)
-    }
-
-    private static func remove(_ storage: Storage) {
-        if let player = storage.player,
-            let periodicTimeObserver = storage.periodicTimeObserver
-        {
+        if let player, let periodicTimeObserver {
             player.removeTimeObserver(periodicTimeObserver)
         }
-        storage.rateObservation?.invalidate()
-        storage.timeControlObservation?.invalidate()
-        storage.statusObservation?.invalidate()
-        let notificationObservers = [
-            storage.endNotificationObserver,
-            storage.failureNotificationObserver,
-            storage.timeJumpNotificationObserver
-        ]
-        for observer in notificationObservers.compactMap(\.self) {
+        player = nil
+        periodicTimeObserver = nil
+        for observation in keyValueObservations {
+            observation.invalidate()
+        }
+        keyValueObservations = []
+        for observer in notificationObservers {
             NotificationCenter.default.removeObserver(observer)
         }
+        notificationObservers = []
     }
 }
