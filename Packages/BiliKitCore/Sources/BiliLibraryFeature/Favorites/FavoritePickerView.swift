@@ -64,25 +64,29 @@ public struct FavoritePickerView: View {
                 )
         case .loaded(let memberships):
             List(memberships) { membership in
-                Toggle(isOn: selection(membership.id)) {
-                    HStack {
+                // 条数放在勾选框外：勾选框的标签按内容宽度排版，里面的 Spacer 撑不开行宽，条数会紧跟名称。
+                HStack {
+                    Toggle(isOn: selection(membership.id)) {
                         FavoriteFolderTitle(folder: membership.folder)
-                        Spacer(minLength: FavoritePickerGeometry.countSpacing)
-                        Text(
-                            membership.folder.mediaCount,
-                            format: .number.locale(InterfaceLocale.current)
-                        )
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
                     }
+                    .toggleStyle(.checkbox)
+                    // “私密”放进标签而不是值：勾选框的值是勾选状态，覆盖掉读屏就读不出是否已勾选。
+                    .accessibilityLabel(accessibilityTitle(membership.folder))
+                    Spacer(minLength: FavoritePickerGeometry.countSpacing)
+                    Text(
+                        membership.folder.mediaCount,
+                        format: .number.locale(InterfaceLocale.current)
+                    )
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
                 }
-                .toggleStyle(.checkbox)
-                .accessibilityValue(
-                    membership.folder.isPrivate
-                        ? LibraryFeatureStrings.localized("私密", locale: locale) : ""
-                )
             }
         }
+    }
+
+    private func accessibilityTitle(_ folder: FavoriteFolder) -> String {
+        guard folder.isPrivate else { return folder.title }
+        return LibraryFeatureStrings.localized("\(folder.title)（私密）", locale: locale)
     }
 
     private func selection(_ folderID: Int64) -> Binding<Bool> {
