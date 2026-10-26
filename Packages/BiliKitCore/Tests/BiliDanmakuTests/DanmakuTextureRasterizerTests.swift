@@ -169,6 +169,21 @@ struct DanmakuTextureRasterizerTests {
         #expect(redMinusBlue(solid, columns: 0..<solid.widthPixels) == 0)
     }
 
+    /// 纹理按像素字节判等：同一 key 各栅格化一次得到不同的 `CGImage` 对象，但两者相等；像素不同则不等。
+    @Test
+    func payloadsCompareByPixelBytes() throws {
+        let key = textureKey(text: "awsl")
+        let first = try #require(DanmakuTextureRasterizer.rasterize(key: key))
+        let second = try #require(DanmakuTextureRasterizer.rasterize(key: key))
+        let other = try #require(DanmakuTextureRasterizer.rasterize(key: textureKey(text: "awsm")))
+
+        #expect(first.image !== second.image)
+        #expect(first == second)
+        #expect(first != other)
+        #expect(first.byteCost == first.pixels.count)
+        #expect(first.byteCost == first.bytesPerRow * first.heightPixels)
+    }
+
     @Test
     @MainActor
     func byteBoundedCacheUsesLRUAndRejectsOversizedItems() throws {
@@ -225,5 +240,5 @@ func fixtureTexturePayload(byteCost: Int) -> DanmakuTexturePayload {
         heightPixels: 1,
         bytesPerRow: byteCost,
         backingScale: 1
-    )
+    )!
 }

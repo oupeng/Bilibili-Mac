@@ -13,12 +13,13 @@ struct DanmakuTextureCacheKey: Hashable, Sendable {
     let backingScale: Double
 }
 
-/// 栅格化好的不可变像素：sRGB、预乘 alpha、按字节 RGBA 排列，由 renderer 在 MainActor 上包成
-/// `CGImage`。
+/// 栅格化好的不可变纹理：sRGB、预乘 alpha、按字节 RGBA 排列的像素，在后台栅格化时就包成 `CGImage`。
 ///
-/// `byteCost` 计入缓存与在屏纹理的字节上限；`metrics` 是含留白的 point 尺寸。
+/// 同一缓存项挂到多少个 layer 上都共用这一个 `CGImage`：Core Animation 提交时按 `CGImage` 对象把像素
+/// 拷一份并常驻，不同对象各拷一份，同一对象只拷一次。`CGImage` 不可变、线程安全，可以从后台队列交给
+/// MainActor。`byteCost` 计入缓存与在屏纹理的字节上限；`metrics` 是含留白的 point 尺寸。
 struct DanmakuTexturePayload: Sendable, Equatable {
-    /// 像素格式约定只在这里，栅格化器建 `CGContext`、renderer 建 `CGImage` 都用这几项。
+    /// 像素格式约定只在这里，栅格化器建 `CGContext`、这里建 `CGImage` 都用这几项。
     ///
     /// 两边不一致时通道顺序、预乘或色彩空间会错位，弹幕颜色随之变掉。
     static let bitsPerComponent = 8
@@ -28,19 +29,58 @@ struct DanmakuTexturePayload: Sendable, Equatable {
     static let colorSpace =
         CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
 
-    let pixels: Data
-    let widthPixels: Int
-    let heightPixels: Int
-    let bytesPerRow: Int
+    let image: CGImage
     let backingScale: Double
 
+    /// 用 `pixels`（`heightPixels` 行、每行 `bytesPerRow` 字节）建 `CGImage`，像素交给它持有、不拷贝。
+    init?(
+        pixels: Data,
+        widthPixels: Int,
+        heightPixels: Int,
+        bytesPerRow: Int,
+        backingScale: Double
+    ) {
+        guard let provider = CGDataProvider(data: pixels as CFData),
+            let image = CGImage(
+                width: widthPixels,
+                height: heightPixels,
+                bitsPerComponent: Self.bitsPerComponent,
+                bitsPerPixel: Self.bitsPerComponent * 4,
+                bytesPerRow: bytesPerRow,
+                space: Self.colorSpace,
+                bitmapInfo: Self.bitmapInfo,
+                provider: provider,
+                decode: nil,
+                shouldInterpolate: true,
+                intent: .defaultIntent
+            )
+        else {
+            return nil
+        }
+        self.image = image
+        self.backingScale = backingScale
+    }
+
+    var widthPixels: Int { image.width }
+    var heightPixels: Int { image.height }
+    var bytesPerRow: Int { image.bytesPerRow }
     var byteCost: Int { bytesPerRow * heightPixels }
+    /// `image` 持有的像素字节；两张纹理按字节判等，不看是否同一个 `CGImage` 对象。
+    var pixels: Data { image.dataProvider?.data as Data? ?? Data() }
 
     var metrics: DanmakuTextMetrics {
         DanmakuTextMetrics(
             width: Double(widthPixels) / backingScale,
             height: Double(heightPixels) / backingScale
         )
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.backingScale == rhs.backingScale
+            && lhs.widthPixels == rhs.widthPixels
+            && lhs.heightPixels == rhs.heightPixels
+            && lhs.bytesPerRow == rhs.bytesPerRow
+            && lhs.pixels == rhs.pixels
     }
 }
 

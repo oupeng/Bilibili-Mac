@@ -52,7 +52,7 @@ final class DanmakuTexturePreparationOwner {
         var requestIDs: [UInt64]
     }
 
-    /// 按纹理字节计成本的 LRU 缓存，让文本、字号、颜色与 scale 都相同的弹幕复用已栅格化的像素。
+    /// 按纹理字节计成本的 LRU 缓存，让文本、字号、颜色与 scale 都相同的弹幕复用同一个 `CGImage`。
     ///
     /// 已就绪待挂上的纹理也只存在这里：`prepared` 只记 key，在挂上前被淘汰时 `consume` 取不到像素，
     /// 这条弹幕不挂上。
@@ -250,7 +250,8 @@ extension CostBoundedLRUCacheLimits {
     /// 也低于在屏纹理的 64 MiB 上限。
     ///
     /// 调大总量提高重复文本的命中率、已就绪纹理也更少在挂上前被淘汰，但常驻内存随之增加；
-    /// 调小则更常重新栅格化。
+    /// 调小则更常重新栅格化。成本只计缓存持有的像素：渲染过的缓存项在 Core Animation 侧另有一份拷贝，
+    /// 实际驻留接近两倍。
     static let danmakuTextures = CostBoundedLRUCacheLimits(
         maximumItemCost: DanmakuTextureRasterizer.maximumTextureByteCost,
         maximumTotalCost: 32 * 1_024 * 1_024
