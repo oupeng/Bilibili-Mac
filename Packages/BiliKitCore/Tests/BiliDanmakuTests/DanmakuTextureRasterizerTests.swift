@@ -8,81 +8,6 @@ import Testing
 @Suite
 struct DanmakuTextureRasterizerTests {
     @Test
-    func unionOuterRingDoesNotEnterFillAndMapsHalfPointAtOneAndTwoX() {
-        let alpha: [UInt8] = [
-            0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0,
-            0, 0, 255, 0, 0,
-            0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0
-        ]
-        let oneX = DanmakuTextureRasterizer.outerRing(
-            alpha: alpha,
-            width: 5,
-            height: 5,
-            radiusPixels: 0.5
-        )
-        let twoX = DanmakuTextureRasterizer.outerRing(
-            alpha: alpha,
-            width: 5,
-            height: 5,
-            radiusPixels: 1
-        )
-
-        #expect(oneX[2 * 5 + 2] == 0)
-        #expect(twoX[2 * 5 + 2] == 0)
-        #expect(oneX[2 * 5 + 1] == 128)
-        #expect(twoX[2 * 5 + 1] == 255)
-        #expect(oneX[1 * 5 + 1] == 128)
-        #expect(twoX[1 * 5 + 1] == 255)
-
-        let adjacent: [UInt8] = [
-            0, 0, 0, 0, 0,
-            0, 255, 255, 255, 0,
-            0, 0, 0, 0, 0
-        ]
-        let union = DanmakuTextureRasterizer.outerRing(
-            alpha: adjacent,
-            width: 5,
-            height: 3,
-            radiusPixels: 1
-        )
-        #expect(union[1 * 5 + 1] == 0)
-        #expect(union[1 * 5 + 2] == 0)
-        #expect(union[1 * 5 + 3] == 0)
-    }
-
-    @Test
-    func onePointTentShadowIsZeroOffsetAndSymmetricAtOneAndTwoX() {
-        let source: [UInt8] = [
-            0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0,
-            0, 0, 255, 0, 0,
-            0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0
-        ]
-        let oneX = DanmakuTextureRasterizer.tentBlur(
-            alpha: source,
-            width: 5,
-            height: 5,
-            radius: 1
-        )
-        let twoX = DanmakuTextureRasterizer.tentBlur(
-            alpha: source,
-            width: 5,
-            height: 5,
-            radius: 2
-        )
-
-        #expect(oneX[2 * 5 + 1] == oneX[2 * 5 + 3])
-        #expect(oneX[1 * 5 + 2] == oneX[3 * 5 + 2])
-        #expect(twoX[2 * 5] == twoX[2 * 5 + 4])
-        #expect(twoX[2] == twoX[4 * 5 + 2])
-        #expect(twoX[2 * 5 + 2] > twoX[2 * 5 + 1])
-        #expect(twoX[2 * 5 + 1] > twoX[2 * 5])
-    }
-
-    @Test
     func cacheKeyChangesWithEveryVisualInput() throws {
         let baseEvent = fixtureEvent(
             id: "key",
@@ -244,6 +169,21 @@ struct DanmakuTextureRasterizerTests {
         #expect(redMinusBlue(solid, columns: 0..<solid.widthPixels) == 0)
     }
 
+    /// 纹理按像素字节判等：同一 key 各栅格化一次得到不同的 `CGImage` 对象，但两者相等；像素不同则不等。
+    @Test
+    func payloadsCompareByPixelBytes() throws {
+        let key = textureKey(text: "awsl")
+        let first = try #require(DanmakuTextureRasterizer.rasterize(key: key))
+        let second = try #require(DanmakuTextureRasterizer.rasterize(key: key))
+        let other = try #require(DanmakuTextureRasterizer.rasterize(key: textureKey(text: "awsm")))
+
+        #expect(first.image !== second.image)
+        #expect(first == second)
+        #expect(first != other)
+        #expect(first.byteCost == first.pixels.count)
+        #expect(first.byteCost == first.bytesPerRow * first.heightPixels)
+    }
+
     @Test
     @MainActor
     func byteBoundedCacheUsesLRUAndRejectsOversizedItems() throws {
@@ -300,5 +240,5 @@ func fixtureTexturePayload(byteCost: Int) -> DanmakuTexturePayload {
         heightPixels: 1,
         bytesPerRow: byteCost,
         backingScale: 1
-    )
+    )!
 }

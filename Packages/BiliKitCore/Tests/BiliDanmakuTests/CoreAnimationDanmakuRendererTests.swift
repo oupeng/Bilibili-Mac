@@ -382,6 +382,34 @@ struct CoreAnimationDanmakuRendererTests {
         #expect(!renderer.update(absent))
     }
 
+    /// 文字、字号、颜色与 scale 相同的弹幕共用缓存里的同一个 `CGImage`，Core Animation 只拷一份像素；
+    /// 在屏字节仍按 layer 各计一次。
+    @Test
+    func sameTextureKeySharesOneImageAndCountsBytesPerLayer() async throws {
+        let renderer = makeRenderer()
+        _ = try await prepareAndInstall(
+            renderer: renderer,
+            event: fixtureEvent(id: "first", mode: .scrolling),
+            preparationID: 1,
+            lane: 0
+        )
+        let singleCost = renderer.activeTextureByteCost
+        _ = try await prepareAndInstall(
+            renderer: renderer,
+            event: fixtureEvent(id: "second", mode: .scrolling),
+            preparationID: 2,
+            lane: 1
+        )
+        let layers = danmakuLayers(renderer)
+        try #require(layers.count == 2)
+        let image = try #require(layers[0].contents as AnyObject?)
+
+        #expect(CFGetTypeID(image) == CGImage.typeID)
+        #expect(layers[1].contents as AnyObject? === image)
+        #expect(singleCost > 0)
+        #expect(renderer.activeTextureByteCost == singleCost * 2)
+    }
+
     /// 纹理字节超限时：前瞻弹幕不能再挂上，也不挤掉别人；已进场的弹幕挤掉进场最晚的前瞻弹幕后挂上。
     @Test
     func textureBudgetFavoursEnteredDanmakuOverLookahead() async throws {
