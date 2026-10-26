@@ -90,7 +90,7 @@ public final class VideoEngagementModel: AccountRevalidationParticipant {
     }
 
     /// 播放页出现、换视频、换分 P 或窗口账户变化时调用：视频或账户变了就丢弃旧状态并重读；同一视频拿到新详情时只换
-    /// 计数。
+    /// 计数（此前写入留下的快照随之作废：它记的增减是相对旧计数的）；同一视频上次读取失败时再读一次。
     public func present(_ detail: VideoDetail?) {
         let account = accountID()
         guard let detail else {
@@ -104,33 +104,42 @@ public final class VideoEngagementModel: AccountRevalidationParticipant {
             summary = detail.engagementSummary
             baseLikeCount = detail.statistics.likeCount
             adjustment = CountAdjustment()
+            generation &+= 1
         }
-        guard detail.bvid != bvid || account != loadedAccountID else { return }
+        guard detail.bvid != bvid || account != loadedAccountID else {
+            if case .failed = phase { reload() }
+            return
+        }
         bvid = detail.bvid
         isCoinPanelPresented = false
         revalidation = .none
         load(account: account, keepingState: false)
     }
 
-    /// 别处的写入改了这个视频的互动（另一窗口点赞、「收藏到…」改了收藏）：正在显示它就重读，状态保持显示到新结果到达。
+    /// 别处的写入改了这个视频的互动（另一窗口点赞、「收藏到…」改了收藏），或本窗口的写入失败、服务端可能已部分生效：
+    /// 正在显示它就重读，已有状态时保持显示到新结果到达。
     public func markNeedsReload(bvid: String) {
-        guard bvid == self.bvid, case .loaded = phase else { return }
-        reload()
+        guard bvid == self.bvid else { return }
+        switch phase {
+        case .loaded, .failed: reload()
+        case .unavailable, .loading: break
+        }
     }
 
-    /// 失败后的重试与外部变化后的重读；已有状态时保持显示，新状态到达时计数按状态的变化增减（别处点了赞、改了收藏）。
+    /// 失败后的重试（快捷键在状态未知时也经这里）与外部变化后的重读；已有状态时保持显示，新状态到达时计数按状态的
+    /// 变化增减（别处点了赞、改了收藏），重读失败（凭据失效除外）也保留原来的状态。
     public func reload() {
         load(account: accountID(), keepingState: true)
     }
 
     /// 乐观点赞或取消：改状态与计数，返回写入失败时用来放回的快照；状态未知或不是这个视频时为 nil。
     ///
-    /// 同时取消在途的读取：它是写入之前发出的，结果会把这次改动盖掉。
+    /// 不取消在途的读取（它可能是为别处的改动发出的）；它带回写入前的状态时，`stillShowsLike` 在写入成功时报告 false，
+    /// 由效果路由再读一次。
     public func applyLike(_ isLiked: Bool, bvid: String) -> Snapshot? {
         guard let snapshot = snapshot(for: bvid), snapshot.state.isLiked != isLiked else {
             return nil
         }
-        loadTask.cancel()
         var state = snapshot.state
         state.isLiked = isLiked
         adjustment.likes += isLiked ? 1 : -1
@@ -138,26 +147,33 @@ public final class VideoEngagementModel: AccountRevalidationParticipant {
         return snapshot
     }
 
-    /// 写入失败的回滚；此间换了视频、换了账户或重读成功过时不放回，新状态已是服务端此刻的状态。
+    /// 写入失败的回滚；此间换了视频、换了账户、拿到新详情、开始或完成过重读，或者有投币、三连写回过时不放回：那之后的
+    /// 状态不是这次乐观改动之上的状态，整份放回会抹掉它们。
     public func restore(_ snapshot: Snapshot) {
         guard snapshot.bvid == bvid, snapshot.generation == generation else { return }
         adjustment = snapshot.adjustment
         phase = .loaded(snapshot.state)
     }
 
-    /// 投币成功：已投数与计数加上这次的枚数，附带点赞成立时一并点赞。
+    /// 写入成功时，显示的仍是这次乐观点赞之后的状态：此间没有作废快照的变化，也没有在途的读取（它会带回写入前的状态）。
+    public func stillShowsLike(_ snapshot: Snapshot) -> Bool {
+        snapshot.bvid == bvid && snapshot.generation == generation && !loadTask.isRunning
+    }
+
+    /// 投币成功：已投数（不超过单个稿件的上限）与计数加上这次的枚数，附带点赞成立时一并点赞。
     public func applyCoins(_ count: Int, alsoLiked: Bool, bvid: String) {
         guard var state = snapshot(for: bvid)?.state else { return }
-        state.coinCount += count
-        adjustment.coins += Int64(count)
+        let added = addedCoins(count, to: state)
+        state.coinCount += added
+        adjustment.coins += Int64(added)
         if alsoLiked, !state.isLiked {
             state.isLiked = true
             adjustment.likes += 1
         }
-        phase = .loaded(state)
+        applyWrite(state)
     }
 
-    /// 三连成功：按服务端逐项结果补上此前没做的点赞与收藏，投币加上实际投出的枚数。
+    /// 三连成功：按服务端逐项结果补上此前没做的点赞与收藏，投币加上实际投出的枚数（不超过上限）。
     public func applyTriple(_ outcome: VideoTripleOutcome, bvid: String) {
         guard var state = snapshot(for: bvid)?.state else { return }
         if outcome.isLiked, !state.isLiked {
@@ -168,9 +184,10 @@ public final class VideoEngagementModel: AccountRevalidationParticipant {
             state.isFavorited = true
             adjustment.favorites += 1
         }
-        state.coinCount += outcome.addedCoinCount
-        adjustment.coins += Int64(outcome.addedCoinCount)
-        phase = .loaded(state)
+        let added = addedCoins(outcome.addedCoinCount, to: state)
+        state.coinCount += added
+        adjustment.coins += Int64(added)
+        applyWrite(state)
     }
 
     /// 离开播放页、登出与关窗：取消读取并丢弃状态。
@@ -187,15 +204,30 @@ public final class VideoEngagementModel: AccountRevalidationParticipant {
         phase = .unavailable
     }
 
-    public func waitForCurrentTask() async {
-        await loadTask.wait()
-    }
-
     /// 窗口复核确认仍已登录：本模型请求的复核在下一次成功读取前只自动重读一次。
     public func authenticationRevalidationSucceeded() {
         guard revalidation == .awaiting else { return }
         revalidation = .reloaded
         reload()
+    }
+
+    /// 不可撤回的写入（投币、三连）成功后的状态：此前的快照作废，挡住更早的点赞失败把它放回；在途的读取是写入之前
+    /// 发出的，会带回写入前的状态，换成写入之后的一次重读。
+    private func applyWrite(_ state: VideoEngagementState) {
+        phase = .loaded(state)
+        if loadTask.isRunning {
+            reload()
+        } else {
+            generation &+= 1
+        }
+    }
+
+    /// 这次实际能加上的币数：已投数不超过单个稿件的上限。
+    private func addedCoins(_ count: Int, to state: VideoEngagementState) -> Int {
+        max(
+            0,
+            min(count, VideoCoinRule.remainingCoins(isReposted: false, coinCount: state.coinCount))
+        )
     }
 
     /// 同一视频的状态变了（别处的写入）：计数随之增减，接口计数要到下次拿到详情才更新。
@@ -243,10 +275,12 @@ public final class VideoEngagementModel: AccountRevalidationParticipant {
             } catch {
                 guard let self, isCurrent() else { return }
                 let failure = error as? ContentApplicationError ?? .unavailable
+                let isCredentialFailure =
+                    failure == .authenticationRequired || failure.requiresAccountRevalidation
+                // 已有状态时的重读失败保留原来的状态；凭据失效时不再显示这个账户的状态。
+                if keepingState, engagement != nil, !isCredentialFailure { return }
                 phase = .failed(failure)
-                if failure == .authenticationRequired || failure.requiresAccountRevalidation,
-                    revalidation == .none
-                {
+                if isCredentialFailure, revalidation == .none {
                     revalidation = .awaiting
                     authenticationRevalidationGeneration &+= 1
                 }

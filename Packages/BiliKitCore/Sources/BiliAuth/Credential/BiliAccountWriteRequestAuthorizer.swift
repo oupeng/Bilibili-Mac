@@ -21,7 +21,7 @@ public struct BiliAccountWriteRequestAuthorizer: HTTPSubjectBoundRequestAuthoriz
         let optionalFields: [String: FieldShape]
         var crossFieldRules: [CrossFieldRule] = []
         let referer: String
-        /// 按 path 列出的 Cookie 白名单；需要更多 Cookie 的写操作（例如点赞要求的 `buvid3`）在自己的 schema 里扩展。
+        /// 按 path 列出的凭据 Cookie 白名单；点赞、投币与三连要求的 `buvid3` 不是凭据，不在这里，由 BiliAPI 在授权之后附加。
         let cookieNames: [WebCredentialCookieName]
     }
 

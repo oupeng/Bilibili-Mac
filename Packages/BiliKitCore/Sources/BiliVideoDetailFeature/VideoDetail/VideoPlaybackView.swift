@@ -117,12 +117,7 @@ public struct VideoPlaybackView<PlayerContent: View>: View {
     }
 
     private var blocksRetainedContext: Bool {
-        switch model.state {
-        case .loading, .failed, .failedPage:
-            true
-        case .idle, .loadingPage, .preparingPlayback, .ready:
-            false
-        }
+        model.blocksPresentedContext
     }
 
     private var visualPhase: LoadingVisualPhase {

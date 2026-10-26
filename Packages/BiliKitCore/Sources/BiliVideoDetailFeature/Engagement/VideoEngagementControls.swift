@@ -132,7 +132,8 @@ struct VideoEngagementControls: View {
     }
 }
 
-/// 投币面板：选 1 或 2 枚（转载视频与只剩 1 枚可投时只有 1 枚），可同时点赞（已点赞时不出现）；已投满时只给说明。
+/// 投币面板：选 1 或 2 枚（转载视频与只剩 1 枚可投时只有 1 枚），默认 1 枚（投币不可撤回，按 W 再按回车不该一次投出
+/// 2 枚）；可同时点赞（已点赞时不出现）；已投满时只给说明。
 private struct VideoCoinPanel: View {
     let model: VideoEngagementModel
     let onSubmit: (_ count: Int, _ alsoLike: Bool) -> Void
@@ -174,9 +175,6 @@ private struct VideoCoinPanel: View {
         }
         .padding(VideoCoinPanelGeometry.padding)
         .frame(width: VideoCoinPanelGeometry.width)
-        .onAppear {
-            count = model.remainingCoins
-        }
     }
 }
 

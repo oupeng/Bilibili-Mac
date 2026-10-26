@@ -512,19 +512,31 @@ struct AccountWriteCoordinatorTests {
         defer { signedOut.close() }
         let signedOutShortcuts = PlayerEngagementShortcuts.make(
             accountWrites: signedOut.accountWrites,
-            engagementModel: signedOut.engagementModel
+            engagementModel: signedOut.engagementModel,
+            videoModel: signedOut.videoModel
         )
         #expect(signedOutShortcuts.toggleLike() == .signInRequired)
 
-        let window = try await signedInWindow(process: makeTestProcess())
+        let fixture = VideoFixture(bvid: "BV17x411w7KC")
+        let window = try await signedInWindow(
+            process: makeTestProcess(),
+            video: FixtureVideoRepository(fixtures: [fixture])
+        )
         defer { window.close() }
         let shortcuts = PlayerEngagementShortcuts.make(
             accountWrites: window.accountWrites,
-            engagementModel: window.engagementModel
+            engagementModel: window.engagementModel,
+            videoModel: window.videoModel
         )
+        // 播放页还没有展示这个视频：不响应。
+        await presentEngagement(in: window)
         #expect(shortcuts.triple() == .unavailable)
 
-        await presentEngagement(in: window)
+        window.videoModel.loadVideo(fixture.bvid)
+        await waitForObservedState {
+            window.videoModel.presentedBVID == fixture.bvid
+                && !window.videoModel.blocksPresentedContext
+        }
         #expect(shortcuts.openCoinPanel(true) == .exitFullScreenToCoin)
         #expect(!window.engagementModel.isCoinPanelPresented)
         #expect(shortcuts.openCoinPanel(false) == nil)
@@ -550,11 +562,32 @@ struct AccountWriteCoordinatorTests {
                 publishedAt: Date(timeIntervalSince1970: 1_700_000_000)
             )
         )
-        await window.engagementModel.waitForCurrentTask()
+        await waitForObservedState { window.engagementModel.engagement != nil }
+    }
+
+    /// 同一视频的点赞、投币、三连同时只发一个；投币不超过此刻的可投数。
+    @Test
+    func oneEngagementWritePerVideoAndCoinsWithinTheRemainder() async throws {
+        let writes = AccountWriteRepositoryStub(holdsWrites: true)
+        let window = try await signedInWindow(process: makeTestProcess(), writes: writes)
+        defer { window.close() }
+        await presentEngagement(in: window)
+
+        #expect(window.accountWrites.triple(bvid: "BV17x411w7KC"))
+        await writes.waitForCallCount(1)
+        #expect(!window.accountWrites.setLiked(true, bvid: "BV17x411w7KC"))
+        #expect(!window.accountWrites.addCoins(1, alsoLike: false, bvid: "BV17x411w7KC"))
+        await writes.releaseWrites()
+        await waitForObservedState { window.accountWrites.report != nil }
+
+        #expect(window.engagementModel.remainingCoins == 0)
+        #expect(!window.accountWrites.addCoins(1, alsoLike: false, bvid: "BV17x411w7KC"))
+        #expect(await writes.calls == ["triple BV17x411w7KC 7"])
     }
 
     private func signedInWindow(
         process: ProcessComposition,
+        video: any VideoRepository = FixtureVideoRepository(fixtures: []),
         writes: AccountWriteRepositoryStub = AccountWriteRepositoryStub(),
         watchLater bvids: [String] = [],
         favorites: FavoritesRepositoryStub = FavoritesRepositoryStub()
@@ -562,6 +595,7 @@ struct AccountWriteCoordinatorTests {
         let window = WindowComposition(
             process: process,
             adapters: makeTestAdapters(
+                video: video,
                 favorites: favorites,
                 watchLater: WatchLaterRepositoryStub(bvids: bvids),
                 watchLaterWrite: writes,

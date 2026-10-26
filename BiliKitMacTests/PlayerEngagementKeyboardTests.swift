@@ -50,7 +50,6 @@ struct PlayerEngagementKeyboardTests {
         #expect(state.likeTripleDeadlineReached(pressID: pressID).isEmpty)
     }
 
-    /// 取消（失焦、禁用、输入框取得焦点）时不点赞也不三连；仍按住的 Q 的系统重复不再开始新的按压。
     @Test
     func cancellationDropsTheHoldAndSuppressesRepeats() throws {
         var state = PlayerKeyboardInputState()

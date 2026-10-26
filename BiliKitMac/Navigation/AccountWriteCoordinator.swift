@@ -128,21 +128,22 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
         )
     }
 
-    /// 点赞或取消：先在播放页的互动状态里乐观改动，失败或被取消时放回（此间换了视频或重读过时由模型丢弃这次回滚）。
+    /// 点赞或取消：先在播放页的互动状态里乐观改动，失败或被取消时放回（此间状态被重读、换掉或有投币三连写回时由模型
+    /// 丢弃这次回滚）；返回是否发出。
     ///
-    /// 同一视频反方向的改动还在途时不发：两个请求到达服务端的顺序不可知，最终状态可能与按钮相反。
-    func setLiked(_ isLiked: Bool, bvid: String) {
-        guard let target = VideoWriteTarget(bvid: bvid), let account = currentAccount() else {
-            return
-        }
-        let change = AccountWriteChange.likeChanged(target, isLiked: isLiked)
-        let opposite = AccountWriteChange.likeChanged(target, isLiked: !isLiked)
-        guard inFlight[change] == nil, inFlight[opposite] == nil else { return }
+    /// 写入成功时页面是否仍是乐观改动后的样子在那一刻判断（`stillShowsLike`）：期间有读取落地或在途，就让效果路由重读。
+    @discardableResult
+    func setLiked(_ isLiked: Bool, bvid: String) -> Bool {
+        guard let target = VideoWriteTarget(bvid: bvid), let account = currentAccount(),
+            !hasEngagementWriteInFlight(for: target)
+        else { return false }
         let snapshot = engagementModel.applyLike(isLiked, bvid: bvid)
         start(
-            change,
+            .likeChanged(target, isLiked: isLiked),
             account: account,
-            appliedLocally: { snapshot != nil },
+            appliedLocally: { [engagementModel] in
+                snapshot.map(engagementModel.stillShowsLike) ?? false
+            },
             rollback: { [engagementModel] in
                 if let snapshot { engagementModel.restore(snapshot) }
             },
@@ -150,17 +151,24 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
                 try await engagement.setLiked(isLiked, target: target, accountID: account.accountID)
             }
         )
+        return true
     }
 
-    /// 投币：成功后才改播放页的已投数与计数（不可撤回，不做乐观改动）。
-    func addCoins(_ count: Int, alsoLike: Bool, bvid: String) {
-        guard let target = VideoWriteTarget(bvid: bvid), let account = currentAccount() else {
-            return
-        }
+    /// 投币：成功后才改播放页的已投数与计数（不可撤回，不做乐观改动）；返回是否发出。
+    ///
+    /// 枚数超过播放页此刻算出的可投数（含转载只能投 1 枚）时不发；失败或被取消时重读互动状态：服务端可能已经扣了币，
+    /// 只是没拿到可判定的结果。
+    @discardableResult
+    func addCoins(_ count: Int, alsoLike: Bool, bvid: String) -> Bool {
+        guard let target = VideoWriteTarget(bvid: bvid), let account = currentAccount(),
+            !hasEngagementWriteInFlight(for: target),
+            engagementModel.bvid == bvid, count >= 1, count <= engagementModel.remainingCoins
+        else { return false }
         start(
             .coinsAdded(target, count: count, alsoLiked: alsoLike),
             account: account,
             appliedLocally: { true },
+            rollback: { [engagementModel] in engagementModel.markNeedsReload(bvid: bvid) },
             write: { [engagement, engagementModel] in
                 let effect = try await engagement.addCoins(
                     count,
@@ -174,17 +182,22 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
                 return effect
             }
         )
+        return true
     }
 
-    /// 三连：成功后按服务端逐项结果改播放页的状态；收藏进默认收藏夹，由效果路由刷新收藏夹。
-    func triple(bvid: String) {
-        guard let target = VideoWriteTarget(bvid: bvid), let account = currentAccount() else {
-            return
-        }
+    /// 三连：成功后按服务端逐项结果改播放页的状态，收藏进默认收藏夹，由效果路由刷新收藏夹；返回是否发出。
+    ///
+    /// 失败或被取消时重读互动状态，理由同投币。
+    @discardableResult
+    func triple(bvid: String) -> Bool {
+        guard let target = VideoWriteTarget(bvid: bvid), let account = currentAccount(),
+            !hasEngagementWriteInFlight(for: target)
+        else { return false }
         start(
             .tripled(target, nil),
             account: account,
             appliedLocally: { true },
+            rollback: { [engagementModel] in engagementModel.markNeedsReload(bvid: bvid) },
             write: { [engagement, engagementModel] in
                 let effect = try await engagement.triple(
                     target: target,
@@ -196,6 +209,21 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
                 return effect
             }
         )
+        return true
+    }
+
+    /// 同一视频的点赞、投币、三连同时只发一个：它们都可能改点赞，两个请求到达服务端的先后不可知，最终状态可能与界面
+    /// 相反；两次投币同时在途也可能超过可投数。
+    private func hasEngagementWriteInFlight(for target: VideoWriteTarget) -> Bool {
+        inFlight.keys.contains { change in
+            switch change {
+            case .likeChanged(let other, _), .coinsAdded(let other, _, _), .tripled(let other, _):
+                other == target
+            case .watchLaterAdded, .watchLaterRemoved, .favoriteMembershipChanged,
+                .removedFromFavoriteFolder:
+                false
+            }
+        }
     }
 
     /// 打开这个视频的「收藏到…」面板并读取归属。
@@ -342,7 +370,8 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
         inFlight[change] = nil
         guard !isClosed else { return }
         revalidationRequestedFor = nil
-        show(AccountWriteReport(change: change, failure: nil))
+        // 按服务端确认的改动说明结果：投币附带的点赞没有成立时不说“并点赞”。
+        show(AccountWriteReport(change: effect.change, failure: nil))
         publish(
             AccountWriteEffectDelivery(
                 effect: effect,

@@ -1994,7 +1994,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Gave %lld coins and liked"
+            "value" : "Coins given: %lld, and liked"
           }
         },
         "ja" : {
@@ -2022,7 +2022,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Gave %lld coins"
+            "value" : "Coins given: %lld"
           }
         },
         "ja" : {

@@ -219,7 +219,8 @@ final class WindowComposition {
             danmakuModel,
             PlayerEngagementShortcuts.make(
                 accountWrites: accountWrites,
-                engagementModel: engagementModel
+                engagementModel: engagementModel,
+                videoModel: videoModel
             )
         )
         commentAssetURLResolver = adapters.commentAssetURLResolver

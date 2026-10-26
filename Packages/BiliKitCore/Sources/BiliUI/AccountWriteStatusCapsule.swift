@@ -6,7 +6,8 @@ import SwiftUI
 /// 外形与刷新、分页胶囊同源（`StatusCapsuleGeometry`），出现与消失按 `LoadingStateTransition` 淡入淡出。只负责排版、
 /// 措辞与通告；显示哪一条、显示多久由 App 的写入协调者决定（`sequence` 每条新结果递增，相同结果连续出现也会再通告）。
 /// 被 B 站拒绝、但网页上可以完成的点赞、投币与三连另带「在浏览器中打开」（`AccountWriteReport.webFallbackURL`），
-/// 只经系统 `OpenURLAction` 打开视频网页，不附加凭据（见 SECURITY-MODEL §4）；只有这个按钮接收点按与读屏焦点。
+/// 只经系统 `OpenURLAction` 打开视频网页，不附加凭据（见 SECURITY-MODEL §4）；带按钮时整颗胶囊接收点按，按钮是唯一的
+/// 读屏焦点，提示里带着这句说明，错过通告的读屏用户聚焦到按钮时仍知道它是做什么的。
 public struct AccountWriteStatusCapsule: View {
     private typealias Geometry = StatusCapsuleGeometry
 
@@ -41,6 +42,7 @@ public struct AccountWriteStatusCapsule: View {
                         Button(VideoCardMenuText.openInBrowser) {
                             openURL(url)
                         }
+                        .accessibilityHint(AccountWriteStatusText.message(for: report))
                     }
                 }
                 .font(.callout)
