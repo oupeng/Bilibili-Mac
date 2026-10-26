@@ -31,8 +31,7 @@ struct VideoCardPresentationTests {
         for value in visibleValues(
             title: presentation.title,
             viewCountText: presentation.viewCountText,
-            danmakuCountText: presentation.danmakuCountText,
-            durationText: presentation.durationText
+            danmakuCountText: presentation.danmakuCountText
         ) {
             #expect(presentation.accessibilityLabel.contains(value))
         }
@@ -52,8 +51,7 @@ struct VideoCardPresentationTests {
         for value in visibleValues(
             title: withReason.title,
             viewCountText: withReason.viewCountText,
-            danmakuCountText: withReason.danmakuCountText,
-            durationText: withReason.durationText
+            danmakuCountText: withReason.danmakuCountText
         ) {
             #expect(withReason.accessibilityLabel.contains(value))
             #expect(withoutReason.accessibilityLabel.contains(value))
@@ -75,19 +73,18 @@ struct VideoCardPresentationTests {
         )
     }
 
-    /// 卡片上可见的全部文字：标题、UP 主、播放、弹幕、时长与发布日期。
+    /// 卡片上可见的全部信息：标题、UP 主、播放、弹幕、时长（读带单位的写法）与发布日期。
     private func visibleValues(
         title: String,
         viewCountText: String,
-        danmakuCountText: String,
-        durationText: String
+        danmakuCountText: String
     ) -> [String] {
         [
             title,
             owner.name,
             viewCountText,
             danmakuCountText,
-            durationText,
+            VideoCardAccessibilityText.duration(seconds: 754, locale: locale),
             VideoMetadataFormatting.publishedDate(publishedAt, locale: locale)
         ]
     }

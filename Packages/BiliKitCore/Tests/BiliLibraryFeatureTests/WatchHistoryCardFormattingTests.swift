@@ -155,80 +155,81 @@ struct WatchHistoryCardFormattingTests {
         )
     }
 
-    /// 东京时间 2026-07-24 13:00 为 now；日界按日历时区而不是 UTC 判定。
+    /// 今天、昨天的写法来自 `DateFormatter` 的相对日期，它只认设备当前的日期，所以这里以真实的今天为基准、时刻固定；
+    /// 时区固定为东京，东京 8:00 在 UTC 仍是前一天，必须按日历时区归入今天。
     @Test(arguments: [
-        (day: 24, hour: 9, minute: 5, expected: localized("今天 \("9:05")")),
-        // 东京 7/24 08:00 在 UTC 仍是 7/23，必须按日历时区归入今天。
-        (day: 24, hour: 8, minute: 0, expected: localized("今天 \("8:00")")),
-        (day: 23, hour: 23, minute: 59, expected: localized("昨天 \("23:59")")),
-        (day: 23, hour: 22, minute: 7, expected: localized("昨天 \("22:07")")),
-        (day: 20, hour: 8, minute: 3, expected: localized("\(monthDay(7, 20)) \("8:03")"))
+        (dayOffset: 0, hour: 9, minute: 5, expected: "今天 09:05"),
+        (dayOffset: 0, hour: 8, minute: 0, expected: "今天 08:00"),
+        (dayOffset: -1, hour: 23, minute: 59, expected: "昨天 23:59"),
+        (dayOffset: -1, hour: 22, minute: 7, expected: "昨天 22:07")
     ])
-    func viewedAtUsesCalendarDayBoundaries(
-        day: Int,
+    func todayAndYesterdayUseSystemRelativeDays(
+        dayOffset: Int,
         hour: Int,
         minute: Int,
         expected: String
     ) throws {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = try #require(TimeZone(identifier: "Asia/Tokyo"))
-        let now = try #require(
-            calendar.date(from: DateComponents(year: 2026, month: 7, day: 24, hour: 13))
-        )
+        let today = tokyoCalendar.startOfDay(for: .now)
+        let now = try #require(tokyoCalendar.date(byAdding: .hour, value: 23, to: today))
         let viewedAt = try #require(
-            calendar.date(
-                from: DateComponents(year: 2026, month: 7, day: day, hour: hour, minute: minute)
+            tokyoCalendar.date(
+                byAdding: DateComponents(day: dayOffset, hour: hour, minute: minute),
+                to: today
             )
         )
 
-        #expect(
-            LibraryCardFormatting.timestamp(
-                viewedAt,
-                now: now,
-                calendar: calendar,
-                locale: Locale(identifier: "zh-Hans")
-            ) == expected
+        #expect(timestamp(viewedAt, now: now) == expected)
+    }
+
+    /// 更早的日期带时刻：同年只有月日，跨年带年份；年界按日历时区判定。
+    @Test(arguments: [
+        (date: (2026, 7, 20, 8, 3), now: (2026, 7, 24, 13), expected: "7月20日 08:03"),
+        (date: (2025, 12, 30, 8, 0), now: (2026, 1, 1, 10), expected: "2025年12月30日 08:00"),
+        (date: (2026, 1, 1, 9, 0), now: (2026, 12, 31, 20), expected: "1月1日 09:00")
+    ])
+    func earlierDatesShowMonthDayAndYearAcrossYears(
+        date: (Int, Int, Int, Int, Int),
+        now: (Int, Int, Int, Int),
+        expected: String
+    ) throws {
+        let viewedAt = try #require(
+            tokyoCalendar.date(
+                from: DateComponents(
+                    year: date.0,
+                    month: date.1,
+                    day: date.2,
+                    hour: date.3,
+                    minute: date.4
+                )
+            )
+        )
+        let now = try #require(
+            tokyoCalendar.date(
+                from: DateComponents(year: now.0, month: now.1, day: now.2, hour: now.3)
+            )
+        )
+
+        #expect(timestamp(viewedAt, now: now) == expected)
+    }
+
+    private func timestamp(_ date: Date, now: Date) -> String {
+        LibraryCardFormatting.timestamp(
+            date,
+            now: now,
+            calendar: tokyoCalendar,
+            locale: Locale(identifier: "zh-Hans")
         )
     }
 }
 
-/// 资料库卡片的时间跨年时显示年份：12 月 31 日之后的 1 月 1 日，前一年的日期带年份，同年的只有月日；时区固定为
-/// 东京，年界与日界都按日历时区判定。
-struct LibraryTimestampYearTests {
-    @Test
-    func earlierDatesFromAnotherYearShowTheYear() throws {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = try #require(TimeZone(identifier: "Asia/Tokyo"))
-        let locale = Locale(identifier: "zh-Hans")
-        func date(_ year: Int, _ month: Int, _ day: Int, _ hour: Int) throws -> Date {
-            try #require(
-                calendar.date(from: DateComponents(year: year, month: month, day: day, hour: hour))
-            )
-        }
-        func timestamp(_ value: Date, now: Date) -> String {
-            LibraryCardFormatting.timestamp(value, now: now, calendar: calendar, locale: locale)
-        }
-        let newYear = try date(2026, 1, 1, 10)
-
-        // 12 月 31 日是昨天，不带年份；12 月 30 日已是上一年的更早日期，带年份。
-        #expect(timestamp(try date(2025, 12, 31, 23), now: newYear) == localized("昨天 \("23:00")"))
-        let lastYear = timestamp(try date(2025, 12, 30, 8), now: newYear)
-        #expect(lastYear.contains("2025"))
-        #expect(lastYear == localized("\("2025年12月30日") \("8:00")"))
-        // 同一年里的更早日期只有月日。
-        let sameYear = timestamp(try date(2026, 1, 1, 9), now: try date(2026, 12, 31, 20))
-        #expect(sameYear == localized("\(monthDay(1, 1)) \("9:00")"))
-        #expect(!sameYear.contains("2026"))
-    }
-}
+private let tokyoCalendar: Calendar = {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(identifier: "Asia/Tokyo") ?? .gmt
+    return calendar
+}()
 
 private let completedText = localized("已看完")
 
 private func localized(_ key: String.LocalizationValue) -> String {
     String(localized: key, bundle: LibraryFeatureStrings.bundle)
-}
-
-/// 同年的「M月D日」只在 BiliUI 的字符串目录里（`DateDisplayFormatting.calendarDate`）。
-private func monthDay(_ month: Int, _ day: Int) -> String {
-    String(localized: "\(month)月\(day)日", bundle: BiliUIStrings.bundle)
 }

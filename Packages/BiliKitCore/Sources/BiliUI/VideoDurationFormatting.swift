@@ -6,7 +6,7 @@ import Foundation
 public enum VideoDurationFormatting {
     public static func string(
         seconds: Int,
-        locale: Locale = .autoupdatingCurrent
+        locale: Locale = InterfaceLocale.current
     ) -> String {
         precondition(seconds >= 0, "Video duration must be nonnegative")
 

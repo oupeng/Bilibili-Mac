@@ -1,6 +1,7 @@
 import AppKit
 import BiliApplication
 import BiliModels
+import BiliUI
 
 /// 一条评论（根评论或回复）：头像、作者与标记、正文、图片、时间与属地、点赞与来源标记；评论不可见时只显示说明。
 ///
@@ -221,13 +222,13 @@ final class NativePlaybackCommentRowView: NSView {
     }
 
     private static func metadataLeading(_ details: CommentDetails) -> String {
-        let time = CommentTimeFormatter.string(for: details.createdAt)
+        let time = VideoMetadataFormatting.commentDate(details.createdAt)
         let location = details.location.flatMap { $0.isEmpty ? nil : $0 }
         return [time, location].compactMap { $0 }.joined(separator: "  ·  ")
     }
 
     private static func metadataAccessibility(_ details: CommentDetails) -> String {
-        let time = CommentTimeFormatter.string(for: details.createdAt)
+        let time = VideoMetadataFormatting.commentDate(details.createdAt)
         let likes = CommentPresentationFormatting.compactCount(details.likeCount)
         let location = details.location.flatMap { $0.isEmpty ? nil : $0 }
             .map { VideoDetailFeatureStrings.localized("IP属地：\($0)") }

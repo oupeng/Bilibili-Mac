@@ -2409,30 +2409,30 @@
         }
       }
     },
-    "播放器音量 %lld%%" : {
+    "播放器音量 %@" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Player volume %lld%%"
+            "value" : "Player volume %@"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "プレーヤー音量 %lld%%"
+            "value" : "プレーヤー音量 %@"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "播放器音量 %lld%%"
+            "value" : "播放器音量 %@"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "播放器音量 %lld%%"
+            "value" : "播放器音量 %@"
           }
         }
       }

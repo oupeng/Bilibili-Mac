@@ -40,7 +40,7 @@ public struct WatchLaterView: View {
         LibraryVideoListView(
             model: model,
             text: text,
-            card: { WatchLaterCardPresentation(item: $0, locale: $1).nativeCard },
+            card: { WatchLaterCardPresentation(item: $0).nativeCard },
             watchLaterAction: .remove,
             accountState: accountState,
             gridHost: gridHost,

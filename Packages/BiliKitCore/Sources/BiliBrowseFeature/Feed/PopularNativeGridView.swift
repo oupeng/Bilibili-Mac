@@ -18,7 +18,7 @@ struct PopularNativeGridView: View {
 
     var body: some View {
         NativeVideoGridView(
-            items: Self.makePresentations(content.items, locale: locale),
+            items: Self.makePresentations(content.items),
             accessibilityLabel: BrowseFeatureStrings.localized("热门视频", locale: locale),
             tailState: content.tailState,
             host: host,
@@ -32,7 +32,7 @@ struct PopularNativeGridView: View {
 
     static func makePresentations(
         _ videos: [PopularVideo],
-        locale: Locale = .current
+        locale: Locale = InterfaceLocale.current
     ) -> [NativeVideoCardPresentation] {
         // 条目已由 `PagedVideoList` 按 BVID 去重，卡片 ID 因此唯一。
         videos.map { video in

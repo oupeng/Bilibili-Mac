@@ -332,6 +332,12 @@ unity，播放不得失败。不自行测量响度。实时回调只读固定内
 - 字符串目录按位置发现：App 用 `BiliKitMac/Localizable.xcstrings`，Package target 用本 target 的
   `Resources/Localizable.xcstrings` 与 `XxxFeatureStrings`。Package 里未指定 bundle 的 SwiftUI 字面量会查 App 的
   `Bundle.main`，非 ASCII 文案必须走本 target 的 helper；key 的完整性由 `Scripts/check-localization.py` 检查。
+- 计数、日期、相对时间、时长与百分比的格式化 locale 只取 BiliUI 的 `InterfaceLocale.current`：语言是字符串目录实际
+  选中的语言，地区与格式偏好沿用系统。系统语言都不受支持时目录回退到 zh-Hans，`Locale.current` 却是 en，直接用它会
+  中英混排。格式化函数的默认参数取它；SwiftUI 环境 `locale` 仍是系统 locale（工程不在根上强制界面 locale，它同时
+  决定排版语言与字形，见 `check-project-contract.sh`），视图不把环境 `locale` 传给格式化。
+  单位与词序（万／K、分钟前、昨天、月日）交给系统格式，字符串目录只存没有系统对应的「刚刚」；发布时间与评论时间
+  的相对时间规则只在 BiliUI 的 `DateDisplayFormatting`。
 
 ## 不采用
 
