@@ -59,21 +59,17 @@ struct WBISigner: Sendable {
         )
         var signedParameters = parameters
         signedParameters["wts"] = String(timestamp)
-        let query = try signedParameters.keys.sorted().map { key in
+        let filteredPairs = signedParameters.keys.sorted().map { key in
             let filteredValue = signedParameters[key, default: ""]
                 .components(separatedBy: Self.filteredCharacters)
                 .joined()
-            return "\(try Self.percentEncode(key))=\(try Self.percentEncode(filteredValue))"
-        }.joined(separator: "&")
+            return (key, filteredValue)
+        }
+        guard let query = URLQueryUnreservedEncoding.query(filteredPairs) else {
+            throw BiliAPIError.signingFailed
+        }
         let digest = Insecure.MD5.hash(data: Data((query + mixinKey).utf8))
         let signature = digest.map { String(format: "%02x", $0) }.joined()
         return "\(query)&w_rid=\(signature)"
-    }
-
-    private static func percentEncode(_ value: String) throws -> String {
-        guard let encoded = URLQueryUnreservedEncoding.encode(value) else {
-            throw BiliAPIError.signingFailed
-        }
-        return encoded
     }
 }

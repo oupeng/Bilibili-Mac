@@ -56,24 +56,6 @@ struct NativeVideoImagePipelineTests {
         #expect(NativeVideoImagePipeline.accountAvatarRequestURL(for: url) == nil)
     }
 
-    @Test
-    func waiterDeliversTheFirstResultWhetherItFinishesBeforeOrAfterSuspension() async throws {
-        let image = try #require(Self.makeImage())
-        let result = NativeVideoImageLoadResult(image: image, origin: .network, animation: nil)
-
-        let finishedFirst = NativeVideoImageWaiter()
-        finishedFirst.finish(with: result)
-        finishedFirst.finish(with: nil)
-        #expect(await finishedFirst.value()?.image === image)
-
-        let suspendedFirst = NativeVideoImageWaiter()
-        async let value = suspendedFirst.value()
-        // 两次 finish 都可能先于挂起到达；无论哪种顺序都只 resume 一次且保留第一个结果。
-        suspendedFirst.finish(with: nil)
-        suspendedFirst.finish(with: result)
-        #expect(await value == nil)
-    }
-
     /// 只有评论图片的列表格子与预览保留动图数据；帧数与第一帧尺寸都要在播放门槛内。
     @Test
     func animationIsRetainedOnlyForCommentPicturesWithinThePolicy() throws {

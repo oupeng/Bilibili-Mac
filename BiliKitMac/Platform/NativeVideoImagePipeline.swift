@@ -115,51 +115,6 @@ struct NativeVideoImageKey: Hashable, Sendable {
     let variant: NativeVideoImageVariant
 }
 
-/// 一个等待者只 resume 一次：先完成则缓存结果，先挂起则由 `finish` 恢复；两边都在锁外 resume。
-final class NativeVideoImageWaiter: Sendable {
-    private enum State {
-        case waiting
-        case suspended(CheckedContinuation<NativeVideoImageLoadResult?, Never>)
-        case completed(NativeVideoImageLoadResult?)
-    }
-
-    private let state = Mutex(State.waiting)
-
-    func value() async -> NativeVideoImageLoadResult? {
-        await withCheckedContinuation { continuation in
-            let completed: NativeVideoImageLoadResult?? = state.withLock { state in
-                switch state {
-                case .waiting:
-                    state = .suspended(continuation)
-                    return nil
-                case .suspended:
-                    preconditionFailure("image waiter may only be awaited once")
-                case .completed(let result):
-                    return .some(result)
-                }
-            }
-            if let completed { continuation.resume(returning: completed) }
-        }
-    }
-
-    func finish(with result: NativeVideoImageLoadResult?) {
-        let continuation: CheckedContinuation<NativeVideoImageLoadResult?, Never>? =
-            state.withLock { state in
-                switch state {
-                case .waiting:
-                    state = .completed(result)
-                    return nil
-                case .suspended(let continuation):
-                    state = .completed(result)
-                    return continuation
-                case .completed:
-                    return nil
-                }
-            }
-        continuation?.resume(returning: result)
-    }
-}
-
 /// 原生界面远端图片的加载与解码缓存：同一 URL 与 variant 的并发请求合并为一次下载。
 ///
 /// 拥有无 Cookie 的 ephemeral session、做响应校验与大小上限的 session delegate、内存缓存与在途下载
@@ -172,11 +127,14 @@ final class NativeVideoImagePipeline: Sendable {
     /// 同一个键的一次在途下载：请求序号 `id`、网络 Task 与等待者表。
     ///
     /// Task 在锁外创建后才挂上，因此可能暂时为 nil；最后一个等待者取消时移除本项并取消 Task。
+    /// 每个等待者各持一个 `OneShotResult`（它只允许一个等待方），完成、取消或关闭时逐个交付。
     private struct InFlight {
         let id: UInt64
         var task: Task<Void, Never>?
-        var waiters: [UInt64: NativeVideoImageWaiter]
+        var waiters: [UInt64: Waiter]
     }
+
+    private typealias Waiter = OneShotResult<NativeVideoImageLoadResult?>
 
     /// 管线在 `Mutex` 内的全部可变状态：缓存、在途请求、请求与等待者序号、是否已关闭。
     ///
@@ -198,7 +156,7 @@ final class NativeVideoImagePipeline: Sendable {
         case request(
             requestID: UInt64,
             waiterID: UInt64,
-            NativeVideoImageWaiter,
+            Waiter,
             startsNetwork: Bool
         )
     }
@@ -263,8 +221,9 @@ final class NativeVideoImagePipeline: Sendable {
             if startsNetwork {
                 startRequest(key: key, requestID: requestID)
             }
+            // 等待者只以 `.success` 交付（取消与关闭交付 nil），`try?` 不会吞掉真实错误。
             let result = await withTaskCancellationHandler {
-                await waiter.value()
+                try? await waiter.value()
             } onCancel: {
                 self.cancelWaiter(key: key, requestID: requestID, waiterID: waiterID)
             }
@@ -333,7 +292,7 @@ final class NativeVideoImagePipeline: Sendable {
         }
         guard let inFlight else { return }
         for request in inFlight { request.task?.cancel() }
-        for waiter in inFlight.flatMap({ $0.waiters.values }) { waiter.finish(with: nil) }
+        for waiter in inFlight.flatMap({ $0.waiters.values }) { waiter.resolve(.success(nil)) }
         sessionGate.invalidate(session)
     }
 
@@ -407,7 +366,7 @@ final class NativeVideoImagePipeline: Sendable {
             }
             state.nextWaiterID &+= 1
             let waiterID = state.nextWaiterID
-            let waiter = NativeVideoImageWaiter()
+            let waiter = Waiter()
             if var existing = state.inFlight[key] {
                 existing.waiters[waiterID] = waiter
                 state.inFlight[key] = existing
@@ -461,7 +420,7 @@ final class NativeVideoImagePipeline: Sendable {
         requestID: UInt64,
         waiterID: UInt64
     ) {
-        let removed: (NativeVideoImageWaiter, Task<Void, Never>?)? = state.withLock { state in
+        let removed: (Waiter, Task<Void, Never>?)? = state.withLock { state in
             guard var request = state.inFlight[key], request.id == requestID,
                 let waiter = request.waiters.removeValue(forKey: waiterID)
             else { return nil }
@@ -473,7 +432,7 @@ final class NativeVideoImagePipeline: Sendable {
             return (waiter, request.task)
         }
         guard let (waiter, task) = removed else { return }
-        waiter.finish(with: nil)
+        waiter.resolve(.success(nil))
         task?.cancel()
     }
 
@@ -482,14 +441,14 @@ final class NativeVideoImagePipeline: Sendable {
         requestID: UInt64,
         result: NativeVideoImageLoadResult?
     ) {
-        let waiters: [NativeVideoImageWaiter] = state.withLock { state in
+        let waiters: [Waiter] = state.withLock { state in
             guard let request = state.inFlight[key], request.id == requestID else {
                 return []
             }
             state.inFlight[key] = nil
             return Array(request.waiters.values)
         }
-        for waiter in waiters { waiter.finish(with: result) }
+        for waiter in waiters { waiter.resolve(.success(result)) }
     }
 
     private func store(

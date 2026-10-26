@@ -7,14 +7,9 @@ import Foundation
 /// 热搜图标另须通过 BiliAPI 的 `BiliBFSImageURLPolicy`，图片管线请求前还会再检查（见 SECURITY-MODEL §4）。
 package enum WebImageURL {
     package static func parse(_ value: String) -> URL? {
-        let normalized: String
-        if value.hasPrefix("//") {
-            normalized = "https:\(value)"
-        } else if value.lowercased().hasPrefix("http://") {
-            normalized = "https://" + value.dropFirst("http://".count)
-        } else {
-            normalized = value
-        }
+        let (normalized, _) = RemoteURLString.upgradingInsecureHTTP(
+            RemoteURLString.resolvingProtocolRelative(value)
+        )
         guard let url = URL(string: normalized),
             PublicHTTPSURLPolicy().allows(url)
         else {

@@ -111,6 +111,33 @@ struct BiliPlaybackHeartbeatRequestAuthorizerTests {
         }
     }
 
+    /// 首位换成非 ASCII 的数字或字母（阿拉伯-印度数字 ٣、全角 ３、½、带分音符的 b）或大写 A。
+    @Test(arguments: ["%D9%A3", "%EF%BC%93", "%C2%BD", "b%CC%88", "A"])
+    func sessionAndSignatureAcceptOnlyASCIILowercaseHex(firstCharacter: String) async throws {
+        let authorizer = BiliPlaybackHeartbeatRequestAuthorizer(
+            store: MemoryWebCredentialStore(credential: try makeFixtureCredential())
+        )
+        let requests = [
+            try heartbeatRequest(
+                body: validBody.replacingOccurrences(
+                    of: "session=0",
+                    with: "session=\(firstCharacter)"
+                )
+            ),
+            try heartbeatRequest(
+                query: validQuery.replacingOccurrences(
+                    of: "w_rid=0",
+                    with: "w_rid=\(firstCharacter)"
+                )
+            )
+        ]
+        for request in requests {
+            await #expect(throws: BiliRequestAuthorizationError.requestNotAllowed) {
+                try await authorizer.authorize(request)
+            }
+        }
+    }
+
     @Test
     func missingOrExpiredCredentialCannotAuthorizeWrite() async throws {
         let missing = BiliPlaybackHeartbeatRequestAuthorizer(

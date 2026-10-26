@@ -154,7 +154,7 @@ Sparkle 更新网络，以及任何 redirect 后的主机。只认精确主机�
 所有 API、认证、媒体、字幕、短链与图片 session 都从 `BiliNetworking` 唯一的
 `URLSessionConfiguration.credentialFreeEphemeral()` 基线构造：ephemeral、`httpShouldSetCookies = false`、
 无 Cookie 与凭据 storage、无 URL cache，默认交互式请求超时，只有用途确实不同的调用方覆盖超时；持有 session
-的一方都拒绝 redirect，`URLSessionTransport` 没有跟随选项。Range 媒体 transport 在重定向回调里就以该 3xx 状态失败并取消 task：被拒绝的
+的一方都拒绝 redirect，`URLSessionTransport` 没有跟随选项。Range 媒体 transport 与图片管线在重定向回调里就以该 3xx 失败并取消 task：被拒绝的
 重定向要等 3xx 正文传完才作为最终响应交给 delegate，正文卡住或涓流时请求会拖到空闲超时。
 `PublicHTTPSURLPolicy` 是基线：HTTPS、无 userinfo／fragment、端口缺省或 443，拒绝 IP literal 与
 `localhost`／`.local`／`.internal`／`home.arpa`。它不解析 DNS，不能证明域名不指向私网，

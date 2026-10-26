@@ -12,4 +12,18 @@ enum URLQueryUnreservedEncoding {
     static func encode(_ value: String) -> String? {
         value.addingPercentEncoding(withAllowedCharacters: unreservedCharacters)
     }
+
+    /// 按给定顺序编码每个键与值，拼成 `name=value&…` 的 percent-encoded query；任一项无法编码时为 nil。
+    ///
+    /// 结果直接作为 percent-encoded query 使用，不得再经 `queryItems` 重新编码；WBI 签名的 MD5 输入就是这个字符串。
+    static func query(_ pairs: [(String, String)]) -> String? {
+        var encodedPairs: [String] = []
+        for (name, value) in pairs {
+            guard let encodedName = encode(name), let encodedValue = encode(value) else {
+                return nil
+            }
+            encodedPairs.append("\(encodedName)=\(encodedValue)")
+        }
+        return encodedPairs.joined(separator: "&")
+    }
 }

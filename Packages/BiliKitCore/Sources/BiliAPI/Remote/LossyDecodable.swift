@@ -32,3 +32,17 @@ extension KeyedDecodingContainer {
         return nil
     }
 }
+
+/// 接口字段形状不固定时的严格解码：不吞错，形状不认识就让外层对象失败。
+extension KeyedDecodingContainer {
+    /// 接口有时给字符串、有时给整数的标识（MID、分页偏移）：字符串原样返回，整数转十进制文本；两种都不是或
+    /// 缺失时抛错，由外层对象一起失败。
+    ///
+    /// 只统一形状，不校验字符串内容；需要数值的调用方在结果上自行解析（视频 UP 主 MID）。
+    func decodeIntegerText(forKey key: Key) throws -> String {
+        if let value = try? decode(String.self, forKey: key) {
+            return value
+        }
+        return String(try decode(Int64.self, forKey: key))
+    }
+}

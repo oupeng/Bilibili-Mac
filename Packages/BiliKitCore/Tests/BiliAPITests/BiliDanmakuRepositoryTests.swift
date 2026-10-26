@@ -261,6 +261,22 @@ struct BiliDanmakuRepositoryTests {
     }
 
     @Test
+    func protobufContentTypeIsMatchedInAnyHeaderCase() async throws {
+        let fixture = try hexFixtureResponse("danmaku-segment-minimal")
+        let repository = try repository(
+            response: HTTPResponse(
+                statusCode: 200,
+                headers: ["content-type": "Application/Octet-Stream"],
+                body: fixture.body
+            )
+        )
+
+        let segment = try await repository.segment(index: 1, for: identity)
+
+        #expect(!segment.events.isEmpty)
+    }
+
+    @Test
     func validProtobufLengthByteThatLooksLikeJSONIsAccepted() async throws {
         var element = Bilikit_Danmaku_Element()
         element.id = 1
