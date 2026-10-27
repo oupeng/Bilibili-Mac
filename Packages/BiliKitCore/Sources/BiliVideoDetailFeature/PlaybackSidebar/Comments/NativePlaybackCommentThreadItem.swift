@@ -23,9 +23,11 @@ final class NativePlaybackCommentThreadItem: NSCollectionViewItem {
         onTextLayoutChange: @escaping () -> Void,
         onExpand: @escaping () -> Void,
         onCollapse: @escaping () -> Void,
-        onPrevious: @escaping () -> Void,
-        onNext: @escaping () -> Void,
+        onShowPage: @escaping (Int) -> Void,
         onRetry: @escaping () -> Void,
+        onShowDialog: @escaping (BiliModels.Comment) -> Void,
+        onLoadMoreDialog: @escaping () -> Void,
+        onCloseDialog: @escaping () -> Void,
         onOpenLink: @escaping (CommentLinkTarget) -> Void,
         onOpenPictures: @escaping (NativePlaybackCommentPictureGallery) -> Void,
         onOpenAuthorSpace: ((CommentAuthor) -> Void)?
@@ -39,9 +41,11 @@ final class NativePlaybackCommentThreadItem: NSCollectionViewItem {
             onTextLayoutChange: onTextLayoutChange,
             onExpand: onExpand,
             onCollapse: onCollapse,
-            onPrevious: onPrevious,
-            onNext: onNext,
+            onShowPage: onShowPage,
             onRetry: onRetry,
+            onShowDialog: onShowDialog,
+            onLoadMoreDialog: onLoadMoreDialog,
+            onCloseDialog: onCloseDialog,
             onOpenLink: onOpenLink,
             onOpenPictures: onOpenPictures,
             onOpenAuthorSpace: onOpenAuthorSpace
@@ -89,9 +93,11 @@ private final class NativePlaybackCommentThreadView: NSView {
         onTextLayoutChange: @escaping () -> Void,
         onExpand: @escaping () -> Void,
         onCollapse: @escaping () -> Void,
-        onPrevious: @escaping () -> Void,
-        onNext: @escaping () -> Void,
+        onShowPage: @escaping (Int) -> Void,
         onRetry: @escaping () -> Void,
+        onShowDialog: @escaping (BiliModels.Comment) -> Void,
+        onLoadMoreDialog: @escaping () -> Void,
+        onCloseDialog: @escaping () -> Void,
         onOpenLink: @escaping (CommentLinkTarget) -> Void,
         onOpenPictures: @escaping (NativePlaybackCommentPictureGallery) -> Void,
         onOpenAuthorSpace: ((CommentAuthor) -> Void)?
@@ -121,9 +127,11 @@ private final class NativePlaybackCommentThreadView: NSView {
             onTextLayoutChange: onTextLayoutChange,
             onExpand: onExpand,
             onCollapse: onCollapse,
-            onPrevious: onPrevious,
-            onNext: onNext,
+            onShowPage: onShowPage,
             onRetry: onRetry,
+            onShowDialog: onShowDialog,
+            onLoadMoreDialog: onLoadMoreDialog,
+            onCloseDialog: onCloseDialog,
             onOpenLink: onOpenLink,
             onOpenPictures: onOpenPictures,
             onOpenAuthorSpace: onOpenAuthorSpace
@@ -134,22 +142,19 @@ private final class NativePlaybackCommentThreadView: NSView {
     override func layout() {
         super.layout()
         guard let presentation else { return }
-        let rootHeight = NativePlaybackCommentsItemMeasurement.comment(
-            presentation.thread.root,
-            width: bounds.width,
-            isReply: false,
-            textRenderer: textRenderer,
-            textScope: presentation.textScope
-        )
+        let rootTop = NativePlaybackCommentsItemMeasurement.rootVerticalInset
         rootRow.frame = NSRect(
             x: 0,
-            y: NativePlaybackCommentsItemMeasurement.rootVerticalInset,
+            y: rootTop,
             width: bounds.width,
-            height: rootHeight
+            height: NativePlaybackCommentsItemMeasurement.rootRowBottom(
+                presentation,
+                width: bounds.width,
+                textRenderer: textRenderer
+            ) - rootTop
         )
-        let panelWidth = max(
-            80,
-            bounds.width - NativePlaybackCommentsItemMeasurement.replyPanelLeading
+        let panelWidth = NativePlaybackCommentsItemMeasurement.repliesPanelWidth(
+            threadWidth: bounds.width
         )
         let panelHeight = NativePlaybackCommentsItemMeasurement.repliesPanel(
             thread: presentation.thread,
@@ -161,7 +166,8 @@ private final class NativePlaybackCommentThreadView: NSView {
         repliesPanel.isHidden = panelHeight <= 0
         repliesPanel.frame = NSRect(
             x: NativePlaybackCommentsItemMeasurement.replyPanelLeading,
-            y: rootRow.frame.maxY + (panelHeight > 0 ? 10 : 0),
+            y: rootRow.frame.maxY
+                + (panelHeight > 0 ? NativePlaybackCommentsItemMeasurement.rootPanelGap : 0),
             width: panelWidth,
             height: panelHeight
         )

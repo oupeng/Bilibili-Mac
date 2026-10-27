@@ -3,7 +3,7 @@ import BiliModels
 import BiliNetworking
 import Foundation
 
-/// 主评论（WBI 签名）与楼中楼分页。
+/// 主评论（WBI 签名）、楼中楼分页与「查看对话」。
 extension BiliAPIClient {
     /// 评论页正文上限，见 SECURITY-MODEL §4；超出按响应异常失败关闭。
     private static let maximumCommentPageSize = 2 * 1_024 * 1_024
@@ -74,5 +74,36 @@ extension BiliAPIClient {
             maximumResponseSize: Self.maximumCommentPageSize
         )
         return try payload.page(subject: subject, rootID: rootID)
+    }
+
+    /// 一串对话从 `fromFloor` 楼起的一页：不签 WBI，授权方式与根评论相同；只接受每页 20 条，与网页一致。
+    func commentDialogPage(
+        for subject: CommentSubjectIdentity,
+        rootID: CommentID,
+        dialogID: CommentID,
+        fromFloor: Int?,
+        pageSize: Int
+    ) async throws -> CommentRemoteDialogPage {
+        guard subject.type == 1, subject.oid > 0,
+            rootID.rawValue > 0, dialogID.rawValue > 0,
+            fromFloor.map({ $0 > 0 }) ?? true, pageSize == 20
+        else { throw BiliAPIError.invalidRequest }
+        var queryItems = [
+            URLQueryItem(name: "type", value: String(subject.type)),
+            URLQueryItem(name: "oid", value: String(subject.oid)),
+            URLQueryItem(name: "root", value: String(rootID.rawValue)),
+            URLQueryItem(name: "dialog", value: String(dialogID.rawValue)),
+            URLQueryItem(name: "size", value: String(pageSize))
+        ]
+        if let fromFloor {
+            queryItems.append(URLQueryItem(name: "min_floor", value: String(fromFloor)))
+        }
+        let payload: CommentDialogListPayload = try await get(
+            url: try endpoint(path: BiliAccountReadPath.commentDialog, queryItems: queryItems),
+            referer: "https://www.bilibili.com/",
+            access: .accountRead(missingCredential: .useAnonymousRequest),
+            maximumResponseSize: Self.maximumCommentPageSize
+        )
+        return try payload.page(subject: subject, rootID: rootID, dialogID: dialogID)
     }
 }

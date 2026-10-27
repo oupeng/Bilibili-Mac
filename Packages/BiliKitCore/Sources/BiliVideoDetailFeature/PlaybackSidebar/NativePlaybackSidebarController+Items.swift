@@ -128,10 +128,24 @@ extension NativePlaybackSidebarController {
                     self?.commentTextLayoutDidChange(for: itemID)
                 },
                 onExpand: { [weak self] in self?.actions.expandReplies(rootID) },
-                onCollapse: { [weak self] in self?.actions.collapseReplies(rootID) },
-                onPrevious: { [weak self] in self?.actions.previousReplyPage(rootID) },
-                onNext: { [weak self] in self?.actions.nextReplyPage(rootID) },
+                onCollapse: { [weak self] in
+                    self?.prepareThreadAlignment(itemID, edge: .root)
+                    self?.actions.collapseReplies(rootID)
+                },
+                onShowPage: { [weak self] page in
+                    self?.prepareThreadAlignment(itemID, edge: .repliesPanel)
+                    self?.actions.showReplyPage(rootID, page)
+                },
                 onRetry: { [weak self] in self?.actions.retryReplies(rootID) },
+                onShowDialog: { [weak self] reply in
+                    self?.prepareThreadAlignment(itemID, edge: .repliesPanel)
+                    self?.actions.showDialog(rootID, reply)
+                },
+                onLoadMoreDialog: { [weak self] in self?.actions.loadMoreDialog(rootID) },
+                onCloseDialog: { [weak self] in
+                    self?.prepareThreadAlignment(itemID, edge: .repliesPanel)
+                    self?.actions.closeDialog(rootID)
+                },
                 onOpenLink: { [weak self] target in
                     self?.releasingFocus { $0.actions.openCommentLink(target) }
                 },

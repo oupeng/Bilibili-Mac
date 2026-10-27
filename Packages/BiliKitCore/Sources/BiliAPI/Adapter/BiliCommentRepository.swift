@@ -2,7 +2,7 @@ import BiliApplication
 import BiliModels
 import Foundation
 
-/// `CommentRepository` 的 B 站实现：根评论与楼中楼读取、错误映射，以及根评论分页游标与
+/// `CommentRepository` 的 B 站实现：根评论、楼中楼与对话读取、错误映射，以及根评论分页游标与
 /// continuation 的映射。
 ///
 /// 每个窗口一个（`WindowAdapters.live`）。actor 拥有游标表：服务端 offset 不越过 adapter，
@@ -79,6 +79,33 @@ public actor BiliCommentRepository: CommentRepository {
                 pageNumber: response.pageNumber,
                 pageSize: response.pageSize,
                 totalCount: response.totalCount
+            )
+        } catch {
+            throw map(error)
+        }
+    }
+
+    /// 对话按楼层分页，楼层只是公开的整数，不像根评论 offset 那样需要换成 continuation。
+    public func dialog(
+        for subject: CommentSubjectIdentity,
+        rootID: CommentID,
+        dialogID: CommentID,
+        fromFloor: Int?,
+        pageSize: Int
+    ) async throws -> CommentDialogPage {
+        do {
+            let response = try await client.commentDialogPage(
+                for: subject,
+                rootID: rootID,
+                dialogID: dialogID,
+                fromFloor: fromFloor,
+                pageSize: pageSize
+            )
+            return CommentDialogPage(
+                rootID: response.rootID,
+                dialogID: response.dialogID,
+                replies: response.replies,
+                nextFloor: response.nextFloor
             )
         } catch {
             throw map(error)

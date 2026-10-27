@@ -47,6 +47,48 @@ public struct CommentUseCase: Sendable {
         )
     }
 
+    /// 「查看对话」一页请求的条数，与网页一致；对话按楼层游标往下加载，没有页码。
+    ///
+    /// 调大一次加载更多、点「加载更多」的次数更少，响应也更大。
+    public static let dialogPageSize = 20
+
+    /// 一串对话从 `fromFloor` 楼起的一页；起点不是正数时不请求（`invalidRequest`）。
+    ///
+    /// 响应的根评论或对话与请求不符、或下一页起点没有越过请求楼层时按无效响应失败，服务端反复给出同一起点时不会
+    /// 原地重复请求。是否到底由 adapter 按接口的楼层信息判断，这里不改。
+    public func loadDialog(
+        for subject: CommentSubjectIdentity,
+        rootID: CommentID,
+        dialogID: CommentID,
+        fromFloor: Int?
+    ) async throws -> CommentDialogPage {
+        if let fromFloor, fromFloor <= 0 {
+            throw CommentReadError.invalidRequest
+        }
+        try Task.checkCancellation()
+        let result = try await repository.dialog(
+            for: subject,
+            rootID: rootID,
+            dialogID: dialogID,
+            fromFloor: fromFloor,
+            pageSize: Self.dialogPageSize
+        )
+        try Task.checkCancellation()
+        guard result.rootID == rootID, result.dialogID == dialogID,
+            result.nextFloor.map({ $0 > (fromFloor ?? 0) }) ?? true
+        else {
+            throw CommentReadError.invalidResponse
+        }
+        var seen: Set<CommentID> = []
+        let uniqueReplies = result.replies.filter { seen.insert($0.id).inserted }
+        return CommentDialogPage(
+            rootID: rootID,
+            dialogID: dialogID,
+            replies: uniqueReplies,
+            nextFloor: result.nextFloor
+        )
+    }
+
     /// 楼中楼一页请求的条数，楼中楼面板也按它推算总页数。
     ///
     /// 调大每页更长、翻页更少，响应也更大。

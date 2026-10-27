@@ -1,4 +1,5 @@
 import AppKit
+import BiliApplication
 import BiliModels
 
 /// 评论条目的尺寸常量与高度测量，是评论行布局的唯一几何来源：条目的 `layout()` 与控制器的行高测量都经它计算。
@@ -11,6 +12,20 @@ enum NativePlaybackCommentsItemMeasurement {
     static let rootVerticalInset: CGFloat = 12
     static let replyPanelLeading: CGFloat = 42
     static let replyPanelPadding: CGFloat = 9
+    /// 根评论行与楼中楼面板之间的间距。
+    static let rootPanelGap: CGFloat = 10
+    /// 展开后底部页码条的行高，容得下 `NativePlaybackCommentReplyPager.itemSize` 的按钮。
+    static let replyPagerHeight: CGFloat = 26
+    /// 展开后顶部一行（“共 N 条回复”与收起）连同它下面的间距。
+    static let replyHeaderRowHeight: CGFloat = 30
+    /// 楼中楼里相邻两条回复之间的间距。
+    static let replyRowSpacing: CGFloat = 8
+    /// 最后一条回复与底部页码条之间的间距。
+    static let replyFooterGap: CGFloat = 10
+    /// 看对话时底部「加载更多」按钮的行高。
+    static let dialogLoadMoreHeight: CGFloat = 24
+    /// 加载中或失败说明一行的高度。
+    static let replyStatusHeight: CGFloat = 32
     /// 状态行放标题与两行说明（暂无评论、已关闭、缺少评论标识）的高度。
     ///
     /// 加载中的转圈居中在同样高的行里，加载结束切到这些说明时行高不变、内容不位移。
@@ -43,27 +58,46 @@ enum NativePlaybackCommentsItemMeasurement {
         width: CGFloat,
         textRenderer: NativePlaybackCommentTextRenderer? = nil
     ) -> CGFloat {
-        let textScope = presentation.textScope
-        let rootHeight = comment(
-            presentation.thread.root,
-            width: width,
-            isReply: false,
-            textRenderer: textRenderer,
-            textScope: textScope
-        )
-        let panelWidth = max(80, width - replyPanelLeading)
         let panelHeight = repliesPanel(
             thread: presentation.thread,
             replyState: presentation.replyState,
-            width: panelWidth,
+            width: repliesPanelWidth(threadWidth: width),
             textRenderer: textRenderer,
-            textScope: textScope
+            textScope: presentation.textScope
         )
+        let rootBottom = rootRowBottom(presentation, width: width, textRenderer: textRenderer)
         return ceil(
-            rootVerticalInset + rootHeight
-                + (panelHeight > 0 ? 10 + panelHeight : 0)
-                + rootVerticalInset
+            rootBottom + (panelHeight > 0 ? rootPanelGap + panelHeight : 0) + rootVerticalInset
         )
+    }
+
+    /// 根评论行底边在条目里的纵坐标。
+    static func rootRowBottom(
+        _ presentation: NativePlaybackCommentThreadPresentation,
+        width: CGFloat,
+        textRenderer: NativePlaybackCommentTextRenderer? = nil
+    ) -> CGFloat {
+        rootVerticalInset
+            + comment(
+                presentation.thread.root,
+                width: width,
+                isReply: false,
+                textRenderer: textRenderer,
+                textScope: presentation.textScope
+            )
+    }
+
+    /// 楼中楼面板顶边在条目里的纵坐标；条目布局与侧栏翻页后的定位共用。
+    static func repliesPanelTop(
+        _ presentation: NativePlaybackCommentThreadPresentation,
+        width: CGFloat,
+        textRenderer: NativePlaybackCommentTextRenderer? = nil
+    ) -> CGFloat {
+        rootRowBottom(presentation, width: width, textRenderer: textRenderer) + rootPanelGap
+    }
+
+    static func repliesPanelWidth(threadWidth: CGFloat) -> CGFloat {
+        max(80, threadWidth - replyPanelLeading)
     }
 
     static func comment(
@@ -100,8 +134,9 @@ enum NativePlaybackCommentsItemMeasurement {
         let innerWidth = max(60, width - replyPanelPadding * 2)
         var height = replyPanelPadding
         if let replyState, replyState.isExpanded {
-            height += 20 + 10
-            for (index, reply) in replyState.replies.enumerated() {
+            height += replyHeaderRowHeight
+            let replies = replyState.shownReplies
+            for (index, reply) in replies.enumerated() {
                 height += comment(
                     reply,
                     width: innerWidth,
@@ -109,13 +144,19 @@ enum NativePlaybackCommentsItemMeasurement {
                     textRenderer: textRenderer,
                     textScope: textScope
                 )
-                if index < replyState.replies.count - 1 { height += 8 }
+                if index < replies.count - 1 { height += replyRowSpacing }
             }
-            if replyState.isLoading || replyState.error != nil {
-                height += 32
-            } else {
-                if !replyState.replies.isEmpty { height += 10 }
-                height += 26
+            switch NativePlaybackCommentRepliesFooter(replyState) {
+            case .loading, .failed, .emptyDialog:
+                height += replyStatusHeight
+            case .pager:
+                if !replies.isEmpty { height += replyFooterGap }
+                height += replyPagerHeight
+            case .loadMoreDialog:
+                if !replies.isEmpty { height += replyFooterGap }
+                height += dialogLoadMoreHeight
+            case .none:
+                break
             }
         } else {
             let replies = Array(thread.replyPreview.prefix(2))
@@ -127,7 +168,7 @@ enum NativePlaybackCommentsItemMeasurement {
                     textRenderer: textRenderer,
                     textScope: textScope
                 )
-                if index < replies.count - 1 { height += 8 }
+                if index < replies.count - 1 { height += replyRowSpacing }
             }
             if !replies.isEmpty { height += 9 }
             height += 24
@@ -300,4 +341,40 @@ enum NativePlaybackCommentImageStyle {
     static let animationBadgePadding: CGFloat = 4
     static let animationBadgeFontSize: CGFloat = 9
     static let animationBadgeCornerRadius: CGFloat = 3
+}
+
+/// 楼中楼面板展开后底部一行显示什么；面板配置、布局与行高测量共用这一份判断。
+enum NativePlaybackCommentRepliesFooter: Equatable {
+    /// 这一页或对话的这一页正在加载。
+    case loading
+    /// 加载失败；可重试时带「重试」。
+    case failed(CommentReadError)
+    /// 楼中楼页码条。
+    case pager
+    /// 正在看的对话还有下一页。
+    case loadMoreDialog
+    /// 对话已到底却没有一条可显示的回复：给一句说明，面板不留空白。
+    case emptyDialog
+    /// 对话已到底，底部不留行。
+    case none
+
+    init(_ state: PlaybackCommentReplyState) {
+        if let dialog = state.dialog {
+            if dialog.isLoading {
+                self = .loading
+            } else if let error = dialog.error {
+                self = .failed(error)
+            } else if dialog.isEnd {
+                self = dialog.replies.isEmpty ? .emptyDialog : .none
+            } else {
+                self = .loadMoreDialog
+            }
+        } else if state.isLoading {
+            self = .loading
+        } else if let error = state.error {
+            self = .failed(error)
+        } else {
+            self = .pager
+        }
+    }
 }
