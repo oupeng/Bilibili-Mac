@@ -169,14 +169,21 @@ struct NoImageCardLoader: NativeVideoImageLoading {
     func image(for url: URL, kind: NativeVideoCardImageKind) async -> NativeVideoCardImage? { nil }
 }
 
-/// Feed port 的唯一测试替身：推荐不可用，热门与搜索恒为空页。
+/// Feed port 的唯一测试替身：推荐默认不可用（给了 `recommendations` 时只有这一页），热门与搜索恒为空页。
 ///
 /// App 根视图会激活浏览页，这里给不验证 Feed 的测试一个不依赖网络的来源。
-struct EmptyFeedRepository: FeedRepository {
+struct FeedRepositoryStub: FeedRepository {
+    var recommendations: [RecommendedVideo]?
+
     func recommendations(
         after continuation: RecommendationContinuation?
     ) async throws -> RecommendationPage {
-        throw ContentApplicationError.unavailable
+        guard let recommendations else { throw ContentApplicationError.unavailable }
+        return RecommendationPage(
+            videos: recommendations,
+            continuation: continuation ?? RecommendationContinuation(freshIndex: 1),
+            nextContinuation: nil
+        )
     }
 
     func popular(page: Int, pageSize: Int) async throws -> PopularPage {
@@ -233,10 +240,10 @@ struct WatchLaterRepositoryStub: WatchLaterRepository {
     }
 }
 
-/// 稍后再看、收藏与播放页互动三个写入 port 的唯一测试替身：记录每次写入，按顺序取 `outcomes`（用完后一律成功）；
-/// `holdsWrites` 时每次写入挂起到 `releaseWrites()` 或任务取消。互动读取返回 `engagement`，不计入写入。
+/// 稍后再看、收藏、播放页互动与首页推荐反馈四个写入 port 的唯一测试替身：记录每次写入，按顺序取 `outcomes`（用完后
+/// 一律成功）；`holdsWrites` 时每次写入挂起到 `releaseWrites()` 或任务取消。互动读取返回 `engagement`，不计入写入。
 actor AccountWriteRepositoryStub: WatchLaterWriteRepository, FavoritesWriteRepository,
-    VideoEngagementRepository
+    VideoEngagementRepository, RecommendationFeedbackRepository
 {
     private var outcomes: [AccountWriteError?]
     private let holdsWrites: Bool
@@ -307,6 +314,14 @@ actor AccountWriteRepositoryStub: WatchLaterWriteRepository, FavoritesWriteRepos
 
     func remove(_ entry: FavoriteFolderEntry, accountID: Int64) async throws {
         try await record("unfavorite \(entry.videoAID) from \(entry.folderID) \(accountID)")
+    }
+
+    func dislike(_ feedback: RecommendationFeedback, accountID: Int64) async throws {
+        try await record("dislike \(feedback.target.bvid) \(feedback.reason) \(accountID)")
+    }
+
+    func cancelDislike(_ feedback: RecommendationFeedback, accountID: Int64) async throws {
+        try await record("undislike \(feedback.target.bvid) \(feedback.reason) \(accountID)")
     }
 
     func waitForCallCount(_ target: Int) async {

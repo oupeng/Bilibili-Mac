@@ -159,18 +159,4 @@ struct BiliAPIClientFavoriteWriteTests {
             ]
         )
     }
-
-    private func formFields(_ request: HTTPRequest) -> [String: String] {
-        var components = URLComponents()
-        components.percentEncodedQuery = request.body.flatMap { String(data: $0, encoding: .utf8) }
-        return fields(components.queryItems)
-    }
-
-    private func queryFields(_ request: HTTPRequest) -> [String: String] {
-        fields(URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems)
-    }
-
-    private func fields(_ items: [URLQueryItem]?) -> [String: String] {
-        Dictionary(uniqueKeysWithValues: (items ?? []).map { ($0.name, $0.value ?? "") })
-    }
 }

@@ -94,6 +94,7 @@ public struct RecommendedFeedView: View {
                 loadMore: { model.loadMore(.recommendation) },
                 select: onSelect
             ),
+            disliked: model.dislikedRecommendations,
             host: gridHost
         )
         .ignoresSafeArea(.container, edges: .top)

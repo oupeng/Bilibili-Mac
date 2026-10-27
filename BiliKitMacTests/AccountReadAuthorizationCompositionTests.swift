@@ -142,6 +142,10 @@ struct AccountReadAuthorizationCompositionTests {
 /// `BiliAccountWritePath` 各写一份字面量，这里是两边唯一的交叉核对。
 @Suite(.timeLimit(.minutes(1)))
 struct AccountWriteAuthorizationCompositionTests {
+    private static let recommendationFeedbackBody =
+        "app_id=100&platform=5&from_spmid=&spmid=333.1007.0.0&goto=av&id=170001&mid=1"
+        + "&track_id=web_rcmd.abc&feedback_page=1&reason_id=1"
+
     @Test
     @MainActor
     func everyProductionWritePathCanAuthorizeTheRequestTheClientBuilds() async throws {
@@ -167,7 +171,13 @@ struct AccountWriteAuthorizationCompositionTests {
             BiliAccountWritePath.videoCoin: (
                 "https://www.bilibili.com/", "aid=170001&multiply=1&select_like=1"
             ),
-            BiliAccountWritePath.videoTriple: ("https://www.bilibili.com/", "aid=170001")
+            BiliAccountWritePath.videoTriple: ("https://www.bilibili.com/", "aid=170001"),
+            BiliAccountWritePath.recommendationDislike: (
+                "https://www.bilibili.com/", Self.recommendationFeedbackBody
+            ),
+            BiliAccountWritePath.recommendationDislikeCancel: (
+                "https://www.bilibili.com/", Self.recommendationFeedbackBody
+            )
         ]
         #expect(Set(requests.keys) == LiveAPIClients.mainAccountWriteAllowedPaths)
 

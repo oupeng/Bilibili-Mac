@@ -10,9 +10,70 @@ import Testing
 /// 写操作一组在前、链接一组在后，组间有分隔线；「拷贝链接」「在浏览器中打开」「添加到稍后再看」与「收藏到…」只给可进入
 /// 播放的卡片，「从稍后再看移除」与收藏夹页的「从此收藏夹移除」也给不可用卡片并带 ⌘⌫；不满足写入门槛时
 /// 写操作项在菜单里禁用、不进入读屏操作；读屏操作执行时按卡片 ID 重新核对；没有项时不弹菜单；Control-点按走右键同一条
-/// 菜单路径，不激活卡片。
+/// 菜单路径，不激活卡片。来源自己的写操作项排在写操作一组末尾；子菜单在 `NSMenu` 里展开为一级子菜单，在读屏操作里
+/// 展开为带父项名字的各个子项，子项都不可用时父项也不可用。
 struct NativeVideoCardMenuTests {
     private static let webPage = URL(string: "https://www.bilibili.com/video/BV1Menu")
+
+    @Test @MainActor
+    func submenuIsNestedInTheMenuAndFlattenedForVoiceOver() throws {
+        var chosen: [String] = []
+        let children = ["a", "b"].map { id in
+            NativeVideoCardMenu.Item(id: id, title: id.uppercased(), systemImage: "circle") {
+                chosen.append(id)
+            }
+        }
+        let menu = try #require(
+            NativeVideoCardMenu.video(
+                for: Self.card(id: "BV1Menu", availability: .available),
+                webPageURL: Self.webPage,
+                openURL: OpenURLAction { _ in .handled },
+                writing: nil,
+                watchLater: .add,
+                additionalWriteItems: [
+                    NativeVideoCardMenu.Item(
+                        id: "parent",
+                        title: "Parent",
+                        systemImage: "circle",
+                        submenu: children
+                    )
+                ]
+            )
+        )
+
+        #expect(
+            menu.sections.map { $0.map(\.title) } == [
+                ["Parent"], [VideoCardMenuText.copyLink, VideoCardMenuText.openInBrowser]
+            ]
+        )
+        let parent = try #require(menu.makeMenu().items.first)
+        #expect(parent.submenu?.items.map(\.title) == ["A", "B"])
+        #expect(parent.submenu?.autoenablesItems == false)
+        #expect(
+            menu.actionableItems.prefix(2).map(\.title) == [
+                VideoCardMenuText.submenuActionTitle(parent: "Parent", child: "A"),
+                VideoCardMenuText.submenuActionTitle(parent: "Parent", child: "B")
+            ]
+        )
+        try #require(menu.enabledItem(id: "b")).action()
+        #expect(chosen == ["b"])
+        #expect(menu.enabledItem(id: "parent") == nil)
+
+        let disabled = NativeVideoCardMenu.Item(
+            id: "parent",
+            title: "Parent",
+            systemImage: "circle",
+            submenu: [
+                NativeVideoCardMenu.Item(
+                    id: "a",
+                    title: "A",
+                    systemImage: "circle",
+                    isEnabled: false
+                ) {}
+            ]
+        )
+        #expect(!disabled.isEnabled)
+    }
 
     @Test @MainActor
     func playableCardOffersWriteGroupThenLinks() throws {
@@ -410,7 +471,9 @@ struct NativeVideoCardMenuTests {
             addToWatchLater: { added($0) },
             removeFromWatchLater: { removed($0) },
             chooseFavoriteFolders: { chosen($0) },
-            removeFromFavoriteFolder: { _ in }
+            removeFromFavoriteFolder: { _ in },
+            dislikeRecommendation: { _ in },
+            cancelRecommendationDislike: { _ in }
         )
     }
 

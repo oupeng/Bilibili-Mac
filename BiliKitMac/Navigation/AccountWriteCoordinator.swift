@@ -1,16 +1,17 @@
 import BiliApplication
+import BiliBrowseFeature
 import BiliLibraryFeature
 import BiliVideoDetailFeature
 import Observation
 
-/// 一个窗口里用户发起的账户写入的 owner：卡片菜单、读屏操作、⌘⌫、「收藏到…」面板，以及播放页的点赞、投币、三连按钮与
-/// 快捷键发出的意图都交给它。
+/// 一个窗口里用户发起的账户写入的 owner：卡片菜单（含首页推荐的「不感兴趣」）、读屏操作、⌘⌫、「收藏到…」面板，以及
+/// 播放页的点赞、投币、三连按钮与快捷键发出的意图都交给它。
 ///
 /// 拥有每个在途写入的 Task（同一改动同时只有一个）、正在显示的「收藏到…」面板（`favoritePicker`，同时只有一个；归属的
 /// 读取 Task 归面板模型）、写入结果胶囊显示的最新结果与它的消失计时，以及窗口复核的参与者代次。不拥有门槛的判断
 /// （`writableAccount` 由 `WindowComposition` 按窗口账户算出）、写请求本身（`WatchLaterWriteUseCase`、
-/// `FavoritesWriteUseCase`、`VideoEngagementUseCase`）、列表与互动状态（乐观改动与回滚在 `WatchLaterViewModel`、
-/// `FavoriteFolderViewModel`、`VideoEngagementModel`），也不直接刷新其他视图（效果交给本窗口的
+/// `FavoritesWriteUseCase`、`VideoEngagementUseCase`、`RecommendationFeedbackUseCase`）、列表与互动状态（乐观改动与回滚在
+/// `WatchLaterViewModel`、`FavoriteFolderViewModel`、`VideoEngagementModel`、`BrowseViewModel`），也不直接刷新其他视图（效果交给本窗口的
 /// `AccountWriteEffectRouter`，并经进程级集线器转给其他窗口）。
 ///
 /// 每次执行都重新核对：卡片 ID 必须是合法 BVID、窗口此刻满足写入门槛，否则不发请求（菜单项可能是在门槛变化前构造的）。
@@ -18,7 +19,7 @@ import Observation
 /// 写入成功都不再自动复核，避免“复核 → 仍失败 → 再复核”；换号或登出再登录后会话代次变化，节流随之作废。面板绑定打开时
 /// 的窗口账户（含会话代次）：窗口账户一变（`writableAccountDidChange`）就关闭，重试与确认前再核对一次，面板里的收藏夹
 /// 与归属不会在另一个账户下显示、重读或提交。`close()`（关窗）关闭面板、取消全部在途写入与计时，之后不再接受意图；
-/// 被取消的写入只回滚本地移除、不显示结果。
+/// 被取消的写入照常回滚本地的乐观改动、不显示结果。
 @MainActor
 @Observable
 final class AccountWriteCoordinator: AccountRevalidationParticipant {
@@ -50,6 +51,8 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
     @ObservationIgnored private let favoriteFolders: FavoriteFolderViewModel
     @ObservationIgnored private let engagement: VideoEngagementUseCase
     @ObservationIgnored private let engagementModel: VideoEngagementModel
+    @ObservationIgnored private let recommendationFeedback: RecommendationFeedbackUseCase
+    @ObservationIgnored private let browseModel: BrowseViewModel
     @ObservationIgnored private let writableAccount: @MainActor () -> WritableAccount?
     @ObservationIgnored private let publish:
         @MainActor (AccountWriteEffectDelivery, _ appliedLocally: Bool) -> Void
@@ -74,6 +77,8 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
         favoriteFolders: FavoriteFolderViewModel,
         engagement: VideoEngagementUseCase,
         engagementModel: VideoEngagementModel,
+        recommendationFeedback: RecommendationFeedbackUseCase,
+        browseModel: BrowseViewModel,
         writableAccount: @escaping @MainActor () -> WritableAccount?,
         publish: @escaping @MainActor (AccountWriteEffectDelivery, _ appliedLocally: Bool) -> Void
     ) {
@@ -84,6 +89,8 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
         self.favoriteFolders = favoriteFolders
         self.engagement = engagement
         self.engagementModel = engagementModel
+        self.recommendationFeedback = recommendationFeedback
+        self.browseModel = browseModel
         self.writableAccount = writableAccount
         self.publish = publish
     }
@@ -220,7 +227,64 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
             case .likeChanged(let other, _), .coinsAdded(let other, _, _), .tripled(let other, _):
                 other == target
             case .watchLaterAdded, .watchLaterRemoved, .favoriteMembershipChanged,
-                .removedFromFavoriteFolder:
+                .removedFromFavoriteFolder, .recommendationDisliked,
+                .recommendationDislikeCancelled:
+                false
+            }
+        }
+    }
+
+    /// 首页推荐的「不感兴趣」：先在推荐网格里乐观标上，失败或被取消时去掉标记。
+    ///
+    /// 推荐工作集里没有这一条、或已经标过时不发；此间推荐工作集被换掉、或标记已不是这一份时由模型丢弃这次回滚。
+    func dislikeRecommendation(_ feedback: RecommendationFeedback) {
+        guard let account = currentAccount(),
+            !hasRecommendationFeedbackInFlight(for: feedback.target),
+            let edit = browseModel.markRecommendationDisliked(feedback)
+        else { return }
+        start(
+            .recommendationDisliked(feedback),
+            account: account,
+            rollback: { [browseModel] in browseModel.revertRecommendationDislike(edit) },
+            write: { [recommendationFeedback] in
+                try await recommendationFeedback.dislike(feedback, accountID: account.accountID)
+            }
+        )
+    }
+
+    /// 撤销「不感兴趣」：先去掉标记，失败或被取消时标回。
+    ///
+    /// 卡片已不是标着这份反馈时不发：撤销必须带发出时的同一份字段。标回只在同一份推荐工作集里、卡片仍显示时进行，换了
+    /// 账户后的新推荐即使有同一视频也不会被标上旧账户的反馈。
+    func cancelRecommendationDislike(_ feedback: RecommendationFeedback) {
+        guard let account = currentAccount(),
+            !hasRecommendationFeedbackInFlight(for: feedback.target),
+            let edit = browseModel.unmarkRecommendationDisliked(feedback)
+        else { return }
+        start(
+            .recommendationDislikeCancelled(feedback),
+            account: account,
+            rollback: { [browseModel] in browseModel.revertRecommendationDislike(edit) },
+            write: { [recommendationFeedback] in
+                try await recommendationFeedback.cancelDislike(
+                    feedback,
+                    accountID: account.accountID
+                )
+            }
+        )
+    }
+
+    /// 同一视频的「不感兴趣」与撤销同时只发一个：两者到达服务端的先后不可知，最终状态可能与卡片相反。
+    ///
+    /// 菜单不随在途写入禁用（与点赞、投币、三连相同）：在途时再点同一视频的反馈项不发、也不提示，等它结束即可再操作。
+    private func hasRecommendationFeedbackInFlight(for target: VideoWriteTarget) -> Bool {
+        inFlight.keys.contains { change in
+            switch change {
+            case .recommendationDisliked(let feedback),
+                .recommendationDislikeCancelled(let feedback):
+                feedback.target == target
+            case .watchLaterAdded, .watchLaterRemoved, .favoriteMembershipChanged,
+                .removedFromFavoriteFolder, .likeChanged, .coinsAdded, .tripled:
                 false
             }
         }
@@ -347,7 +411,7 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
                     appliedLocally: appliedLocally
                 )
             } catch is CancellationError {
-                // 关窗，或认证会话在请求途中切换（API 按取消结束）：不显示结果，只撤销本地移除。
+                // 关窗，或认证会话在请求途中切换（API 按取消结束）：不显示结果，只回滚本地的乐观改动。
                 rollback()
                 self?.inFlight[change] = nil
             } catch {

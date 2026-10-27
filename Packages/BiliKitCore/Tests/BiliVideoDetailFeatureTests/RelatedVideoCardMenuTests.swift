@@ -28,7 +28,9 @@ struct RelatedVideoCardMenuTests {
                     addToWatchLater: { _ in },
                     removeFromWatchLater: { _ in },
                     chooseFavoriteFolders: { _ in },
-                    removeFromFavoriteFolder: { _ in }
+                    removeFromFavoriteFolder: { _ in },
+                    dislikeRecommendation: { _ in },
+                    cancelRecommendationDislike: { _ in }
                 )
             )
         )

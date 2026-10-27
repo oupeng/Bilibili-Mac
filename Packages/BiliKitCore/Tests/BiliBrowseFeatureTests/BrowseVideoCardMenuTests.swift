@@ -18,18 +18,21 @@ struct BrowseVideoCardMenuTests {
     func everyBrowseSourceOffersTheVideoLinks() throws {
         let cards = [
             try #require(
-                RecommendedNativeGridView.makePresentations([
-                    RecommendedVideo(
-                        bvid: "BV1Recommended",
-                        title: "首页推荐",
-                        coverURL: nil,
-                        owner: Self.owner,
-                        statistics: Self.statistics,
-                        durationSeconds: 60,
-                        publishedAt: Self.publishedAt,
-                        recommendationReason: nil
-                    )
-                ]).first
+                RecommendedNativeGridView.makePresentations(
+                    [
+                        RecommendedVideo(
+                            bvid: "BV1Recommended",
+                            title: "首页推荐",
+                            coverURL: nil,
+                            owner: Self.owner,
+                            statistics: Self.statistics,
+                            durationSeconds: 60,
+                            publishedAt: Self.publishedAt,
+                            recommendationReason: nil
+                        )
+                    ],
+                    disliked: [:]
+                ).first
             ),
             try #require(
                 PopularNativeGridView.makePresentations([
@@ -74,7 +77,9 @@ struct BrowseVideoCardMenuTests {
                         addToWatchLater: { added.ids.append($0) },
                         removeFromWatchLater: { _ in },
                         chooseFavoriteFolders: { _ in },
-                        removeFromFavoriteFolder: { _ in }
+                        removeFromFavoriteFolder: { _ in },
+                        dislikeRecommendation: { _ in },
+                        cancelRecommendationDislike: { _ in }
                     )
                 )
             )

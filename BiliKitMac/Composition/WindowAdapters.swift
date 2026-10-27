@@ -37,6 +37,8 @@ struct WindowAdapters {
     let favoritesWriteRepository: any FavoritesWriteRepository
     /// 播放页的互动读取与点赞、投币、三连；生产实现走窗口 API 的账户读取与账户写授权器。
     let videoEngagementRepository: any VideoEngagementRepository
+    /// 首页推荐的「不感兴趣」与撤销；生产实现走窗口 API 的账户写授权器，绑定窗口账户。
+    let recommendationFeedbackRepository: any RecommendationFeedbackRepository
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentLinkRouter: CommentLinkRouter
     let authenticationService: any AuthenticationServicing
@@ -126,6 +128,7 @@ extension WindowAdapters {
             favoritesRepository: BiliFavoritesRepository(client: api),
             favoritesWriteRepository: BiliFavoritesWriteRepository(client: api),
             videoEngagementRepository: BiliVideoEngagementRepository(client: api),
+            recommendationFeedbackRepository: BiliRecommendationFeedbackRepository(client: api),
             commentAssetURLResolver: { reference, box in
                 commentAssetResolver.imageURL(for: reference, fitting: box)
             },

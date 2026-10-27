@@ -27,6 +27,7 @@ struct BiliAPIClientFeedTests {
         #expect(page.videos.map(\.bvid) == ["BV1FixtureA1"])
         #expect(page.videos.first?.title == "推荐 & 视频")
         #expect(page.videos.first?.recommendationReason == "正在流行")
+        #expect(page.videos.first?.trackID == "web_rcmd.abc-1")
         #expect(page.continuation == RecommendationContinuation(freshIndex: 1))
         #expect(page.nextContinuation == RecommendationContinuation(freshIndex: 2))
 

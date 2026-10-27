@@ -182,7 +182,9 @@ struct AppShellView: View {
             addToWatchLater: { accountWrites.addToWatchLater(bvid: $0) },
             removeFromWatchLater: { accountWrites.removeFromWatchLater(bvid: $0) },
             chooseFavoriteFolders: { accountWrites.chooseFavoriteFolders(bvid: $0) },
-            removeFromFavoriteFolder: { accountWrites.removeFromFavoriteFolder($0) }
+            removeFromFavoriteFolder: { accountWrites.removeFromFavoriteFolder($0) },
+            dislikeRecommendation: { accountWrites.dislikeRecommendation($0) },
+            cancelRecommendationDislike: { accountWrites.cancelRecommendationDislike($0) }
         )
     }
 
