@@ -153,7 +153,9 @@ private final class RecordedWrites {
             chooseFavoriteFolders: { [weak self] in self?.events.append("choose \($0)") },
             removeFromFavoriteFolder: { [weak self] in
                 self?.events.append("unfavorite \($0.videoAID) from \($0.folderID)")
-            }
+            },
+            dislikeRecommendation: { _ in },
+            cancelRecommendationDislike: { _ in }
         )
     }
 }

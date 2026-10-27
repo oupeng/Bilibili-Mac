@@ -176,6 +176,10 @@ final class WindowComposition {
             favoriteFolders: favoriteFolders,
             engagement: engagementUseCase,
             engagementModel: engagementModel,
+            recommendationFeedback: RecommendationFeedbackUseCase(
+                repository: adapters.recommendationFeedbackRepository
+            ),
+            browseModel: browseModel,
             writableAccount: writableAccount,
             publish: { delivery, appliedLocally in
                 accountWriteEffectRouter.apply(delivery, appliedLocally: appliedLocally)

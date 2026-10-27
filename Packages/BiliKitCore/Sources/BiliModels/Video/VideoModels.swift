@@ -136,6 +136,8 @@ public struct RecommendedVideo: Identifiable, Sendable, Equatable {
     public let durationSeconds: Int
     public let publishedAt: Date
     public let recommendationReason: String?
+    /// 推荐流给这一条的追踪 ID（`track_id`），「不感兴趣」反馈要带上；接口没给时为 nil，这一条不提供反馈。
+    public let trackID: String?
 
     public init(
         bvid: String,
@@ -145,7 +147,8 @@ public struct RecommendedVideo: Identifiable, Sendable, Equatable {
         statistics: VideoStatistics,
         durationSeconds: Int,
         publishedAt: Date,
-        recommendationReason: String?
+        recommendationReason: String?,
+        trackID: String? = nil
     ) {
         self.bvid = bvid
         self.title = title
@@ -155,6 +158,7 @@ public struct RecommendedVideo: Identifiable, Sendable, Equatable {
         self.durationSeconds = durationSeconds
         self.publishedAt = publishedAt
         self.recommendationReason = recommendationReason
+        self.trackID = trackID
     }
 }
 

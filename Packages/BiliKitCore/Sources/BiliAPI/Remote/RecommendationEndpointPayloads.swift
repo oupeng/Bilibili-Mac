@@ -23,6 +23,8 @@ struct RecommendationItemPayload: Decodable, Sendable {
     let pubdate: Int64?
     let recommendationReason: RecommendationReasonPayload?
     let hasBusinessInfo: Bool
+    /// 「不感兴趣」反馈要带的追踪 ID；缺失或为空时为 nil，只是这一条不提供反馈（字符与长度由写授权器的 schema 把关）。
+    let trackID: String?
 
     private enum CodingKeys: String, CodingKey {
         case goto
@@ -35,6 +37,7 @@ struct RecommendationItemPayload: Decodable, Sendable {
         case pubdate
         case recommendationReason = "rcmd_reason"
         case businessInfo = "business_info"
+        case trackID = "track_id"
     }
 
     init(from decoder: any Decoder) throws {
@@ -56,6 +59,8 @@ struct RecommendationItemPayload: Decodable, Sendable {
         } else {
             hasBusinessInfo = false
         }
+        trackID = container.decodeLossyIfPresent(String.self, forKey: .trackID)
+            .flatMap { $0.isEmpty ? nil : $0 }
     }
 
     func model() -> RecommendedVideo? {
@@ -87,7 +92,8 @@ struct RecommendationItemPayload: Decodable, Sendable {
             statistics: stat.model(),
             durationSeconds: duration,
             publishedAt: Date(timeIntervalSince1970: TimeInterval(pubdate)),
-            recommendationReason: normalizedReason.flatMap { $0.isEmpty ? nil : $0 }
+            recommendationReason: normalizedReason.flatMap { $0.isEmpty ? nil : $0 },
+            trackID: trackID
         )
     }
 }

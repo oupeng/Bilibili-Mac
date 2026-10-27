@@ -1,6 +1,7 @@
 import BiliAPI
 import BiliApplication
 import BiliAuthFeature
+import BiliBrowseFeature
 import BiliLibraryFeature
 import BiliModels
 import BiliVideoDetailFeature
@@ -13,7 +14,8 @@ import Testing
 /// 并让本窗口与其他窗口的稍后再看在下次出现时刷新（本窗口乐观移除过的不再刷新）；稍后再看页与收藏夹页的移除先在本地
 /// 删掉、失败放回原位；「收藏到…」面板确认时只提交勾选的差异，成功后侧栏收藏夹重读；窗口账户一变面板就关闭，重试与
 /// 确认也不在另一个账户下进行；播放页点赞乐观改动、失败放回，反方向的点赞在途时不再发，投币与三连成功后才改状态、三连
-/// 刷新收藏夹；快捷键在未登录、状态未知与全屏时给出提示；写入或面板读取的凭据类失败只请求一次复核，直到下一次写入成功；
+/// 刷新收藏夹；首页推荐的「不感兴趣」与撤销先改卡片标记、失败放回，同一视频的两者同时只发一个，不在推荐里的不发；
+/// 快捷键在未登录、状态未知与全屏时给出提示；写入或面板读取的凭据类失败只请求一次复核，直到下一次写入成功；
 /// 关窗后不再接受意图。
 @Suite(.timeLimit(.minutes(1)))
 @MainActor
@@ -227,7 +229,9 @@ struct AccountWriteCoordinatorTests {
                 "/x/v3/fav/resource/batch-del",
                 "/x/web-interface/archive/like",
                 "/x/web-interface/coin/add",
-                "/x/web-interface/archive/like/triple"
+                "/x/web-interface/archive/like/triple",
+                "/x/web-interface/feedback/dislike",
+                "/x/web-interface/feedback/dislike/cancel"
             ]
         )
         #expect(BiliAccountWritePath.watchLaterAdd == "/x/v2/history/toview/add")
@@ -396,10 +400,136 @@ struct AccountWriteCoordinatorTests {
         #expect(window.accountWrites.favoritePicker == nil)
     }
 
+    /// 失败放回了标记，所以能再说一次；成功标上之后才能撤销。
+    @Test
+    func dislikeMarksTheCardAndRollsBackOnFailure() async throws {
+        let writes = AccountWriteRepositoryStub(outcomes: [.restricted])
+        let session = MutableWritableAccount()
+        session.account = WritableAccount(accountID: 7, sessionGeneration: 1)
+        let coordinator = standaloneCoordinator(
+            writes: writes,
+            session: session,
+            browse: await loadedRecommendations()
+        )
+        let feedback = try dislikeFeedback()
+
+        coordinator.cancelRecommendationDislike(feedback)
+        coordinator.dislikeRecommendation(feedback)
+        await waitForObservedState { coordinator.report != nil }
+        #expect(coordinator.report?.failure == .restricted)
+
+        let failureSequence = coordinator.reportSequence
+        coordinator.dislikeRecommendation(feedback)
+        await waitForObservedState { coordinator.reportSequence != failureSequence }
+        #expect(
+            coordinator.report
+                == AccountWriteReport(change: .recommendationDisliked(feedback), failure: nil)
+        )
+
+        let successSequence = coordinator.reportSequence
+        coordinator.cancelRecommendationDislike(feedback)
+        await waitForObservedState { coordinator.reportSequence != successSequence }
+        #expect(
+            await writes.calls == [
+                "dislike BV17x411w7KC content 7",
+                "dislike BV17x411w7KC content 7",
+                "undislike BV17x411w7KC content 7"
+            ]
+        )
+    }
+
+    @Test
+    func oneFeedbackWritePerVideoAndOnlyForShownCards() async throws {
+        let writes = AccountWriteRepositoryStub(holdsWrites: true)
+        let session = MutableWritableAccount()
+        session.account = WritableAccount(accountID: 7, sessionGeneration: 1)
+        let coordinator = standaloneCoordinator(
+            writes: writes,
+            session: session,
+            browse: await loadedRecommendations()
+        )
+        let feedback = try dislikeFeedback()
+        let notShownTarget = try #require(VideoWriteTarget(bvid: "BV1xx411c7mD"))
+        let notShown = try #require(
+            RecommendationFeedback(
+                target: notShownTarget,
+                uploaderID: 1,
+                trackID: "track",
+                reason: .uploader
+            )
+        )
+
+        coordinator.dislikeRecommendation(notShown)
+        coordinator.dislikeRecommendation(feedback)
+        await writes.waitForCallCount(1)
+        coordinator.cancelRecommendationDislike(feedback)
+        await writes.releaseWrites()
+        await waitForObservedState { coordinator.report != nil }
+
+        #expect(await writes.calls == ["dislike BV17x411w7KC content 7"])
+    }
+
+    /// 撤销途中换了账户，新推荐恰好有同一视频：撤销失败也不把旧账户的反馈标到新推荐上。
+    @Test
+    func failedUndoDoesNotMarkTheNextAccountsRecommendations() async throws {
+        let writes = AccountWriteRepositoryStub(outcomes: [.restricted], holdsWrites: true)
+        let session = MutableWritableAccount()
+        session.account = WritableAccount(accountID: 7, sessionGeneration: 1)
+        let browse = await loadedRecommendations()
+        let coordinator = standaloneCoordinator(writes: writes, session: session, browse: browse)
+        let feedback = try dislikeFeedback()
+        #expect(browse.markRecommendationDisliked(feedback) != nil)
+
+        coordinator.cancelRecommendationDislike(feedback)
+        await writes.waitForCallCount(1)
+        browse.synchronizeAuthenticationSession(generation: 2)
+        await browse.waitForCurrentTask()
+        await writes.releaseWrites()
+        await waitForObservedState { coordinator.report != nil }
+
+        #expect(coordinator.report?.failure == .restricted)
+        #expect(browse.unmarkRecommendationDisliked(feedback) == nil)
+        #expect(browse.markRecommendationDisliked(feedback) != nil)
+    }
+
+    private func loadedRecommendations() async -> BrowseViewModel {
+        let video = RecommendedVideo(
+            bvid: "BV17x411w7KC",
+            title: "推荐",
+            coverURL: nil,
+            owner: VideoOwner(id: 1, name: "作者"),
+            statistics: VideoStatistics(viewCount: 1, danmakuCount: 0, likeCount: 0),
+            durationSeconds: 60,
+            publishedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            recommendationReason: nil,
+            trackID: "track"
+        )
+        let browse = BrowseViewModel(
+            useCase: FeedUseCase(repository: FeedRepositoryStub(recommendations: [video]))
+        )
+        await browse.activate(.recommendation)
+        return browse
+    }
+
+    private func dislikeFeedback() throws -> RecommendationFeedback {
+        let target = try target()
+        return try #require(
+            RecommendationFeedback(
+                target: target,
+                uploaderID: 1,
+                trackID: "track",
+                reason: .content
+            )
+        )
+    }
+
     private func standaloneCoordinator(
         writes: AccountWriteRepositoryStub,
         session: MutableWritableAccount,
-        favorites: FavoritesRepositoryStub = FavoritesRepositoryStub()
+        favorites: FavoritesRepositoryStub = FavoritesRepositoryStub(),
+        browse: BrowseViewModel = BrowseViewModel(
+            useCase: FeedUseCase(repository: FeedRepositoryStub())
+        )
     ) -> AccountWriteCoordinator {
         let favoritesUseCase = FavoritesUseCase(repository: favorites)
         let engagementUseCase = VideoEngagementUseCase(repository: writes)
@@ -422,6 +552,8 @@ struct AccountWriteCoordinatorTests {
                 useCase: engagementUseCase,
                 accountID: { session.account?.accountID }
             ),
+            recommendationFeedback: RecommendationFeedbackUseCase(repository: writes),
+            browseModel: browse,
             writableAccount: { session.account },
             publish: { _, _ in }
         )

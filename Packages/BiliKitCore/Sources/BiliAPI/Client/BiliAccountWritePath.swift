@@ -31,4 +31,10 @@ public enum BiliAccountWritePath {
     public static let videoCoin = "/x/web-interface/coin/add"
     /// 三连（`aid`、`csrf`，urlencoded，不签 WBI）；收藏进默认收藏夹。
     public static let videoTriple = "/x/web-interface/archive/like/triple"
+    /// 首页推荐的「不感兴趣」（推荐流固定字段加 `id`、`mid`、`track_id`、`reason_id`、`csrf`，urlencoded）。
+    ///
+    /// 网页签 WBI，这里不签，见授权器 schema 表的说明。
+    public static let recommendationDislike = "/x/web-interface/feedback/dislike"
+    /// 撤销「不感兴趣」，字段与 `recommendationDislike` 完全相同。
+    public static let recommendationDislikeCancel = "/x/web-interface/feedback/dislike/cancel"
 }

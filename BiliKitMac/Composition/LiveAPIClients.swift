@@ -45,7 +45,9 @@ enum LiveAPIClients {
         BiliAccountWritePath.favoriteFolderEntryRemove,
         BiliAccountWritePath.videoLike,
         BiliAccountWritePath.videoCoin,
-        BiliAccountWritePath.videoTriple
+        BiliAccountWritePath.videoTriple,
+        BiliAccountWritePath.recommendationDislike,
+        BiliAccountWritePath.recommendationDislikeCancel
     ]
 
     static let cdnBenchmarkAccountReadAllowedPaths: Set<String> = [

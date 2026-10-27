@@ -20,7 +20,8 @@ struct AccountWriteEffectDelivery: Equatable {
 
 /// 把写入效果落到本窗口的视图上：稍后再看列表只标记为过期，下次页面出现时原地刷新，不在后台读取；收藏写入让侧栏的
 /// 收藏夹列表在后台重读条数（它本来就在已登录时常驻读取），受影响的收藏夹正在显示时原地刷新，否则回来时刷新；点赞、
-/// 投币、三连与收藏改动让正在播放同一视频的播放页重读互动状态（三连的收藏进默认收藏夹，也按收藏写入刷新）。
+/// 投币、三连与收藏改动让正在播放同一视频的播放页重读互动状态（三连的收藏进默认收藏夹，也按收藏写入刷新）。「不感兴趣」
+/// 与撤销不落到任何视图：标记只在发起窗口的推荐网格里（由写入协调者乐观改动），各窗口的推荐流本来就各不相同。
 ///
 /// 每个窗口一个，由 `WindowComposition` 构造；本窗口的写入协调者直接交给它，其他窗口的效果经进程级 `AccountWriteEffectHub`
 /// 转来（窗口打开时登记、关闭时注销）。只处理与本窗口当前账户、会话代次都一致的效果，其余丢弃：换号或登出之后迟到的
@@ -82,6 +83,8 @@ final class AccountWriteEffectRouter {
             }
             guard !appliedLocally else { return }
             engagementModel.markNeedsReload(bvid: target.bvid)
+        case .recommendationDisliked, .recommendationDislikeCancelled:
+            break
         }
     }
 }

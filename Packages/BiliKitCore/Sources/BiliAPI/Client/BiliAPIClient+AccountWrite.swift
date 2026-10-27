@@ -104,7 +104,8 @@ extension BiliAPIClient {
     /// 另带 `Origin`），经 `access` 对应的授权器发出，再判定状态 envelope；成功时返回响应正文，需要 `data` 的写入自己解码。
     ///
     /// 写请求总是带凭据发出：业务码 -101（未登录）与 -111（csrf 校验失败）都说明凭据失效，映射为
-    /// `authenticationInvalid`；其他非零码为 `apiRejected`。不像 JSON 的正文（HTML 风控页等）按 `nonJSONResponse` 失败
+    /// `authenticationInvalid`；其他非零码为 `apiRejected`。`code` 为 0 但 `data` 只有 `v_voucher` 是风控挑战、写入
+    /// 没有生效，按 `riskControlVoucher`（受限）失败，不当作成功（见 SECURITY-MODEL §3）。不像 JSON 的正文（HTML 风控页等）按 `nonJSONResponse` 失败
     /// 关闭。调用方不得自行附加 csrf：授权器在拼好的表单末尾注入，表单里已有就拒绝。`additionalCookie` 在授权之后附加，
     /// 只给要求 `buvid3` 的点赞、投币与三连（见 SECURITY-MODEL §3）。
     @discardableResult
@@ -153,6 +154,9 @@ extension BiliAPIClient {
         }
         guard status.code == 0 else {
             throw BiliAPIError.apiRejected(code: status.code, message: status.message ?? "")
+        }
+        if Self.isRiskControlVoucher(authorizedResponse.response.body) {
+            throw BiliAPIError.riskControlVoucher
         }
         return authorizedResponse.response.body
     }

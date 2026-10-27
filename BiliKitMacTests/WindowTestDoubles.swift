@@ -241,6 +241,7 @@ func makeTestAdapters(
     watchLaterWrite: any WatchLaterWriteRepository = AccountWriteRepositoryStub(),
     favoritesWrite: any FavoritesWriteRepository = AccountWriteRepositoryStub(),
     videoEngagement: any VideoEngagementRepository = AccountWriteRepositoryStub(),
+    recommendationFeedback: any RecommendationFeedbackRepository = AccountWriteRepositoryStub(),
     authentication: any AuthenticationServicing = AuthenticationServiceStub(
         restoreState: .signedOut
     ),
@@ -254,7 +255,7 @@ func makeTestAdapters(
     close: @escaping @MainActor () -> Void = {}
 ) -> WindowAdapters {
     WindowAdapters(
-        feedRepository: EmptyFeedRepository(),
+        feedRepository: FeedRepositoryStub(),
         videoRepository: video,
         relatedVideoRepository: EmptyRelatedVideoRepository(),
         trendingSearchRepository: EmptyTrendingSearchRepository(),
@@ -268,6 +269,7 @@ func makeTestAdapters(
         favoritesRepository: favorites,
         favoritesWriteRepository: favoritesWrite,
         videoEngagementRepository: videoEngagement,
+        recommendationFeedbackRepository: recommendationFeedback,
         commentAssetURLResolver: { _, _ in nil },
         commentLinkRouter: { _ in nil },
         authenticationService: authentication,

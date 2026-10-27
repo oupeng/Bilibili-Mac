@@ -480,7 +480,9 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
     }
 
     /// 只有 `data` 恰好是 `{"v_voucher": …}` 才算挑战；正常响应里并列的 `v_voucher` 不影响解码。
-    private static func isRiskControlVoucher(_ body: Data) -> Bool {
+    ///
+    /// 读取管线与写入的 `postForm` 共用这一处判定。
+    static func isRiskControlVoucher(_ body: Data) -> Bool {
         guard body.range(of: Data(#""v_voucher""#.utf8)) != nil,
             let root = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
             let data = root["data"] as? [String: Any]

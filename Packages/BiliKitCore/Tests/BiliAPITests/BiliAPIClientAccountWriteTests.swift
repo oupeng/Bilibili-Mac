@@ -90,6 +90,28 @@ struct BiliAPIClientAccountWriteTests {
         }
     }
 
+    /// `code` 为 0 但 `data` 只有 `v_voucher` 是风控挑战，写入没有生效：按受限失败，不当作成功。
+    @Test
+    func voucherChallengeIsRestrictedNotSuccess() async throws {
+        let repository = BiliWatchLaterWriteRepository(
+            client: BiliAPIClient(
+                transport: StubTransport(responses: [
+                    jsonResponse(
+                        #"{"code":0,"message":"0","data":{"v_voucher":"voucher_fixture"}}"#
+                    )
+                ]),
+                accountWriteAuthorizer: StubSubjectBoundAuthorizer()
+            )
+        )
+
+        await #expect(throws: AccountWriteError.restricted) {
+            try await repository.add(
+                try #require(VideoWriteTarget(bvid: "BV17x411w7KC")),
+                accountID: 42
+            )
+        }
+    }
+
     /// 凭据失效（含账户不符）、已登录却无凭据、Keychain 不可用与授权器拒绝各有自己的写入错误，都不发出请求。
     @Test(arguments: [
         (
