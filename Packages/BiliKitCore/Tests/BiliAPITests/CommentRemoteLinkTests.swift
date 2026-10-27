@@ -209,6 +209,31 @@ struct CommentRemoteLinkTests {
         #expect(links.dropFirst().allSatisfy { $0.title == nil && $0.icon == nil })
     }
 
+    /// 接口标题与正文一样还原 HTML 实体；还原后与正文相同时不替换。
+    @Test
+    func jumpURLTitleIsDecodedBeforeComparingWithTheText() throws {
+        let data = try JSONSerialization.data(
+            withJSONObject: [
+                "message": "看这个 A&amp;B",
+                "jump_url": [
+                    "看这个": [
+                        "pc_url": "https://www.bilibili.com/video/BV1xx411c7mD",
+                        "title": "Tom&#x27;s &lt;朋友&gt;"
+                    ],
+                    "A&amp;B": [
+                        "pc_url": "https://www.bilibili.com/video/BV1FixtureA1",
+                        "title": "A&amp;B"
+                    ]
+                ]
+            ]
+        )
+        let payload = try JSONDecoder().decode(CommentContentPayload.self, from: data)
+
+        let links = try payload.model().links
+
+        #expect(links.map(\.title) == ["Tom's <朋友>", nil])
+    }
+
     /// 站外链接不替换标题：正文保留真实网址，点击前能看到域名；图标照常带上。
     @Test
     func externalLinksKeepTheirAddressText() throws {

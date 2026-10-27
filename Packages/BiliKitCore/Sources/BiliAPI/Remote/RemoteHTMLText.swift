@@ -1,8 +1,11 @@
 import Foundation
 
-/// 把远端列表接口中的 HTML-escaped 视频标题一次性规范为语义纯文本。
-enum RemoteVideoTitleNormalizer {
-    /// 只解码 HTML 实体；列表标题与推荐理由用它。
+/// 把远端接口里按 HTML 转义过的文字一次性规范为语义纯文本。
+///
+/// 列表视频标题、推荐理由与评论正文都以转义形式下发（如 `&gt;`、`&#x27;`）；映射为模型时在这里解码一次，
+/// 界面拿到的始终是纯文本，不再解码，也不再按 HTML 解释。
+enum RemoteHTMLText {
+    /// 只解码 HTML 实体；列表标题、推荐理由与评论正文用它。
     static func plainText(_ value: String) -> String {
         decodingHTMLEntities(in: value)
     }

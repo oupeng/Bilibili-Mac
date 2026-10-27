@@ -5,6 +5,8 @@ import Foundation
 /// 评论正文：文字、表情、接口标出的链接、图片与 @ 成员，映射为 `CommentContent`。
 ///
 /// 图片超过 9 张整条失败；单个表情、链接、图片或成员异常时只丢弃该项。
+/// `message` 在解码时就还原 HTML 实体（见 `RemoteHTMLText`），之后的表情、链接与 @ 范围都按还原后的文字计算，
+/// 与界面显示的文字一致。
 struct CommentContentPayload: Decodable, Sendable {
     let message: String
     let emote: [String: CommentEmotePayload]
@@ -23,7 +25,7 @@ struct CommentContentPayload: Decodable, Sendable {
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        message = try container.decode(String.self, forKey: .message)
+        message = RemoteHTMLText.plainText(try container.decode(String.self, forKey: .message))
         emote =
             container.decodeLossyIfPresent(
                 LossyStringDictionary<CommentEmotePayload>.self,
@@ -54,7 +56,9 @@ struct CommentContentPayload: Decodable, Sendable {
         }
         let emotes = mappedEmotes()
         let mappedPictures = mappedPictures()
-        let jumpLinks = jumpURLs.flatMap { label, payload -> [CommentLink] in
+        let jumpLinks = jumpURLs.flatMap { rawLabel, payload -> [CommentLink] in
+            // 键是正文里的一段原文；正文已还原实体，键也还原一次才能在正文里定位，键本身没有转义时不受影响。
+            let label = RemoteHTMLText.plainText(rawLabel)
             guard !payload.isWordSearch,
                 let target = CommentRemoteLink.target(payload.destination(label: label))
             else { return [] }

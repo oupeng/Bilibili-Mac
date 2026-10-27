@@ -190,7 +190,7 @@ struct FavoriteMediaPayload: Decodable, Sendable {
         }
         return FavoriteItem(
             id: validBVID,
-            title: RemoteVideoTitleNormalizer.plainText(title),
+            title: RemoteHTMLText.plainText(title),
             coverURL: cover.flatMap(WebImageURL.parse),
             owner: VideoOwner(
                 id: ownerID,
@@ -248,7 +248,7 @@ struct FavoriteMediaPayload: Decodable, Sendable {
             }
         return FavoriteItem(
             id: id,
-            title: title.flatMap { $0.isEmpty ? nil : RemoteVideoTitleNormalizer.plainText($0) },
+            title: title.flatMap { $0.isEmpty ? nil : RemoteHTMLText.plainText($0) },
             coverURL: cover.flatMap(WebImageURL.parse),
             owner: owner,
             // 不可用行的时长常为 0 或缺失，都按未知处理、不显示。

@@ -39,7 +39,7 @@ struct SearchPayload: Decodable, Sendable {
 }
 
 /// 搜索结果的一项，映射为 `SearchVideo`；标题带高亮标签，经
-/// `RemoteVideoTitleNormalizer.searchResult` 去标签并解码实体。
+/// `RemoteHTMLText.searchResult` 去标签并解码实体。
 struct SearchVideoPayload: Decodable, Sendable {
     let bvid: String
     let title: String
@@ -68,7 +68,7 @@ struct SearchVideoPayload: Decodable, Sendable {
         }
         return SearchVideo(
             bvid: bvid,
-            title: RemoteVideoTitleNormalizer.searchResult(title),
+            title: RemoteHTMLText.searchResult(title),
             coverURL: WebImageURL.parse(pic),
             owner: VideoOwner(
                 id: mid,

@@ -6,8 +6,8 @@ import Testing
 
 @testable import BiliAPI
 
-/// 固定评论正文与作者的解码契约：头像、表情与图片归一为安全的 HTTPS 资源引用，
-/// 链接、@ 与表情按 UTF-16 范围标注，损坏或有歧义的标注退回字面文本，图片超过九张拒绝。
+/// 固定评论正文与作者的解码契约：正文还原 HTML 实体，头像、表情与图片归一为安全的 HTTPS 资源引用，
+/// 链接、@ 与表情按还原后正文的 UTF-16 范围标注，损坏或有歧义的标注退回字面文本，图片超过九张拒绝。
 @Suite("Comment content", .timeLimit(.minutes(1)))
 struct CommentContentDecodingTests {
     @Test(
@@ -262,6 +262,36 @@ struct CommentContentDecodingTests {
         #expect(emotes.first?.range == CommentTextRange(location: 0, length: 6))
         #expect(emotes[1].asset == emotes[2].asset)
         #expect(emotes[0].asset != emotes[1].asset)
+    }
+
+    @Test
+    func escapedMessageIsDecodedBeforeEmotesAndLinksAreLocated() throws {
+        let body = Data(
+            #"""
+            {
+              "message": "宝宝˶&gt;ᗜ&lt;˶[doge] 看视频 A&amp;B",
+              "emote": {
+                "[doge]": { "url": "https://i0.hdslb.com/bfs/emote/doge.png" }
+              },
+              "jump_url": {
+                "看视频": { "pc_url": "https://www.bilibili.com/video/BV1FixtureA1" },
+                "A&amp;B": { "pc_url": "https://www.bilibili.com/opus/42" }
+              }
+            }
+            """#.utf8
+        )
+        let payload = try JSONDecoder().decode(CommentContentPayload.self, from: body)
+
+        let content = try payload.model()
+
+        #expect(content.message == "宝宝˶>ᗜ<˶[doge] 看视频 A&B")
+        #expect(content.emotes.map(\.range) == [CommentTextRange(location: 7, length: 6)])
+        #expect(
+            content.links.map(\.range) == [
+                CommentTextRange(location: 14, length: 3),
+                CommentTextRange(location: 18, length: 3)
+            ]
+        )
     }
 
     @Test
