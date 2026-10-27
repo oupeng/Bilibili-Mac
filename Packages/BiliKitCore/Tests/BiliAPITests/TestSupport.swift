@@ -362,3 +362,19 @@ final class SequentialTransportFactory: Sendable {
         }
     }
 }
+
+/// 发出的 urlencoded 表单体按字段名展开；写入请求的测试据此核对字段，不依赖字段顺序。
+func formFields(_ request: HTTPRequest) -> [String: String] {
+    var components = URLComponents()
+    components.percentEncodedQuery = request.body.flatMap { String(data: $0, encoding: .utf8) }
+    return fields(components.queryItems)
+}
+
+/// 请求 URL 的查询参数按字段名展开。
+func queryFields(_ request: HTTPRequest) -> [String: String] {
+    fields(URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems)
+}
+
+private func fields(_ items: [URLQueryItem]?) -> [String: String] {
+    Dictionary(uniqueKeysWithValues: (items ?? []).map { ($0.name, $0.value ?? "") })
+}

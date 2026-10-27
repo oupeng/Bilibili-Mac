@@ -1,7 +1,7 @@
 import BiliModels
 import Foundation
 
-/// 用户发起的账户写入（稍后再看、收藏、点赞、投币与三连）共用的应用级错误。
+/// 用户发起的账户写入（稍后再看、收藏、点赞、投币、三连与首页推荐的「不感兴趣」）共用的应用级错误。
 ///
 /// 由 BiliAPI 的写 adapter 映射：-101、-111 与凭据账户不符为 `authenticationInvalid`；窗口以为已登录、本地却没有凭据为
 /// `authenticationRequired`；Keychain 不可用为 `authenticationUnavailable`；HTTP 403／412、-352 等风控为 `restricted`；
@@ -87,6 +87,10 @@ public enum AccountWriteChange: Sendable, Hashable {
     case coinsAdded(VideoWriteTarget, count: Int, alsoLiked: Bool)
     /// 三连；尝试中的改动没有结果，成功的效果带服务端报告的逐项结果。
     case tripled(VideoWriteTarget, VideoTripleOutcome?)
+    /// 对首页推荐的一条说「不感兴趣」。
+    case recommendationDisliked(RecommendationFeedback)
+    /// 撤销「不感兴趣」。
+    case recommendationDislikeCancelled(RecommendationFeedback)
 }
 
 /// 写入成功后需要让其他视图知道的事实：哪个账户的哪项内容变了。
@@ -122,7 +126,7 @@ public struct AccountWriteReport: Sendable, Equatable {
         case .likeChanged(let target, _), .coinsAdded(let target, _, _), .tripled(let target, _):
             BVID.webPageURL(target.bvid)
         case .watchLaterAdded, .watchLaterRemoved, .favoriteMembershipChanged,
-            .removedFromFavoriteFolder:
+            .removedFromFavoriteFolder, .recommendationDisliked, .recommendationDislikeCancelled:
             nil
         }
     }

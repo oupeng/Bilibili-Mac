@@ -15,19 +15,26 @@ public struct VideoCardAccountWriting: Sendable {
     public let chooseFavoriteFolders: @MainActor @Sendable (_ bvid: String) -> Void
     /// 收藏夹页的「从此收藏夹移除」；条目由收藏夹页按显示中的收藏夹与条目给出。
     public let removeFromFavoriteFolder: @MainActor @Sendable (FavoriteFolderEntry) -> Void
+    /// 首页推荐的「不感兴趣」与撤销；反馈由首页推荐按卡片的推荐流字段与所选原因给出，撤销交回同一份。
+    public let dislikeRecommendation: @MainActor @Sendable (RecommendationFeedback) -> Void
+    public let cancelRecommendationDislike: @MainActor @Sendable (RecommendationFeedback) -> Void
 
     public init(
         isAvailable: @escaping @MainActor @Sendable () -> Bool,
         addToWatchLater: @escaping @MainActor @Sendable (_ bvid: String) -> Void,
         removeFromWatchLater: @escaping @MainActor @Sendable (_ bvid: String) -> Void,
         chooseFavoriteFolders: @escaping @MainActor @Sendable (_ bvid: String) -> Void,
-        removeFromFavoriteFolder: @escaping @MainActor @Sendable (FavoriteFolderEntry) -> Void
+        removeFromFavoriteFolder: @escaping @MainActor @Sendable (FavoriteFolderEntry) -> Void,
+        dislikeRecommendation: @escaping @MainActor @Sendable (RecommendationFeedback) -> Void,
+        cancelRecommendationDislike: @escaping @MainActor @Sendable (RecommendationFeedback) -> Void
     ) {
         self.isAvailable = isAvailable
         self.addToWatchLater = addToWatchLater
         self.removeFromWatchLater = removeFromWatchLater
         self.chooseFavoriteFolders = chooseFavoriteFolders
         self.removeFromFavoriteFolder = removeFromFavoriteFolder
+        self.dislikeRecommendation = dislikeRecommendation
+        self.cancelRecommendationDislike = cancelRecommendationDislike
     }
 }
 

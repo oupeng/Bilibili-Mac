@@ -1,8 +1,8 @@
 import BiliNetworking
 import Foundation
 
-/// 只授权用户发起的账户写入（稍后再看的加入与移除、收藏到收藏夹与从收藏夹移除、点赞、投币与三连），并在 `BiliAuth` 内
-/// 绑定账户、注入最小 Cookie 与 CSRF。
+/// 只授权用户发起的账户写入（稍后再看的加入与移除、收藏到收藏夹与从收藏夹移除、点赞、投币、三连，以及首页推荐的
+/// 「不感兴趣」与撤销），并在 `BiliAuth` 内绑定账户、注入最小 Cookie 与 CSRF。
 ///
 /// 每个请求必须精确命中：`https://api.bilibili.com`（端口缺省或 443）、POST、无 query／userinfo／fragment、path 同时在
 /// Composition 声明的 allowlist 与本类型封闭的 schema 表里；header 集合固定为 `Accept`、`Content-Type`、`Origin`、
@@ -59,9 +59,13 @@ public struct BiliAccountWriteRequestAuthorizer: HTTPSubjectBoundRequestAuthoriz
         case positiveIntegerList
         /// 单个视频条目 `<aid>:2`：不收逗号分隔的多个条目，也不收视频以外的类型。
         case singleVideoResource
+        /// 推荐流的追踪 ID（`track_id`）：1 到 `maximumTrackingTokenLength` 个 ASCII 字母、数字与 `.`、`_`、`-`。
+        case trackingToken
 
         /// 一次收藏改动最多涉及的收藏夹数：远多于一个账户实际拥有的夹数，超出说明请求构造有误。
         static let maximumListCount = 100
+        /// 追踪 ID 的长度上限：网页实测的推荐流取值远短于它，超出说明取值不是推荐流给的。
+        static let maximumTrackingTokenLength = 200
 
         func accepts(_ value: String) -> Bool {
             switch self {
@@ -75,6 +79,11 @@ public struct BiliAccountWriteRequestAuthorizer: HTTPSubjectBoundRequestAuthoriz
                 Self.isPositiveIntegerList(value)
             case .singleVideoResource:
                 Self.isSingleVideoResource(value)
+            case .trackingToken:
+                (1...Self.maximumTrackingTokenLength).contains(value.count)
+                    && value.allSatisfy {
+                        $0.isASCII && ($0.isLetter || $0.isNumber || "._-".contains($0))
+                    }
             }
         }
 
@@ -120,7 +129,14 @@ public struct BiliAccountWriteRequestAuthorizer: HTTPSubjectBoundRequestAuthoriz
     /// 点赞、投币与三连各一条，只收单个稿件：点赞 `like` 只能是 1（赞）或 2（取消）；投币 `multiply` 只能是 1 或 2（单个
     /// 稿件的上限），`select_like` 0 或 1；三连只有 `aid`。网页同样附带的统计字段与 `cross_domain` 不发送。这三个接口
     /// 要求 Cookie 带 `buvid3`，它不是凭据、不在这里注入，由 BiliAPI 在授权之后附加（见 SECURITY-MODEL §3）。
+    ///
+    /// 首页推荐的「不感兴趣」与撤销字段完全相同、共用 `recommendationFeedbackSchema`：只收单个稿件与它的 UP 主 `mid`
+    /// （推荐流的普通视频总有 UP 主，0 只会是构造有误），`reason_id` 只能是 1（内容不感兴趣）或 4（不想看此 UP 主），其余
+    /// 是网页固定发送的取值。网页对这两个接口签 WBI，这里不签（多个第三方
+    /// 客户端不签也能用）；实机被拒时再给 schema 加签名 query 维度并封闭校验 `w_rid`／`wts`，不能放宽成接受任意 query。
     static let schemas: [String: Schema] = [
+        "/x/web-interface/feedback/dislike": recommendationFeedbackSchema,
+        "/x/web-interface/feedback/dislike/cancel": recommendationFeedbackSchema,
         "/x/v2/history/toview/add": Schema(
             requiredFields: ["aid": .positiveInteger],
             optionalFields: [:],
@@ -179,6 +195,25 @@ public struct BiliAccountWriteRequestAuthorizer: HTTPSubjectBoundRequestAuthoriz
             cookieNames: [.session]
         )
     ]
+
+    /// 「不感兴趣」与撤销共用的 schema，见 `schemas` 的说明。
+    private static let recommendationFeedbackSchema = Schema(
+        requiredFields: [
+            "app_id": .literal("100"),
+            "platform": .literal("5"),
+            "from_spmid": .literal(""),
+            "spmid": .literal("333.1007.0.0"),
+            "goto": .literal("av"),
+            "id": .positiveInteger,
+            "mid": .positiveInteger,
+            "track_id": .trackingToken,
+            "feedback_page": .literal("1"),
+            "reason_id": .oneOf(["1", "4"])
+        ],
+        optionalFields: [:],
+        referer: "https://www.bilibili.com/",
+        cookieNames: [.session]
+    )
 
     /// 写请求固定的 `Origin`：浏览器跨域 POST 会带它，B 站据此与 Referer 一起判断来源。
     static let origin = "https://www.bilibili.com"

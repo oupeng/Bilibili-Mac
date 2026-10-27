@@ -91,6 +91,8 @@ package enum AccountWriteStatusText {
                     ? BiliUIStrings.localized("已投 \(count) 枚硬币并点赞")
                     : BiliUIStrings.localized("已投 \(count) 枚硬币")
             case .tripled: BiliUIStrings.localized("已三连")
+            case .recommendationDisliked: VideoCardMenuText.dislikedBadge
+            case .recommendationDislikeCancelled: BiliUIStrings.localized("已撤销不感兴趣")
             }
         }
         let reason = reason(for: failure, change: report.change)
@@ -105,6 +107,8 @@ package enum AccountWriteStatusText {
                 : BiliUIStrings.localized("无法取消点赞：\(reason)")
         case .coinsAdded: BiliUIStrings.localized("无法投币：\(reason)")
         case .tripled: BiliUIStrings.localized("无法三连：\(reason)")
+        case .recommendationDisliked: BiliUIStrings.localized("无法提交不感兴趣：\(reason)")
+        case .recommendationDislikeCancelled: BiliUIStrings.localized("无法撤销不感兴趣：\(reason)")
         }
     }
 
@@ -112,7 +116,9 @@ package enum AccountWriteStatusText {
     {
         let isFavorites =
             switch change {
-            case .watchLaterAdded, .watchLaterRemoved, .likeChanged, .coinsAdded, .tripled: false
+            case .watchLaterAdded, .watchLaterRemoved, .likeChanged, .coinsAdded, .tripled,
+                .recommendationDisliked, .recommendationDislikeCancelled:
+                false
             case .favoriteMembershipChanged, .removedFromFavoriteFolder: true
             }
         return switch failure {
