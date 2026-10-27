@@ -5,7 +5,9 @@ import Testing
 
 @testable import BiliVideoDetailFeature
 
-/// 楼中楼翻页时，回复面板顶边已在可见区上方就把它顶到顶部；收起时根评论顶边同理；对齐边仍可见时保持阅读位置。
+/// 楼中楼翻页时，回复面板顶边已在可见区上方就把它顶到顶部；收起时根评论顶边同理；对齐边仍可见时这一楼停在原处。
+///
+/// 定位意图保留到这一楼加载完成，加载态与回复到达都按它定位。
 @Suite(.timeLimit(.minutes(1)))
 @MainActor
 struct PlaybackSidebarReplyNavigationTests: PlaybackSidebarFixtures {
@@ -25,18 +27,27 @@ struct PlaybackSidebarReplyNavigationTests: PlaybackSidebarFixtures {
         let panelTop = try sidebar.alignmentY(.repliesPanel)
         sidebar.controller.scroll(to: panelTop - 40)
         sidebar.controller.prepareThreadAlignment(Self.itemID, edge: .repliesPanel)
-        #expect(sidebar.controller.pendingThreadAlignment == nil)
+        let rootTop = try sidebar.alignmentY(.root)
+        #expect(
+            sidebar.controller.pendingThreadAlignment?.target
+                == .keepItemTop(offsetFromVisibleTop: rootTop - sidebar.visibleTop)
+        )
 
         sidebar.controller.scroll(to: panelTop + 20)
         sidebar.controller.prepareThreadAlignment(Self.itemID, edge: .repliesPanel)
         sidebar.update(states.changed)
+        func panelIsAtTop() -> Bool {
+            (try? abs(sidebar.alignmentY(.repliesPanel) - sidebar.visibleTop)) ?? .infinity <= 1
+        }
+        #expect(await waitUntil(timeout: .seconds(5)) { panelIsAtTop() })
+        #expect(sidebar.controller.pendingThreadAlignment != nil)
+
+        sidebar.update(await states.arrive())
         #expect(
             await waitUntil(timeout: .seconds(5)) {
-                (try? abs(sidebar.alignmentY(.repliesPanel) - sidebar.visibleTop)) ?? .infinity
-                    <= 1
+                panelIsAtTop() && sidebar.controller.pendingThreadAlignment == nil
             }
         )
-        await states.release()
     }
 
     @Test
@@ -54,7 +65,8 @@ struct PlaybackSidebarReplyNavigationTests: PlaybackSidebarFixtures {
                 (try? abs(sidebar.alignmentY(.root) - sidebar.visibleTop)) ?? .infinity <= 1
             }
         )
-        await states.release()
+        #expect(sidebar.controller.pendingThreadAlignment == nil)
+        _ = await states.arrive()
     }
 
     private enum NextStep {
@@ -62,15 +74,16 @@ struct PlaybackSidebarReplyNavigationTests: PlaybackSidebarFixtures {
         case collapse
     }
 
-    /// 第 5 楼展开第一页的呈现，以及翻到第 2 页（请求挂起、面板显示加载中）或收起之后的呈现。
+    /// 第 5 楼展开第一页的呈现，翻到第 2 页（请求挂起、面板显示加载中）或收起之后的呈现，以及放行挂起的请求、
+    /// 等第 2 页到达后的呈现。
     ///
-    /// 呈现是值，先全部构造：构造要等 ViewModel 加载，中途让出主线程会让侧栏的精测 Task 先跑、改变测量基准。
+    /// 前两个呈现先构造：构造要等 ViewModel 加载，中途让出主线程会让侧栏的精测 Task 先跑、改变测量基准。
     private func replyStates(
         next: NextStep
     ) async -> (
         expanded: NativePlaybackCommentsPresentation,
         changed: NativePlaybackCommentsPresentation,
-        release: () async -> Void
+        arrive: () async -> NativePlaybackCommentsPresentation
     ) {
         let threads = (1...40).map { id in
             commentThread(
@@ -102,7 +115,19 @@ struct PlaybackSidebarReplyNavigationTests: PlaybackSidebarFixtures {
         case .collapse: model.collapseReplies(for: Self.rootID)
         }
         let changed = NativePlaybackCommentsPresentation(model: model)
-        return (expanded, changed, { await repository.releaseAllHeldReplies() })
+        return (
+            expanded,
+            changed,
+            {
+                // 先等第 2 页请求真正到达替身再放行，否则放行早于挂起，请求会一直挂着。
+                if case .page = next { await repository.waitForReplyRequestCount(2) }
+                await repository.releaseAllHeldReplies()
+                await waitForObservedState {
+                    model.replyStates[Self.rootID]?.isLoading != true
+                }
+                return NativePlaybackCommentsPresentation(model: model)
+            }
+        )
     }
 }
 

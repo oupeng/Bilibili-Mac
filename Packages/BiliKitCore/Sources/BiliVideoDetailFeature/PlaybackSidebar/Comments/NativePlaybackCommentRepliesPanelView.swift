@@ -162,19 +162,12 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
                 retryButton.isHidden = !error.isRetryable
             } else if let replyState {
                 pager.isHidden = false
-                // 末页之后还有回复（总数在翻页期间增长）时至少多给一页，下一页箭头不会被页数夹死。
-                let counted = CommentPresentationFormatting.pageCount(
-                    totalCount: replyState.totalCount > 0
-                        ? replyState.totalCount : details.replyCount,
-                    pageSize: CommentUseCase.replyPageSize
-                )
-                let pageCount =
-                    replyState.isEnd
-                    ? replyState.pageNumber
-                    : max(counted, replyState.pageNumber + 1)
                 pager.configure(
                     currentPage: replyState.pageNumber,
-                    pageCount: pageCount,
+                    pageCount: NativePlaybackCommentReplyPager.pageCount(
+                        for: replyState,
+                        replyCount: details.replyCount
+                    ),
                     onShowPage: { [weak self] in self?.onShowPage?($0) }
                 )
             }
@@ -211,7 +204,7 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
                 width: 54,
                 height: 24
             )
-            y += 30
+            y += NativePlaybackCommentsItemMeasurement.replyHeaderRowHeight
         }
         for row in replyRows {
             guard let reply = row.commentForLayout else { continue }
@@ -223,12 +216,17 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
                 textScope: textScope
             )
             row.frame = NSRect(x: padding, y: y, width: width, height: height)
-            y += height + 8
+            y += height + NativePlaybackCommentsItemMeasurement.replyRowSpacing
         }
-        if !replyRows.isEmpty { y -= 8 }
+        if !replyRows.isEmpty { y -= NativePlaybackCommentsItemMeasurement.replyRowSpacing }
         if expanded {
             if replyState?.isLoading == true {
-                statusLabel.frame = NSRect(x: padding, y: y, width: width, height: 32)
+                statusLabel.frame = NSRect(
+                    x: padding,
+                    y: y,
+                    width: width,
+                    height: NativePlaybackCommentsItemMeasurement.replyStatusHeight
+                )
             } else if replyState?.error != nil {
                 statusLabel.frame = NSRect(
                     x: padding,
@@ -243,7 +241,7 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
                     height: 28
                 )
             } else {
-                if !replyRows.isEmpty { y += 10 }
+                if !replyRows.isEmpty { y += NativePlaybackCommentsItemMeasurement.replyFooterGap }
                 pager.frame = NSRect(
                     x: padding,
                     y: y,

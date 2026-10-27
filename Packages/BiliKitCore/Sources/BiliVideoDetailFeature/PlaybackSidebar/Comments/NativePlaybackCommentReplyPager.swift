@@ -1,4 +1,5 @@
 import AppKit
+import BiliApplication
 import BiliUI
 
 /// 楼中楼展开后底部的页码条：`‹ 1 … 5 6 [7] 8 9 … N ›`，点数字直接翻到那一页，箭头翻到前后页。
@@ -27,6 +28,17 @@ final class NativePlaybackCommentReplyPager: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
+    /// 页码条的总页数：按楼中楼总数（还没读到时用根评论给的回复数）推算。
+    ///
+    /// 已知是末页时就是当前页；否则至少比当前页多一页，回复总数在翻页期间增长时下一页箭头不会被页数夹死。
+    static func pageCount(for state: PlaybackCommentReplyState, replyCount: Int) -> Int {
+        let counted = CommentPresentationFormatting.pageCount(
+            totalCount: state.totalCount > 0 ? state.totalCount : replyCount,
+            pageSize: CommentUseCase.replyPageSize
+        )
+        return state.isEnd ? state.pageNumber : max(counted, state.pageNumber + 1)
+    }
+
     /// `onShowPage` 只收到 1…`pageCount` 之间、不等于当前页的页码。
     func configure(
         currentPage: Int,
@@ -52,10 +64,8 @@ final class NativePlaybackCommentReplyPager: NSView {
             case .page(let page):
                 views.append(pageButton(page, pageCount: pageCount))
             case .gap:
-                let gap = NSTextField(labelWithString: "…")
+                let gap = PagerLabel(text: "…")
                 gap.textColor = .secondaryLabelColor
-                gap.alignment = .center
-                gap.setAccessibilityElement(false)
                 views.append(gap)
             }
         }
@@ -157,31 +167,30 @@ private final class PageButton: NSButton {
     @objc private func press() { onPress(page) }
 }
 
-/// 当前页：强调色胶囊底上的页码，不可点按；读屏读作“第 n 页，共 N 页”并标为选中。
+/// 页码条里的文字（省略号与当前页数字）：与按钮同一字体，并在给定高度里垂直居中。
+///
+/// `NSTextField` 标签的文字贴着顶边绘制，直接放进按钮同高的格子会比按钮里的数字偏上。
 @MainActor
-private final class CurrentPageView: NSView {
+private final class PagerLabel: NSView {
     private let label: NSTextField
 
-    init(page: Int, pageCount: Int) {
-        label = NSTextField(labelWithString: "\(page)")
+    var textColor: NSColor? {
+        get { label.textColor }
+        set { label.textColor = newValue }
+    }
+
+    init(text: String) {
+        label = NSTextField(labelWithString: text)
         super.init(frame: .zero)
-        wantsLayer = true
         label.font = NativePlaybackCommentReplyPager.numberFont
         label.alignment = .center
         label.setAccessibilityElement(false)
         addSubview(label)
-        setAccessibilityElement(true)
-        setAccessibilityRole(.staticText)
-        setAccessibilityLabel(
-            VideoDetailFeatureStrings.localized("第 \(page) 页，共 \(pageCount) 页")
-        )
-        setAccessibilitySelected(true)
+        setAccessibilityElement(false)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
-
-    override var wantsUpdateLayer: Bool { true }
 
     override var fittingSize: NSSize {
         let size = label.fittingSize
@@ -189,11 +198,6 @@ private final class CurrentPageView: NSView {
             width: size.width + 2 * NativePlaybackCommentReplyPager.numberPadding,
             height: size.height
         )
-    }
-
-    override func updateLayer() {
-        layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.25).cgColor
-        layer?.cornerRadius = bounds.height / 2
     }
 
     override func layout() {
@@ -205,6 +209,42 @@ private final class CurrentPageView: NSView {
             width: bounds.width,
             height: height
         )
+    }
+}
+
+/// 当前页：强调色胶囊底上的页码，不可点按；读屏读作“当前第 n 页，共 N 页”（静态文本读不出“已选”）。
+@MainActor
+private final class CurrentPageView: NSView {
+    private let label: PagerLabel
+
+    init(page: Int, pageCount: Int) {
+        label = PagerLabel(text: "\(page)")
+        super.init(frame: .zero)
+        wantsLayer = true
+        addSubview(label)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.staticText)
+        setAccessibilityLabel(
+            VideoDetailFeatureStrings.localized("当前第 \(page) 页，共 \(pageCount) 页")
+        )
+        setAccessibilitySelected(true)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    override var fittingSize: NSSize { label.fittingSize }
+
+    override func updateLayer() {
+        layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.25).cgColor
+        layer?.cornerRadius = bounds.height / 2
+    }
+
+    override func layout() {
+        super.layout()
+        label.frame = bounds
         needsDisplay = true
     }
 }

@@ -15,6 +15,14 @@ enum NativePlaybackCommentsItemMeasurement {
     static let rootPanelGap: CGFloat = 10
     /// 展开后底部页码条的行高，容得下 `NativePlaybackCommentReplyPager.itemSize` 的按钮。
     static let replyPagerHeight: CGFloat = 26
+    /// 展开后顶部一行（“共 N 条回复”与收起）连同它下面的间距。
+    static let replyHeaderRowHeight: CGFloat = 30
+    /// 楼中楼里相邻两条回复之间的间距。
+    static let replyRowSpacing: CGFloat = 8
+    /// 最后一条回复与底部页码条之间的间距。
+    static let replyFooterGap: CGFloat = 10
+    /// 加载中或失败说明一行的高度。
+    static let replyStatusHeight: CGFloat = 32
     /// 状态行放标题与两行说明（暂无评论、已关闭、缺少评论标识）的高度。
     ///
     /// 加载中的转圈居中在同样高的行里，加载结束切到这些说明时行高不变、内容不位移。
@@ -123,7 +131,7 @@ enum NativePlaybackCommentsItemMeasurement {
         let innerWidth = max(60, width - replyPanelPadding * 2)
         var height = replyPanelPadding
         if let replyState, replyState.isExpanded {
-            height += 20 + 10
+            height += replyHeaderRowHeight
             for (index, reply) in replyState.replies.enumerated() {
                 height += comment(
                     reply,
@@ -132,12 +140,12 @@ enum NativePlaybackCommentsItemMeasurement {
                     textRenderer: textRenderer,
                     textScope: textScope
                 )
-                if index < replyState.replies.count - 1 { height += 8 }
+                if index < replyState.replies.count - 1 { height += replyRowSpacing }
             }
             if replyState.isLoading || replyState.error != nil {
-                height += 32
+                height += replyStatusHeight
             } else {
-                if !replyState.replies.isEmpty { height += 10 }
+                if !replyState.replies.isEmpty { height += replyFooterGap }
                 height += replyPagerHeight
             }
         } else {
@@ -150,7 +158,7 @@ enum NativePlaybackCommentsItemMeasurement {
                     textRenderer: textRenderer,
                     textScope: textScope
                 )
-                if index < replies.count - 1 { height += 8 }
+                if index < replies.count - 1 { height += replyRowSpacing }
             }
             if !replies.isEmpty { height += 9 }
             height += 24

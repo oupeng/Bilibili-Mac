@@ -92,8 +92,9 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
     /// 换视频（回到顶部）与换排序（跳到评论区）的视口意图：快照应用完成后才执行，回到顶部优先。
     var pendingResetToTop = false
     var pendingScrollToComments = false
-    /// 楼中楼翻页或收起时记下的定位意图，见 `prepareThreadAlignment`；下一次快照应用完成时执行一次，回到顶部与
-    /// 跳到评论区优先，用户开始拖动滚动时作废。
+    /// 楼中楼翻页或收起时记下的定位意图，见 `prepareThreadAlignment`。
+    ///
+    /// 每次快照应用完成时执行，这一楼不再加载后清掉；回到顶部与跳到评论区优先并清掉它，用户开始拖动滚动时作废。
     var pendingThreadAlignment: NativePlaybackSidebarThreadAlignment?
     /// 滚动与实时滚动的通知观察；`tearDown` 时移除。
     private var observers = NativeVideoNotificationObservers()
