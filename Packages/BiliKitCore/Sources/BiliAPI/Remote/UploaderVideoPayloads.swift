@@ -55,7 +55,7 @@ struct UploaderVideoItemPayload: Decodable, Sendable {
         guard BVID.isValid(bvid) else { return nil }
         return UploaderVideo(
             bvid: bvid,
-            title: RemoteVideoTitleNormalizer.plainText(title),
+            title: RemoteHTMLText.plainText(title),
             coverURL: WebImageURL.parse(pic),
             durationSeconds: RemoteClockDuration.seconds(length),
             viewCount: play.value,

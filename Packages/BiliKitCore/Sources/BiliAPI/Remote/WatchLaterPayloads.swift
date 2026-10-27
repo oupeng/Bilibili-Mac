@@ -96,7 +96,7 @@ struct WatchLaterItemPayload: Decodable, Sendable {
         }
         return WatchLaterItem(
             bvid: bvid,
-            title: RemoteVideoTitleNormalizer.plainText(title),
+            title: RemoteHTMLText.plainText(title),
             coverURL: cover.flatMap(WebImageURL.parse),
             owner: VideoOwner(
                 id: ownerID,
@@ -125,7 +125,7 @@ struct WatchLaterItemPayload: Decodable, Sendable {
         let duration = duration.flatMap { $0 > 0 ? $0 : nil }
         return WatchLaterItem(
             bvid: bvid,
-            title: title.flatMap { $0.isEmpty ? nil : RemoteVideoTitleNormalizer.plainText($0) },
+            title: title.flatMap { $0.isEmpty ? nil : RemoteHTMLText.plainText($0) },
             coverURL: cover.flatMap(WebImageURL.parse),
             owner: owner,
             durationSeconds: duration,
