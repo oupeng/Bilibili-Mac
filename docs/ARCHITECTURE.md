@@ -209,8 +209,10 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
   动画从初始 frame 移到最终位置，看起来像“飞入”。
 - 横排用 `NSScrollView.automaticallyAdjustsContentInsets` 延伸到侧栏下。不用 SwiftUI 纵向 `ScrollView` 承载
   详情：它延伸进安全区后不再向内容传递横向安全区，只能靠测量 frame 模拟。
-- 播放页压在 NavigationStack 根之上，根页面为保留状态仍在渲染；macOS 不为压栈页面绘制底色，播放页必须自铺
-  不透明窗口背景并延伸到工具栏与侧栏下。
+- 播放页压在 NavigationStack 根之上。macOS 没有给压栈页面设底色的接口（`ContainerBackgroundPlacement.navigation`
+  在 macOS 不可用），页面本身透明，播放页必须自铺不透明窗口背景并延伸到工具栏与侧栏下。压栈不带动画：放进
+  `withAnimation` 时 SwiftUI 会把根页面留在下面继续绘制，来源网格白白占着视图层级与绘制，播放页背景有缺口时还会透出；
+  不带动画时根页面随即移除，出栈后重建。
 - AVKit 没有公开进入／退出全屏的方法，`enterFullScreen:`／`exitFullScreen:` 是唯一允许使用的私有 AVKit 接口：
   调用前确认响应，系统移除后 F 键静默无效；是否全屏由公开的 `AVPlayerViewDelegate` 回调记录。
 - 加载转圈分三段衔接：详情未到时是骨架上的转圈；已有详情而 player 还没挂上 item 时由播放器浮层画同款转圈；
@@ -306,8 +308,9 @@ Keychain，并按新 generation 重启依赖账户的内容。账户变化由来
   动作。投币面板与「收藏到…」在主窗口里，AVKit 独立全屏时 W／E 只提示先退出全屏。网页接口对部分稿件以 -403（账号异常）
   拒绝第三方客户端，补网页统计字段、视频页 Referer 与 B 站下发的 buvid 都没有改善；这时结果胶囊给出「在浏览器中
   打开」（停留更久），改走 App 端接口见 ROADMAP 候选。
-- 结果胶囊挂在顶层页面与播放页上，而不是整个 `NavigationStack` 外：macOS 把压栈的播放页放在单独一层并铺了不透明背景，
-  挂在栈外会被盖住；播放页打开时顶层那份不显示，读屏不会把同一条结果通告两次。
+- 结果胶囊挂在顶层页面与播放页上，而不是整个 `NavigationStack` 外：在 `NavigationSplitView` 的 detail 列里，挂在
+  `NavigationStack` 上的修饰符实际归根页面所有，压栈后随根页面移除。播放页打开时顶层那份不显示，读屏不会把同一条结果
+  通告两次。
 - 乐观移除：稍后再看页与收藏夹页的移除先在本地删掉，失败或被取消时放回原位（稍后再看按 `PagedVideoList` 的并入序号，
   收藏夹按页内位置）；之后内容被整体替换过就不再放回。已知边界：页码分页在服务端删掉条目后整体前移，移除之后继续向下加载可能漏掉与移除条数相同的几条，刷新后恢复。
 - 效果分发：成功的写入带着账户 mid 与发起时的会话代次，经本窗口的 `AccountWriteEffectRouter` 与进程级集线器转给所有窗口；
