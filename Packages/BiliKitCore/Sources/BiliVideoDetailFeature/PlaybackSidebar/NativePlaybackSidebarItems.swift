@@ -233,7 +233,7 @@ final class NativePlaybackSidebarReadOnlyTextView: NSTextView, NSTextViewDelegat
         isVerticallyResizable = false
         textContainerInset = .zero
         delegate = self
-        linkTextAttributes = NativePlaybackTextLinks.textAttributes
+        NativePlaybackTextLinks.configure(self)
         typingAttributes = [
             .font: font,
             .foregroundColor: color,
