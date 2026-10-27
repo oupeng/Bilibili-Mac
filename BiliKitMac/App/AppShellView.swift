@@ -98,9 +98,9 @@ struct AppShellView: View {
         } detail: {
             NavigationStack(path: Bindable(navigationCoordinator).playbackPath) {
                 selectedSourceRoot
-                    // 写入结果胶囊挂在各页上而不是整个栈外：macOS 把压栈的播放页放在单独一层并铺了不透明背景，
-                    // 挂在栈外的胶囊会被它盖住。播放页打开时根页面仍在渲染，这里不再显示，免得读屏把同一条结果
-                    // 通告两次；播放页自己挂一份。
+                    // 写入结果胶囊挂在各页上而不是整个栈外：在 NavigationSplitView 的 detail 列里，挂在
+                    // NavigationStack 上的修饰符实际归根页面所有，压栈后随根页面移除，播放页上就看不到。播放页打开时
+                    // 这里不显示（根页面万一仍挂着，读屏也不会把同一条结果通告两次），播放页自己挂一份。
                     .overlay(alignment: .bottom) {
                         if navigationCoordinator.currentPlaybackBVID == nil {
                             AccountWriteStatusOverlay(accountWrites: accountWrites)
@@ -439,8 +439,9 @@ private struct PlaybackDestinationView: View {
         ) {
             playerContent
         }
-        // 播放页压在来源页（NavigationStack 根）之上，根页面为保留状态仍在渲染；macOS 不为压栈
-        // 页面绘制底色，必须自铺不透明窗口背景，并延伸到工具栏与侧栏下方。
+        // macOS 没有给压栈页面设底色的接口，页面本身透明：不带动画压栈时根页面已移除，透出的是窗口底；
+        // 带动画压栈时来源页留在下面继续绘制，会透出来。所以自铺不透明窗口背景，并延伸到工具栏与侧栏下方
+        // （见 ARCHITECTURE「播放页」）。
         .background {
             Color(nsColor: .windowBackgroundColor)
                 .ignoresSafeArea()
