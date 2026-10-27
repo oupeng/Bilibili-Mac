@@ -54,8 +54,8 @@ public struct CommentUseCase: Sendable {
 
     /// 一串对话从 `fromFloor` 楼起的一页；起点不是正数时不请求（`invalidRequest`）。
     ///
-    /// 响应的根评论或对话与请求不符、或下一页起点没有越过请求楼层时按无效响应失败；本页为空时按到底处理，
-    /// 不会因服务端反复给出同一起点而无限加载。
+    /// 响应的根评论或对话与请求不符、或下一页起点没有越过请求楼层时按无效响应失败，服务端反复给出同一起点时不会
+    /// 原地重复请求。是否到底由 adapter 按接口的楼层信息判断，这里不改。
     public func loadDialog(
         for subject: CommentSubjectIdentity,
         rootID: CommentID,
@@ -85,7 +85,7 @@ public struct CommentUseCase: Sendable {
             rootID: rootID,
             dialogID: dialogID,
             replies: uniqueReplies,
-            nextFloor: result.replies.isEmpty ? nil : result.nextFloor
+            nextFloor: result.nextFloor
         )
     }
 

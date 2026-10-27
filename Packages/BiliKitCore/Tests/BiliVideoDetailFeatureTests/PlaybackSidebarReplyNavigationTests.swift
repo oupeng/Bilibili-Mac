@@ -5,7 +5,8 @@ import Testing
 
 @testable import BiliVideoDetailFeature
 
-/// 楼中楼翻页时，回复面板顶边已在可见区上方就把它顶到顶部；收起时根评论顶边同理；对齐边仍可见时这一楼停在原处。
+/// 楼中楼翻页与进出对话时，回复面板顶边已在可见区上方就把它顶到顶部；收起时根评论顶边同理；对齐边仍可见时这一楼
+/// 停在原处。
 ///
 /// 定位意图保留到这一楼加载完成，加载态与回复到达都按它定位。
 @Suite(.timeLimit(.minutes(1)))
@@ -51,6 +52,30 @@ struct PlaybackSidebarReplyNavigationTests: PlaybackSidebarFixtures {
     }
 
     @Test
+    func enteringADialogKeepsTheRepliesPanelAtTheTopThroughArrival() async throws {
+        let states = await replyStates(next: .dialog)
+        let sidebar = try await SidebarHarness(fixtures: self, comments: states.expanded)
+        defer { sidebar.tearDown() }
+
+        let panelTop = try sidebar.alignmentY(.repliesPanel)
+        sidebar.controller.scroll(to: panelTop + 20)
+        sidebar.controller.prepareThreadAlignment(Self.itemID, edge: .repliesPanel)
+        sidebar.update(states.changed)
+        func panelIsAtTop() -> Bool {
+            (try? abs(sidebar.alignmentY(.repliesPanel) - sidebar.visibleTop)) ?? .infinity <= 1
+        }
+        #expect(await waitUntil(timeout: .seconds(5)) { panelIsAtTop() })
+        #expect(sidebar.controller.pendingThreadAlignment != nil)
+
+        sidebar.update(await states.arrive())
+        #expect(
+            await waitUntil(timeout: .seconds(5)) {
+                panelIsAtTop() && sidebar.controller.pendingThreadAlignment == nil
+            }
+        )
+    }
+
+    @Test
     func collapseBringsTheRootCommentUpWhenItsTopWasAbove() async throws {
         let states = await replyStates(next: .collapse)
         let sidebar = try await SidebarHarness(fixtures: self, comments: states.expanded)
@@ -71,6 +96,7 @@ struct PlaybackSidebarReplyNavigationTests: PlaybackSidebarFixtures {
 
     private enum NextStep {
         case page
+        case dialog
         case collapse
     }
 
@@ -102,7 +128,8 @@ struct PlaybackSidebarReplyNavigationTests: PlaybackSidebarFixtures {
                 )
             ],
             replyTotalCount: 25,
-            heldReplyPages: [2]
+            heldReplyPages: [2],
+            holdsDialogs: true
         )
         let model = PlaybackCommentsViewModel(useCase: CommentUseCase(repository: repository))
         model.activate(subject: Self.subject)
@@ -112,6 +139,17 @@ struct PlaybackSidebarReplyNavigationTests: PlaybackSidebarFixtures {
         let expanded = NativePlaybackCommentsPresentation(model: model)
         switch next {
         case .page: model.showReplyPage(2, for: Self.rootID)
+        case .dialog:
+            model.showDialog(
+                of: BiliModels.Comment(
+                    id: CommentID(rawValue: 53),
+                    rootID: Self.rootID,
+                    parentID: CommentID(rawValue: 52),
+                    dialogID: CommentID(rawValue: 51),
+                    payload: .unavailable(.unavailable)
+                ),
+                for: Self.rootID
+            )
         case .collapse: model.collapseReplies(for: Self.rootID)
         }
         let changed = NativePlaybackCommentsPresentation(model: model)
@@ -119,11 +157,20 @@ struct PlaybackSidebarReplyNavigationTests: PlaybackSidebarFixtures {
             expanded,
             changed,
             {
-                // 先等第 2 页请求真正到达替身再放行，否则放行早于挂起，请求会一直挂着。
-                if case .page = next { await repository.waitForReplyRequestCount(2) }
-                await repository.releaseAllHeldReplies()
+                // 先等请求真正到达替身再放行，否则放行早于挂起，请求会一直挂着。
+                switch next {
+                case .page:
+                    await repository.waitForReplyRequestCount(2)
+                    await repository.releaseAllHeldReplies()
+                case .dialog:
+                    await repository.waitForDialogRequestCount(1)
+                    await repository.releaseDialogs()
+                case .collapse:
+                    break
+                }
                 await waitForObservedState {
-                    model.replyStates[Self.rootID]?.isLoading != true
+                    let state = model.replyStates[Self.rootID]
+                    return state?.isLoading != true && state?.dialog?.isLoading != true
                 }
                 return NativePlaybackCommentsPresentation(model: model)
             }

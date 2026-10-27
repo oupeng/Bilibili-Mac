@@ -268,7 +268,7 @@ extension NativePlaybackSidebarController {
     }
 }
 
-/// 楼中楼翻页或收起后这一楼要停的位置，由 `prepareThreadAlignment` 记下。
+/// 楼中楼翻页、进出对话或收起后这一楼要停的位置，由 `prepareThreadAlignment` 记下。
 struct NativePlaybackSidebarThreadAlignment: Equatable {
     enum Edge: Equatable {
         /// 根评论顶边：收起之后。

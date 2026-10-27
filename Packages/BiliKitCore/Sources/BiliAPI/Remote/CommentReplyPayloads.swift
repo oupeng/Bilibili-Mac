@@ -82,11 +82,13 @@ struct CommentReplyPagePayload: Decodable, Sendable {
 
 /// 「查看对话」接口（`/x/v2/reply/dialog/cursor`）的 data：本页楼层游标、整串对话的楼层范围与本页回复。
 ///
-/// 只保留属于请求根评论与对话的回复并按 ID 去重；楼层不合规时整页失败。接口没有“已到底”字段：本页最大楼层追上
-/// 整串对话的最大楼层、或本页为空时到底。
+/// 是否到底只在这里判断一次：接口没有“已到底”字段，原始回复为空、或本页最大楼层追上整串对话的最大楼层时到底；
+/// 没到底却缺下一页起点、或起点没有越过本页时整页按解码失败，不悄悄当作到底截断对话。空页可以省略楼层信息。
+/// 只保留属于请求根评论的回复并按 ID 去重；明确属于别的对话的行丢弃，缺 `dialog` 的行（已删除、折叠的占位常省略
+/// 字段）照样保留，请求本来就按对话查询。
 struct CommentDialogListPayload: Decodable, Sendable {
-    let cursor: CommentDialogCursorPayload
-    let dialog: CommentDialogRangePayload
+    let cursor: CommentDialogCursorPayload?
+    let dialog: CommentDialogRangePayload?
     let replies: [LossyDecodable<CommentReplyPayload>]
     let upper: CommentUpperPayload?
 
@@ -99,8 +101,8 @@ struct CommentDialogListPayload: Decodable, Sendable {
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        cursor = try container.decode(CommentDialogCursorPayload.self, forKey: .cursor)
-        dialog = try container.decode(CommentDialogRangePayload.self, forKey: .dialog)
+        cursor = try container.decodeIfPresent(CommentDialogCursorPayload.self, forKey: .cursor)
+        dialog = try container.decodeIfPresent(CommentDialogRangePayload.self, forKey: .dialog)
         replies =
             try container.decodeIfPresent(
                 [LossyDecodable<CommentReplyPayload>].self,
@@ -114,9 +116,7 @@ struct CommentDialogListPayload: Decodable, Sendable {
         rootID: CommentID,
         dialogID: CommentID
     ) throws -> CommentRemoteDialogPage {
-        guard cursor.maxFloor >= 0, dialog.maxFloor >= 0 else {
-            throw BiliAPIError.decodingFailed
-        }
+        let nextFloor = try nextFloor()
         let uploaderID = upper.map { String($0.mid) }
         var seen: Set<CommentID> = []
         let models = replies.compactMap(\.value).compactMap { payload -> Comment? in
@@ -126,19 +126,31 @@ struct CommentDialogListPayload: Decodable, Sendable {
                     uploaderID: uploaderID,
                     adminPinnedID: nil,
                     uploaderPinnedID: nil
-                ), comment.rootID == rootID, comment.dialogID == dialogID,
+                ), comment.rootID == rootID,
+                comment.dialogID == nil || comment.dialogID == dialogID,
                 seen.insert(comment.id).inserted
             else { return nil }
             return comment
         }
-        let reachedEnd = replies.isEmpty || cursor.maxFloor >= dialog.maxFloor
-        let nextFloor = reachedEnd ? nil : cursor.next.flatMap { $0 > cursor.maxFloor ? $0 : nil }
         return CommentRemoteDialogPage(
             rootID: rootID,
             dialogID: dialogID,
             replies: models,
             nextFloor: nextFloor
         )
+    }
+
+    /// 下一页的起点楼层，到底时为 nil。
+    private func nextFloor() throws -> Int? {
+        guard !replies.isEmpty else { return nil }
+        guard let cursor, let dialog, cursor.maxFloor >= 0, dialog.maxFloor >= 0 else {
+            throw BiliAPIError.decodingFailed
+        }
+        guard cursor.maxFloor < dialog.maxFloor else { return nil }
+        guard let next = cursor.next, next > cursor.maxFloor else {
+            throw BiliAPIError.decodingFailed
+        }
+        return next
     }
 }
 

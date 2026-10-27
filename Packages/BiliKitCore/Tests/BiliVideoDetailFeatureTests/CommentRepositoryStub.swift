@@ -5,7 +5,7 @@ import BiliModels
 
 /// 本 target 唯一的 CommentRepository 替身：根评论按序返回（最后一页可重复）、挂起或失败——前
 /// `answeredRootRequestCount` 次请求照常返回，之后的才挂起或失败；回复按页可挂起、首次失败或持续失败，并记录
-/// 请求数与挂起回复的并发峰值。对话固定两页：第一页两条、下一页从 3 楼起一条后到底，可整体挂起。
+/// 请求数与挂起回复的并发峰值。对话固定两页：第一页两条、下一页从 3 楼起一条后到底，可整体挂起，也可让第一次请求失败。
 actor CommentRepositoryStub: CommentRepository {
     private struct ReplyRequest {
         let rootID: CommentID
@@ -29,6 +29,7 @@ actor CommentRepositoryStub: CommentRepository {
     private(set) var rootRequestCount = 0
     private(set) var maximumActiveReplyCount = 0
     private let holdsDialogs: Bool
+    private let failsFirstDialogRequest: Bool
     private var heldDialogs: [CheckedContinuation<Void, Never>] = []
     private var dialogWaiters = CountWaiters()
     /// 对话请求的起点楼层，按到达顺序。
@@ -43,9 +44,11 @@ actor CommentRepositoryStub: CommentRepository {
         heldReplyPages: Set<Int> = [],
         failingReplyPagesOnce: Set<Int> = [],
         replyFailure: CommentReadError? = nil,
-        holdsDialogs: Bool = false
+        holdsDialogs: Bool = false,
+        failsFirstDialogRequest: Bool = false
     ) {
         self.holdsDialogs = holdsDialogs
+        self.failsFirstDialogRequest = failsFirstDialogRequest
         self.rootPages = rootPages
         self.rootFailure = rootFailure
         self.holdsRoots = holdsRoots
@@ -106,6 +109,9 @@ actor CommentRepositoryStub: CommentRepository {
         dialogWaiters.resume(reaching: dialogRequests.count)
         if holdsDialogs {
             await withCheckedContinuation { heldDialogs.append($0) }
+        }
+        if failsFirstDialogRequest, dialogRequests.count == 1 {
+            throw CommentReadError.transportFailure
         }
         let base = rootID.rawValue * 1_000
         let ids: [Int64] = fromFloor == nil ? [base + 1, base + 2] : [base + 3]

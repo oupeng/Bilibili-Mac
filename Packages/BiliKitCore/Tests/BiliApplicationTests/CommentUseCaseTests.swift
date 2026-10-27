@@ -124,9 +124,9 @@ struct CommentUseCaseTests {
 }
 
 extension CommentUseCaseTests {
-    /// 对话页去重、空页按到底；根评论或对话不符、下一页起点没有越过请求楼层都按无效响应，起点不是正数时不请求。
+    /// 对话页去重，下一页起点原样交出；根评论或对话不符、下一页起点没有越过请求楼层都按无效响应，起点不是正数时不请求。
     @Test
-    func dialogPageIsValidatedDedupedAndEndsOnAnEmptyPage() async throws {
+    func dialogPageIsValidatedAndDeduped() async throws {
         let rootID = CommentID(rawValue: 1)
         let dialogID = CommentID(rawValue: 2)
         let useCase = CommentUseCase(
@@ -141,8 +141,8 @@ extension CommentUseCaseTests {
                     CommentDialogPage(
                         rootID: rootID,
                         dialogID: dialogID,
-                        replies: [],
-                        nextFloor: 41
+                        replies: [comment(4)],
+                        nextFloor: nil
                     ),
                     CommentDialogPage(
                         rootID: rootID,
@@ -170,13 +170,14 @@ extension CommentUseCaseTests {
         #expect(first.replies.map(\.id.rawValue) == [2, 3])
         #expect(first.nextFloor == 21)
 
-        let empty = try await useCase.loadDialog(
+        let last = try await useCase.loadDialog(
             for: subject,
             rootID: rootID,
             dialogID: dialogID,
             fromFloor: 21
         )
-        #expect(empty.nextFloor == nil)
+        #expect(last.replies.map(\.id.rawValue) == [4])
+        #expect(last.nextFloor == nil)
 
         await #expect(throws: CommentReadError.invalidResponse) {
             try await useCase.loadDialog(

@@ -191,14 +191,18 @@ struct CommentAPIClientTests {
         #expect(await authorizer.authorizationCount == 1)
     }
 
-    /// 对话按根评论与对话 ID 取 20 条，下一页带 `min_floor`；只保留这串对话的回复，本页最大楼层追上整串对话即到底。
+    /// 对话按根评论与对话 ID 取 20 条，下一页带 `min_floor`；丢弃明确属于别的对话的行，缺 `dialog` 的占位保留；
+    /// 本页最大楼层追上整串对话即到底，没到底却缺下一页起点时整页失败。
     @Test
     func dialogPageUsesFloorCursorAndKeepsOnlyThatDialog() async throws {
         let terminal = jsonResponse(
-            #"{"code":0,"message":"OK","data":{"cursor":{"max_floor":30,"next":31},"dialog":{"max_floor":30},"replies":[]}}"#
+            #"{"code":0,"message":"OK","data":{"cursor":{"max_floor":30,"next":31},"dialog":{"max_floor":30},"replies":[{"rpid":305,"oid":700001,"type":1,"root":102,"parent":301,"dialog":301,"state":1}]}}"#
+        )
+        let missingNext = jsonResponse(
+            #"{"code":0,"message":"OK","data":{"cursor":{"max_floor":25},"dialog":{"max_floor":30},"replies":[{"rpid":306,"oid":700001,"type":1,"root":102,"parent":301,"dialog":301,"state":1}]}}"#
         )
         let transport = StubTransport(
-            responses: [try fixtureResponse("comment-dialog"), terminal]
+            responses: [try fixtureResponse("comment-dialog"), terminal, missingNext]
         )
         let authorizer = StubAuthorizer()
         let repository = BiliCommentRepository(
@@ -212,11 +216,12 @@ struct CommentAPIClientTests {
             fromFloor: nil,
             pageSize: 20
         )
-        #expect(page.replies.map(\.id.rawValue) == [301, 302])
+        #expect(page.replies.map(\.id.rawValue) == [301, 302, 304])
         #expect(
-            page.replies.map(\.dialogID) == [CommentID(rawValue: 301), CommentID(rawValue: 301)]
+            page.replies.map(\.dialogID)
+                == [CommentID(rawValue: 301), CommentID(rawValue: 301), nil]
         )
-        #expect(page.replies.last?.isReplyInDialog == true)
+        #expect(page.replies[1].isReplyInDialog)
         #expect(page.nextFloor == 21)
 
         let last = try await repository.dialog(
@@ -226,7 +231,17 @@ struct CommentAPIClientTests {
             fromFloor: 21,
             pageSize: 20
         )
+        #expect(last.replies.map(\.id.rawValue) == [305])
         #expect(last.nextFloor == nil)
+        await #expect(throws: CommentReadError.self) {
+            try await repository.dialog(
+                for: .video(aid: 700_001),
+                rootID: CommentID(rawValue: 102),
+                dialogID: CommentID(rawValue: 301),
+                fromFloor: 21,
+                pageSize: 20
+            )
+        }
 
         let requests = transport.capturedRequests()
         let queries = requests.map { request in

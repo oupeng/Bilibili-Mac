@@ -65,6 +65,11 @@ struct PlaybackSidebarReplyDialogTests: PlaybackSidebarFixtures {
                 .first { !$0.isHidden && $0.title == title }
         }
 
+        state.isLoading = true
+        configure(state)
+        #expect(visibleButton(VideoDetailFeatureStrings.localized("查看对话")) == nil)
+
+        state.isLoading = false
         configure(state)
         try #require(visibleButton(VideoDetailFeatureStrings.localized("查看对话"))).performClick(nil)
         #expect(shownDialogs == [reply])
@@ -80,6 +85,18 @@ struct PlaybackSidebarReplyDialogTests: PlaybackSidebarFixtures {
         #expect(visibleButton(VideoDetailFeatureStrings.localized("加载更多")) != nil)
         try #require(visibleButton(VideoDetailFeatureStrings.localized("返回全部回复"))).performClick(nil)
         #expect(closedCount == 1)
+
+        // 对话到底却没有可显示的回复：给一句说明，不留空白面板。
+        var emptyDialog = PlaybackCommentDialogState(dialogID: CommentID(rawValue: 31))
+        emptyDialog.hasLoadedFirstPage = true
+        state.dialog = emptyDialog
+        configure(state)
+        let message = VideoDetailFeatureStrings.localized("这串对话暂时没有可显示的回复")
+        #expect(
+            descendants(of: item.view).compactMap { $0 as? NSTextField }
+                .contains { !$0.isHidden && $0.stringValue == message }
+        )
+        #expect(visibleButton(VideoDetailFeatureStrings.localized("加载更多")) == nil)
     }
 
     /// 进出对话、对话加载状态变化都改变这一行的 revision，侧栏据此重载这一行。

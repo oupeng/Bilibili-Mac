@@ -437,6 +437,34 @@ struct PlaybackCommentsViewModelTests {
         #expect(model.replyStates[rootID]?.replies == pageReplies)
     }
 
+    /// 对话这一页失败后，「加载更多」（重试）按同一起点再请求。
+    @Test
+    @MainActor
+    func failedDialogPageRetriesFromTheSameFloor() async {
+        let rootID = CommentID(rawValue: 60)
+        let repository = CommentRepositoryStub(
+            rootPages: [endPage([thread(60)])],
+            replyTotalCount: 25,
+            failsFirstDialogRequest: true
+        )
+        let model = PlaybackCommentsViewModel(useCase: CommentUseCase(repository: repository))
+        model.activate(subject: .video(aid: 700_001))
+        await model.waitForCurrentRootTask()
+        model.expandReplies(for: rootID)
+        await waitForObservedState { model.replyStates[rootID]?.isLoading == false }
+
+        model.showDialog(of: reply(63, root: 60, parent: 62, dialog: 61), for: rootID)
+        await waitForObservedState { model.replyStates[rootID]?.dialog?.error != nil }
+        #expect(model.replyStates[rootID]?.dialog?.hasLoadedFirstPage == false)
+
+        model.loadMoreDialog(for: rootID)
+        await waitForObservedState {
+            model.replyStates[rootID]?.dialog?.hasLoadedFirstPage == true
+        }
+        #expect(await repository.dialogRequests == [nil, nil])
+        #expect(model.replyStates[rootID]?.dialog?.error == nil)
+    }
+
     /// 关掉对话或收起后，在途的对话请求结果不再写回；之后楼中楼照常翻页。
     @Test
     @MainActor
@@ -462,6 +490,15 @@ struct PlaybackCommentsViewModelTests {
 
         #expect(model.replyStates[rootID]?.dialog == nil)
         #expect(await repository.requestedReplyPages == [1, 2])
+
+        model.showDialog(of: reply(53, root: 50, parent: 52, dialog: 51), for: rootID)
+        await repository.waitForDialogRequestCount(2)
+        model.collapseReplies(for: rootID)
+        await repository.releaseDialogs()
+        model.expandReplies(for: rootID)
+        await waitForObservedState { model.replyStates[rootID]?.isExpanded == true }
+        #expect(model.replyStates[rootID]?.dialog == nil)
+        #expect(model.replyStates[rootID]?.pageNumber == 2)
     }
 }
 

@@ -62,6 +62,15 @@
         "rcount": 0,
         "member": { "mid": "403", "uname": "别的对话用户", "sex": "女", "level_info": { "current_level": 1 } },
         "content": { "message": "不属于这串对话" }
+      },
+      {
+        "rpid": 304,
+        "oid": 700001,
+        "type": 1,
+        "root": 102,
+        "parent": 302,
+        "floor": 12,
+        "state": 1
       }
     ]
   }
