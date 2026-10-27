@@ -99,12 +99,12 @@ jobs:
           EOF
           python3 generate_icons.py
 
-      - name: Apply All Patches (Auto-Fix Code, TeamID, Audio & Keychain)
+      - name: Apply All Patches (v1.5.0 Compatible, Auto-Fix Code, TeamID & Keychain)
         run: |
           cat << 'EOF' > patch_all.py
           import os, re, subprocess
 
-          # 1. 自动注入抗 Sync Fork 覆盖的双保险 WebCredentialStore
+          # 1. 自动写入 WebCredentialStore.swift 双保险逻辑，抵御 Sync Fork 覆盖
           cred_file = "Packages/BiliKitCore/Sources/BiliAuth/Credential/WebCredentialStore.swift"
           if os.path.exists(cred_file):
               fixed_store_code = """import Foundation
@@ -271,23 +271,35 @@ jobs:
                       except Exception:
                           pass
 
-          # 5. 动态提取原作者方法签名，生成安全的直通音频桩
+          # 5. 【核心修复 v1.5.0】：向下兼容 LoudnessAudioMix.swift 中的新音频轨道常量
+          mix_file = "Packages/BiliKitCore/Sources/BiliPlayback/Audio/LoudnessAudioMix.swift"
+          if os.path.exists(mix_file):
+              with open(mix_file, "r", encoding="utf-8") as f:
+                  m_code = f.read()
+              if "AVAudioMixInputParametersTrackID" in m_code:
+                  m_code = m_code.replace("AVAudioMixInputParametersTrackID", "kCMPersistentTrackID_Invalid")
+                  with open(mix_file, "w", encoding="utf-8") as f:
+                      f.write(m_code)
+                  print("Patched LoudnessAudioMix.swift for AVAudioMixInputParametersTrackID compatibility!")
+
+          # 6. 【核心修复】：向下兼容 LoudnessProcessingTap.swift
           loudness_file = "Packages/BiliKitCore/Sources/BiliPlayback/Audio/LoudnessProcessingTap.swift"
-          try:
-              orig_code = subprocess.check_output(["git", "show", f"HEAD:{loudness_file}"], text=True)
-          except Exception:
-              orig_code = ""
+          if os.path.exists(loudness_file):
+              try:
+                  orig_code = subprocess.check_output(["git", "show", f"HEAD:{loudness_file}"], text=True)
+              except Exception:
+                  orig_code = ""
 
-          make_match = re.search(r"(public\s+|open\s+)?(static\s+func\s+make[^{]+)", orig_code)
-          make_sig = make_match.group(0).strip() if make_match else "static func make(for playerItem: AVPlayerItem, policy: Any? = nil) -> LoudnessProcessingTap?"
+              make_match = re.search(r"(public\s+|open\s+)?(static\s+func\s+make[^{]+)", orig_code)
+              make_sig = make_match.group(0).strip() if make_match else "static func make(for playerItem: AVPlayerItem, policy: Any? = nil) -> LoudnessProcessingTap?"
 
-          mix_match = re.search(r"(public\s+|open\s+)?(func\s+makeAudioMix[^{]+)", orig_code)
-          mix_sig = mix_match.group(0).strip() if mix_match else "func makeAudioMix() -> AVAudioMix"
+              mix_match = re.search(r"(public\s+|open\s+)?(func\s+makeAudioMix[^{]+)", orig_code)
+              mix_sig = mix_match.group(0).strip() if mix_match else "func makeAudioMix() -> AVAudioMix"
 
-          gain_match = re.search(r"(public\s+|open\s+)?(func\s+setTargetGain[^{]+)", orig_code)
-          gain_sig = gain_match.group(0).strip() if gain_match else "func setTargetGain(_ targetGain: Float, rampDuration: TimeInterval = 0)"
+              gain_match = re.search(r"(public\s+|open\s+)?(func\s+setTargetGain[^{]+)", orig_code)
+              gain_sig = gain_match.group(0).strip() if gain_match else "func setTargetGain(_ targetGain: Float, rampDuration: TimeInterval = 0)"
 
-          stub_loudness = f"""import Foundation
+              stub_loudness = f"""import Foundation
           import AVFoundation
           import MediaToolbox
 
@@ -302,10 +314,11 @@ jobs:
               {gain_sig} {{}}
           }}
           """
-          with open(loudness_file, "w", encoding="utf-8") as f:
-              f.write(stub_loudness)
+              with open(loudness_file, "w", encoding="utf-8") as f:
+                  f.write(stub_loudness)
+              print("Patched LoudnessProcessingTap.swift successfully!")
 
-          # 6. 移除 App Sandbox 与 Keychain Access Groups（防止钥匙串拦截）
+          # 7. 移除 App Sandbox 与 Keychain Access Groups（防止钥匙串拦截）
           for root, dirs, files in os.walk("."):
               for file in files:
                   if file.endswith(".entitlements"):
@@ -321,7 +334,7 @@ jobs:
                       except Exception:
                           pass
 
-          # 7. 禁用 Sparkle 自动更新检查
+          # 8. 禁用 Sparkle 自动更新检查
           for root, dirs, files in os.walk("."):
               for file in files:
                   if "Info.plist" in file:
@@ -338,7 +351,7 @@ jobs:
                       except Exception:
                           pass
 
-          # 8. 注入带有 AppKit 引用且符合 Swift 6 并发安全的主题切换器
+          # 9. 注入带有 AppKit 引用且符合 Swift 6 并发安全的主题切换器
           app_file = "BiliKitMac/App/BiliKitMacApp.swift"
           if os.path.exists(app_file):
               with open(app_file, "r", encoding="utf-8") as f:
@@ -391,15 +404,12 @@ jobs:
       - name: Build BiliKitMac for Intel (x86_64)
         run: |
           set -o pipefail
-          
-          # 1. 显式锁定正确的 Scheme，避免因为包依赖拉取时的 warning 误判
           SCHEME="BiliKitMac"
           echo "Explicitly Target Scheme: $SCHEME"
 
-          # 2. 先独立解析依赖包，确保 SPM 缓存完全就绪
+          # 确保依赖包完全就绪
           xcodebuild -resolvePackageDependencies -project BiliKitMac.xcodeproj -scheme "$SCHEME" || true
 
-          # 3. 稳健编译
           xcodebuild build \
             -project BiliKitMac.xcodeproj \
             -scheme "$SCHEME" \
