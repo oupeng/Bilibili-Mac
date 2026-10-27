@@ -187,6 +187,37 @@ struct PlaybackCommentsViewModelTests {
 
     @Test
     @MainActor
+    func replyPagerJumpsDirectlyButNotPastTheEndOrToTheSamePage() async {
+        let rootID = CommentID(rawValue: 21)
+        let repository = CommentRepositoryStub(
+            rootPages: [endPage([thread(21)])],
+            replyTotalCount: 25
+        )
+        let model = PlaybackCommentsViewModel(
+            useCase: CommentUseCase(repository: repository)
+        )
+
+        model.activate(subject: .video(aid: 700_001))
+        await model.waitForCurrentRootTask()
+        model.expandReplies(for: rootID)
+        await waitForObservedState { model.replyStates[rootID]?.isLoading == false }
+
+        model.showReplyPage(3, for: rootID)
+        await waitForObservedState { model.replyStates[rootID]?.pageNumber == 3 }
+        #expect(model.replyStates[rootID]?.isEnd == true)
+
+        model.showReplyPage(4, for: rootID)
+        model.showReplyPage(3, for: rootID)
+        model.showReplyPage(0, for: rootID)
+        #expect(await repository.requestedReplyPages == [1, 3])
+
+        model.showReplyPage(1, for: rootID)
+        await waitForObservedState { model.replyStates[rootID]?.pageNumber == 1 }
+        #expect(await repository.requestedReplyPages == [1, 3, 1])
+    }
+
+    @Test
+    @MainActor
     func failedReplyPageCannotBeSkippedAndRetryRequestsSamePage() async throws {
         let rootID = CommentID(rawValue: 20)
         let repository = CommentRepositoryStub(
@@ -203,11 +234,11 @@ struct PlaybackCommentsViewModelTests {
         model.expandReplies(for: rootID)
         await waitForObservedState { model.replyStates[rootID]?.isLoading == false }
 
-        model.showNextReplyPage(for: rootID)
+        model.showReplyPage(2, for: rootID)
         await waitForObservedState { model.replyStates[rootID]?.isLoading == false }
         #expect(model.replyStates[rootID]?.error == .transportFailure)
 
-        model.showNextReplyPage(for: rootID)
+        model.showReplyPage(2, for: rootID)
         #expect(await repository.requestedReplyPages == [1, 2])
 
         model.retryReplies(for: rootID)
@@ -251,7 +282,7 @@ struct PlaybackCommentsViewModelTests {
         await model.waitForCurrentRootTask()
         model.expandReplies(for: rootID)
         await waitForObservedState { model.replyStates[rootID]?.isLoading == false }
-        model.showNextReplyPage(for: rootID)
+        model.showReplyPage(2, for: rootID)
         await repository.waitForReplyRequestCount(2)
 
         model.collapseReplies(for: rootID)

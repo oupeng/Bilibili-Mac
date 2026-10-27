@@ -11,6 +11,10 @@ enum NativePlaybackCommentsItemMeasurement {
     static let rootVerticalInset: CGFloat = 12
     static let replyPanelLeading: CGFloat = 42
     static let replyPanelPadding: CGFloat = 9
+    /// 根评论行与楼中楼面板之间的间距。
+    static let rootPanelGap: CGFloat = 10
+    /// 展开后底部页码条的行高，容得下 `NativePlaybackCommentReplyPager.itemSize` 的按钮。
+    static let replyPagerHeight: CGFloat = 26
     /// 状态行放标题与两行说明（暂无评论、已关闭、缺少评论标识）的高度。
     ///
     /// 加载中的转圈居中在同样高的行里，加载结束切到这些说明时行高不变、内容不位移。
@@ -43,27 +47,46 @@ enum NativePlaybackCommentsItemMeasurement {
         width: CGFloat,
         textRenderer: NativePlaybackCommentTextRenderer? = nil
     ) -> CGFloat {
-        let textScope = presentation.textScope
-        let rootHeight = comment(
-            presentation.thread.root,
-            width: width,
-            isReply: false,
-            textRenderer: textRenderer,
-            textScope: textScope
-        )
-        let panelWidth = max(80, width - replyPanelLeading)
         let panelHeight = repliesPanel(
             thread: presentation.thread,
             replyState: presentation.replyState,
-            width: panelWidth,
+            width: repliesPanelWidth(threadWidth: width),
             textRenderer: textRenderer,
-            textScope: textScope
+            textScope: presentation.textScope
         )
+        let rootBottom = rootRowBottom(presentation, width: width, textRenderer: textRenderer)
         return ceil(
-            rootVerticalInset + rootHeight
-                + (panelHeight > 0 ? 10 + panelHeight : 0)
-                + rootVerticalInset
+            rootBottom + (panelHeight > 0 ? rootPanelGap + panelHeight : 0) + rootVerticalInset
         )
+    }
+
+    /// 根评论行底边在条目里的纵坐标。
+    static func rootRowBottom(
+        _ presentation: NativePlaybackCommentThreadPresentation,
+        width: CGFloat,
+        textRenderer: NativePlaybackCommentTextRenderer? = nil
+    ) -> CGFloat {
+        rootVerticalInset
+            + comment(
+                presentation.thread.root,
+                width: width,
+                isReply: false,
+                textRenderer: textRenderer,
+                textScope: presentation.textScope
+            )
+    }
+
+    /// 楼中楼面板顶边在条目里的纵坐标；条目布局与侧栏翻页后的定位共用。
+    static func repliesPanelTop(
+        _ presentation: NativePlaybackCommentThreadPresentation,
+        width: CGFloat,
+        textRenderer: NativePlaybackCommentTextRenderer? = nil
+    ) -> CGFloat {
+        rootRowBottom(presentation, width: width, textRenderer: textRenderer) + rootPanelGap
+    }
+
+    static func repliesPanelWidth(threadWidth: CGFloat) -> CGFloat {
+        max(80, threadWidth - replyPanelLeading)
     }
 
     static func comment(
@@ -115,7 +138,7 @@ enum NativePlaybackCommentsItemMeasurement {
                 height += 32
             } else {
                 if !replyState.replies.isEmpty { height += 10 }
-                height += 26
+                height += replyPagerHeight
             }
         } else {
             let replies = Array(thread.replyPreview.prefix(2))

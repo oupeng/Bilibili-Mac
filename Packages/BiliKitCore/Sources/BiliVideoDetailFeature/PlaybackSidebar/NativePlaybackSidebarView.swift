@@ -62,10 +62,7 @@ public struct NativePlaybackSidebarView: View {
                 loadNextComments: { commentsModel?.loadNextPage() },
                 expandReplies: { commentsModel?.expandReplies(for: $0) },
                 collapseReplies: { commentsModel?.collapseReplies(for: $0) },
-                previousReplyPage: {
-                    commentsModel?.showPreviousReplyPage(for: $0)
-                },
-                nextReplyPage: { commentsModel?.showNextReplyPage(for: $0) },
+                showReplyPage: { commentsModel?.showReplyPage($1, for: $0) },
                 retryReplies: { commentsModel?.retryReplies(for: $0) },
                 openCommentLink: { [onOpenCommentLink] target in
                     NativePlaybackCommentAuthorSpace.openLink(
@@ -209,8 +206,7 @@ struct NativePlaybackSidebarActions {
     let loadNextComments: () -> Void
     let expandReplies: (CommentID) -> Void
     let collapseReplies: (CommentID) -> Void
-    let previousReplyPage: (CommentID) -> Void
-    let nextReplyPage: (CommentID) -> Void
+    let showReplyPage: (CommentID, Int) -> Void
     let retryReplies: (CommentID) -> Void
     let openCommentLink: (CommentLinkTarget) -> Void
     let openCommentPictures: (NativePlaybackCommentPictureGallery) -> Void

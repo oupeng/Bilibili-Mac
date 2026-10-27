@@ -139,6 +139,8 @@ extension NativePlaybackSidebarController {
     }
 
     func applyPendingViewportIntent(fallbackAnchor: Anchor?) {
+        let threadAlignment = pendingThreadAlignment
+        pendingThreadAlignment = nil
         if pendingResetToTop {
             pendingResetToTop = false
             pendingScrollToComments = false
@@ -146,8 +148,47 @@ extension NativePlaybackSidebarController {
         } else if pendingScrollToComments {
             pendingScrollToComments = false
             scrollToCommentsHeader()
+        } else if let threadAlignment, let y = alignmentY(threadAlignment) {
+            scroll(to: y)
         } else if let fallbackAnchor {
             restore(fallbackAnchor)
+        }
+    }
+
+    /// 楼中楼翻页或收起前调用：要对齐的边（翻页时是回复面板顶边，收起时是根评论顶边）此刻已在可见区上方，就记下
+    /// 意图，等这次状态变化的快照应用完成后把它顶到可见区顶部；否则不记，照常按语义锚点保持阅读位置。
+    ///
+    /// 不这样做时，锚点保持的是这一楼顶边到视口的距离：在长长一页回复的底部翻页，会停在新一页同样深的位置；在底部
+    /// 收起，这一楼缩短后会整个滚出视口。对齐之后锚点仍是这一楼，回复到达等后续更新保持同样位置。
+    func prepareThreadAlignment(
+        _ itemID: NativePlaybackSidebarItemID,
+        edge: NativePlaybackSidebarThreadAlignment.Edge
+    ) {
+        let alignment = NativePlaybackSidebarThreadAlignment(itemID: itemID, edge: edge)
+        collectionView.layoutSubtreeIfNeeded()
+        guard let y = alignmentY(alignment) else { return }
+        let visibleTop =
+            rootView.scrollView.documentVisibleRect.minY
+            + max(0, rootView.scrollView.contentInsets.top)
+        pendingThreadAlignment = y < visibleTop ? alignment : nil
+    }
+
+    /// 对齐边在文档里的纵坐标；这一楼已不在列表里时为 nil。
+    private func alignmentY(_ alignment: NativePlaybackSidebarThreadAlignment) -> CGFloat? {
+        guard let indexPath = dataSource?.indexPath(for: alignment.itemID),
+            let attributes = layout.layoutAttributesForItem(at: indexPath)
+        else { return nil }
+        switch alignment.edge {
+        case .root:
+            return attributes.frame.minY
+        case .repliesPanel:
+            guard let thread = commentThreadsByItemID[alignment.itemID] else { return nil }
+            return attributes.frame.minY
+                + NativePlaybackCommentsItemMeasurement.repliesPanelTop(
+                    thread,
+                    width: attributes.frame.width,
+                    textRenderer: commentTextRenderer
+                )
         }
     }
 
@@ -185,4 +226,17 @@ extension NativePlaybackSidebarController {
         updateTopButton()
         scheduleNextCommentsPageIfNeeded()
     }
+}
+
+/// 楼中楼翻页或收起后要顶到可见区顶部的一楼与对齐边，由 `prepareThreadAlignment` 记下。
+struct NativePlaybackSidebarThreadAlignment: Equatable {
+    enum Edge: Equatable {
+        /// 根评论顶边：收起之后。
+        case root
+        /// 回复面板顶边（“共 N 条回复”一行）：翻页之后。
+        case repliesPanel
+    }
+
+    let itemID: NativePlaybackSidebarItemID
+    let edge: Edge
 }

@@ -144,20 +144,15 @@ public final class PlaybackCommentsViewModel: AccountRevalidationParticipant {
         replyStates[rootID] = state
     }
 
-    public func showPreviousReplyPage(for rootID: CommentID) {
+    /// 翻到楼中楼第 `page` 页：页码条的数字与前后箭头都经这里，接口按页码直接取页。
+    ///
+    /// 页码小于 1、等于当前页、在已知末页之后，或这一楼正停在失败待重试时不请求；页数上限由页码条按总条数夹住。
+    public func showReplyPage(_ page: Int, for rootID: CommentID) {
         guard let state = replyStates[rootID], state.error == nil,
-            state.pageNumber > 1
-        else {
-            return
-        }
-        loadReplyPage(rootID: rootID, page: state.pageNumber - 1)
-    }
-
-    public func showNextReplyPage(for rootID: CommentID) {
-        guard let state = replyStates[rootID], state.error == nil,
-            !state.isEnd
+            page >= 1, page != state.pageNumber,
+            page < state.pageNumber || !state.isEnd
         else { return }
-        loadReplyPage(rootID: rootID, page: state.pageNumber + 1)
+        loadReplyPage(rootID: rootID, page: page)
     }
 
     public func retryReplies(for rootID: CommentID) {

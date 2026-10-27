@@ -2,7 +2,7 @@ import AppKit
 import BiliApplication
 import BiliModels
 
-/// 楼中楼面板：未展开时显示最多两条预览回复与“共 N 条回复”，展开后显示当前页回复与翻页、加载与重试。
+/// 楼中楼面板：未展开时显示最多两条预览回复与“共 N 条回复”，展开后显示当前页回复与页码条、加载与重试。
 ///
 /// 每次配置都按回复重建行视图（`resetRows` 先移除旧行）；回复状态与动作回调由条目传入，分页请求归 ViewModel。
 /// 属于播放侧栏的原生 item，用 AppKit 的理由见 ARCHITECTURE「原生 AppKit 集合视图」的播放侧栏一条。
@@ -22,17 +22,7 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
         target: nil,
         action: nil
     )
-    private let previousButton = NSButton(
-        title: VideoDetailFeatureStrings.localized("上一页"),
-        target: nil,
-        action: nil
-    )
-    private let pageLabel = NSTextField(labelWithString: "")
-    private let nextButton = NSButton(
-        title: VideoDetailFeatureStrings.localized("下一页"),
-        target: nil,
-        action: nil
-    )
+    private let pager = NativePlaybackCommentReplyPager()
     private var replyRows: [NativePlaybackCommentRowView] = []
     private var thread: CommentThread?
     private var replyState: PlaybackCommentReplyState?
@@ -40,8 +30,7 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
     private var textScope: NativePlaybackCommentTextScope?
     private var onExpand: (() -> Void)?
     private var onCollapse: (() -> Void)?
-    private var onPrevious: (() -> Void)?
-    private var onNext: (() -> Void)?
+    private var onShowPage: ((Int) -> Void)?
     private var onRetry: (() -> Void)?
 
     override init(frame frameRect: NSRect) {
@@ -52,19 +41,7 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
         headerLabel.textColor = .secondaryLabelColor
         statusLabel.font = .preferredFont(forTextStyle: .callout)
         statusLabel.textColor = .secondaryLabelColor
-        pageLabel.font = .monospacedDigitSystemFont(
-            ofSize: NSFont.preferredFont(forTextStyle: .callout).pointSize,
-            weight: .regular
-        )
-        pageLabel.textColor = .secondaryLabelColor
-        pageLabel.alignment = .center
-        for button in [
-            expandButton,
-            collapseButton,
-            retryButton,
-            previousButton,
-            nextButton
-        ] {
+        for button in [expandButton, collapseButton, retryButton] {
             button.bezelStyle = .rounded
             button.controlSize = .small
         }
@@ -85,19 +62,13 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
         collapseButton.action = #selector(collapse)
         retryButton.target = self
         retryButton.action = #selector(retry)
-        previousButton.target = self
-        previousButton.action = #selector(previous)
-        nextButton.target = self
-        nextButton.action = #selector(next)
         for subview in [
             headerLabel,
             statusLabel,
             expandButton,
             collapseButton,
             retryButton,
-            previousButton,
-            pageLabel,
-            nextButton
+            pager
         ] {
             addSubview(subview)
         }
@@ -124,8 +95,7 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
         onTextLayoutChange: @escaping () -> Void,
         onExpand: @escaping () -> Void,
         onCollapse: @escaping () -> Void,
-        onPrevious: @escaping () -> Void,
-        onNext: @escaping () -> Void,
+        onShowPage: @escaping (Int) -> Void,
         onRetry: @escaping () -> Void,
         onOpenLink: @escaping (CommentLinkTarget) -> Void,
         onOpenPictures: @escaping (NativePlaybackCommentPictureGallery) -> Void,
@@ -138,8 +108,7 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
         self.textScope = textScope
         self.onExpand = onExpand
         self.onCollapse = onCollapse
-        self.onPrevious = onPrevious
-        self.onNext = onNext
+        self.onShowPage = onShowPage
         self.onRetry = onRetry
         guard case .available(let details) = thread.root.payload,
             details.replyCount > 0
@@ -175,9 +144,7 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
         expandButton.isHidden = expanded
         retryButton.isHidden = true
         statusLabel.isHidden = true
-        previousButton.isHidden = true
-        pageLabel.isHidden = true
-        nextButton.isHidden = true
+        pager.isHidden = true
         if expanded {
             let total = replyState?.totalCount ?? 0
             headerLabel.stringValue =
@@ -194,21 +161,21 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
                 statusLabel.isHidden = false
                 retryButton.isHidden = !error.isRetryable
             } else if let replyState {
-                previousButton.isHidden = false
-                pageLabel.isHidden = false
-                nextButton.isHidden = false
-                previousButton.isEnabled = replyState.pageNumber > 1
-                nextButton.isEnabled = !replyState.isEnd
-                let pageCount = CommentPresentationFormatting.pageCount(
+                pager.isHidden = false
+                // 末页之后还有回复（总数在翻页期间增长）时至少多给一页，下一页箭头不会被页数夹死。
+                let counted = CommentPresentationFormatting.pageCount(
                     totalCount: replyState.totalCount > 0
                         ? replyState.totalCount : details.replyCount,
                     pageSize: CommentUseCase.replyPageSize
                 )
-                pageLabel.stringValue = "\(replyState.pageNumber) / \(pageCount)"
-                pageLabel.setAccessibilityLabel(
-                    VideoDetailFeatureStrings.localized(
-                        "第 \(replyState.pageNumber) 页，共 \(pageCount) 页"
-                    )
+                let pageCount =
+                    replyState.isEnd
+                    ? replyState.pageNumber
+                    : max(counted, replyState.pageNumber + 1)
+                pager.configure(
+                    currentPage: replyState.pageNumber,
+                    pageCount: pageCount,
+                    onShowPage: { [weak self] in self?.onShowPage?($0) }
                 )
             }
         } else {
@@ -277,10 +244,12 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
                 )
             } else {
                 if !replyRows.isEmpty { y += 10 }
-                let third = width / 3
-                previousButton.frame = NSRect(x: padding, y: y, width: third, height: 26)
-                pageLabel.frame = NSRect(x: padding + third, y: y + 3, width: third, height: 20)
-                nextButton.frame = NSRect(x: padding + third * 2, y: y, width: third, height: 26)
+                pager.frame = NSRect(
+                    x: padding,
+                    y: y,
+                    width: width,
+                    height: NativePlaybackCommentsItemMeasurement.replyPagerHeight
+                )
             }
         } else {
             if expandButton.isHidden {
@@ -309,8 +278,8 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
         textScope = nil
         onExpand = nil
         onCollapse = nil
-        onPrevious = nil
-        onNext = nil
+        onShowPage = nil
+        pager.reset()
         onRetry = nil
         headerLabel.stringValue = ""
         statusLabel.stringValue = ""
@@ -327,6 +296,4 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
     @objc private func expand() { onExpand?() }
     @objc private func collapse() { onCollapse?() }
     @objc private func retry() { onRetry?() }
-    @objc private func previous() { onPrevious?() }
-    @objc private func next() { onNext?() }
 }
