@@ -61,10 +61,10 @@
 
 - **Browse**: Home recommendations, Popular and Search, each remembering its own scroll position. Search shows your local search history and Bilibili Trending, with suggestions as you type.
 - **Library** (signed in): Watch Later and Watch history under "Library" in the sidebar, and each favorites folder you created listed under "Favorites". Watch history shows which kind of device you watched on. Watch Later can be sorted by date added, filtered by progress, date added or duration, and searched. Favorites folders open straight into paged videos, with sorting and search within the folder. Anime, courses, collections, audio and unavailable items are labeled with the reason and can't be opened.
-- **Card menu**: Right-click a video card to copy its link or open it in your browser. When signed in, you can also add it to Watch Later, and remove videos from the Watch Later page with right-click or ⌘⌫.
+- **Card menu**: Right-click a video card to copy its link or open it in your browser. When signed in, you can also add it to Watch Later, save it to Favorites, mark a home recommendation as "Not Interested" (and undo it), and remove videos from the Watch Later and Favorites pages with right-click or ⌘⌫.
 - **Playback**: Automatic quality, playback speed, Picture in Picture, full screen, the system subtitle and audio track menus, Now Playing and media keys.
 - **Danmaku**: Runs on the same timeline as the video, so seeking, pausing and speed changes never put it out of sync; after you drag the progress bar, comments appear exactly where they belong. Speed, display area, density and opacity are adjustable, and colored danmaku from premium members shows up as usual.
-- **Video page**: Episodes, description, read-only comments (replies, images and animated images) and related videos, all next to the player. Video links, @mentions and timestamps in descriptions and comments open or jump inside the app. When signed in, click an uploader to keep watching through their uploads in the sidebar without interrupting the current video.
+- **Video page**: Episodes, description, read-only comments (replies with page numbers and "View conversation", images and animated images) and related videos, all next to the player. Video links, @mentions and timestamps in descriptions and comments open or jump inside the app. When signed in, you can Like, Coin, Save, or do all three from the toolbar, and click an uploader to keep watching through their uploads in the sidebar without interrupting the current video.
 - **Sign in**: Scan a QR code with the Bilibili app. Your watch progress syncs to your Bilibili watch history.
 - **Updates**: The installer is signed and notarized by Apple, and new versions are announced in the app.
 - **Languages**: Simplified Chinese, Traditional Chinese, English and Japanese, following your system language.
@@ -87,6 +87,10 @@
 | D | Toggle danmaku |
 | C | Toggle subtitles |
 | F | Enter / exit full screen |
+| Q | Like / remove like (signed in) |
+| Hold Q | Like, Coin, and Save (signed in) |
+| W | Coin (signed in) |
+| E | Save to Favorites… (signed in) |
 
 ## What's next
 
@@ -115,7 +119,7 @@ No. BiliKit is an unofficial open-source project and is not affiliated with, end
 <summary>Is signing in safe?</summary>
 
 You sign in with Bilibili's official QR code. Your sign-in information is stored only in this Mac's keychain and is not synced to iCloud.
-Apart from the update feed used to check for updates, BiliKit has no servers of its own and no analytics or ad SDKs, and it never likes, tips coins or follows on your behalf. See the [privacy notes](PRIVACY.md) (in Chinese).
+Apart from the update feed used to check for updates, BiliKit has no servers of its own and no analytics or ad SDKs, and it only likes, coins or saves when you do it yourself; it never follows or does anything else on your behalf. See the [privacy notes](PRIVACY.md) (in Chinese).
 </details>
 
 <details>
