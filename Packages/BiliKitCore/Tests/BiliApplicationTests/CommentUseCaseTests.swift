@@ -123,16 +123,101 @@ struct CommentUseCaseTests {
     }
 }
 
+extension CommentUseCaseTests {
+    /// 对话页去重、空页按到底；根评论或对话不符、下一页起点没有越过请求楼层都按无效响应，起点不是正数时不请求。
+    @Test
+    func dialogPageIsValidatedDedupedAndEndsOnAnEmptyPage() async throws {
+        let rootID = CommentID(rawValue: 1)
+        let dialogID = CommentID(rawValue: 2)
+        let useCase = CommentUseCase(
+            repository: CommentRepositoryStub(
+                dialogPages: [
+                    CommentDialogPage(
+                        rootID: rootID,
+                        dialogID: dialogID,
+                        replies: [comment(2), comment(3), comment(3)],
+                        nextFloor: 21
+                    ),
+                    CommentDialogPage(
+                        rootID: rootID,
+                        dialogID: dialogID,
+                        replies: [],
+                        nextFloor: 41
+                    ),
+                    CommentDialogPage(
+                        rootID: rootID,
+                        dialogID: CommentID(rawValue: 9),
+                        replies: [comment(4)],
+                        nextFloor: nil
+                    ),
+                    CommentDialogPage(
+                        rootID: rootID,
+                        dialogID: dialogID,
+                        replies: [comment(5)],
+                        nextFloor: 21
+                    )
+                ]
+            )
+        )
+        let subject = CommentSubjectIdentity.video(aid: 700_001)
+
+        let first = try await useCase.loadDialog(
+            for: subject,
+            rootID: rootID,
+            dialogID: dialogID,
+            fromFloor: nil
+        )
+        #expect(first.replies.map(\.id.rawValue) == [2, 3])
+        #expect(first.nextFloor == 21)
+
+        let empty = try await useCase.loadDialog(
+            for: subject,
+            rootID: rootID,
+            dialogID: dialogID,
+            fromFloor: 21
+        )
+        #expect(empty.nextFloor == nil)
+
+        await #expect(throws: CommentReadError.invalidResponse) {
+            try await useCase.loadDialog(
+                for: subject,
+                rootID: rootID,
+                dialogID: dialogID,
+                fromFloor: nil
+            )
+        }
+        await #expect(throws: CommentReadError.invalidResponse) {
+            try await useCase.loadDialog(
+                for: subject,
+                rootID: rootID,
+                dialogID: dialogID,
+                fromFloor: 21
+            )
+        }
+        await #expect(throws: CommentReadError.invalidRequest) {
+            try await useCase.loadDialog(
+                for: subject,
+                rootID: rootID,
+                dialogID: dialogID,
+                fromFloor: 0
+            )
+        }
+    }
+}
+
 private actor CommentRepositoryStub: CommentRepository {
     private var rootPages: [CommentRootPage]
     private var replyPages: [CommentReplyPage]
+    private var dialogPages: [CommentDialogPage]
 
     init(
         rootPages: [CommentRootPage] = [],
-        replyPages: [CommentReplyPage] = []
+        replyPages: [CommentReplyPage] = [],
+        dialogPages: [CommentDialogPage] = []
     ) {
         self.rootPages = rootPages
         self.replyPages = replyPages
+        self.dialogPages = dialogPages
     }
 
     func rootComments(
@@ -150,6 +235,16 @@ private actor CommentRepositoryStub: CommentRepository {
         pageSize: Int
     ) throws -> CommentReplyPage {
         replyPages.removeFirst()
+    }
+
+    func dialog(
+        for subject: CommentSubjectIdentity,
+        rootID: CommentID,
+        dialogID: CommentID,
+        fromFloor: Int?,
+        pageSize: Int
+    ) throws -> CommentDialogPage {
+        dialogPages.removeFirst()
     }
 }
 

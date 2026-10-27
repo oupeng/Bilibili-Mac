@@ -1,4 +1,5 @@
 import AppKit
+import BiliApplication
 import BiliModels
 
 /// 评论条目的尺寸常量与高度测量，是评论行布局的唯一几何来源：条目的 `layout()` 与控制器的行高测量都经它计算。
@@ -21,6 +22,8 @@ enum NativePlaybackCommentsItemMeasurement {
     static let replyRowSpacing: CGFloat = 8
     /// 最后一条回复与底部页码条之间的间距。
     static let replyFooterGap: CGFloat = 10
+    /// 看对话时底部「加载更多」按钮的行高。
+    static let dialogLoadMoreHeight: CGFloat = 24
     /// 加载中或失败说明一行的高度。
     static let replyStatusHeight: CGFloat = 32
     /// 状态行放标题与两行说明（暂无评论、已关闭、缺少评论标识）的高度。
@@ -132,7 +135,8 @@ enum NativePlaybackCommentsItemMeasurement {
         var height = replyPanelPadding
         if let replyState, replyState.isExpanded {
             height += replyHeaderRowHeight
-            for (index, reply) in replyState.replies.enumerated() {
+            let replies = replyState.shownReplies
+            for (index, reply) in replies.enumerated() {
                 height += comment(
                     reply,
                     width: innerWidth,
@@ -140,13 +144,19 @@ enum NativePlaybackCommentsItemMeasurement {
                     textRenderer: textRenderer,
                     textScope: textScope
                 )
-                if index < replyState.replies.count - 1 { height += replyRowSpacing }
+                if index < replies.count - 1 { height += replyRowSpacing }
             }
-            if replyState.isLoading || replyState.error != nil {
+            switch NativePlaybackCommentRepliesFooter(replyState) {
+            case .loading, .failed, .emptyDialog:
                 height += replyStatusHeight
-            } else {
-                if !replyState.replies.isEmpty { height += replyFooterGap }
+            case .pager:
+                if !replies.isEmpty { height += replyFooterGap }
                 height += replyPagerHeight
+            case .loadMoreDialog:
+                if !replies.isEmpty { height += replyFooterGap }
+                height += dialogLoadMoreHeight
+            case .none:
+                break
             }
         } else {
             let replies = Array(thread.replyPreview.prefix(2))
@@ -331,4 +341,40 @@ enum NativePlaybackCommentImageStyle {
     static let animationBadgePadding: CGFloat = 4
     static let animationBadgeFontSize: CGFloat = 9
     static let animationBadgeCornerRadius: CGFloat = 3
+}
+
+/// 楼中楼面板展开后底部一行显示什么；面板配置、布局与行高测量共用这一份判断。
+enum NativePlaybackCommentRepliesFooter: Equatable {
+    /// 这一页或对话的这一页正在加载。
+    case loading
+    /// 加载失败；可重试时带「重试」。
+    case failed(CommentReadError)
+    /// 楼中楼页码条。
+    case pager
+    /// 正在看的对话还有下一页。
+    case loadMoreDialog
+    /// 对话已到底却没有一条可显示的回复：给一句说明，面板不留空白。
+    case emptyDialog
+    /// 对话已到底，底部不留行。
+    case none
+
+    init(_ state: PlaybackCommentReplyState) {
+        if let dialog = state.dialog {
+            if dialog.isLoading {
+                self = .loading
+            } else if let error = dialog.error {
+                self = .failed(error)
+            } else if dialog.isEnd {
+                self = dialog.replies.isEmpty ? .emptyDialog : .none
+            } else {
+                self = .loadMoreDialog
+            }
+        } else if state.isLoading {
+            self = .loading
+        } else if let error = state.error {
+            self = .failed(error)
+        } else {
+            self = .pager
+        }
+    }
 }

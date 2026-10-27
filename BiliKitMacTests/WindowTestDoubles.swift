@@ -53,6 +53,17 @@ actor CommentRepositoryStub: CommentRepository {
         )
     }
 
+    func dialog(
+        for subject: CommentSubjectIdentity,
+        rootID: CommentID,
+        dialogID: CommentID,
+        fromFloor: Int?,
+        pageSize: Int
+    ) async throws -> CommentDialogPage {
+        if let rootError { throw rootError }
+        return CommentDialogPage(rootID: rootID, dialogID: dialogID, replies: [], nextFloor: nil)
+    }
+
     func requestedSubjects() -> [CommentSubjectIdentity] {
         subjects
     }

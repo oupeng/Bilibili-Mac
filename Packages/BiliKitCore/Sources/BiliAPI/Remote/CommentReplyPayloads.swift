@@ -80,6 +80,96 @@ struct CommentReplyPagePayload: Decodable, Sendable {
     }
 }
 
+/// 「查看对话」接口（`/x/v2/reply/dialog/cursor`）的 data：本页楼层游标、整串对话的楼层范围与本页回复。
+///
+/// 只保留属于请求根评论与对话的回复并按 ID 去重；楼层不合规时整页失败。接口没有“已到底”字段：本页最大楼层追上
+/// 整串对话的最大楼层、或本页为空时到底。
+struct CommentDialogListPayload: Decodable, Sendable {
+    let cursor: CommentDialogCursorPayload
+    let dialog: CommentDialogRangePayload
+    let replies: [LossyDecodable<CommentReplyPayload>]
+    let upper: CommentUpperPayload?
+
+    private enum CodingKeys: String, CodingKey {
+        case cursor
+        case dialog
+        case replies
+        case upper
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        cursor = try container.decode(CommentDialogCursorPayload.self, forKey: .cursor)
+        dialog = try container.decode(CommentDialogRangePayload.self, forKey: .dialog)
+        replies =
+            try container.decodeIfPresent(
+                [LossyDecodable<CommentReplyPayload>].self,
+                forKey: .replies
+            ) ?? []
+        upper = container.decodeLossyIfPresent(CommentUpperPayload.self, forKey: .upper)
+    }
+
+    func page(
+        subject: CommentSubjectIdentity,
+        rootID: CommentID,
+        dialogID: CommentID
+    ) throws -> CommentRemoteDialogPage {
+        guard cursor.maxFloor >= 0, dialog.maxFloor >= 0 else {
+            throw BiliAPIError.decodingFailed
+        }
+        let uploaderID = upper.map { String($0.mid) }
+        var seen: Set<CommentID> = []
+        let models = replies.compactMap(\.value).compactMap { payload -> Comment? in
+            guard
+                let comment = try? payload.model(
+                    subject: subject,
+                    uploaderID: uploaderID,
+                    adminPinnedID: nil,
+                    uploaderPinnedID: nil
+                ), comment.rootID == rootID, comment.dialogID == dialogID,
+                seen.insert(comment.id).inserted
+            else { return nil }
+            return comment
+        }
+        let reachedEnd = replies.isEmpty || cursor.maxFloor >= dialog.maxFloor
+        let nextFloor = reachedEnd ? nil : cursor.next.flatMap { $0 > cursor.maxFloor ? $0 : nil }
+        return CommentRemoteDialogPage(
+            rootID: rootID,
+            dialogID: dialogID,
+            replies: models,
+            nextFloor: nextFloor
+        )
+    }
+}
+
+/// 一页对话映射后的结果：所属根评论与对话、回复与下一页起点楼层（到底时为 nil）。
+struct CommentRemoteDialogPage: Sendable {
+    let rootID: CommentID
+    let dialogID: CommentID
+    let replies: [BiliModels.Comment]
+    let nextFloor: Int?
+}
+
+/// 「查看对话」本页的楼层游标：本页最大楼层与下一页的起点楼层。
+struct CommentDialogCursorPayload: Decodable, Sendable {
+    let maxFloor: Int
+    let next: Int?
+
+    private enum CodingKeys: String, CodingKey {
+        case maxFloor = "max_floor"
+        case next
+    }
+}
+
+/// 整串对话的楼层范围，只用最大楼层判断是否到底。
+struct CommentDialogRangePayload: Decodable, Sendable {
+    let maxFloor: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case maxFloor = "max_floor"
+    }
+}
+
 /// 单条评论（根评论或回复）的原始字段，映射为 `Comment` 或带预览回复的 `CommentThread`。
 ///
 /// 评论对象（oid／type）与请求不符即失败；不可见、被折叠或状态非 0 的评论映射为不可见占位。
@@ -89,6 +179,7 @@ struct CommentReplyPayload: Decodable, Sendable {
     let type: Int?
     let root: Int64?
     let parent: Int64?
+    let dialog: Int64?
     let state: Int?
     let ctime: Int64?
     let like: Int64?
@@ -106,6 +197,7 @@ struct CommentReplyPayload: Decodable, Sendable {
         case type
         case root
         case parent
+        case dialog
         case state
         case ctime
         case like
@@ -125,6 +217,7 @@ struct CommentReplyPayload: Decodable, Sendable {
         type = try container.decodeIfPresent(Int.self, forKey: .type)
         root = try container.decodeIfPresent(Int64.self, forKey: .root)
         parent = try container.decodeIfPresent(Int64.self, forKey: .parent)
+        dialog = container.decodeLossyIfPresent(Int64.self, forKey: .dialog)
         state = try container.decodeIfPresent(Int.self, forKey: .state)
         ctime = try container.decodeIfPresent(Int64.self, forKey: .ctime)
         like = try container.decodeIfPresent(Int64.self, forKey: .like)
@@ -191,6 +284,7 @@ struct CommentReplyPayload: Decodable, Sendable {
                 id: id,
                 rootID: positiveID(root),
                 parentID: positiveID(parent),
+                dialogID: positiveID(dialog),
                 payload: .unavailable(folder?.isFolded == true ? .folded : .unavailable)
             )
         }
@@ -199,6 +293,7 @@ struct CommentReplyPayload: Decodable, Sendable {
                 id: id,
                 rootID: positiveID(root),
                 parentID: positiveID(parent),
+                dialogID: positiveID(dialog),
                 payload: .unavailable(.unknown(rawValue: state))
             )
         }
@@ -215,6 +310,7 @@ struct CommentReplyPayload: Decodable, Sendable {
             id: id,
             rootID: positiveID(root),
             parentID: positiveID(parent),
+            dialogID: positiveID(dialog),
             payload: .available(
                 CommentDetails(
                     author: try member.model(uploaderID: uploaderID),

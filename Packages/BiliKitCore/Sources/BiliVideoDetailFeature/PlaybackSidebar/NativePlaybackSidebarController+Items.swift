@@ -137,6 +137,15 @@ extension NativePlaybackSidebarController {
                     self?.actions.showReplyPage(rootID, page)
                 },
                 onRetry: { [weak self] in self?.actions.retryReplies(rootID) },
+                onShowDialog: { [weak self] reply in
+                    self?.prepareThreadAlignment(itemID, edge: .repliesPanel)
+                    self?.actions.showDialog(rootID, reply)
+                },
+                onLoadMoreDialog: { [weak self] in self?.actions.loadMoreDialog(rootID) },
+                onCloseDialog: { [weak self] in
+                    self?.prepareThreadAlignment(itemID, edge: .repliesPanel)
+                    self?.actions.closeDialog(rootID)
+                },
                 onOpenLink: { [weak self] target in
                     self?.releasingFocus { $0.actions.openCommentLink(target) }
                 },

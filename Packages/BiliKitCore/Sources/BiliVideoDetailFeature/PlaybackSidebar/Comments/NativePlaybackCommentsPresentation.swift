@@ -14,7 +14,7 @@ struct NativePlaybackCommentThreadPresentation: Equatable {
 
     /// 根评论、预览回复或已加载的回复里有没有时间戳链接；只有这些评论随分 P 时长变化需要重新配置。
     var containsTimestampLinks: Bool {
-        let comments = [thread.root] + thread.replyPreview + (replyState?.replies ?? [])
+        let comments = [thread.root] + thread.replyPreview + (replyState?.shownReplies ?? [])
         return comments.contains { comment in
             guard case .available(let details) = comment.payload else { return false }
             return NativePlaybackTextLinks.containsTimestamp(details.content.links)
@@ -51,6 +51,15 @@ struct NativePlaybackCommentThreadPresentation: Equatable {
             hasher.combine(replyState.isEnd)
             hasher.combine(String(describing: replyState.error))
             for reply in replyState.replies { Self.hash(reply, into: &hasher) }
+            // 对话状态同样决定面板内容：漏掉它时进出对话、加载更多都不会让这一行重载。
+            if let dialog = replyState.dialog {
+                hasher.combine(dialog.dialogID)
+                hasher.combine(dialog.nextFloor)
+                hasher.combine(dialog.hasLoadedFirstPage)
+                hasher.combine(dialog.isLoading)
+                hasher.combine(String(describing: dialog.error))
+                for reply in dialog.replies { Self.hash(reply, into: &hasher) }
+            }
         }
         revision = hasher.finalize()
     }

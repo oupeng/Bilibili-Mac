@@ -158,10 +158,10 @@ extension NativePlaybackSidebarController {
         }
     }
 
-    /// 楼中楼翻页或收起前调用，记下这一楼之后要停在哪里，直到这一楼加载完成。
+    /// 楼中楼翻页、进出对话或收起前调用，记下这一楼之后要停在哪里，直到这一楼加载完成。
     ///
-    /// 要对齐的边（翻页时是回复面板顶边，收起时是根评论顶边）此刻已在可见区上方，就把它顶到可见区顶部；否则让这一楼
-    /// 顶边停在原来离可见区顶部的位置。不这样做时，语义锚点保持的是可见区里最靠上的条目：在一页回复的底部翻页，
+    /// 要对齐的边（翻页与进出对话时是回复面板顶边，收起时是根评论顶边）此刻已在可见区上方，就把它顶到可见区顶部；
+    /// 否则让这一楼顶边停在原来离可见区顶部的位置。不这样做时，语义锚点保持的是可见区里最靠上的条目：在一页回复的底部翻页，
     /// 会停在新一页同样深的位置；这一楼排在最后、视口贴底时，回复到达又会按贴底规则滚到新内容的末尾。意图保留到这一楼
     /// 不再加载（中间的加载态与之后的回复到达都按它定位），用户开始拖动滚动时作废。
     func prepareThreadAlignment(
@@ -226,9 +226,10 @@ extension NativePlaybackSidebarController {
         }
     }
 
-    /// 这一楼还有在途的楼中楼请求。
+    /// 这一楼还有在途的楼中楼翻页或对话请求。
     private func isLoadingReplies(_ itemID: NativePlaybackSidebarItemID) -> Bool {
-        commentThreadsByItemID[itemID]?.replyState?.isLoading == true
+        guard let state = commentThreadsByItemID[itemID]?.replyState else { return false }
+        return state.isLoading || state.dialog?.isLoading == true
     }
 
     func updateTopButton() {
@@ -272,7 +273,7 @@ struct NativePlaybackSidebarThreadAlignment: Equatable {
     enum Edge: Equatable {
         /// 根评论顶边：收起之后。
         case root
-        /// 回复面板顶边（“共 N 条回复”一行）：翻页之后。
+        /// 回复面板顶边（“共 N 条回复”或「返回全部回复」一行）：翻页与进出对话之后。
         case repliesPanel
     }
 

@@ -5,6 +5,9 @@ import BiliUI
 
 /// 一条评论（根评论或回复）：头像、作者与标记、正文、图片、时间与属地、点赞与来源标记；评论不可见时只显示说明。
 ///
+/// 楼中楼里回复别人的回复在点赞左侧多一个「查看对话」，由面板传入 `onViewDialog` 决定是否出现；它与时间同在一行，
+/// 不改变行高。
+///
 /// 正文渲染器与作用域由条目传入，头像与图片的加载由各自的子视图拥有。属于播放侧栏的原生 item，
 /// 用 AppKit 的理由见 ARCHITECTURE「原生 AppKit 集合视图」的播放侧栏一条。
 @MainActor
@@ -18,6 +21,12 @@ final class NativePlaybackCommentRowView: NSView {
     private let metadataLabel = NSTextField(labelWithString: "")
     private let likeImage = NSImageView()
     private let likeLabel = NSTextField(labelWithString: "")
+    private let dialogButton = NSButton(
+        title: VideoDetailFeatureStrings.localized("查看对话"),
+        target: nil,
+        action: nil
+    )
+    private var onViewDialog: (() -> Void)?
     private let provenanceBadges = NativePlaybackCommentProvenanceBadgesView()
     private let unavailableLabel = NSTextField(labelWithString: "")
     private var comment: BiliModels.Comment?
@@ -52,6 +61,13 @@ final class NativePlaybackCommentRowView: NSView {
         likeLabel.textColor = .secondaryLabelColor
         likeLabel.alignment = .right
         likeLabel.setAccessibilityElement(false)
+        dialogButton.isBordered = false
+        dialogButton.controlSize = .small
+        dialogButton.font = .preferredFont(forTextStyle: .callout)
+        dialogButton.contentTintColor = .controlAccentColor
+        dialogButton.target = self
+        dialogButton.action = #selector(viewDialog)
+        dialogButton.isHidden = true
         unavailableLabel.font = .preferredFont(forTextStyle: .body)
         unavailableLabel.textColor = .secondaryLabelColor
         for subview in [
@@ -63,6 +79,7 @@ final class NativePlaybackCommentRowView: NSView {
             metadataLabel,
             likeImage,
             likeLabel,
+            dialogButton,
             provenanceBadges,
             unavailableLabel
         ] {
@@ -85,9 +102,11 @@ final class NativePlaybackCommentRowView: NSView {
         onTextLayoutChange: @escaping () -> Void,
         onOpenLink: @escaping (CommentLinkTarget) -> Void,
         onOpenPictures: @escaping (NativePlaybackCommentPictureGallery) -> Void,
-        onOpenAuthorSpace: ((CommentAuthor) -> Void)?
+        onOpenAuthorSpace: ((CommentAuthor) -> Void)?,
+        onViewDialog: (() -> Void)? = nil
     ) {
         self.comment = comment
+        self.onViewDialog = onViewDialog
         self.isReply = isReply
         self.textRenderer = textRenderer
         self.textScope = textScope
@@ -105,6 +124,7 @@ final class NativePlaybackCommentRowView: NSView {
             likeImage.isHidden = true
             likeLabel.isHidden = true
             provenanceBadges.isHidden = true
+            dialogButton.isHidden = true
             unavailableLabel.isHidden = false
             unavailableLabel.stringValue = Self.unavailableText(reason)
             unavailableLabel.setAccessibilityLabel(unavailableLabel.stringValue)
@@ -117,6 +137,7 @@ final class NativePlaybackCommentRowView: NSView {
             metadataLabel.isHidden = false
             likeImage.isHidden = false
             likeLabel.isHidden = false
+            dialogButton.isHidden = onViewDialog == nil
             unavailableLabel.isHidden = true
             avatar.configure(
                 author: details.author,
@@ -188,10 +209,21 @@ final class NativePlaybackCommentRowView: NSView {
                 width: 14,
                 height: 14
             )
+            var metadataTrailing = likeImage.frame.minX - 6
+            if !dialogButton.isHidden {
+                let dialogWidth = ceil(dialogButton.fittingSize.width)
+                dialogButton.frame = NSRect(
+                    x: max(geometry.contentX, metadataTrailing - dialogWidth),
+                    y: y,
+                    width: dialogWidth,
+                    height: lineHeight
+                )
+                metadataTrailing = dialogButton.frame.minX - 6
+            }
             metadataLabel.frame = NSRect(
                 x: geometry.contentX,
                 y: y,
-                width: max(1, likeImage.frame.minX - geometry.contentX - 6),
+                width: max(1, metadataTrailing - geometry.contentX),
                 height: lineHeight
             )
             provenanceBadges.frame = geometry.provenanceFrame
@@ -216,10 +248,14 @@ final class NativePlaybackCommentRowView: NSView {
         authorBadges.reset()
         metadataLabel.stringValue = ""
         likeLabel.stringValue = ""
+        onViewDialog = nil
+        dialogButton.isHidden = true
         provenanceBadges.reset()
         pictures.reset()
         authorEntry.configure(author: nil, onOpen: nil)
     }
+
+    @objc private func viewDialog() { onViewDialog?() }
 
     private static func metadataLeading(_ details: CommentDetails) -> String {
         let time = VideoMetadataFormatting.commentDate(details.createdAt)

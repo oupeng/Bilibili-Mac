@@ -1,0 +1,68 @@
+{
+  "code": 0,
+  "message": "OK",
+  "data": {
+    "cursor": {
+      "is_begin": true,
+      "min_floor": 1,
+      "max_floor": 20,
+      "next": 21,
+      "prev": 0,
+      "size": 3
+    },
+    "dialog": {
+      "min_floor": 0,
+      "max_floor": 30
+    },
+    "upper": {
+      "mid": 100
+    },
+    "replies": [
+      {
+        "rpid": 301,
+        "oid": 700001,
+        "type": 1,
+        "root": 102,
+        "parent": 102,
+        "dialog": 301,
+        "floor": 1,
+        "state": 0,
+        "ctime": 1700000400,
+        "like": 1,
+        "rcount": 0,
+        "member": { "mid": "401", "uname": "对话起头用户", "sex": "保密", "level_info": { "current_level": 4 } },
+        "content": { "message": "对话第一条" }
+      },
+      {
+        "rpid": 302,
+        "oid": 700001,
+        "type": 1,
+        "root": 102,
+        "parent": 301,
+        "dialog": 301,
+        "floor": 5,
+        "state": 0,
+        "ctime": 1700000500,
+        "like": 0,
+        "rcount": 0,
+        "member": { "mid": "402", "uname": "对话回复用户", "sex": "男", "level_info": { "current_level": 2 } },
+        "content": { "message": "回复 @对话起头用户 :对话第二条" }
+      },
+      {
+        "rpid": 303,
+        "oid": 700001,
+        "type": 1,
+        "root": 102,
+        "parent": 999,
+        "dialog": 999,
+        "floor": 9,
+        "state": 0,
+        "ctime": 1700000600,
+        "like": 0,
+        "rcount": 0,
+        "member": { "mid": "403", "uname": "别的对话用户", "sex": "女", "level_info": { "current_level": 1 } },
+        "content": { "message": "不属于这串对话" }
+      }
+    ]
+  }
+}

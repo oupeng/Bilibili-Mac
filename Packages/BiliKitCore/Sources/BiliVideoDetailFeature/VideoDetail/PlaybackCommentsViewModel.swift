@@ -13,6 +13,8 @@ public enum PlaybackCommentsRootState: Sendable, Equatable {
 }
 
 /// 单条 root 评论的楼中楼展开、分页与失败状态，由 `PlaybackCommentsViewModel` 按 root ID 持有。
+///
+/// `dialog` 非 nil 时面板显示那串对话；当前页的回复与页码保留，关掉对话回到原页。
 public struct PlaybackCommentReplyState: Sendable, Equatable {
     public var isExpanded = false
     public var replies: [BiliModels.Comment] = []
@@ -22,19 +24,54 @@ public struct PlaybackCommentReplyState: Sendable, Equatable {
     public var isLoading = false
     public var isEnd = false
     public var error: CommentReadError?
+    public var dialog: PlaybackCommentDialogState?
 
     public init() {}
+
+    /// 展开后列出的回复：看对话时是对话里已加载的回复，否则是当前页；面板、行高测量与时间戳判断共用。
+    public var shownReplies: [BiliModels.Comment] {
+        dialog?.replies ?? replies
+    }
+}
+
+/// 楼中楼面板里正在查看的一串对话（「查看对话」）：按楼层往下加载，没有页码。
+public struct PlaybackCommentDialogState: Sendable, Equatable {
+    public let dialogID: CommentID
+    public var replies: [BiliModels.Comment] = []
+    /// 下一页的起点楼层；第一页到达之前与到底之后都为 nil，以 `hasLoadedFirstPage` 区分。
+    public var nextFloor: Int?
+    public var hasLoadedFirstPage = false
+    public var isLoading = false
+    public var error: CommentReadError?
+
+    public init(dialogID: CommentID) {
+        self.dialogID = dialogID
+    }
+
+    public var isEnd: Bool { hasLoadedFirstPage && nextFloor == nil }
 }
 
 /// 独立拥有当前视频评论的 root 与楼中楼状态，不拥有或控制播放器。
 @MainActor
 @Observable
 public final class PlaybackCommentsViewModel: AccountRevalidationParticipant {
+    /// 一楼要读的内容：楼中楼的某一页，或某串对话从某楼层起的一页。
+    private enum ReplyRequestTarget: Equatable {
+        case page(Int)
+        case dialog(CommentID, fromFloor: Int?)
+    }
+
+    /// 楼中楼与对话请求共用一个队列：同一楼同时只有一个在途，`rootGeneration` 与 subject 拒绝旧结果。
     private struct PendingReplyRequest {
         let rootID: CommentID
-        let page: Int
+        let target: ReplyRequestTarget
         let subject: CommentSubjectIdentity
         let rootGeneration: Int
+    }
+
+    private enum ReplyRequestResult {
+        case page(CommentReplyBatch)
+        case dialog(CommentDialogPage)
     }
 
     public private(set) var subject: CommentSubjectIdentity?
@@ -133,14 +170,43 @@ public final class PlaybackCommentsViewModel: AccountRevalidationParticipant {
 
     public func collapseReplies(for rootID: CommentID) {
         guard var state = replyStates[rootID] else { return }
-        pendingReplyRequests.removeAll { $0.rootID == rootID }
-        if let requestID = replyRequestIDs.removeValue(forKey: rootID) {
-            activeReplyTasks[requestID]?.cancel()
-        }
+        cancelReplyRequest(for: rootID)
         state.isExpanded = false
         state.isLoading = false
         state.error = nil
         state.requestedPageNumber = nil
+        state.dialog = nil
+        replyStates[rootID] = state
+    }
+
+    /// 在楼中楼面板里查看 `reply` 所在的那串对话：面板原地换成按楼层排列的对话，「返回全部回复」回到原页。
+    ///
+    /// 只对这一楼里回复别人的回复（`Comment.isReplyInDialog`）生效；面板未展开、这一页正在加载或已在看对话时不切换。
+    public func showDialog(of reply: BiliModels.Comment, for rootID: CommentID) {
+        guard var state = replyStates[rootID], state.isExpanded, !state.isLoading,
+            state.dialog == nil, reply.rootID == rootID, reply.isReplyInDialog,
+            let dialogID = reply.dialogID
+        else { return }
+        state.dialog = PlaybackCommentDialogState(dialogID: dialogID)
+        replyStates[rootID] = state
+        loadDialogPage(rootID: rootID)
+    }
+
+    /// 对话的下一页；上一次失败时按同一起点重试。
+    ///
+    /// 到底、正在加载或没有在看对话时不请求。
+    public func loadMoreDialog(for rootID: CommentID) {
+        guard let dialog = replyStates[rootID]?.dialog, !dialog.isLoading,
+            dialog.error != nil || dialog.nextFloor != nil
+        else { return }
+        loadDialogPage(rootID: rootID)
+    }
+
+    /// 关掉对话回到楼中楼原页，在途的对话请求取消、结果不再写回。
+    public func closeDialog(for rootID: CommentID) {
+        guard var state = replyStates[rootID], state.dialog != nil else { return }
+        cancelReplyRequest(for: rootID)
+        state.dialog = nil
         replyStates[rootID] = state
     }
 
@@ -286,22 +352,65 @@ public final class PlaybackCommentsViewModel: AccountRevalidationParticipant {
 
     private func loadReplyPage(rootID: CommentID, page: Int) {
         guard let subject, var state = replyStates[rootID], state.isExpanded,
-            !state.isLoading
+            !state.isLoading, state.dialog == nil
         else { return }
         state.requestedPageNumber = page
         state.isLoading = true
         state.error = nil
         replyStates[rootID] = state
+        enqueueReplyRequest(rootID: rootID, target: .page(page), subject: subject)
+    }
 
+    /// 对话从 `nextFloor` 起的一页（第一页时为 nil）；失败后重试沿用同一起点。
+    private func loadDialogPage(rootID: CommentID) {
+        guard let subject, var state = replyStates[rootID], state.isExpanded,
+            var dialog = state.dialog, !dialog.isLoading
+        else { return }
+        dialog.isLoading = true
+        dialog.error = nil
+        state.dialog = dialog
+        replyStates[rootID] = state
+        enqueueReplyRequest(
+            rootID: rootID,
+            target: .dialog(dialog.dialogID, fromFloor: dialog.nextFloor),
+            subject: subject
+        )
+    }
+
+    private func enqueueReplyRequest(
+        rootID: CommentID,
+        target: ReplyRequestTarget,
+        subject: CommentSubjectIdentity
+    ) {
         pendingReplyRequests.append(
             PendingReplyRequest(
                 rootID: rootID,
-                page: page,
+                target: target,
                 subject: subject,
                 rootGeneration: rootGeneration
             )
         )
         startPendingReplyRequests()
+    }
+
+    /// 这一楼排队中与在途的请求都作废；在途 Task 取消，回来的结果按请求 ID 不再写回。
+    private func cancelReplyRequest(for rootID: CommentID) {
+        pendingReplyRequests.removeAll { $0.rootID == rootID }
+        if let requestID = replyRequestIDs.removeValue(forKey: rootID) {
+            activeReplyTasks[requestID]?.cancel()
+        }
+    }
+
+    /// 排队期间这一楼的状态变了（收起、换页、关掉对话）就不再发出。
+    private func isStillWanted(_ request: PendingReplyRequest) -> Bool {
+        guard let state = replyStates[request.rootID], state.isExpanded else { return false }
+        switch request.target {
+        case .page(let page):
+            return state.dialog == nil && state.isLoading && state.requestedPageNumber == page
+        case .dialog(let dialogID, let fromFloor):
+            guard let dialog = state.dialog else { return false }
+            return dialog.dialogID == dialogID && dialog.isLoading && dialog.nextFloor == fromFloor
+        }
     }
 
     private func startPendingReplyRequests() {
@@ -318,10 +427,7 @@ public final class PlaybackCommentsViewModel: AccountRevalidationParticipant {
             guard rootGeneration == request.rootGeneration,
                 subject == request.subject,
                 replyRequestIDs[request.rootID] == nil,
-                let state = replyStates[request.rootID],
-                state.isExpanded,
-                state.isLoading,
-                state.requestedPageNumber == request.page
+                isStillWanted(request)
             else { continue }
             startReplyRequest(request)
         }
@@ -339,57 +445,101 @@ public final class PlaybackCommentsViewModel: AccountRevalidationParticipant {
                     requestID: requestID
                 )
             }
+            let result: ReplyRequestResult
             do {
-                let batch = try await useCase.loadReplies(
-                    for: request.subject,
-                    rootID: request.rootID,
-                    page: request.page
-                )
+                switch request.target {
+                case .page(let page):
+                    result = .page(
+                        try await useCase.loadReplies(
+                            for: request.subject,
+                            rootID: request.rootID,
+                            page: page
+                        )
+                    )
+                case .dialog(let dialogID, let fromFloor):
+                    result = .dialog(
+                        try await useCase.loadDialog(
+                            for: request.subject,
+                            rootID: request.rootID,
+                            dialogID: dialogID,
+                            fromFloor: fromFloor
+                        )
+                    )
+                }
                 try Task.checkCancellation()
-                guard let self else { return }
-                guard replyRequestIDs[request.rootID] == requestID,
-                    rootGeneration == request.rootGeneration,
-                    subject == request.subject,
-                    var current = replyStates[request.rootID], current.isExpanded
-                else { return }
-                current.replies = batch.replies
-                current.pageNumber = batch.pageNumber
-                current.requestedPageNumber = nil
-                current.totalCount = batch.totalCount
-                current.isEnd = batch.isEnd
-                current.isLoading = false
-                current.error = nil
-                replyStates[request.rootID] = current
             } catch is CancellationError {
-                guard let self else { return }
-                guard replyRequestIDs[request.rootID] == requestID,
-                    var current = replyStates[request.rootID]
-                else { return }
-                current.isLoading = false
-                replyStates[request.rootID] = current
-            } catch let error as CommentReadError {
-                guard let self else { return }
-                guard replyRequestIDs[request.rootID] == requestID,
-                    rootGeneration == request.rootGeneration,
-                    subject == request.subject,
-                    var current = replyStates[request.rootID]
-                else { return }
-                recordAuthenticationInvalidationIfNeeded(error)
-                current.isLoading = false
-                current.error = error
-                replyStates[request.rootID] = current
+                self?.endReplyRequest(request, requestID: requestID, error: nil)
+                return
             } catch {
-                guard let self else { return }
-                guard replyRequestIDs[request.rootID] == requestID,
-                    rootGeneration == request.rootGeneration,
-                    subject == request.subject,
-                    var current = replyStates[request.rootID]
-                else { return }
-                current.isLoading = false
-                current.error = .unavailable
-                replyStates[request.rootID] = current
+                self?.endReplyRequest(
+                    request,
+                    requestID: requestID,
+                    error: error as? CommentReadError ?? .unavailable
+                )
+                return
+            }
+            self?.applyReplyResult(result, of: request, requestID: requestID)
+        }
+    }
+
+    private func applyReplyResult(
+        _ result: ReplyRequestResult,
+        of request: PendingReplyRequest,
+        requestID: UUID
+    ) {
+        guard replyRequestIDs[request.rootID] == requestID,
+            rootGeneration == request.rootGeneration,
+            subject == request.subject,
+            var current = replyStates[request.rootID], current.isExpanded
+        else { return }
+        switch result {
+        case .page(let batch):
+            current.replies = batch.replies
+            current.pageNumber = batch.pageNumber
+            current.requestedPageNumber = nil
+            current.totalCount = batch.totalCount
+            current.isEnd = batch.isEnd
+            current.isLoading = false
+            current.error = nil
+        case .dialog(let page):
+            guard var dialog = current.dialog, dialog.dialogID == page.dialogID else { return }
+            let shown = Set(dialog.replies.map(\.id))
+            dialog.replies += page.replies.filter { !shown.contains($0.id) }
+            dialog.nextFloor = page.nextFloor
+            dialog.hasLoadedFirstPage = true
+            dialog.isLoading = false
+            dialog.error = nil
+            current.dialog = dialog
+        }
+        replyStates[request.rootID] = current
+    }
+
+    /// 请求以失败（`error` 非 nil）或取消（nil）结束：只结束对应的加载状态；取消不记错误。
+    private func endReplyRequest(
+        _ request: PendingReplyRequest,
+        requestID: UUID,
+        error: CommentReadError?
+    ) {
+        guard replyRequestIDs[request.rootID] == requestID,
+            var current = replyStates[request.rootID]
+        else { return }
+        if error != nil {
+            guard rootGeneration == request.rootGeneration, subject == request.subject else {
+                return
             }
         }
+        if let error { recordAuthenticationInvalidationIfNeeded(error) }
+        switch request.target {
+        case .page:
+            current.isLoading = false
+            if let error { current.error = error }
+        case .dialog(let dialogID, _):
+            guard var dialog = current.dialog, dialog.dialogID == dialogID else { return }
+            dialog.isLoading = false
+            if let error { dialog.error = error }
+            current.dialog = dialog
+        }
+        replyStates[request.rootID] = current
     }
 
     private func finishReplyRequest(rootID: CommentID, requestID: UUID) {

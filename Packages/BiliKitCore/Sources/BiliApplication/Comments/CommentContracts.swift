@@ -100,6 +100,24 @@ public struct CommentReplyPage: Sendable, Equatable {
     }
 }
 
+/// `CommentRepository.dialog` 返回的一页「查看对话」：同一串对话里按楼层排列的回复，以及下一页的起点楼层。
+///
+/// `nextFloor` 为 nil 表示已到底。`CommentUseCase.loadDialog` 校验根评论与对话和请求一致、下一页起点在请求楼层之后，
+/// 并按 `CommentID` 去重后原样交给评论 ViewModel。
+public struct CommentDialogPage: Sendable, Equatable {
+    public let rootID: CommentID
+    public let dialogID: CommentID
+    public let replies: [Comment]
+    public let nextFloor: Int?
+
+    public init(rootID: CommentID, dialogID: CommentID, replies: [Comment], nextFloor: Int?) {
+        self.rootID = rootID
+        self.dialogID = dialogID
+        self.replies = replies
+        self.nextFloor = nextFloor
+    }
+}
+
 /// 匿名只读评论 port；endpoint、WBI 和远端 DTO 留在具体 adapter。
 ///
 /// 实现是 BiliAPI 的 `BiliCommentRepository`，只经 `CommentUseCase` 调用。失败抛出
@@ -118,6 +136,15 @@ public protocol CommentRepository: Sendable {
         page: Int,
         pageSize: Int
     ) async throws -> CommentReplyPage
+
+    /// 一串对话从 `fromFloor` 楼起（含；nil 为第一页）的一页回复。
+    func dialog(
+        for subject: CommentSubjectIdentity,
+        rootID: CommentID,
+        dialogID: CommentID,
+        fromFloor: Int?,
+        pageSize: Int
+    ) async throws -> CommentDialogPage
 }
 
 /// 主评论分页停止的原因，由 `CommentUseCase.loadRoots` 判定。

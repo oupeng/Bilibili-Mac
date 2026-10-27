@@ -17,6 +17,8 @@ public enum BiliAccountReadPath {
     public static let rootComments = "/x/v2/reply/wbi/main"
     /// 楼中楼。
     public static let commentReplies = "/x/v2/reply/reply"
+    /// 楼中楼里的一串对话（「查看对话」）。
+    public static let commentDialog = "/x/v2/reply/dialog/cursor"
     /// 视频详情（主详情与测速样本共用）。
     public static let videoDetail = "/x/web-interface/wbi/view"
     /// 相关推荐。

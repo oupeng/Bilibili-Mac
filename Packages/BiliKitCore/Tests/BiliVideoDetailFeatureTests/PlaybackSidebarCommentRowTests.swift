@@ -248,6 +248,9 @@ struct PlaybackSidebarCommentRowTests: PlaybackSidebarFixtures {
             onCollapse: {},
             onShowPage: { _ in },
             onRetry: {},
+            onShowDialog: { _ in },
+            onLoadMoreDialog: {},
+            onCloseDialog: {},
             onOpenLink: { _ in },
             onOpenPictures: { openedGallery = $0 },
             onOpenAuthorSpace: nil
@@ -301,6 +304,9 @@ struct PlaybackSidebarCommentRowTests: PlaybackSidebarFixtures {
             onCollapse: {},
             onShowPage: { _ in },
             onRetry: {},
+            onShowDialog: { _ in },
+            onLoadMoreDialog: {},
+            onCloseDialog: {},
             onOpenLink: { _ in },
             onOpenPictures: { _ in },
             onOpenAuthorSpace: nil
@@ -387,6 +393,9 @@ struct PlaybackSidebarCommentRowTests: PlaybackSidebarFixtures {
             onCollapse: {},
             onShowPage: { _ in },
             onRetry: {},
+            onShowDialog: { _ in },
+            onLoadMoreDialog: {},
+            onCloseDialog: {},
             onOpenLink: { _ in },
             onOpenPictures: { _ in },
             onOpenAuthorSpace: nil
@@ -443,6 +452,9 @@ struct PlaybackSidebarCommentRowTests: PlaybackSidebarFixtures {
             onCollapse: {},
             onShowPage: { _ in },
             onRetry: {},
+            onShowDialog: { _ in },
+            onLoadMoreDialog: {},
+            onCloseDialog: {},
             onOpenLink: { _ in },
             onOpenPictures: { _ in },
             onOpenAuthorSpace: { opened.append($0.id) }
@@ -552,6 +564,9 @@ struct PlaybackSidebarCommentRowTests: PlaybackSidebarFixtures {
             onCollapse: {},
             onShowPage: { _ in },
             onRetry: {},
+            onShowDialog: { _ in },
+            onLoadMoreDialog: {},
+            onCloseDialog: {},
             onOpenLink: { _ in },
             onOpenPictures: { _ in },
             onOpenAuthorSpace: nil

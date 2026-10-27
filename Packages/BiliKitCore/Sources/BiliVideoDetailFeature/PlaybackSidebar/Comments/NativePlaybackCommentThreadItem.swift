@@ -25,6 +25,9 @@ final class NativePlaybackCommentThreadItem: NSCollectionViewItem {
         onCollapse: @escaping () -> Void,
         onShowPage: @escaping (Int) -> Void,
         onRetry: @escaping () -> Void,
+        onShowDialog: @escaping (BiliModels.Comment) -> Void,
+        onLoadMoreDialog: @escaping () -> Void,
+        onCloseDialog: @escaping () -> Void,
         onOpenLink: @escaping (CommentLinkTarget) -> Void,
         onOpenPictures: @escaping (NativePlaybackCommentPictureGallery) -> Void,
         onOpenAuthorSpace: ((CommentAuthor) -> Void)?
@@ -40,6 +43,9 @@ final class NativePlaybackCommentThreadItem: NSCollectionViewItem {
             onCollapse: onCollapse,
             onShowPage: onShowPage,
             onRetry: onRetry,
+            onShowDialog: onShowDialog,
+            onLoadMoreDialog: onLoadMoreDialog,
+            onCloseDialog: onCloseDialog,
             onOpenLink: onOpenLink,
             onOpenPictures: onOpenPictures,
             onOpenAuthorSpace: onOpenAuthorSpace
@@ -89,6 +95,9 @@ private final class NativePlaybackCommentThreadView: NSView {
         onCollapse: @escaping () -> Void,
         onShowPage: @escaping (Int) -> Void,
         onRetry: @escaping () -> Void,
+        onShowDialog: @escaping (BiliModels.Comment) -> Void,
+        onLoadMoreDialog: @escaping () -> Void,
+        onCloseDialog: @escaping () -> Void,
         onOpenLink: @escaping (CommentLinkTarget) -> Void,
         onOpenPictures: @escaping (NativePlaybackCommentPictureGallery) -> Void,
         onOpenAuthorSpace: ((CommentAuthor) -> Void)?
@@ -120,6 +129,9 @@ private final class NativePlaybackCommentThreadView: NSView {
             onCollapse: onCollapse,
             onShowPage: onShowPage,
             onRetry: onRetry,
+            onShowDialog: onShowDialog,
+            onLoadMoreDialog: onLoadMoreDialog,
+            onCloseDialog: onCloseDialog,
             onOpenLink: onOpenLink,
             onOpenPictures: onOpenPictures,
             onOpenAuthorSpace: onOpenAuthorSpace

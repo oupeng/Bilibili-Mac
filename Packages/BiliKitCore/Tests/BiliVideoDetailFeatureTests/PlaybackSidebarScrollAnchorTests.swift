@@ -535,6 +535,9 @@ struct PlaybackSidebarScrollAnchorTests: PlaybackSidebarFixtures {
             expandReplies: { _ in },
             collapseReplies: { _ in },
             showReplyPage: { _, _ in },
+            showDialog: { _, _ in },
+            loadMoreDialog: { _ in },
+            closeDialog: { _ in },
             retryReplies: { _ in },
             openCommentLink: { _ in },
             openCommentPictures: { _ in }
