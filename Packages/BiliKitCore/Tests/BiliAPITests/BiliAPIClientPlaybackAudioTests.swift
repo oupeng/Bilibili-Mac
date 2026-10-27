@@ -163,7 +163,7 @@ struct BiliAPIClientPlaybackAudioTests {
         #expect(ai.languageTag == "en")
         #expect(ai.role == .machineGenerated)
         #expect(!ai.isDefault)
-        #expect(ai.isAutoselect)
+        #expect(!ai.isAutoselect)
         #expect(ai.representations.map(\.id) == [30_280])
         let requests = playURLRequests(transport)
         #expect(requests.count == 2)

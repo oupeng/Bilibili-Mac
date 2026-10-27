@@ -17,6 +17,8 @@ public enum BiliAccountReadPath {
     public static let rootComments = "/x/v2/reply/wbi/main"
     /// 楼中楼。
     public static let commentReplies = "/x/v2/reply/reply"
+    /// 楼中楼里的一串对话（「查看对话」）。
+    public static let commentDialog = "/x/v2/reply/dialog/cursor"
     /// 视频详情（主详情与测速样本共用）。
     public static let videoDetail = "/x/web-interface/wbi/view"
     /// 相关推荐。
@@ -29,6 +31,8 @@ public enum BiliAccountReadPath {
     public static let watchLater = "/x/v2/history/toview/web"
     /// 自己创建的收藏夹列表（只按账户读取）。
     public static let favoriteFolders = "/x/v3/fav/folder/created/list-all"
+    /// 当前账户对一个视频的点赞、投币与收藏状态。
+    public static let videoRelation = "/x/web-interface/archive/relation"
     /// 收藏夹内的一页（只按账户读取）。
     public static let favoriteFolderContent = "/x/v3/fav/resource/list"
     /// 热门。

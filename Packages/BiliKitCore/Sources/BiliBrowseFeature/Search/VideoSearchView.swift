@@ -149,7 +149,7 @@ public struct VideoSearchView: View {
             } ?? .unavailable
         return SearchNativeGridView(
             content: LoadedFeedContent(
-                items: videos.map { SearchVideoCardPresentation(video: $0, locale: locale) },
+                items: videos.map { SearchVideoCardPresentation(video: $0) },
                 tailState: pagination.gridTailState,
                 loadMore: { model.loadMore(.search) },
                 select: onSelect

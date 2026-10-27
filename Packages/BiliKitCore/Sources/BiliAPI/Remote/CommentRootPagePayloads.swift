@@ -115,11 +115,7 @@ struct CommentPaginationReplyPayload: Decodable, Sendable {
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        if let value = try? container.decode(String.self, forKey: .nextOffset) {
-            nextOffset = value
-        } else {
-            nextOffset = String(try container.decode(Int64.self, forKey: .nextOffset))
-        }
+        nextOffset = try container.decodeIntegerText(forKey: .nextOffset)
     }
 }
 

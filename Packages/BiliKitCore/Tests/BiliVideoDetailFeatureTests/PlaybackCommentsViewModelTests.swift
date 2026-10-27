@@ -187,6 +187,37 @@ struct PlaybackCommentsViewModelTests {
 
     @Test
     @MainActor
+    func replyPagerJumpsDirectlyButNotPastTheEndOrToTheSamePage() async {
+        let rootID = CommentID(rawValue: 21)
+        let repository = CommentRepositoryStub(
+            rootPages: [endPage([thread(21)])],
+            replyTotalCount: 25
+        )
+        let model = PlaybackCommentsViewModel(
+            useCase: CommentUseCase(repository: repository)
+        )
+
+        model.activate(subject: .video(aid: 700_001))
+        await model.waitForCurrentRootTask()
+        model.expandReplies(for: rootID)
+        await waitForObservedState { model.replyStates[rootID]?.isLoading == false }
+
+        model.showReplyPage(3, for: rootID)
+        await waitForObservedState { model.replyStates[rootID]?.pageNumber == 3 }
+        #expect(model.replyStates[rootID]?.isEnd == true)
+
+        model.showReplyPage(4, for: rootID)
+        model.showReplyPage(3, for: rootID)
+        model.showReplyPage(0, for: rootID)
+        #expect(await repository.requestedReplyPages == [1, 3])
+
+        model.showReplyPage(1, for: rootID)
+        await waitForObservedState { model.replyStates[rootID]?.pageNumber == 1 }
+        #expect(await repository.requestedReplyPages == [1, 3, 1])
+    }
+
+    @Test
+    @MainActor
     func failedReplyPageCannotBeSkippedAndRetryRequestsSamePage() async throws {
         let rootID = CommentID(rawValue: 20)
         let repository = CommentRepositoryStub(
@@ -203,11 +234,11 @@ struct PlaybackCommentsViewModelTests {
         model.expandReplies(for: rootID)
         await waitForObservedState { model.replyStates[rootID]?.isLoading == false }
 
-        model.showNextReplyPage(for: rootID)
+        model.showReplyPage(2, for: rootID)
         await waitForObservedState { model.replyStates[rootID]?.isLoading == false }
         #expect(model.replyStates[rootID]?.error == .transportFailure)
 
-        model.showNextReplyPage(for: rootID)
+        model.showReplyPage(2, for: rootID)
         #expect(await repository.requestedReplyPages == [1, 2])
 
         model.retryReplies(for: rootID)
@@ -251,7 +282,7 @@ struct PlaybackCommentsViewModelTests {
         await model.waitForCurrentRootTask()
         model.expandReplies(for: rootID)
         await waitForObservedState { model.replyStates[rootID]?.isLoading == false }
-        model.showNextReplyPage(for: rootID)
+        model.showReplyPage(2, for: rootID)
         await repository.waitForReplyRequestCount(2)
 
         model.collapseReplies(for: rootID)
@@ -364,6 +395,121 @@ struct PlaybackCommentsViewModelTests {
         )
         #expect(replyFailureModel.authenticationRevalidationGeneration == 1)
     }
+
+    /// 查看对话只对回复别人的回复生效，按楼层往下加载到底后不再请求；关掉对话回到原页，页码与回复不变。
+    @Test
+    @MainActor
+    func dialogLoadsByFloorUntilTheEndAndClosingReturnsToTheSamePage() async {
+        let rootID = CommentID(rawValue: 40)
+        let repository = CommentRepositoryStub(
+            rootPages: [endPage([thread(40)])],
+            replyTotalCount: 25
+        )
+        let model = PlaybackCommentsViewModel(useCase: CommentUseCase(repository: repository))
+        model.activate(subject: .video(aid: 700_001))
+        await model.waitForCurrentRootTask()
+        model.expandReplies(for: rootID)
+        await waitForObservedState { model.replyStates[rootID]?.isLoading == false }
+        let pageReplies = model.replyStates[rootID]?.replies
+
+        model.showDialog(of: reply(41, root: 40, parent: 40, dialog: 41), for: rootID)
+        #expect(model.replyStates[rootID]?.dialog == nil)
+
+        model.showDialog(of: reply(43, root: 40, parent: 42, dialog: 41), for: rootID)
+        await waitForObservedState {
+            model.replyStates[rootID]?.dialog?.hasLoadedFirstPage == true
+        }
+        #expect(model.replyStates[rootID]?.dialog?.replies.map(\.id.rawValue) == [40_001, 40_002])
+        #expect(model.replyStates[rootID]?.dialog?.isEnd == false)
+
+        model.loadMoreDialog(for: rootID)
+        await waitForObservedState { model.replyStates[rootID]?.dialog?.isEnd == true }
+        #expect(
+            model.replyStates[rootID]?.dialog?.replies.map(\.id.rawValue)
+                == [40_001, 40_002, 40_003]
+        )
+        model.loadMoreDialog(for: rootID)
+        #expect(await repository.dialogRequests == [nil, 3])
+
+        model.closeDialog(for: rootID)
+        #expect(model.replyStates[rootID]?.dialog == nil)
+        #expect(model.replyStates[rootID]?.pageNumber == 1)
+        #expect(model.replyStates[rootID]?.replies == pageReplies)
+    }
+
+    /// 对话这一页失败后，「加载更多」（重试）按同一起点再请求。
+    @Test
+    @MainActor
+    func failedDialogPageRetriesFromTheSameFloor() async {
+        let rootID = CommentID(rawValue: 60)
+        let repository = CommentRepositoryStub(
+            rootPages: [endPage([thread(60)])],
+            replyTotalCount: 25,
+            failsFirstDialogRequest: true
+        )
+        let model = PlaybackCommentsViewModel(useCase: CommentUseCase(repository: repository))
+        model.activate(subject: .video(aid: 700_001))
+        await model.waitForCurrentRootTask()
+        model.expandReplies(for: rootID)
+        await waitForObservedState { model.replyStates[rootID]?.isLoading == false }
+
+        model.showDialog(of: reply(63, root: 60, parent: 62, dialog: 61), for: rootID)
+        await waitForObservedState { model.replyStates[rootID]?.dialog?.error != nil }
+        #expect(model.replyStates[rootID]?.dialog?.hasLoadedFirstPage == false)
+
+        model.loadMoreDialog(for: rootID)
+        await waitForObservedState {
+            model.replyStates[rootID]?.dialog?.hasLoadedFirstPage == true
+        }
+        #expect(await repository.dialogRequests == [nil, nil])
+        #expect(model.replyStates[rootID]?.dialog?.error == nil)
+    }
+
+    /// 关掉对话或收起后，在途的对话请求结果不再写回；之后楼中楼照常翻页。
+    @Test
+    @MainActor
+    func closingTheDialogDiscardsItsInFlightPage() async {
+        let rootID = CommentID(rawValue: 50)
+        let repository = CommentRepositoryStub(
+            rootPages: [endPage([thread(50)])],
+            replyTotalCount: 25,
+            holdsDialogs: true
+        )
+        let model = PlaybackCommentsViewModel(useCase: CommentUseCase(repository: repository))
+        model.activate(subject: .video(aid: 700_001))
+        await model.waitForCurrentRootTask()
+        model.expandReplies(for: rootID)
+        await waitForObservedState { model.replyStates[rootID]?.isLoading == false }
+
+        model.showDialog(of: reply(53, root: 50, parent: 52, dialog: 51), for: rootID)
+        await repository.waitForDialogRequestCount(1)
+        model.closeDialog(for: rootID)
+        await repository.releaseDialogs()
+        model.showReplyPage(2, for: rootID)
+        await waitForObservedState { model.replyStates[rootID]?.pageNumber == 2 }
+
+        #expect(model.replyStates[rootID]?.dialog == nil)
+        #expect(await repository.requestedReplyPages == [1, 2])
+
+        model.showDialog(of: reply(53, root: 50, parent: 52, dialog: 51), for: rootID)
+        await repository.waitForDialogRequestCount(2)
+        model.collapseReplies(for: rootID)
+        await repository.releaseDialogs()
+        model.expandReplies(for: rootID)
+        await waitForObservedState { model.replyStates[rootID]?.isExpanded == true }
+        #expect(model.replyStates[rootID]?.dialog == nil)
+        #expect(model.replyStates[rootID]?.pageNumber == 2)
+    }
+}
+
+private func reply(_ id: Int64, root: Int64, parent: Int64, dialog: Int64) -> BiliModels.Comment {
+    BiliModels.Comment(
+        id: CommentID(rawValue: id),
+        rootID: CommentID(rawValue: root),
+        parentID: CommentID(rawValue: parent),
+        dialogID: CommentID(rawValue: dialog),
+        payload: .unavailable(.unavailable)
+    )
 }
 
 private func endPage(_ threads: [CommentThread]) -> CommentRootPage {

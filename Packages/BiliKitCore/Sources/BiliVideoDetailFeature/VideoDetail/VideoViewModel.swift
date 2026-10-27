@@ -72,6 +72,17 @@ public final class VideoViewModel: AccountRevalidationParticipant {
     public private(set) var presentedContext: VideoContext?
     /// App 层只用这个稳定身份协调详情 surface 的滚动重置，不需要跨越 Feature 边界读取模型。
     public var presentedBVID: String? { presentedContext?.detail.bvid }
+    /// 保留显示的旧详情此刻不可操作：换视频正在加载或失败（替换失败页盖在上面）。
+    ///
+    /// 播放页据此禁用主区，播放器的点赞、投币、收藏快捷键据此不响应，免得对已经不是用户想看的那个视频写入。
+    public var blocksPresentedContext: Bool {
+        switch state {
+        case .loading, .failed, .failedPage:
+            true
+        case .idle, .loadingPage, .preparingPlayback, .ready:
+            false
+        }
+    }
     /// App 层只用稳定的视频 subject 协调评论；分 P/CID 切换不重置同一视频评论。
     public var presentedVideoIdentity: (bvid: String, aid: Int64)? {
         guard let detail = presentedContext?.detail, let aid = detail.aid else {

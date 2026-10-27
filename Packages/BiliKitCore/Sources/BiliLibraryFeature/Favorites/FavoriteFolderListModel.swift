@@ -102,6 +102,12 @@ public final class FavoriteFolderListModel: AccountRevalidationParticipant {
         load(accountID: accountID)
     }
 
+    /// 收藏写入成功后由 App 的写入效果路由调用：各夹的条数变了，已有列表时在后台重读、保留原有的行；其余状态不动作。
+    public func refreshAfterWrite() {
+        guard case .loaded = state else { return }
+        reload()
+    }
+
     /// 取消请求并从内存删除列表，供登出、换号与关窗调用；复核代次保留。
     public func reset() {
         loadTask.cancel()

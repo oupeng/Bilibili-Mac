@@ -173,7 +173,14 @@ package enum NativeVideoCollectionKeys {
     static let rightArrow: UInt16 = 124
     static let downArrow: UInt16 = 125
     static let upArrow: UInt16 = 126
+    static let deleteKey: UInt16 = 51
     static let space = " "
+
+    /// ⌘⌫：只按住 Command（不含 Shift、Option、Control）时的删除键。
+    package static func isCommandDelete(_ event: NSEvent) -> Bool {
+        event.keyCode == deleteKey
+            && event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command
+    }
 
     package static func isActivation(_ event: NSEvent) -> Bool {
         event.keyCode == returnKey || event.charactersIgnoringModifiers == space
@@ -191,14 +198,59 @@ package enum NativeVideoCollectionKeys {
     }
 }
 
-/// 网格与 shelf 的集合视图基类：激活回调与键盘选择框状态；`open` 供 BiliVideoDetailFeature 的横排
+/// 网格与 shelf 的集合视图基类：激活回调、键盘选择框状态与卡片菜单；`open` 供 BiliVideoDetailFeature 的横排
 /// （`NativeVideoShelfCollectionView`）跨模块子类化。
 ///
 /// 用 AppKit 的理由见 ARCHITECTURE「原生 AppKit 集合视图」。
 @MainActor
 open class NativeVideoCardCollectionView: NSCollectionView {
     package var onActivateSelection: ((String) -> Void)?
+    /// 按卡片 ID 取菜单描述；nil 或返回 nil 时不弹菜单、卡片没有读屏自定义操作。
+    ///
+    /// 由网格与横排的 Coordinator 设置并在 reset 时清空，Coordinator 再转给 Feature 注入的 `cardMenu`。
+    package var cardMenu: ((String) -> NativeVideoCardMenu?)?
     package private(set) var showsKeyboardSelection = false
+    /// 菜单打开期间的目标卡片：`menu(for:)` 记下，`willOpenMenu` 画上下文描边，`didCloseMenu` 撤销并清空。
+    ///
+    /// 右键、Control-点按与读屏「显示菜单」都经 `rightMouseDown` 走到这里，描边只在这一对回调里写。
+    private weak var contextMenuTarget: NativeVideoCollectionItem?
+
+    /// 右键、Control-点按与读屏「显示菜单」命中卡片时弹出该卡片的菜单；空白处与没有菜单的卡片不弹。
+    ///
+    /// 与访达、「音乐」一致，右键不改变选中，也不移动键盘选择框，只在菜单打开期间给目标卡片画上下文描边：
+    /// 菜单只作用于被点的那张卡片，改选中会让键盘焦点跟着跳走。
+    open override func menu(for event: NSEvent) -> NSMenu? {
+        let point = convert(event.locationInWindow, from: nil)
+        guard
+            let indexPath = indexPathForItem(at: point),
+            let item = item(at: indexPath) as? NativeVideoCollectionItem,
+            let menu = cardMenu(for: item)
+        else { return nil }
+        contextMenuTarget = item
+        return menu.makeMenu()
+    }
+
+    /// 子类 `mouseDown` 的第一步：Control-点按转进右键同一条菜单路径（`rightMouseDown` → `menu(for:)` →
+    /// `willOpenMenu`／`didCloseMenu`），返回 true 时调用方不再按点击处理。
+    ///
+    /// 命中的是卡片视图：窗口先问它的 `menu(for:)`，它没有菜单，事件就作为普通按下沿响应链送到集合视图。右键沿响应链
+    /// 走的是 `rightMouseDown`，会问到集合视图的菜单；Control-点按不转过去就既不弹菜单，还会被当作点击激活。
+    package func routesControlClickToContextMenu(_ event: NSEvent) -> Bool {
+        guard event.modifierFlags.contains(.control) else { return false }
+        rightMouseDown(with: event)
+        return true
+    }
+
+    open override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        super.willOpenMenu(menu, with: event)
+        contextMenuTarget?.setContextMenuTarget(true)
+    }
+
+    open override func didCloseMenu(_ menu: NSMenu, with event: NSEvent?) {
+        super.didCloseMenu(menu, with: event)
+        contextMenuTarget?.setContextMenuTarget(false)
+        contextMenuTarget = nil
+    }
 
     package func setShowsKeyboardSelection(_ shows: Bool) {
         showsKeyboardSelection = shows

@@ -40,15 +40,17 @@ enum PlayerShortcutFeedback: Equatable {
     case playback(Bool)
     case danmaku(Bool)
     case subtitles(NativeSubtitleToggleResult)
+    case engagement(PlayerEngagementFeedback)
 
     var label: String {
         switch self {
+        case .engagement(let feedback): feedback.label
         case .momentaryRate(let rate): rate.label
         case .relativeSeek(let seconds):
             seconds < 0
                 ? AppStrings.localized("后退 \(-seconds) 秒")
                 : AppStrings.localized("前进 \(seconds) 秒")
-        case .volume(let percent): "\(percent)%"
+        case .volume(let percent): Self.volumeText(percent)
         case .playback(let isPlaying):
             isPlaying ? AppStrings.localized("播放") : AppStrings.localized("暂停")
         case .danmaku(let enabled):
@@ -61,6 +63,7 @@ enum PlayerShortcutFeedback: Equatable {
 
     var symbolName: String {
         switch self {
+        case .engagement(let feedback): feedback.symbolName
         case .momentaryRate(let rate): rate.symbolName
         case .relativeSeek(let seconds):
             seconds < 0 ? "gobackward.5" : "goforward.5"
@@ -78,12 +81,13 @@ enum PlayerShortcutFeedback: Equatable {
 
     var accessibilityLabel: String {
         switch self {
+        case .engagement(let feedback): feedback.accessibilityLabel
         case .momentaryRate(let rate): rate.accessibilityLabel
         case .relativeSeek(let seconds):
             seconds < 0
                 ? AppStrings.localized("已后退 \(-seconds) 秒")
                 : AppStrings.localized("已前进 \(seconds) 秒")
-        case .volume(let percent): AppStrings.localized("播放器音量 \(percent)%")
+        case .volume(let percent): AppStrings.localized("播放器音量 \(Self.volumeText(percent))")
         case .playback(let isPlaying):
             isPlaying ? AppStrings.localized("已开始播放") : AppStrings.localized("已暂停播放")
         case .danmaku(let enabled):
@@ -92,6 +96,11 @@ enum PlayerShortcutFeedback: Equatable {
         case .subtitles(.disabled): AppStrings.localized("字幕已关闭")
         case .subtitles(.unavailable): AppStrings.localized("当前视频没有可用字幕")
         }
+    }
+
+    /// 音量百分比的唯一写法，locale 取与文案同语言的 `InterfaceLocale`。
+    private static func volumeText(_ percent: Int) -> String {
+        percent.formatted(.percent.locale(InterfaceLocale.current))
     }
 }
 
@@ -108,7 +117,11 @@ private struct PlayerShortcutFeedbackBadge: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: feedback.symbolName)
+            if feedback == .engagement(.tripleProgress) {
+                PlayerTripleProgressRing()
+            } else {
+                Image(systemName: feedback.symbolName)
+            }
             Text(feedback.label)
                 .monospacedDigit()
                 .lineLimit(1)
@@ -314,6 +327,16 @@ final class PlayerOverlayModel {
         fadeOutFeedback()
     }
 
+    /// 按住 Q 显示三连进度：按住期间保持显示，由 `endTripleProgress` 收起。
+    func showTripleProgress() {
+        feedback = Feedback(content: .engagement(.tripleProgress), dismissesAutomatically: false)
+    }
+
+    func endTripleProgress() {
+        guard feedback?.content == .engagement(.tripleProgress) else { return }
+        fadeOutFeedback()
+    }
+
     func expireFeedback(id: UUID) {
         guard feedback?.id == id else { return }
         fadeOutFeedback()
@@ -365,6 +388,9 @@ final class PlayerOverlayModel {
 
     /// 播放器阻塞期间（换视频、切分 P、准备播放）player 还没挂上 item 时补一个转圈；item 一挂上，
     /// 未就绪期间由 AVKit 自己的转圈接手，两者不同时出现。
+    ///
+    /// AVKit 只在“有 item 且未就绪”时画转圈，item 挂上后约 1.5 秒才出现，不受 `controlsStyle` 影响；没有
+    /// item 时只是黑屏，开播后的 seek 与缓冲卡住也不画，所以这两段由浮层转圈补上。
     func setPreparationActivity(isPreparing: Bool, hasCurrentItem: Bool) {
         let shows = isPreparing && !hasCurrentItem
         guard showsPreparationActivity != shows else { return }
@@ -423,6 +449,14 @@ struct PlayerOverlayView: View {
             .overlay(alignment: .bottomLeading) { resumeButton }
             .overlay(alignment: .bottom) { previewEndedBadge }
             .coordinateSpace(.named(PlayerOverlayLayout.coordinateSpace))
+            // 快捷键的结果只在徽标上停留片刻，读屏焦点也不在播放器浮层上，所以每条新反馈都通告一次；按反馈的
+            // id 触发，连按同一个键也逐次报。高优先级让连按或长按时只读最新结果。临时倍速只在按下时报，松开时
+            // 徽标消失、不再通告。
+            .accessibilityAnnouncement(
+                model.feedback?.content.accessibilityLabel,
+                trigger: model.feedback?.id,
+                interruptsPrevious: true
+            )
             .task(id: model.loadingID) {
                 guard let loadingID = model.loadingID else { return }
                 try? await Task.sleep(for: PlayerLoadingPolicy.presentationDelay)

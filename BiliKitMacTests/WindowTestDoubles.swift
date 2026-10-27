@@ -53,6 +53,17 @@ actor CommentRepositoryStub: CommentRepository {
         )
     }
 
+    func dialog(
+        for subject: CommentSubjectIdentity,
+        rootID: CommentID,
+        dialogID: CommentID,
+        fromFloor: Int?,
+        pageSize: Int
+    ) async throws -> CommentDialogPage {
+        if let rootError { throw rootError }
+        return CommentDialogPage(rootID: rootID, dialogID: dialogID, replies: [], nextFloor: nil)
+    }
+
     func requestedSubjects() -> [CommentSubjectIdentity] {
         subjects
     }
@@ -237,6 +248,11 @@ func makeTestAdapters(
     ),
     comments: any CommentRepository = CommentRepositoryStub(),
     favorites: any FavoritesRepository = FavoritesRepositoryStub(),
+    watchLater: any WatchLaterRepository = WatchLaterRepositoryStub(),
+    watchLaterWrite: any WatchLaterWriteRepository = AccountWriteRepositoryStub(),
+    favoritesWrite: any FavoritesWriteRepository = AccountWriteRepositoryStub(),
+    videoEngagement: any VideoEngagementRepository = AccountWriteRepositoryStub(),
+    recommendationFeedback: any RecommendationFeedbackRepository = AccountWriteRepositoryStub(),
     authentication: any AuthenticationServicing = AuthenticationServiceStub(
         restoreState: .signedOut
     ),
@@ -250,7 +266,7 @@ func makeTestAdapters(
     close: @escaping @MainActor () -> Void = {}
 ) -> WindowAdapters {
     WindowAdapters(
-        feedRepository: EmptyFeedRepository(),
+        feedRepository: FeedRepositoryStub(),
         videoRepository: video,
         relatedVideoRepository: EmptyRelatedVideoRepository(),
         trendingSearchRepository: EmptyTrendingSearchRepository(),
@@ -259,8 +275,12 @@ func makeTestAdapters(
         uploaderVideoRepository: UnavailableUploaderVideoRepository(),
         commentRepository: comments,
         historyRepository: WatchHistoryRepositoryStub(),
-        watchLaterRepository: WatchLaterRepositoryStub(),
+        watchLaterRepository: watchLater,
+        watchLaterWriteRepository: watchLaterWrite,
         favoritesRepository: favorites,
+        favoritesWriteRepository: favoritesWrite,
+        videoEngagementRepository: videoEngagement,
+        recommendationFeedbackRepository: recommendationFeedback,
         commentAssetURLResolver: { _, _ in nil },
         commentLinkRouter: { _ in nil },
         authenticationService: authentication,
@@ -269,7 +289,7 @@ func makeTestAdapters(
         makePlaybackAuthenticationInvalidations: { AsyncStream { $0.finish() } },
         danmakuPresentation: RecordingDanmakuPresentation(),
         danmakuPreferences: DefaultDanmakuPreferencesStore(),
-        makePlayerContent: { _, _ in AnyView(EmptyView()) },
+        makePlayerContent: { _, _, _ in AnyView(EmptyView()) },
         seekPlayback: { _, _ in },
         nowPlayingConnection: .idle,
         makeWatchProgressConnection: { _ in watchProgress },

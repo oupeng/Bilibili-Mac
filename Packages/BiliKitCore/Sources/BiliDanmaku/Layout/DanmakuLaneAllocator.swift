@@ -127,7 +127,9 @@ struct DanmakuLaneAllocator: Sendable {
             return nil
         }
         // 第一轮从上往下取第一条安全车道，放不下时不占任何车道；所以前 N 条车道的准入只取决于前 N 条
-        // 车道的占用，与总车道数无关（取景框模型依赖这一点，例外见 docs/ARCHITECTURE.md「弹幕」）。
+        // 车道的占用，与总车道数无关（取景框模型依赖这一点，见 docs/ARCHITECTURE.md「弹幕」）。例外有三：
+        // 允许叠放的密度档里，只有 N 条车道的表会把溢出叠进前 N 条，规划表则先放进隐藏车道；多车道弹幕
+        // （36 号字占两条）可能跨过可见边界，在隐藏中占住边界车道；同屏上限按全部车道计数，规划表更早触及。
         let candidateLanes = 0...(laneCount - laneSpan)
         if let safeLane = candidateLanes.first(where: {
             laneIsSafeWithoutOverlap(

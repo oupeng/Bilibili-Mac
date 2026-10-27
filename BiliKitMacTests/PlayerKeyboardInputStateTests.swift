@@ -1,6 +1,5 @@
 import AppKit
 import BiliPlayback
-import BiliVideoDetailFeature
 import Foundation
 import Testing
 
@@ -122,14 +121,11 @@ struct PlayerKeyboardInputStateTests {
 
     @Test
     @MainActor
-    func onlyTextInputAndKeyboardOwningOverlaysTakePlayerKeys() {
+    func onlyTextInputTakesPlayerKeys() {
         let editableText = NSTextView()
         let editableField = NSTextField()
         let readOnlyText = NSTextView()
         readOnlyText.isEditable = false
-        let overlay = KeyboardOwningOverlay()
-        let overlayChild = NSView()
-        overlay.addSubview(overlayChild)
         let selectableList = NSCollectionView()
         selectableList.isSelectable = true
 
@@ -139,20 +135,14 @@ struct PlayerKeyboardInputStateTests {
 
         #expect(ownsKeys(editableText))
         #expect(ownsKeys(editableField))
-        #expect(ownsKeys(overlayChild))
         // 点击或程序交还焦点的按钮、列表不拦截空格与方向键（关闭预览回到缩略图、点推荐列表空白）。
         #expect(!ownsKeys(NSButton()))
         #expect(!ownsKeys(selectableList))
         #expect(!ownsKeys(readOnlyText))
         #expect(!ownsKeys(NSView()))
         #expect(!ownsKeys(nil))
-        #expect(PlayerKeyboardShortcutController.focusOwnerHoldsFocus(overlayChild))
-        #expect(!PlayerKeyboardShortcutController.focusOwnerHoldsFocus(editableText))
     }
 }
-
-@MainActor
-private final class KeyboardOwningOverlay: NSView, PlayerKeyboardFocusOwner {}
 
 /// 取出按下左右键时安排的长按计时 ID；没有安排长按就记录失败。
 private func scheduledPressID(

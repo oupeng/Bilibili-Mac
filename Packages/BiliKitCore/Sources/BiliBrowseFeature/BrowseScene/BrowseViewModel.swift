@@ -59,6 +59,7 @@ struct FeedPaginationPresentation: Sendable, Equatable {
 /// 工作集是唯一的状态来源，路由级的 `state` 等只是当前路由工作集的投影。`LatestTask` 与
 /// `activeRequestIdentity` 共同阻止已取消或已切路由的结果写回；进入播放页时普通 deactivate 会保留三份
 /// 工作集，`reset` 则清空它们；不同请求会替换对应工作集。分页规则由各工作集的 `FeedListing` 承担。
+/// 首页推荐工作集另记着标为「不感兴趣」的条目；标记与撤销由 App 的写入协调者乐观地改，写请求不归这里。
 @MainActor
 @Observable
 public final class BrowseViewModel: AccountRevalidationParticipant {
@@ -80,9 +81,80 @@ public final class BrowseViewModel: AccountRevalidationParticipant {
     @ObservationIgnored private var authenticationSessionGeneration: UInt64?
     /// 按来源保存的工作集，每个来源最多一份；同来源的新请求替换旧工作集。
     private var worksets: [FeedSource: FeedWorkset] = [:]
+    /// 下一份新工作集的身份：每新建一份工作集（新请求、失败页、账户变化或 `reset` 后重建）递增，原地刷新不变。
+    ///
+    /// `revertRecommendationDislike` 拿它与凭据比对，不相等就丢弃回滚。
+    @ObservationIgnored private var nextWorksetIdentity: UInt64 = 0
 
     public init(useCase: FeedUseCase) {
         self.useCase = useCase
+    }
+
+    /// 首页推荐里标为「不感兴趣」的条目，键为 BVID，值是发出的那份反馈（撤销时原样交回）。
+    ///
+    /// 属于推荐工作集，跟着卡片走：刷新成功后只留下新推荐里仍有的条目（服务端记着的反馈不因刷新消失，同一视频再出现时
+    /// 仍是标过的样子），加载更多不动它；工作集被替换（账户变化、`reset`）时随之清空。
+    var dislikedRecommendations: [String: RecommendationFeedback] {
+        worksets[.recommendation]?.dislikedRecommendations ?? [:]
+    }
+
+    /// 把首页推荐里的一条标为「不感兴趣」；标上时返回回滚凭据，否则为 nil。
+    ///
+    /// 只标此刻推荐工作集里有、且还没标过的条目；写入协调者在发请求前调用（乐观改动），失败或被取消时把凭据交回
+    /// `revertRecommendationDislike`。
+    public func markRecommendationDisliked(
+        _ feedback: RecommendationFeedback
+    ) -> RecommendationDislikeEdit? {
+        guard var workset = worksets[.recommendation], workset.canMark(feedback) else {
+            return nil
+        }
+        workset.dislikedRecommendations[feedback.target.bvid] = feedback
+        worksets[.recommendation] = workset
+        return RecommendationDislikeEdit(
+            feedback: feedback,
+            marked: true,
+            worksetIdentity: workset.identity
+        )
+    }
+
+    /// 去掉一条「不感兴趣」标记；去掉时返回回滚凭据，否则为 nil。
+    ///
+    /// 只去掉同一份反馈：撤销必须带发出时的同一份字段，卡片已经不是标着它时（刷新后不在了、或换成了别的反馈）不撤销。
+    public func unmarkRecommendationDisliked(
+        _ feedback: RecommendationFeedback
+    ) -> RecommendationDislikeEdit? {
+        let bvid = feedback.target.bvid
+        guard var workset = worksets[.recommendation],
+            workset.dislikedRecommendations[bvid] == feedback
+        else { return nil }
+        workset.dislikedRecommendations[bvid] = nil
+        worksets[.recommendation] = workset
+        return RecommendationDislikeEdit(
+            feedback: feedback,
+            marked: false,
+            worksetIdentity: workset.identity
+        )
+    }
+
+    /// 写入失败或被取消的回滚：标上的去掉、去掉的标回。
+    ///
+    /// 只作用在改动时的同一份推荐工作集上：换了账户或 `reset` 后的新工作集可能恰好有同一视频，把上一账户的反馈标上去，
+    /// 之后的撤销就会用新账户发出旧账户的追踪 ID。同一份工作集里也只撤回自己那一步：去掉标记只去掉同一份反馈，标回
+    /// 只标此刻仍显示、且没有别的标记的卡片。
+    public func revertRecommendationDislike(_ edit: RecommendationDislikeEdit) {
+        let feedback = edit.feedback
+        let bvid = feedback.target.bvid
+        guard var workset = worksets[.recommendation],
+            workset.identity == edit.worksetIdentity
+        else { return }
+        if edit.marked {
+            guard workset.dislikedRecommendations[bvid] == feedback else { return }
+            workset.dislikedRecommendations[bvid] = nil
+        } else {
+            guard workset.canMark(feedback) else { return }
+            workset.dislikedRecommendations[bvid] = feedback
+        }
+        worksets[.recommendation] = workset
     }
 
     /// 当前路由的状态；路由停用后为 idle，工作集仍保留供返回时恢复。
@@ -255,7 +327,7 @@ public final class BrowseViewModel: AccountRevalidationParticipant {
             activeRequestIdentity = request
         }
         if workset(for: request) == nil {
-            worksets[request.source] = FeedWorkset(request: request)
+            worksets[request.source] = makeWorkset(request: request)
         }
     }
 
@@ -281,10 +353,15 @@ public final class BrowseViewModel: AccountRevalidationParticipant {
     ) {
         deactivateRoute()
         activeRequestIdentity = request
-        worksets[request.source] = FeedWorkset(
+        worksets[request.source] = makeWorkset(
             request: request,
             state: .failed(request: request, error: error)
         )
+    }
+
+    private func makeWorkset(request: FeedRequest, state: FeedState = .idle) -> FeedWorkset {
+        nextWorksetIdentity &+= 1
+        return FeedWorkset(identity: nextWorksetIdentity, request: request, state: state)
     }
 
     private func performLoad(
@@ -308,6 +385,10 @@ public final class BrowseViewModel: AccountRevalidationParticipant {
             updateActiveWorkset { workset in
                 workset.state = .loaded(listing)
                 workset.refreshError = nil
+                let loaded = workset
+                workset.dislikedRecommendations = loaded.dislikedRecommendations.filter {
+                    loaded.showsRecommendation(bvid: $0.key)
+                }
             }
             if previous?.isRefreshing == true {
                 successfulRefreshGenerations[request.source, default: 0] &+= 1
@@ -412,9 +493,25 @@ public final class BrowseViewModel: AccountRevalidationParticipant {
 
 /// 一个来源的第一页请求及其状态；加载更多与刷新进行状态在已加载的 `FeedListing` 里。
 private struct FeedWorkset {
+    /// 见 `BrowseViewModel.nextWorksetIdentity`。
+    let identity: UInt64
     let request: FeedRequest
     var state: FeedState = .idle
     var refreshError: ContentApplicationError?
+    /// 只有首页推荐工作集会有，见 `BrowseViewModel.dislikedRecommendations`。
+    var dislikedRecommendations: [String: RecommendationFeedback] = [:]
+
+    /// 推荐工作集此刻显示着这条视频。
+    func showsRecommendation(bvid: String) -> Bool {
+        guard case .loaded(.recommendation(let list)) = state else { return false }
+        return list.items.contains { $0.bvid == bvid }
+    }
+
+    /// 这份反馈的视频此刻显示着、且还没有标记。
+    func canMark(_ feedback: RecommendationFeedback) -> Bool {
+        showsRecommendation(bvid: feedback.target.bvid)
+            && dislikedRecommendations[feedback.target.bvid] == nil
+    }
 
     var listing: FeedListing? {
         guard case .loaded(let listing) = state else { return nil }
@@ -424,4 +521,12 @@ private struct FeedWorkset {
     var isRefreshing: Bool {
         listing?.isRefreshing ?? false
     }
+}
+
+/// 一次乐观标记或去掉「不感兴趣」的回滚凭据：哪份反馈、是标上还是去掉，以及改动时推荐工作集的身份；交回
+/// `BrowseViewModel.revertRecommendationDislike`。
+public struct RecommendationDislikeEdit: Sendable {
+    fileprivate let feedback: RecommendationFeedback
+    fileprivate let marked: Bool
+    fileprivate let worksetIdentity: UInt64
 }

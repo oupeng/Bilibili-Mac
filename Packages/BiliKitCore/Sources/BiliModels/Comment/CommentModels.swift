@@ -339,23 +339,34 @@ public enum CommentPayload: Sendable, Equatable {
 
 /// 根评论列表与楼中楼里的一条评论，由 BiliAPI 的 `CommentReplyPayload` 映射产生。
 ///
-/// `rootID`／`parentID` 在接口给 0 或缺失时为 nil，根评论两者都为 nil。
+/// `rootID`／`parentID`／`dialogID` 在接口给 0 或缺失时为 nil，根评论三者都为 nil。
+///
+/// `dialogID` 是这条回复所在对话起头的那条回复：直接回复根评论的回复就是它自己，回复别人的回复沿用被回复者的对话。
 public struct Comment: Sendable, Equatable, Identifiable {
     public let id: CommentID
     public let rootID: CommentID?
     public let parentID: CommentID?
+    public let dialogID: CommentID?
     public let payload: CommentPayload
 
     public init(
         id: CommentID,
         rootID: CommentID? = nil,
         parentID: CommentID? = nil,
+        dialogID: CommentID? = nil,
         payload: CommentPayload
     ) {
         self.id = id
         self.rootID = rootID
         self.parentID = parentID
+        self.dialogID = dialogID
         self.payload = payload
+    }
+
+    /// 回复的是楼中楼里的另一条回复（而不是根评论），可以查看它所在的那串对话。
+    public var isReplyInDialog: Bool {
+        guard let rootID, let parentID, let dialogID else { return false }
+        return parentID != rootID && dialogID != id
     }
 }
 

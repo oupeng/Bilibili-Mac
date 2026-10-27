@@ -24,6 +24,9 @@ save_failure_evidence() {
     for bundle in "$artifact_root"/DerivedData/Logs/Test/*.xcresult; do
         [ -d "$bundle" ] && cp -R "$bundle" "$BILIKIT_FAILURE_OUTPUT/"
     done
+    if [ -d "$artifact_root/package-test-results" ]; then
+        cp -R "$artifact_root/package-test-results" "$BILIKIT_FAILURE_OUTPUT/"
+    fi
     return 0
 }
 
@@ -53,6 +56,7 @@ python3 -B Scripts/check-localization.py
 sh Scripts/check-swift-format.sh
 git diff --check
 git diff --cached --check
+python3 -B -m unittest discover -s Scripts/tests -p 'test_*.py'
 
 echo "[Gate] release safety contracts"
 python3 -B -m unittest discover -s Scripts/release -p 'test_*.py'
@@ -63,7 +67,7 @@ if [ "$mode" = "static" ]; then
 fi
 
 echo "[Gate] package"
-package_test --quiet
+package_test "" --quiet
 
 if [ "$mode" = "package" ]; then
     exit 0
@@ -79,6 +83,7 @@ set -- "$derived_data"/Build/Products/*.xctestrun
 }
 
 echo "[Gate] app tests"
+# App 测试由 xcodebuild 判定：宿主中途退出时没跑完的测试记为失败，所以不像包测试那样另做逐项核对。
 isolated xcode-home xcodebuild \
     -quiet \
     -xctestrun "$1" \

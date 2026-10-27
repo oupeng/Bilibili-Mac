@@ -205,7 +205,7 @@ struct AppSourcesTests {
             useCase: WatchLaterUseCase(repository: WatchLaterRepositoryStub())
         )
         let session = WatchLaterSession(model: watchLaterModel)
-        let browseModel = BrowseViewModel(useCase: FeedUseCase(repository: EmptyFeedRepository()))
+        let browseModel = BrowseViewModel(useCase: FeedUseCase(repository: FeedRepositoryStub()))
         let favorites = makeFavoriteModels()
         let sources = AppSources(
             browseModel: browseModel,
@@ -244,7 +244,7 @@ struct AppSourcesTests {
     /// 关窗时搜索来源清空草稿，撤回已提交的搜索。
     @Test
     func windowClosureClearsTheSearchSession() {
-        let browseModel = BrowseViewModel(useCase: FeedUseCase(repository: EmptyFeedRepository()))
+        let browseModel = BrowseViewModel(useCase: FeedUseCase(repository: FeedRepositoryStub()))
         let session = VideoSearchSession(browseModel: browseModel, recordHistory: { _ in })
         let watchLaterModel = WatchLaterViewModel(
             useCase: WatchLaterUseCase(repository: WatchLaterRepositoryStub())
@@ -275,7 +275,7 @@ struct AppSourcesTests {
     /// 账户变化（本窗口换号或其他窗口换号）不动搜索草稿与已提交的搜索：搜索不要求账户，只有 Browse 工作集重启。
     @Test
     func accountChangeKeepsTheSearchDraft() {
-        let browseModel = BrowseViewModel(useCase: FeedUseCase(repository: EmptyFeedRepository()))
+        let browseModel = BrowseViewModel(useCase: FeedUseCase(repository: FeedRepositoryStub()))
         let session = VideoSearchSession(browseModel: browseModel, recordHistory: { _ in })
         let watchLaterModel = WatchLaterViewModel(
             useCase: WatchLaterUseCase(repository: WatchLaterRepositoryStub())
@@ -323,7 +323,7 @@ struct AppSourcesTests {
         favorites: (list: FavoriteFolderListModel, folders: FavoriteFolderViewModel) =
             makeFavoriteModels()
     ) -> AppSources {
-        let browseModel = BrowseViewModel(useCase: FeedUseCase(repository: EmptyFeedRepository()))
+        let browseModel = BrowseViewModel(useCase: FeedUseCase(repository: FeedRepositoryStub()))
         return AppSources(
             browseModel: browseModel,
             watchLaterModel: watchLaterModel,

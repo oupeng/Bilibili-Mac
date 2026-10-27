@@ -52,7 +52,7 @@ struct UploaderVideoItemPayload: Decodable, Sendable {
     }
 
     func model() -> UploaderVideo? {
-        guard BiliAPIClient.isValidBVID(bvid) else { return nil }
+        guard BVID.isValid(bvid) else { return nil }
         return UploaderVideo(
             bvid: bvid,
             title: RemoteVideoTitleNormalizer.plainText(title),

@@ -164,7 +164,7 @@ enum CommentRemoteLink {
     ///
     /// 链接路径与正文纯文字识别共用这一规则。
     static func bvid(fromVideoID component: String) -> String? {
-        if BiliAPIClient.isValidBVID(component) {
+        if BVID.isValid(component) {
             return component
         }
         guard component.lowercased().hasPrefix("av"),
@@ -183,9 +183,10 @@ enum CommentRemoteLink {
     }
 
     private static func components(_ value: String?) -> URLComponents? {
-        guard var value, !value.isEmpty else { return nil }
-        if value.hasPrefix("//") { value = "https:\(value)" }
-        guard let components = URLComponents(string: value),
+        guard let value, !value.isEmpty,
+            let components = URLComponents(
+                string: RemoteURLString.resolvingProtocolRelative(value)
+            ),
             components.scheme?.lowercased() == "https",
             components.host != nil,
             components.user == nil,

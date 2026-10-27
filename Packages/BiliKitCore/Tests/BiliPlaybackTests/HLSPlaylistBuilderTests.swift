@@ -142,9 +142,11 @@ struct HLSPlaylistBuilderTests {
         )
         #expect(
             playlist.contains(
-                #"#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio-30280",NAME="原声",LANGUAGE="und",CHARACTERISTICS="public.original-content",CHANNELS="2",BIT-DEPTH=16,SAMPLE-RATE=48000,DEFAULT=YES,AUTOSELECT=YES,URI="bilikit-playlist://audio/30280.m3u8""#
+                #"#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio-30280",NAME="原声",CHARACTERISTICS="public.original-content",CHANNELS="2",BIT-DEPTH=16,SAMPLE-RATE=48000,DEFAULT=YES,AUTOSELECT=YES,URI="bilikit-playlist://audio/30280.m3u8""#
             )
         )
+        // 原声没有可验证的语言，不写 LANGUAGE；写 `und` 会让系统菜单显示“未知语言”。
+        #expect(!playlist.contains("LANGUAGE="))
         #expect(
             playlist.contains(
                 #"#EXT-X-STREAM-INF:BANDWIDTH=20000,AVERAGE-BANDWIDTH=16000,RESOLUTION=1920x1080,FRAME-RATE=59.940,CODECS="avc1.640032,mp4a.40.2",AUDIO="audio-30280",CLOSED-CAPTIONS=NONE"#
@@ -274,6 +276,7 @@ struct HLSPlaylistBuilderTests {
                     languageTag: "en",
                     role: .machineGenerated,
                     isDefault: false,
+                    isAutoselect: false,
                     index: makeIndex(byteCounts: [750], durations: [1]),
                     playlistPath: "audio/1/30280.m3u8"
                 )
@@ -282,12 +285,12 @@ struct HLSPlaylistBuilderTests {
 
         #expect(
             playlist.contains(
-                #"GROUP-ID="audio",NAME="原声",LANGUAGE="und",CHARACTERISTICS="public.original-content",DEFAULT=YES,AUTOSELECT=YES"#
+                #"GROUP-ID="audio",NAME="原声",CHARACTERISTICS="public.original-content",DEFAULT=YES,AUTOSELECT=YES"#
             )
         )
         #expect(
             playlist.contains(
-                #"GROUP-ID="audio",NAME="English（AI）",LANGUAGE="en",CHARACTERISTICS="public.machine-generated",DEFAULT=NO,AUTOSELECT=YES"#
+                #"GROUP-ID="audio",NAME="English（AI）",LANGUAGE="en",CHARACTERISTICS="public.machine-generated",DEFAULT=NO,AUTOSELECT=NO"#
             )
         )
         #expect(!playlist.contains("public.translation"))
@@ -325,7 +328,7 @@ struct HLSPlaylistBuilderTests {
         #expect(!playlist.contains("SAMPLE-RATE="))
         #expect(
             playlist.contains(
-                #"NAME="原声",LANGUAGE="und",CHARACTERISTICS="public.original-content",DEFAULT=YES,AUTOSELECT=YES"#
+                #"NAME="原声",CHARACTERISTICS="public.original-content",DEFAULT=YES,AUTOSELECT=YES"#
             )
         )
     }
@@ -336,7 +339,7 @@ struct HLSPlaylistBuilderTests {
         let metadata = [
             ("中文", "zh", []),
             ("中文（AI）", "zh", ["public.machine-generated"]),
-            ("English（AI）", "en", ["public.machine-generated"])
+            ("English（AI）", "en", ["public.machine-generated", "public.translation"])
         ]
         let subtitleRenditions = try metadata.enumerated().map { offset, item in
             HLSSubtitleRendition(
@@ -367,7 +370,7 @@ struct HLSPlaylistBuilderTests {
         )
         #expect(
             playlist.contains(
-                #"#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subtitles",NAME="English（AI）",LANGUAGE="en",CHARACTERISTICS="public.machine-generated",DEFAULT=NO,AUTOSELECT=NO,FORCED=NO,URI="bilikit-playlist://subtitle/2.m3u8""#
+                #"#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subtitles",NAME="English（AI）",LANGUAGE="en",CHARACTERISTICS="public.machine-generated,public.translation",DEFAULT=NO,AUTOSELECT=NO,FORCED=NO,URI="bilikit-playlist://subtitle/2.m3u8""#
             )
         )
         #expect(playlist.contains("SUBTITLES=\"subtitles\""))

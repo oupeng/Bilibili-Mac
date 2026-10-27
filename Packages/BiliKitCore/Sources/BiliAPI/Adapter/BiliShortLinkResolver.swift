@@ -44,9 +44,7 @@ public struct BiliShortLinkResolver: Sendable {
             let url = CommentRemoteLink.shortLinkRequestURL(reference.remoteURL),
             let response = try? await transport.send(HTTPRequest(url: url, method: .head)),
             Self.redirectStatusCodes.contains(response.statusCode),
-            let location = response.headers.first(where: {
-                $0.key.caseInsensitiveCompare("Location") == .orderedSame
-            })?.value,
+            let location = response.headerValue("Location"),
             let resolved = CommentRemoteLink.target(location)
         else { return nil }
         switch resolved {

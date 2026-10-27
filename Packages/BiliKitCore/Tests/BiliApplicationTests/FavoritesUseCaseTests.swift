@@ -27,6 +27,29 @@ struct FavoritesUseCaseTests {
         }
     }
 
+    /// 面板的归属读取与列表同一套校验：没有默认收藏夹按凭据失效报告。
+    @Test
+    func membershipsKeepOrderAndRequireADefaultFolder() async throws {
+        let target = try #require(VideoWriteTarget(bvid: "BV17x411w7KC"))
+        let repository = FavoritesRepositoryStub(
+            folders: [folder(2, isDefault: false), folder(1, isDefault: true)],
+            containingFolderIDs: [1]
+        )
+
+        let memberships = try await FavoritesUseCase(repository: repository).memberships(
+            of: target,
+            ownerID: 10_001
+        )
+
+        #expect(memberships.map(\.id) == [2, 1])
+        #expect(memberships.map(\.containsVideo) == [false, true])
+        await #expect(throws: ContentApplicationError.authenticationInvalid) {
+            try await FavoritesUseCase(
+                repository: FavoritesRepositoryStub(folders: [folder(2, isDefault: false)])
+            ).memberships(of: target, ownerID: 10_001)
+        }
+    }
+
     @Test(arguments: [Int64(0), -1])
     func nonPositiveOwnerSendsNothing(ownerID: Int64) async {
         let repository = FavoritesRepositoryStub(folders: [folder(1, isDefault: true)])
@@ -92,15 +115,17 @@ struct FavoritesUseCaseTests {
     }
 }
 
-/// 本 target 唯一的 `FavoritesRepository` 替身：返回固定的列表与页，并记录请求。
+/// 本 target 唯一的 `FavoritesRepository` 替身：返回固定的列表与页（视频在 `containingFolderIDs` 的夹里），并记录请求。
 private actor FavoritesRepositoryStub: FavoritesRepository {
     private(set) var ownerIDs: [Int64] = []
     private(set) var requests: [FavoriteFolderRequest] = []
     private let folders: [FavoriteFolder]
+    private let containingFolderIDs: Set<Int64>
     private let page: FavoriteFolderPage
 
     init(
         folders: [FavoriteFolder] = [],
+        containingFolderIDs: Set<Int64> = [],
         page: FavoriteFolderPage = FavoriteFolderPage(
             items: [],
             pageNumber: 1,
@@ -110,12 +135,23 @@ private actor FavoritesRepositoryStub: FavoritesRepository {
         )
     ) {
         self.folders = folders
+        self.containingFolderIDs = containingFolderIDs
         self.page = page
     }
 
     func favoriteFolders(ownerID: Int64) async throws -> [FavoriteFolder] {
         ownerIDs.append(ownerID)
         return folders
+    }
+
+    func favoriteFolderMemberships(
+        ownerID: Int64,
+        video: VideoWriteTarget
+    ) async throws -> [FavoriteFolderMembership] {
+        ownerIDs.append(ownerID)
+        return folders.map {
+            FavoriteFolderMembership(folder: $0, containsVideo: containingFolderIDs.contains($0.id))
+        }
     }
 
     func favoriteFolderPage(request: FavoriteFolderRequest) async throws -> FavoriteFolderPage {

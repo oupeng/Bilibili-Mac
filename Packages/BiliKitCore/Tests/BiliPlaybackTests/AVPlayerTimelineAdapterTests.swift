@@ -1,5 +1,6 @@
 @preconcurrency import AVFoundation
 import BiliApplication
+import Synchronization
 import Testing
 
 @testable import BiliPlayback
@@ -31,6 +32,40 @@ struct AVPlayerTimelineAdapterTests {
         await Task.yield()
 
         #expect(timeline.currentSnapshot.state == .paused)
+    }
+
+    @Test
+    @MainActor
+    func observersAreRemovedAfterAdapterIsReleasedOffMainThread() async throws {
+        let url = try #require(
+            Bundle.module.url(
+                forResource: "video-avc",
+                withExtension: "mp4",
+                subdirectory: "Fixtures"
+            )
+        )
+        let item = AVPlayerItem(url: url)
+        let player = TimeObserverRemovalRecordingPlayer(playerItem: item)
+        let box = ReleaseBox()
+        box.adapter = AVPlayerTimelineAdapter(player: player)
+        box.adapter?.begin(identity: PlaybackItemIdentity(bvid: "BVOffMainRelease", cid: 1))
+        box.adapter?.installObservers(for: item)
+        #expect(player.observationInfo != nil)
+        #expect(item.observationInfo != nil)
+
+        box.releaseOnBackgroundThread()
+        #expect(box.releasedOffMain)
+
+        // 观察集合的注销被排到主线程；让出主线程直到 periodic observer 被注销、KVO 全部移除，超时由 Suite
+        // 时限取消兜底。periodic observer 只有显式注销才会移除，不会随对象释放自动消失。
+        while player.timeObserverRemovalThreads.withLock({ $0.isEmpty })
+            || player.observationInfo != nil
+            || item.observationInfo != nil
+        {
+            try Task.checkCancellation()
+            await Task.yield()
+        }
+        #expect(player.timeObserverRemovalThreads.withLock { $0 } == [true])
     }
 
     @Test
@@ -608,7 +643,7 @@ struct AVPlayerTimelineAdapterTests {
 
     @Test
     @MainActor
-    func playImmediatelyUsesValidatedDefaultRateWhileWaitingForMedia() {
+    func playStartsAtValidatedDefaultRateAndReportsBufferingWhileWaitingForMedia() {
         let player = AVPlayer()
         player.defaultRate = 1.5
         let timeline = AVPlayerTimelineAdapter(player: player)
@@ -622,36 +657,36 @@ struct AVPlayerTimelineAdapterTests {
         #expect(player.rate == 1.5)
         #expect(player.timeControlStatus == .waitingToPlayAtSpecifiedRate)
         #expect(timeline.currentSnapshot.rate == 1.5)
-        #expect(timeline.currentSnapshot.state == .playing)
+        #expect(timeline.currentSnapshot.state == .buffering)
     }
+}
 
-    @Test
-    @MainActor
-    func setRateWhilePausedOnlyChangesThePermanentDefaultRate() throws {
-        let player = AVPlayer()
-        let timeline = AVPlayerTimelineAdapter(player: player)
+/// 把 adapter 的最后一个引用带到后台线程释放。
+///
+/// `@unchecked Sendable`：后台线程只在调用方线程阻塞于信号量期间读写这两个属性，信号量的 signal／wait
+/// 保证先后，不需要锁。
+private final class ReleaseBox: @unchecked Sendable {
+    var adapter: AVPlayerTimelineAdapter?
+    private(set) var releasedOffMain = false
 
-        try timeline.setRate(2)
-
-        #expect(player.defaultRate == 2)
-        #expect(player.rate == 0)
+    /// 调用方阻塞到后台线程放掉最后一个引用：期间主线程上排队的回调拿不到强引用，释放一定发生在后台线程。
+    func releaseOnBackgroundThread() {
+        let released = DispatchSemaphore(value: 0)
+        Thread.detachNewThread {
+            self.adapter = nil
+            self.releasedOffMain = !Thread.isMainThread
+            released.signal()
+        }
+        released.wait()
     }
+}
 
-    @Test
-    @MainActor
-    func setRateWhileWaitingChangesDefaultAndImmediatePlaybackRate() throws {
-        let player = AVPlayer()
-        let timeline = AVPlayerTimelineAdapter(player: player)
-        timeline.begin(
-            identity: PlaybackItemIdentity(bvid: "BV1RateFixture", cid: 102)
-        )
-        timeline.play()
+/// 记录每次注销 periodic time observer 时是否在主线程。
+private final class TimeObserverRemovalRecordingPlayer: AVPlayer {
+    let timeObserverRemovalThreads = Mutex<[Bool]>([])
 
-        try timeline.setRate(2)
-
-        #expect(player.defaultRate == 2)
-        #expect(player.rate == 2)
-        #expect(timeline.currentSnapshot.rate == 2)
-        #expect(timeline.currentSnapshot.state == .playing)
+    override func removeTimeObserver(_ observer: Any) {
+        timeObserverRemovalThreads.withLock { $0.append(Thread.isMainThread) }
+        super.removeTimeObserver(observer)
     }
 }

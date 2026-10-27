@@ -18,7 +18,10 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
     let rootView = NativePlaybackSidebarRootView()
     let collectionView = NSCollectionView()
     let layout = NativePlaybackSidebarLayout()
-    let heightCache = NativePlaybackSidebarHeightCache()
+    /// 行高缓存：只在主线程使用；换视频不清空（身份已不同），拆除时清空。
+    let heightCache = CostBoundedLRUCache<NativePlaybackSidebarHeightCacheKey, CGFloat>(
+        limits: .sidebarRowHeights
+    )
     let imagePipeline: any VideoDetailImageLoading
     private let commentAssetURLResolver: CommentAssetURLResolver
     lazy var commentTextRenderer = NativePlaybackCommentTextRenderer(
@@ -54,8 +57,10 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
         loadNextComments: {},
         expandReplies: { _ in },
         collapseReplies: { _ in },
-        previousReplyPage: { _ in },
-        nextReplyPage: { _ in },
+        showReplyPage: { _, _ in },
+        showDialog: { _, _ in },
+        loadMoreDialog: { _ in },
+        closeDialog: { _ in },
         retryReplies: { _ in },
         openCommentLink: { _ in },
         openCommentPictures: { _ in }
@@ -81,7 +86,8 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
     let refinement = NativePlaybackSidebarRefinementScheduler()
     /// 评论分页判断；快照更新、条目原地变化与 `tearDown` 时取消。
     let pagination = NativePlaybackSidebarPaginationScheduler()
-    /// 评论近尾分页的布防状态：同一尾部只请求一次，离开阈值后才重新布防（阈值比一页评论矮，见 ARCHITECTURE「原生 AppKit 集合视图」）。
+    /// 评论近尾分页的布防状态：同一尾部只请求一次，离开阈值后才重新布防（阈值比一页评论矮，见
+    /// `NearEndPagination.TailChangeInsideThreshold.requiresExit`）。
     var commentsPagination = NearEndPagination<NativePlaybackCommentsPaginationIdentity>(
         tailChangeInsideThreshold: .requiresExit
     )
@@ -89,6 +95,10 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
     /// 换视频（回到顶部）与换排序（跳到评论区）的视口意图：快照应用完成后才执行，回到顶部优先。
     var pendingResetToTop = false
     var pendingScrollToComments = false
+    /// 楼中楼翻页、进出对话或收起时记下的定位意图，见 `prepareThreadAlignment`。
+    ///
+    /// 每次快照应用完成时执行，这一楼不再加载后清掉；回到顶部与跳到评论区优先并清掉它，用户开始拖动滚动时作废。
+    var pendingThreadAlignment: NativePlaybackSidebarThreadAlignment?
     /// 滚动与实时滚动的通知观察；`tearDown` 时移除。
     private var observers = NativeVideoNotificationObservers()
     private(set) var isTornDown = false
@@ -112,6 +122,7 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
             object: rootView.scrollView
         ) { [weak self] in
             self?.isLiveScrolling = true
+            self?.pendingThreadAlignment = nil
             self?.commentsPagination.releaseBackpressure()
             self?.scheduleNextCommentsPageIfNeeded()
         }
@@ -205,6 +216,7 @@ final class NativePlaybackSidebarController: NSObject, NSCollectionViewDelegate 
         isLiveScrolling = false
         pendingResetToTop = false
         pendingScrollToComments = false
+        pendingThreadAlignment = nil
         releaseCollectionFirstResponder()
         rootView.viewportSizeDidChange = nil
         rootView.scrollView.onContentInsetsChange = nil

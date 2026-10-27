@@ -54,11 +54,13 @@ struct AccountReadAuthorizationCompositionTests {
                 "/x/space/wbi/arc/search",
                 "/x/v2/dm/wbi/web/seg.so",
                 "/x/v2/history/toview/web",
+                "/x/v2/reply/dialog/cursor",
                 "/x/v2/reply/reply",
                 "/x/v2/reply/wbi/main",
                 "/x/v3/fav/folder/created/list-all",
                 "/x/v3/fav/resource/list",
                 "/x/web-interface/archive/related",
+                "/x/web-interface/archive/relation",
                 "/x/web-interface/card",
                 "/x/web-interface/history/cursor",
                 "/x/web-interface/popular",
@@ -87,6 +89,7 @@ struct AccountReadAuthorizationCompositionTests {
             (BiliAccountReadPath.uploaderVideos, "/x/space/wbi/arc/search"),
             (BiliAccountReadPath.rootComments, "/x/v2/reply/wbi/main"),
             (BiliAccountReadPath.commentReplies, "/x/v2/reply/reply"),
+            (BiliAccountReadPath.commentDialog, "/x/v2/reply/dialog/cursor"),
             (BiliAccountReadPath.videoDetail, "/x/web-interface/wbi/view"),
             (BiliAccountReadPath.relatedVideos, "/x/web-interface/archive/related"),
             (BiliAccountReadPath.uploaderCard, "/x/web-interface/card"),
@@ -94,6 +97,7 @@ struct AccountReadAuthorizationCompositionTests {
             (BiliAccountReadPath.watchLater, "/x/v2/history/toview/web"),
             (BiliAccountReadPath.favoriteFolders, "/x/v3/fav/folder/created/list-all"),
             (BiliAccountReadPath.favoriteFolderContent, "/x/v3/fav/resource/list"),
+            (BiliAccountReadPath.videoRelation, "/x/web-interface/archive/relation"),
             (BiliAccountReadPath.popular, "/x/web-interface/popular"),
             (BiliAccountReadPath.recommendations, "/x/web-interface/wbi/index/top/feed/rcmd"),
             (BiliAccountReadPath.videoSearch, "/x/web-interface/wbi/search/type")
@@ -136,6 +140,71 @@ struct AccountReadAuthorizationCompositionTests {
     }
 }
 
+/// 窗口主 API 的每个写 path 都能被真实的账户写授权器按它的 schema 授权：BiliAuth 的 schema 表与 BiliAPI 的
+/// `BiliAccountWritePath` 各写一份字面量，这里是两边唯一的交叉核对。
+@Suite(.timeLimit(.minutes(1)))
+struct AccountWriteAuthorizationCompositionTests {
+    private static let recommendationFeedbackBody =
+        "app_id=100&platform=5&from_spmid=&spmid=333.1007.0.0&goto=av&id=170001&mid=1"
+        + "&track_id=web_rcmd.abc&feedback_page=1&reason_id=1"
+
+    @Test
+    @MainActor
+    func everyProductionWritePathCanAuthorizeTheRequestTheClientBuilds() async throws {
+        let authorizer = BiliAccountWriteRequestAuthorizer(
+            store: CompositionFixtureCredentialStore(
+                credential: try makeCompositionFixtureCredential()
+            ),
+            allowedPaths: LiveAPIClients.mainAccountWriteAllowedPaths
+        )
+        let requests = [
+            BiliAccountWritePath.watchLaterAdd: ("https://www.bilibili.com/", "aid=170001"),
+            BiliAccountWritePath.watchLaterRemove: (
+                "https://www.bilibili.com/watchlater/", "aid=170001"
+            ),
+            BiliAccountWritePath.favoriteMembershipUpdate: (
+                "https://www.bilibili.com/",
+                "rid=170001&type=2&add_media_ids=11,12&del_media_ids=&platform=web"
+            ),
+            BiliAccountWritePath.favoriteFolderEntryRemove: (
+                "https://www.bilibili.com/", "resources=170001:2&media_id=11&platform=web"
+            ),
+            BiliAccountWritePath.videoLike: ("https://www.bilibili.com/", "aid=170001&like=1"),
+            BiliAccountWritePath.videoCoin: (
+                "https://www.bilibili.com/", "aid=170001&multiply=1&select_like=1"
+            ),
+            BiliAccountWritePath.videoTriple: ("https://www.bilibili.com/", "aid=170001"),
+            BiliAccountWritePath.recommendationDislike: (
+                "https://www.bilibili.com/", Self.recommendationFeedbackBody
+            ),
+            BiliAccountWritePath.recommendationDislikeCancel: (
+                "https://www.bilibili.com/", Self.recommendationFeedbackBody
+            )
+        ]
+        #expect(Set(requests.keys) == LiveAPIClients.mainAccountWriteAllowedPaths)
+
+        for (path, (referer, body)) in requests {
+            let request = HTTPRequest(
+                url: try #require(URL(string: "https://api.bilibili.com\(path)")),
+                method: .post,
+                headers: [
+                    "Accept": "application/json",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Origin": "https://www.bilibili.com",
+                    "Referer": referer,
+                    "User-Agent": HTTPUserAgent.browserCompatible
+                ],
+                body: Data(body.utf8)
+            )
+
+            let authorized = try await authorizer.authorize(request, boundTo: "42")
+
+            #expect(authorized.headers["Cookie"] == "SESSDATA=FIXTURE_SESSDATA_VALUE")
+            #expect(authorized.body == Data("\(body)&csrf=FIXTURE_bili_jct_VALUE".utf8))
+        }
+    }
+}
+
 private struct CompositionFixtureCredentialStore: WebCredentialStoring {
     let credential: WebCredential
 
@@ -149,7 +218,7 @@ private func makeCompositionFixtureCredential() throws -> WebCredential {
         cookies: WebCredentialCookieName.allCases.map { name in
             WebCredentialCookie(
                 name: name,
-                value: "FIXTURE_\(name.rawValue)_VALUE",
+                value: name == .userID ? "42" : "FIXTURE_\(name.rawValue)_VALUE",
                 domain: ".bilibili.com",
                 path: "/",
                 isSecure: true,

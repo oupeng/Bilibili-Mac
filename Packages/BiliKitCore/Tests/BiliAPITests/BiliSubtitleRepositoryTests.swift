@@ -31,7 +31,8 @@ struct BiliSubtitleRepositoryTests {
                       {"id": 6, "lan": "ai-fr", "lan_doc": "Français", "subtitle_url": "https://aisubtitle.hdslb.com/bfs/subtitle/6.json", "ai_type": 1, "ai_status": 2},
                       {"id": 7, "lan": "ai-ZH", "lan_doc": "中文", "subtitle_url": "https://aisubtitle.hdslb.com/bfs/subtitle/7.json", "ai_type": 0, "ai_status": 2},
                       {"id": 8, "lan": "zh-Hans", "lan_doc": "中文", "subtitle_url": "https://aisubtitle.hdslb.com/bfs/subtitle/8.json", "ai_type": 0, "ai_status": 0},
-                      {"id": 9, "lan": "en", "lan_doc": "English", "subtitle_url": "https://aisubtitle.hdslb.com/bfs/subtitle/9.json"}
+                      {"id": 9, "lan": "en", "lan_doc": "English", "subtitle_url": "https://aisubtitle.hdslb.com/bfs/subtitle/9.json"},
+                      {"id": 10, "lan": "ai-ko", "lan_doc": "한국어", "subtitle_url": "https://aisubtitle.hdslb.com/bfs/subtitle/10.json", "ai_type": 2, "ai_status": 2}
                     ]
                   }
                 }
@@ -44,13 +45,14 @@ struct BiliSubtitleRepositoryTests {
         #expect(
             tracks.map(\.languageCode) == [
                 "zh", "ai-zh", "ai-en", "ai-ja", "ai-fr", "ai-fr", "ai-ZH",
-                "zh-Hans", "en"
+                "zh-Hans", "en", "ai-ko"
             ]
         )
         #expect(
             tracks.map(\.kind) == [
-                .standard, .automatic, .automatic, .automatic, .unknown,
-                .automatic, .automatic, .unknown, .unknown
+                .standard, .automaticTranscription, .automaticTranslation,
+                .automaticTranslation, .unknown, .automaticTranslation,
+                .automaticTranscription, .unknown, .unknown, .unknown
             ]
         )
     }

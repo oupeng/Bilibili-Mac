@@ -22,7 +22,7 @@ public struct WatchLaterCardPresentation: Sendable, Equatable {
     public let unavailableReason: String?
     public let accessibilityLabel: String
 
-    public init(item: WatchLaterItem, locale: Locale = .current) {
+    public init(item: WatchLaterItem, locale: Locale = InterfaceLocale.current) {
         let addedAt = item.addedAt.map { LibraryCardFormatting.timestamp($0, locale: locale) }
         let reason = item.unavailability.map {
             LibraryUnavailabilityFormatting.reason($0, locale: locale)
@@ -47,7 +47,7 @@ public struct WatchLaterCardPresentation: Sendable, Equatable {
         case (.notStarted, .some(let duration)):
             let text = VideoDurationFormatting.string(seconds: max(0, duration), locale: locale)
             coverText = text
-            spokenProgress = VideoCardAccessibilityText.duration(text, locale: locale)
+            spokenProgress = VideoCardAccessibilityText.duration(seconds: duration, locale: locale)
         case (.watched, nil), (.notStarted, nil):
             coverText = nil
             spokenProgress = nil

@@ -109,23 +109,6 @@ struct CommentRemoteLinkTests {
         #expect(CommentRemoteLink.shortLinkRequestURL(url)?.absoluteString == requestURL)
     }
 
-    /// 已知的 av／BV 对照；超出规则范围时不换算。
-    @Test(
-        arguments: [
-            (Int64(2), "BV1xx411c7mD"),
-            (170001, "BV17x411w7KC"),
-            (111_298_867_365_120, "BV1L9Uoa9EUx")
-        ] as [(Int64, String)]
-    )
-    func convertsKnownAIDs(aid: Int64, bvid: String) {
-        #expect(BiliVideoAID.bvid(fromAID: aid) == bvid)
-    }
-
-    @Test(arguments: [Int64(0), -1, 1 << 51, .max])
-    func rejectsAIDsOutsideTheConversionRange(_ aid: Int64) {
-        #expect(BiliVideoAID.bvid(fromAID: aid) == nil)
-    }
-
     /// 搜索词链接（标记为布尔或 0／1）与没有网页地址的条目不生成链接，正文按普通文字显示。
     @Test
     func wordSearchAndAddresslessJumpURLsStayPlainText() throws {

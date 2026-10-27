@@ -169,14 +169,21 @@ struct NoImageCardLoader: NativeVideoImageLoading {
     func image(for url: URL, kind: NativeVideoCardImageKind) async -> NativeVideoCardImage? { nil }
 }
 
-/// Feed port 的唯一测试替身：推荐不可用，热门与搜索恒为空页。
+/// Feed port 的唯一测试替身：推荐默认不可用（给了 `recommendations` 时只有这一页），热门与搜索恒为空页。
 ///
 /// App 根视图会激活浏览页，这里给不验证 Feed 的测试一个不依赖网络的来源。
-struct EmptyFeedRepository: FeedRepository {
+struct FeedRepositoryStub: FeedRepository {
+    var recommendations: [RecommendedVideo]?
+
     func recommendations(
         after continuation: RecommendationContinuation?
     ) async throws -> RecommendationPage {
-        throw ContentApplicationError.unavailable
+        guard let recommendations else { throw ContentApplicationError.unavailable }
+        return RecommendationPage(
+            videos: recommendations,
+            continuation: continuation ?? RecommendationContinuation(freshIndex: 1),
+            nextContinuation: nil
+        )
     }
 
     func popular(page: Int, pageSize: Int) async throws -> PopularPage {
@@ -207,30 +214,148 @@ struct WatchHistoryRepositoryStub: WatchHistoryRepository {
     }
 }
 
-/// 稍后再看 port 的唯一测试替身：给了 `error` 时每次读取都失败，否则返回所请求页的空页。
+/// 稍后再看 port 的唯一测试替身：给了 `error` 时每次读取都失败，否则返回所请求页，条目为 `bvids`（默认空页）。
 struct WatchLaterRepositoryStub: WatchLaterRepository {
     var error: ContentApplicationError?
+    var bvids: [String] = []
 
     func watchLater(request: WatchLaterRequest) async throws -> WatchLaterPage {
         if let error { throw error }
         return WatchLaterPage(
-            items: [],
+            items: bvids.map {
+                WatchLaterItem(
+                    bvid: $0,
+                    title: "手写稍后再看条目",
+                    coverURL: nil,
+                    owner: nil,
+                    durationSeconds: 60,
+                    progress: .notStarted,
+                    addedAt: nil
+                )
+            },
             pageNumber: request.page,
             nextPageNumber: nil,
-            totalCount: 0
+            totalCount: bvids.count
         )
     }
 }
 
-/// 收藏夹 port 的唯一测试替身：返回固定的收藏夹列表（含默认收藏夹）与所请求页的空页，并记录列表请求的 mid；给了
-/// `error` 时每次读取都失败。
+/// 稍后再看、收藏、播放页互动与首页推荐反馈四个写入 port 的唯一测试替身：记录每次写入，按顺序取 `outcomes`（用完后
+/// 一律成功）；`holdsWrites` 时每次写入挂起到 `releaseWrites()` 或任务取消。互动读取返回 `engagement`，不计入写入。
+actor AccountWriteRepositoryStub: WatchLaterWriteRepository, FavoritesWriteRepository,
+    VideoEngagementRepository, RecommendationFeedbackRepository
+{
+    private var outcomes: [AccountWriteError?]
+    private let holdsWrites: Bool
+    private let engagementState: VideoEngagementState
+    private let tripleOutcome: VideoTripleOutcome
+    private(set) var calls: [String] = []
+    private var callWaiters = CountWaiters()
+    private var held: [CheckedContinuation<Void, Never>] = []
+    private var released = false
+
+    init(
+        outcomes: [AccountWriteError?] = [],
+        holdsWrites: Bool = false,
+        engagement: VideoEngagementState = VideoEngagementState(
+            isLiked: false,
+            coinCount: 0,
+            isFavorited: false
+        ),
+        tripleOutcome: VideoTripleOutcome = VideoTripleOutcome(
+            isLiked: true,
+            isCoined: true,
+            isFavorited: true,
+            addedCoinCount: 2
+        )
+    ) {
+        self.outcomes = outcomes
+        self.holdsWrites = holdsWrites
+        engagementState = engagement
+        self.tripleOutcome = tripleOutcome
+    }
+
+    func engagement(of target: VideoWriteTarget) async throws -> VideoEngagementState {
+        engagementState
+    }
+
+    func setLiked(_ isLiked: Bool, target: VideoWriteTarget, accountID: Int64) async throws {
+        try await record("\(isLiked ? "like" : "unlike") \(target.bvid) \(accountID)")
+    }
+
+    func addCoins(
+        _ count: Int,
+        alsoLike: Bool,
+        target: VideoWriteTarget,
+        accountID: Int64
+    ) async throws -> Bool {
+        try await record("coin \(count) \(alsoLike ? "+like " : "")\(target.bvid) \(accountID)")
+        return alsoLike
+    }
+
+    func triple(target: VideoWriteTarget, accountID: Int64) async throws -> VideoTripleOutcome {
+        try await record("triple \(target.bvid) \(accountID)")
+        return tripleOutcome
+    }
+
+    func add(_ target: VideoWriteTarget, accountID: Int64) async throws {
+        try await record("add \(target.bvid) \(accountID)")
+    }
+
+    func remove(_ target: VideoWriteTarget, accountID: Int64) async throws {
+        try await record("remove \(target.bvid) \(accountID)")
+    }
+
+    func update(_ change: FavoriteMembershipChange, accountID: Int64) async throws {
+        try await record(
+            "favorite \(change.target.bvid) +\(change.addedFolderIDs) -\(change.removedFolderIDs) \(accountID)"
+        )
+    }
+
+    func remove(_ entry: FavoriteFolderEntry, accountID: Int64) async throws {
+        try await record("unfavorite \(entry.videoAID) from \(entry.folderID) \(accountID)")
+    }
+
+    func dislike(_ feedback: RecommendationFeedback, accountID: Int64) async throws {
+        try await record("dislike \(feedback.target.bvid) \(feedback.reason) \(accountID)")
+    }
+
+    func cancelDislike(_ feedback: RecommendationFeedback, accountID: Int64) async throws {
+        try await record("undislike \(feedback.target.bvid) \(feedback.reason) \(accountID)")
+    }
+
+    func waitForCallCount(_ target: Int) async {
+        await withCheckedContinuation { callWaiters.add($0, until: target, current: calls.count) }
+    }
+
+    func releaseWrites() {
+        released = true
+        held.resumeAll()
+    }
+
+    private func record(_ call: String) async throws {
+        calls.append(call)
+        callWaiters.resume(reaching: calls.count)
+        let outcome = outcomes.isEmpty ? nil : outcomes.removeFirst()
+        if holdsWrites, !released {
+            await withCheckedContinuation { held.append($0) }
+        }
+        try Task.checkCancellation()
+        if let outcome { throw outcome }
+    }
+}
+
+/// 收藏夹 port 的唯一测试替身：返回固定的收藏夹列表（含默认收藏夹，视频只在默认收藏夹里）与所请求页（条目为
+/// `pageItems`），并记录列表请求的 mid；给了 `error` 时每次读取都失败。
 actor FavoritesRepositoryStub: FavoritesRepository {
     private let error: ContentApplicationError?
+    private let pageItems: [FavoriteItem]
     private(set) var folderOwnerIDs: [Int64] = []
     private var folderRequestWaiters = CountWaiters()
 
-    init(error: ContentApplicationError? = nil) {
+    init(error: ContentApplicationError? = nil, pageItems: [FavoriteItem] = []) {
         self.error = error
+        self.pageItems = pageItems
     }
 
     func waitForFolderRequestCount(_ target: Int) async {
@@ -255,13 +380,22 @@ actor FavoritesRepositoryStub: FavoritesRepository {
         ]
     }
 
+    func favoriteFolderMemberships(
+        ownerID: Int64,
+        video: VideoWriteTarget
+    ) async throws -> [FavoriteFolderMembership] {
+        try await favoriteFolders(ownerID: ownerID).map {
+            FavoriteFolderMembership(folder: $0, containsVideo: $0.isDefault)
+        }
+    }
+
     func favoriteFolderPage(request: FavoriteFolderRequest) async throws -> FavoriteFolderPage {
         if let error { throw error }
         return FavoriteFolderPage(
-            items: [],
+            items: pageItems,
             pageNumber: request.page,
             pageSize: 40,
-            totalCount: 0,
+            totalCount: pageItems.count,
             hasMore: false
         )
     }

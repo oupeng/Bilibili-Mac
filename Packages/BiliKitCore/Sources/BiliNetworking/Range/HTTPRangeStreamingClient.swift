@@ -185,6 +185,10 @@ private final class RangeStreamingOperation: URLSessionRangeOperation, Sendable 
         finish(.failure(CancellationError()))
     }
 
+    func fail(_ error: HTTPRangeResponseError) {
+        finish(.failure(error))
+    }
+
     func receive(
         _ response: URLResponse,
         completionHandler: @escaping (URLSession.ResponseDisposition) -> Void

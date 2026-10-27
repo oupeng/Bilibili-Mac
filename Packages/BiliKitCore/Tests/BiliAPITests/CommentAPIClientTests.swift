@@ -191,6 +191,77 @@ struct CommentAPIClientTests {
         #expect(await authorizer.authorizationCount == 1)
     }
 
+    /// 对话按根评论与对话 ID 取 20 条，下一页带 `min_floor`；丢弃明确属于别的对话的行，缺 `dialog` 的占位保留；
+    /// 本页最大楼层追上整串对话即到底，没到底却缺下一页起点时整页失败。
+    @Test
+    func dialogPageUsesFloorCursorAndKeepsOnlyThatDialog() async throws {
+        let terminal = jsonResponse(
+            #"{"code":0,"message":"OK","data":{"cursor":{"max_floor":30,"next":31},"dialog":{"max_floor":30},"replies":[{"rpid":305,"oid":700001,"type":1,"root":102,"parent":301,"dialog":301,"state":1}]}}"#
+        )
+        let missingNext = jsonResponse(
+            #"{"code":0,"message":"OK","data":{"cursor":{"max_floor":25},"dialog":{"max_floor":30},"replies":[{"rpid":306,"oid":700001,"type":1,"root":102,"parent":301,"dialog":301,"state":1}]}}"#
+        )
+        let transport = StubTransport(
+            responses: [try fixtureResponse("comment-dialog"), terminal, missingNext]
+        )
+        let authorizer = StubAuthorizer()
+        let repository = BiliCommentRepository(
+            client: BiliAPIClient(transport: transport, requestAuthorizer: authorizer)
+        )
+
+        let page = try await repository.dialog(
+            for: .video(aid: 700_001),
+            rootID: CommentID(rawValue: 102),
+            dialogID: CommentID(rawValue: 301),
+            fromFloor: nil,
+            pageSize: 20
+        )
+        #expect(page.replies.map(\.id.rawValue) == [301, 302, 304])
+        #expect(
+            page.replies.map(\.dialogID)
+                == [CommentID(rawValue: 301), CommentID(rawValue: 301), nil]
+        )
+        #expect(page.replies[1].isReplyInDialog)
+        #expect(page.nextFloor == 21)
+
+        let last = try await repository.dialog(
+            for: .video(aid: 700_001),
+            rootID: CommentID(rawValue: 102),
+            dialogID: CommentID(rawValue: 301),
+            fromFloor: 21,
+            pageSize: 20
+        )
+        #expect(last.replies.map(\.id.rawValue) == [305])
+        #expect(last.nextFloor == nil)
+        await #expect(throws: CommentReadError.self) {
+            try await repository.dialog(
+                for: .video(aid: 700_001),
+                rootID: CommentID(rawValue: 102),
+                dialogID: CommentID(rawValue: 301),
+                fromFloor: 21,
+                pageSize: 20
+            )
+        }
+
+        let requests = transport.capturedRequests()
+        let queries = requests.map { request in
+            Dictionary(
+                uniqueKeysWithValues: (URLComponents(
+                    url: request.url,
+                    resolvingAgainstBaseURL: false
+                )?.queryItems ?? []).map { ($0.name, $0.value ?? "") }
+            )
+        }
+        #expect(requests.allSatisfy { $0.url.path == "/x/v2/reply/dialog/cursor" })
+        #expect(
+            queries.first == [
+                "type": "1", "oid": "700001", "root": "102", "dialog": "301", "size": "20"
+            ]
+        )
+        #expect(queries.last?["min_floor"] == "21")
+        #expect(requests.first?.headers["Cookie"] == StubAuthorizer.cookie)
+    }
+
     /// 本地凭据读不到（Keychain 不可用）与凭据失效分开：不触发账户复核。
     @Test
     func unavailableCredentialIsNotTreatedAsInvalidation() async {

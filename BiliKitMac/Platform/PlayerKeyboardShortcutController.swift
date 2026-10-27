@@ -1,20 +1,21 @@
 import AppKit
 import BiliPlayback
-import BiliVideoDetailFeature
 
 /// 播放器键盘快捷键：本地 key monitor、长按临时倍速、离散快捷键与焦点让渡规则。
 ///
 /// 以 content overlay 中的弹幕层为锚点取所在窗口，因此 detached 全屏窗口里同样生效。由
 /// `NativePlayerHostView` 持有：弹幕层挂上 content overlay 时 `startMonitoring()`，拆除时宿主先
-/// `cancelInputSession()` 再 `stopMonitoring()`。拥有本地 key monitor、长按计时 Task 与字幕切换
-/// Task；`cancelInputSession()` 取消两个 Task、结束仍在进行的长按并收起长按倍速徽章。长按计时到时按
-/// `keyboardLongPressID` 与状态机的 `pressID` 比对，不符即丢弃。MainActor 隔离，local monitor
+/// `cancelInputSession()` 再 `stopMonitoring()`。拥有本地 key monitor、长按计时 Task、点赞键按住计时
+/// Task 与字幕切换 Task；`cancelInputSession()` 取消三个 Task、结束仍在进行的长按并收起长按倍速与三连进度
+/// 徽章。两个计时到时分别按 `keyboardLongPressID`、`likeHoldID` 与状态机的 `pressID` 比对，不符即丢弃。
+/// 点赞、投币、收藏只调用宿主给的闭包，门槛与写入在 App 的写入协调者。MainActor 隔离，local monitor
 /// 回调在主线程上同步决定是否吞掉事件。
 @MainActor
 final class PlayerKeyboardShortcutController {
     private enum KeyboardKey: Sendable {
         case direction(PlayerKeyboardDirection)
         case shortcut(PlayerKeyboardShortcut)
+        case like
     }
 
     private struct KeyboardEventSnapshot: Sendable {
@@ -33,6 +34,8 @@ final class PlayerKeyboardShortcutController {
     private var keyboardState = PlayerKeyboardInputState()
     private var keyboardLongPressTask: Task<Void, Never>?
     private var keyboardLongPressID: UUID?
+    private var likeHoldTask: Task<Void, Never>?
+    private var likeHoldID: UUID?
     private var subtitleToggleTask: Task<Void, Never>?
     var onKeyboardMomentaryRateBegan: (PlayerMomentaryRate, UUID) -> Void = {
         _,
@@ -47,6 +50,11 @@ final class PlayerKeyboardShortcutController {
     var onToggleSubtitles: () async -> NativeSubtitleToggleResult = {
         .unavailable
     }
+    /// 点赞、三连、投币与收藏：执行意图并返回要在播放器上显示的提示（nil 不显示，例如打开了面板）。
+    var onToggleLike: () -> PlayerEngagementFeedback? = { nil }
+    var onTriple: () -> PlayerEngagementFeedback? = { nil }
+    var onOpenCoinPanel: () -> PlayerEngagementFeedback? = { nil }
+    var onChooseFavoriteFolders: () -> PlayerEngagementFeedback? = { nil }
 
     func setKeyboardInputEnabled(_ enabled: Bool) {
         guard keyboardInputEnabled != enabled else { return }
@@ -61,11 +69,15 @@ final class PlayerKeyboardShortcutController {
         keyboardLongPressTask?.cancel()
         keyboardLongPressTask = nil
         keyboardLongPressID = nil
+        likeHoldTask?.cancel()
+        likeHoldTask = nil
+        likeHoldID = nil
         subtitleToggleTask?.cancel()
         subtitleToggleTask = nil
-        // 只收起按住期间的倍速徽章；已完成操作的反馈照常到时淡出。暂停也会走到这里（播放器停下即结束
+        // 只收起按住期间的倍速与三连进度徽章；已完成操作的反馈照常到时淡出。暂停也会走到这里（播放器停下即结束
         // 长按），清掉全部反馈会让空格暂停的“暂停”徽章一出现就消失。
         feedbackPresenter?.endMomentaryRate()
+        feedbackPresenter?.endTripleProgress()
     }
 
     func startMonitoring() {
@@ -139,6 +151,10 @@ final class PlayerKeyboardShortcutController {
             )
         case (.keyUp, .shortcut(let shortcut)):
             actions = keyboardState.shortcutKeyUp(shortcut)
+        case (.keyDown, .like):
+            actions = keyboardState.likeKeyDown(isRepeat: event.isRepeat)
+        case (.keyUp, .like):
+            actions = keyboardState.likeKeyUp()
         default:
             return false
         }
@@ -214,7 +230,64 @@ final class PlayerKeyboardShortcutController {
             case .toggleFullScreen:
                 // 全屏过渡本身就是反馈，不再显示徽标。
                 onToggleFullScreen()
+            case .openCoinPanel:
+                showEngagementFeedback(onOpenCoinPanel())
+            case .chooseFavoriteFolders:
+                showEngagementFeedback(onChooseFavoriteFolders())
+            case .scheduleLikeHold(let pressID):
+                scheduleLikeHold(pressID: pressID)
+            case .cancelLikeHold(let pressID):
+                guard likeHoldID == pressID else { break }
+                likeHoldTask?.cancel()
+                likeHoldTask = nil
+                likeHoldID = nil
+            case .beginTripleProgress:
+                feedbackPresenter?.showTripleProgress()
+            case .endTripleProgress:
+                feedbackPresenter?.endTripleProgress()
+            case .toggleLike:
+                showEngagementFeedback(onToggleLike())
+            case .triple:
+                showEngagementFeedback(onTriple())
             }
+        }
+    }
+
+    private func showEngagementFeedback(_ feedback: PlayerEngagementFeedback?) {
+        guard let feedback else { return }
+        feedbackPresenter?.showFeedback(.engagement(feedback))
+    }
+
+    /// 点赞键按住的两个时限：`longPressDelay` 时显示三连进度，`tripleHoldDuration` 时三连；都按 `pressID` 比对。
+    private func scheduleLikeHold(pressID: UUID) {
+        likeHoldTask?.cancel()
+        likeHoldID = pressID
+        likeHoldTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(PlayerKeyboardInputState.longPressDelay))
+            } catch {
+                return
+            }
+            guard let self, self.likeHoldID == pressID else { return }
+            self.applyKeyboardActions(
+                self.keyboardState.likeProgressDeadlineReached(pressID: pressID)
+            )
+            do {
+                try await Task.sleep(
+                    for: .seconds(
+                        PlayerKeyboardInputState.tripleHoldDuration
+                            - PlayerKeyboardInputState.longPressDelay
+                    )
+                )
+            } catch {
+                return
+            }
+            guard self.likeHoldID == pressID else { return }
+            self.likeHoldTask = nil
+            self.likeHoldID = nil
+            self.applyKeyboardActions(
+                self.keyboardState.likeTripleDeadlineReached(pressID: pressID)
+            )
         }
     }
 
@@ -226,12 +299,12 @@ final class PlayerKeyboardShortcutController {
         cancelInputSession()
     }
 
-    /// 只有正在输入的文本与声明为 `PlayerKeyboardFocusOwner` 的浮层（例如评论图片预览）拿走快捷键。
+    /// 播放窗口里只有正在输入的文本拿走快捷键。
     ///
-    /// 按钮、列表等其余控件即使持有焦点（点击空白、关闭预览后交还给缩略图、AVKit 全屏控件）
-    /// 也不让出，空格、方向键始终控制播放；只可选择、不可编辑的文本同样不拦截。
+    /// 按钮、列表等其余控件即使持有焦点（点击空白、关闭评论图片预览后交还给缩略图、AVKit 全屏控件）
+    /// 也不让出，空格、方向键始终控制播放；只可选择、不可编辑的文本同样不拦截。评论图片预览在自己的子窗口
+    /// 面板里，事件不属于播放窗口，不经这里判断。
     static func focusedResponderOwnsKeys(_ responder: NSResponder?) -> Bool {
-        if focusOwnerHoldsFocus(responder) { return true }
         switch responder {
         case let textView as NSTextView:
             return textView.isEditable
@@ -240,16 +313,6 @@ final class PlayerKeyboardShortcutController {
         default:
             return false
         }
-    }
-
-    /// 第一响应者位于 `PlayerKeyboardFocusOwner` 浮层之内。
-    static func focusOwnerHoldsFocus(_ responder: NSResponder?) -> Bool {
-        var ancestor = responder as? NSView
-        while let current = ancestor {
-            if current is PlayerKeyboardFocusOwner { return true }
-            ancestor = current.superview
-        }
-        return false
     }
 
     private nonisolated static func keyboardSnapshot(
@@ -267,6 +330,9 @@ final class PlayerKeyboardShortcutController {
             case "d": key = .shortcut(.danmaku)
             case "c": key = .shortcut(.subtitles)
             case "f": key = .shortcut(.fullScreen)
+            case "q": key = .like
+            case "w": key = .shortcut(.coin)
+            case "e": key = .shortcut(.favorite)
             default: return nil
             }
         }

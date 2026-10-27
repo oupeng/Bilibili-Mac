@@ -1,10 +1,11 @@
 import BiliNetworking
 import Foundation
 
-/// 两个授权器共用的失败；经 `authorizationFailureKind` 归入 BiliNetworking 的稳定分类。
+/// 各授权器共用的失败；经 `authorizationFailureKind` 归入 BiliNetworking 的稳定分类。
 ///
 /// 请求不在 allowlist 或调用方自带凭据 header 属于 `denied`（客户端编程错误）；
-/// 本地无凭据才是 `missingCredential`；凭据损坏或过期在清除后归为 `invalidCredential`；
+/// 本地无凭据才是 `missingCredential`；凭据损坏或过期在清除后归为 `invalidCredential`；账户写入时本地凭据属于
+/// 另一个账户（`accountMismatch`）同样归为 `invalidCredential`，但不清除凭据；
 /// Keychain 不可用与校验不可用都是 `unavailable`（见 SECURITY-MODEL §3）。
 public enum BiliRequestAuthorizationError:
     HTTPRequestAuthorizationFailure, Sendable, Equatable
@@ -14,6 +15,8 @@ public enum BiliRequestAuthorizationError:
     case missingCredential
     case expiredCredential
     case invalidCredential
+    /// 本地凭据的 `DedeUserID` 不是写请求绑定的账户。
+    case accountMismatch
     case credentialStoreUnavailable
     case validationUnavailable
 
@@ -21,7 +24,7 @@ public enum BiliRequestAuthorizationError:
         switch self {
         case .missingCredential:
             .missingCredential
-        case .expiredCredential, .invalidCredential:
+        case .expiredCredential, .invalidCredential, .accountMismatch:
             .invalidCredential
         case .credentialStoreUnavailable, .validationUnavailable:
             .unavailable
@@ -196,7 +199,7 @@ public struct BiliCredentialRequestAuthorizer: HTTPRequestAuthorizing, Sendable 
 }
 
 extension Dictionary where Key == String, Value == String {
-    /// 调用方已自带凭据类 header 时，授权器拒绝而不覆盖；两个授权器共用这一判定。
+    /// 调用方已自带凭据类 header 时，授权器拒绝而不覆盖；各授权器共用这一判定。
     var containsCredentialHeader: Bool {
         keys.contains {
             $0.caseInsensitiveCompare("Cookie") == .orderedSame

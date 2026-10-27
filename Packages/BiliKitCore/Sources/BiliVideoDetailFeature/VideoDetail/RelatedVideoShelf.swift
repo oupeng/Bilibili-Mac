@@ -37,7 +37,7 @@ public struct RelatedVideoCardPresentation: Identifiable, Equatable, Sendable {
         self.accessibilityLabel = accessibilityLabel
     }
 
-    init(video: RelatedVideo, locale: Locale = .current) {
+    init(video: RelatedVideo, locale: Locale = InterfaceLocale.current) {
         bvid = video.bvid
         title = video.title
         coverURL = video.coverURL
@@ -53,8 +53,10 @@ public struct RelatedVideoCardPresentation: Identifiable, Equatable, Sendable {
             VideoMetadataFormatting.viewCountText(compactText: viewCountText, locale: locale),
             VideoMetadataFormatting.danmakuCountText(compactText: danmakuCountText, locale: locale)
         ]
-        if let durationText {
-            components.append(VideoCardAccessibilityText.duration(durationText, locale: locale))
+        if let durationSeconds = video.durationSeconds {
+            components.append(
+                VideoCardAccessibilityText.duration(seconds: durationSeconds, locale: locale)
+            )
         }
         accessibilityLabel = ListFormatter.localizedString(byJoining: components)
     }

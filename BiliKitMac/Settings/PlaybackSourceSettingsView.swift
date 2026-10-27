@@ -1,5 +1,6 @@
 import BiliApplication
 import BiliPlayback
+import BiliUI
 import Foundation
 import SwiftUI
 
@@ -171,7 +172,7 @@ struct PlaybackSourceSettingsView: View {
 
     static func resultText(
         _ result: PlaybackRouteMeasurement,
-        locale: Locale = .current
+        locale: Locale = InterfaceLocale.current
     ) -> String {
         guard let bits = result.effectiveBitsPerSecond, bits.isFinite, bits >= 0 else {
             return AppStrings.localized(
@@ -203,7 +204,7 @@ struct PlaybackSourceSettingsView: View {
 
     static func sampleDistributionText(
         _ result: PlaybackRouteMeasurement,
-        locale: Locale = .current
+        locale: Locale = InterfaceLocale.current
     ) -> String? {
         guard result.totalRuns > 1, !result.sampleBitsPerSecond.isEmpty else {
             return nil
@@ -214,8 +215,11 @@ struct PlaybackSourceSettingsView: View {
         return AppStrings.localized("匿名样本：\(samples)", locale: locale)
     }
 
+    /// 一位小数、按 locale 分组的 Mbps；Foundation 没有数据速率的 `Unit`，单位自己拼。
     private static func speedText(_ bits: Double, locale: Locale) -> String {
-        let speed = String(format: "%.1f", locale: locale, bits / 1_000_000)
+        let speed = (bits / 1_000_000).formatted(
+            .number.precision(.fractionLength(1)).locale(locale)
+        )
         return "\(speed) Mbps"
     }
 }

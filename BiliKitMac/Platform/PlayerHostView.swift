@@ -24,6 +24,7 @@ struct PlayerHostView: View {
     let togglePlayback: (() -> Bool?)?
     let toggleDanmaku: (() -> Bool)?
     let toggleSubtitles: (() async -> NativeSubtitleToggleResult)?
+    let engagementShortcuts: PlayerEngagementShortcuts?
     let timelineUpdates: (() -> AsyncStream<PlaybackTimelineSnapshot>)?
 
     init(
@@ -38,6 +39,7 @@ struct PlayerHostView: View {
         togglePlayback: (() -> Bool?)? = nil,
         toggleDanmaku: (() -> Bool)? = nil,
         toggleSubtitles: (() async -> NativeSubtitleToggleResult)? = nil,
+        engagementShortcuts: PlayerEngagementShortcuts? = nil,
         timelineUpdates: (() -> AsyncStream<PlaybackTimelineSnapshot>)? = nil
     ) {
         self.player = player
@@ -51,6 +53,7 @@ struct PlayerHostView: View {
         self.togglePlayback = togglePlayback
         self.toggleDanmaku = toggleDanmaku
         self.toggleSubtitles = toggleSubtitles
+        self.engagementShortcuts = engagementShortcuts
         self.timelineUpdates = timelineUpdates
     }
 
@@ -70,6 +73,7 @@ struct PlayerHostView: View {
             togglePlayback: togglePlayback,
             toggleDanmaku: toggleDanmaku,
             toggleSubtitles: toggleSubtitles,
+            engagementShortcuts: engagementShortcuts,
             focusIdentity: videoModel?.presentedBVID
         )
         .task(id: previewProjectionIdentity) {
@@ -128,6 +132,7 @@ private struct AVPlayerContainerView: NSViewRepresentable {
     let togglePlayback: (() -> Bool?)?
     let toggleDanmaku: (() -> Bool)?
     let toggleSubtitles: (() async -> NativeSubtitleToggleResult)?
+    let engagementShortcuts: PlayerEngagementShortcuts?
     let focusIdentity: String?
 
     func makeNSView(context: Context) -> NativePlayerHostView {
@@ -142,6 +147,7 @@ private struct AVPlayerContainerView: NSViewRepresentable {
             toggleDanmaku: toggleDanmaku,
             toggleSubtitles: toggleSubtitles
         )
+        view.engagementShortcuts = engagementShortcuts
         view.attachPlayer(player)
         view.setPlaybackPreparationBlocked(blocksNativePlaybackInteraction)
         view.showsFullScreenToggleButton = true
@@ -164,6 +170,7 @@ private struct AVPlayerContainerView: NSViewRepresentable {
         view.togglePlayback = togglePlayback
         view.toggleDanmaku = toggleDanmaku
         view.toggleSubtitles = toggleSubtitles
+        view.engagementShortcuts = engagementShortcuts
         view.setResumeNotice(
             resumeNotice,
             restartFromBeginning: restartFromBeginning
@@ -246,6 +253,8 @@ final class NativePlayerHostView: AVPlayerView {
     var togglePlayback: (() -> Bool?)?
     var toggleDanmaku: (() -> Bool)?
     var toggleSubtitles: (() async -> NativeSubtitleToggleResult)?
+    /// Q／W／E 与长按 Q 的意图；没有时这几个键只被吞掉、不提示。
+    var engagementShortcuts: PlayerEngagementShortcuts?
 
     init(
         renderer: CoreAnimationDanmakuRenderer,
@@ -318,6 +327,21 @@ final class NativePlayerHostView: AVPlayerView {
         }
         keyboardShortcuts.onToggleFullScreen = { [weak self] in
             self?.toggleFullScreen()
+        }
+        keyboardShortcuts.onToggleLike = { [weak self] in
+            self?.engagementShortcuts?.toggleLike()
+        }
+        keyboardShortcuts.onTriple = { [weak self] in
+            self?.engagementShortcuts?.triple()
+        }
+        // 投币与收藏的面板在主窗口里：AVKit 独立全屏时看不到，由意图改为提示先退出全屏。
+        keyboardShortcuts.onOpenCoinPanel = { [weak self] in
+            guard let self else { return nil }
+            return self.engagementShortcuts?.openCoinPanel(self.isPresentingFullScreen)
+        }
+        keyboardShortcuts.onChooseFavoriteFolders = { [weak self] in
+            guard let self else { return nil }
+            return self.engagementShortcuts?.chooseFavoriteFolders(self.isPresentingFullScreen)
         }
         installDanmakuOverlayIfNeeded()
     }
@@ -434,12 +458,7 @@ final class NativePlayerHostView: AVPlayerView {
         else { return }
         pendingInitialFocusIdentity = nil
         lastInitialFocusIdentity = identity
-        // 播放就绪时评论图片预览可能已打开；不抢走它的焦点，否则 Esc 与方向键会失效。
-        guard
-            !PlayerKeyboardShortcutController.focusOwnerHoldsFocus(
-                window.firstResponder
-            )
-        else { return }
+        // 评论图片预览在自己的子窗口面板里，这里只改播放窗口的第一响应者，不影响已打开的预览。
         window.makeFirstResponder(self)
     }
 

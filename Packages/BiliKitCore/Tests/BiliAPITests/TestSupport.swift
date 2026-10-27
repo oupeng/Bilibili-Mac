@@ -230,6 +230,7 @@ extension BiliAPIClient {
         transport: any HTTPTransport,
         requestAuthorizer: (any HTTPRequestAuthorizing)? = nil,
         historyWriteAuthorizer: (any HTTPRequestAuthorizing)? = nil,
+        accountWriteAuthorizer: (any HTTPSubjectBoundRequestAuthorizing)? = nil,
         timestampProvider: @escaping @Sendable () -> Int64 = {
             Int64(Date().timeIntervalSince1970)
         }
@@ -237,6 +238,7 @@ extension BiliAPIClient {
         self.init(
             requestAuthorizer: requestAuthorizer,
             historyWriteAuthorizer: historyWriteAuthorizer,
+            accountWriteAuthorizer: accountWriteAuthorizer,
             transportFactory: { transport },
             timestampProvider: timestampProvider
         )
@@ -261,6 +263,10 @@ actor StubAuthorizer: HTTPRequestAuthorizing {
     private var suspension: CheckedContinuation<Void, Never>?
 
     init(_ outcomes: Outcome..., suspendingCall: Int? = nil) {
+        self.init(outcomes: outcomes, suspendingCall: suspendingCall)
+    }
+
+    init(outcomes: [Outcome], suspendingCall: Int? = nil) {
         self.outcomes = outcomes.isEmpty ? [.authorize] : outcomes
         self.suspendingCall = suspendingCall
     }
@@ -309,6 +315,27 @@ actor StubAuthorizer: HTTPRequestAuthorizing {
     }
 }
 
+/// 账户写授权器的替身：记录每次授权的请求与绑定的主体，结果与挂起规则同 `StubAuthorizer`（委托给它）。
+actor StubSubjectBoundAuthorizer: HTTPSubjectBoundRequestAuthorizing {
+    private let base: StubAuthorizer
+    private(set) var subjects: [String] = []
+
+    init(_ outcomes: StubAuthorizer.Outcome..., suspendingCall: Int? = nil) {
+        base = StubAuthorizer(outcomes: outcomes, suspendingCall: suspendingCall)
+    }
+
+    func capturedRequests() async -> [HTTPRequest] { await base.capturedRequests() }
+
+    func authorize(_ request: HTTPRequest, boundTo subject: String) async throws -> HTTPRequest {
+        subjects.append(subject)
+        return try await base.authorize(request)
+    }
+
+    func waitUntilSuspended() async { await base.waitUntilSuspended() }
+
+    func resume() async { await base.resume() }
+}
+
 struct StubAuthorizationFailure: HTTPRequestAuthorizationFailure {
     let authorizationFailureKind: HTTPRequestAuthorizationFailureKind
 }
@@ -334,4 +361,20 @@ final class SequentialTransportFactory: Sendable {
             return transports.removeFirst()
         }
     }
+}
+
+/// 发出的 urlencoded 表单体按字段名展开；写入请求的测试据此核对字段，不依赖字段顺序。
+func formFields(_ request: HTTPRequest) -> [String: String] {
+    var components = URLComponents()
+    components.percentEncodedQuery = request.body.flatMap { String(data: $0, encoding: .utf8) }
+    return fields(components.queryItems)
+}
+
+/// 请求 URL 的查询参数按字段名展开。
+func queryFields(_ request: HTTPRequest) -> [String: String] {
+    fields(URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems)
+}
+
+private func fields(_ items: [URLQueryItem]?) -> [String: String] {
+    Dictionary(uniqueKeysWithValues: (items ?? []).map { ($0.name, $0.value ?? "") })
 }

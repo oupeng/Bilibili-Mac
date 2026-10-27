@@ -22,7 +22,7 @@ public struct FavoriteCardPresentation: Sendable, Equatable {
     public let unavailableReason: String?
     public let accessibilityLabel: String
 
-    public init(item: FavoriteItem, locale: Locale = .current) {
+    public init(item: FavoriteItem, locale: Locale = InterfaceLocale.current) {
         let favoritedAt = item.favoritedAt.map {
             LibraryCardFormatting.timestamp($0, locale: locale)
         }
@@ -49,7 +49,9 @@ public struct FavoriteCardPresentation: Sendable, Equatable {
                 title,
                 reason,
                 item.owner?.name,
-                duration.map { VideoCardAccessibilityText.duration($0, locale: locale) },
+                item.durationSeconds.flatMap {
+                    $0 > 0 ? VideoCardAccessibilityText.duration(seconds: $0, locale: locale) : nil
+                },
                 favoritedAt.map {
                     LibraryFeatureStrings.localized("收藏于 \($0)", locale: locale)
                 }

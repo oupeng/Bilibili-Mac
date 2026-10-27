@@ -20,7 +20,7 @@ extension BiliAPIClient {
     func subtitleResources(
         for identity: PlaybackItemIdentity
     ) async throws -> [SubtitleRemoteTrack] {
-        guard Self.isValidBVID(identity.bvid), identity.cid > 0 else {
+        guard BVID.isValid(identity.bvid), identity.cid > 0 else {
             throw BiliAPIError.invalidRequest
         }
         guard hasAccountAuthorizer else {
@@ -37,7 +37,7 @@ extension BiliAPIClient {
             send: { url in
                 try await get(
                     url: url,
-                    referer: Self.videoReferer(identity.bvid),
+                    referer: try Self.videoReferer(identity.bvid),
                     access: .accountRead(missingCredential: .fail),
                     maximumResponseSize: Self.maximumSubtitleCatalogSize
                 )
@@ -54,7 +54,7 @@ extension BiliAPIClient {
         index: Int,
         for identity: PlaybackItemIdentity
     ) async throws -> Data {
-        guard Self.isValidBVID(identity.bvid),
+        guard BVID.isValid(identity.bvid),
             identity.cid > 0,
             (1...DanmakuSegmentUseCase.maximumSegmentIndex).contains(index)
         else {
@@ -71,7 +71,10 @@ extension BiliAPIClient {
                 ]
             },
             send: { url in
-                try await signedDanmakuSegment(url: url, referer: Self.videoReferer(identity.bvid))
+                try await signedDanmakuSegment(
+                    url: url,
+                    referer: try Self.videoReferer(identity.bvid)
+                )
             }
         )
     }
@@ -128,9 +131,7 @@ extension BiliAPIClient {
 
     private static func looksLikeProtobuf(_ response: HTTPResponse) -> Bool {
         guard
-            let contentType = response.headers.first(where: {
-                $0.key.caseInsensitiveCompare("Content-Type") == .orderedSame
-            })?.value.lowercased(),
+            let contentType = response.headerValue("Content-Type")?.lowercased(),
             contentType.contains("application/octet-stream")
         else {
             return false

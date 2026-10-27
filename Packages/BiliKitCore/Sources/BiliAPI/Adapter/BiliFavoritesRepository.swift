@@ -6,7 +6,6 @@ import BiliModels
 /// 无状态。夹内读取另有两处收藏夹专属的映射，其余与内容域相同：收藏夹不存在（`data`／`info` 为 null 的
 /// `missingData`、业务码 11010）为“内容不存在”，由 Library 重新读取收藏夹列表并回落选择；业务码 -403（访问自己的
 /// 收藏夹不应被拒绝，被拒说明登录状态已悄悄失效）按凭据失效报告、交给窗口复核，而不是像其他接口那样当作风控。
-/// 见 SECURITY-MODEL §3。
 public struct BiliFavoritesRepository: FavoritesRepository {
     private let client: BiliAPIClient
 
@@ -17,6 +16,17 @@ public struct BiliFavoritesRepository: FavoritesRepository {
     public func favoriteFolders(ownerID: Int64) async throws -> [FavoriteFolder] {
         do {
             return try await client.favoriteFolders(ownerID: ownerID)
+        } catch {
+            throw BiliAPIError.contentApplicationError(for: error)
+        }
+    }
+
+    public func favoriteFolderMemberships(
+        ownerID: Int64,
+        video: VideoWriteTarget
+    ) async throws -> [FavoriteFolderMembership] {
+        do {
+            return try await client.favoriteFolderMemberships(ownerID: ownerID, bvid: video.bvid)
         } catch {
             throw BiliAPIError.contentApplicationError(for: error)
         }

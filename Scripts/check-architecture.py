@@ -63,7 +63,7 @@ SCOPES = {
     f"{SOURCES}/BiliPlayback": (
         {
             "BiliModels", "BiliApplication", "BiliNetworking",
-            "AVFoundation", "AudioToolbox", "MediaToolbox", "Network",
+            "AVFoundation", "Network",
         },
         "BiliPlayback 不能依赖 API、Auth 或界面框架",
     ),
@@ -139,7 +139,9 @@ EXTRA_ALLOWED = {
     # `NativeVideoImageLoading` 传给播放页的相关推荐横排。网格与横排本身在 Feature 里，App 壳其余文件不接触
     # AppKit 集合视图。
     "BiliKitMac/App/AppRootView.swift": {"BiliApplication"},
-    "BiliKitMac/App/AppShellView.swift": {"BiliApplication", "BiliVideoCollectionUI"},
+    # AppShellView 还把窗口的账户写入协调者包成 BiliUI 的卡片写入口（`VideoCardAccountWriting`，经环境交给各来源的卡片
+    # 菜单），并宿主 BiliUI 的写入结果胶囊（`AccountWriteStatusCapsule`）。
+    "BiliKitMac/App/AppShellView.swift": {"BiliApplication", "BiliUI", "BiliVideoCollectionUI"},
     "BiliKitMac/App/AppSidebarViews.swift": {"BiliApplication"},
     "BiliKitMac/App/AppSourceRootViews.swift": {"BiliApplication", "BiliVideoCollectionUI"},
     "BiliKitMac/App/SearchToolbarControls.swift": {"BiliApplication"},
@@ -164,6 +166,8 @@ EXTRA_ALLOWED = {
     # 窗口播放器子类拦截 seek 入口，供播放器浮层判断画面是否还停在旧位置。
     "BiliKitMac/Platform/SeekTrackingPlayer.swift": {"AVFoundation"},
     "BiliKitMac/Platform/SystemNowPlayingController.swift": {"MediaPlayer"},
+    # 测速结果的数字按界面语言格式化，locale 取 BiliUI 的 `InterfaceLocale`（见 ARCHITECTURE「分发」格式化 locale 一条）。
+    "BiliKitMac/Settings/PlaybackSourceSettingsView.swift": {"BiliUI"},
 }
 
 # 范围内子目录再禁止的模块：纯逻辑部分不得碰播放或渲染框架。
@@ -173,15 +177,15 @@ SUBTREE_DENIED = {
         "Sparkle 只属于 App target，Package 测试不链接它",
     ),
     f"{SOURCES}/BiliPlayback/Bridge": (
-        {"AVFoundation", "AudioToolbox", "MediaToolbox"},
+        {"AVFoundation"},
         "DASH→HLS bridge 与 loopback 是不可信输入与本地服务器边界，不依赖 AVFoundation",
     ),
     f"{SOURCES}/BiliPlayback/MediaIndex": (
-        {"AVFoundation", "AudioToolbox", "MediaToolbox"},
+        {"AVFoundation"},
         "媒体索引解析是纯逻辑，不依赖 AVFoundation",
     ),
     f"{SOURCES}/BiliPlayback/CDN": (
-        {"AVFoundation", "AudioToolbox", "MediaToolbox"},
+        {"AVFoundation"},
         "线路偏好与测速是纯逻辑，不依赖 AVFoundation",
     ),
     f"{SOURCES}/BiliDanmaku/Session": (

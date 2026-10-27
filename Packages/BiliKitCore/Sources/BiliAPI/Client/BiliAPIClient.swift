@@ -5,14 +5,14 @@ import Foundation
 
 /// Bilibili endpoint 与 DTO 的 adapter：把远端协议限制在 `BiliAPI`，对外只返回稳定模型。
 ///
-/// 请求默认匿名、不带 Cookie；只有 `RequestAccess.accountRead` 与 `.historyWrite`
+/// 请求默认匿名、不带 Cookie；只有 `RequestAccess.accountRead`、`.historyWrite` 与 `.accountWrite`
 /// 经过各自注入的授权器，允许游客增强的读取只在本地明确无凭据时匿名请求同一个 endpoint（见
 /// SECURITY-MODEL §3）。响应在解码前还要满足状态、大小与 Content-Type 边界。
 ///
 /// 拥有当前 transport 与 `HTTPClient`、WBI key 缓存和认证 epoch，都由 actor 隔离；跨 `await`
 /// 可重入，用户意图的取消与写回代次由上层 ViewModel 管理。实例由 Composition（`LiveAPIClients`）
-/// 按用途构造：每个窗口一个主 API，进程级的线路测速与观看进度写入各一个；都登记进账户会话，登出、
-/// 换号与凭据失效时经 `invalidateAuthenticatedSession()` 一并失效。
+/// 按用途构造：每个窗口一个主 API（只有它打开用户发起的账户写入），进程级的线路测速与观看进度写入各一个；都登记进
+/// 账户会话，登出、换号与凭据失效时经 `invalidateAuthenticatedSession()` 一并失效。
 ///
 /// 本文件只含请求管线（access 选择、授权、epoch 复核、envelope 解码）、WBI key 与签名读取序列
 /// （`signedRequest`）；各域 endpoint 在同 actor 的 `BiliAPIClient+*.swift` 扩展中，签名读取一律经
@@ -34,16 +34,18 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
     ///
     /// `anonymous` 不经授权器；`accountRead` 经账户读取授权器，path 必须来自 `BiliAccountReadPath`
     /// 并在 Composition 的 allowlist 内；`historyWrite` 只用于观看进度 heartbeat，
-    /// 经独立的写授权器。需要认证的两种访问绑定认证 epoch，见 `authenticatedSessionEpoch`。
+    /// 经独立的写授权器；`accountWrite` 是用户发起的账户写入，path 来自 `BiliAccountWritePath`，经账户写授权器并绑定
+    /// 预期账户 mid（凭据属于其他账户时按凭据失效拒绝）。需要认证的访问都绑定认证 epoch，见 `authenticatedSessionEpoch`。
     enum RequestAccess: Sendable {
         case anonymous
         case accountRead(missingCredential: MissingCredentialBehavior)
         case historyWrite
+        case accountWrite(expectedAccountID: Int64)
 
         var requiresAuthentication: Bool {
             switch self {
             case .anonymous: false
-            case .accountRead, .historyWrite: true
+            case .accountRead, .historyWrite, .accountWrite: true
             }
         }
 
@@ -99,17 +101,18 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
     /// 调小可能误拒较大的正常列表，调大放宽单次解码的输入规模。
     private static let maximumResponseSize = 5 * 1_024 * 1_024
 
-    /// 搜索接口要求的 `buvid3`，进程内随机生成一次，只附加到视频搜索请求。
+    /// 搜索、点赞、投币与三连接口要求的 `buvid3`，进程内随机生成一次，只附加到这几种请求。
     ///
     /// 只在内存中，不持久化、不关联账户；格式与 yt-dlp 相同（小写 UUID + `infoc`）。见
     /// SECURITY-MODEL §3。
-    static let searchBuvid3Cookie = "buvid3=\(UUID().uuidString.lowercased())infoc"
+    static let buvid3Cookie = "buvid3=\(UUID().uuidString.lowercased())infoc"
 
     private var httpClient: HTTPClient
     private var transport: any HTTPTransport
     private let transportFactory: @Sendable () -> any HTTPTransport
     private let requestAuthorizer: (any HTTPRequestAuthorizing)?
     private let historyWriteAuthorizer: (any HTTPRequestAuthorizing)?
+    private let accountWriteAuthorizer: (any HTTPSubjectBoundRequestAuthorizing)?
     let userAgent = HTTPUserAgent.browserCompatible
     let decoder: JSONDecoder
     let timestampProvider: @Sendable () -> Int64
@@ -128,12 +131,14 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
     /// 端点扩展只需知道是否注入了授权器；授权器本身不离开请求管线。
     var hasAccountAuthorizer: Bool { requestAuthorizer != nil }
     var hasHistoryWriteAuthorizer: Bool { historyWriteAuthorizer != nil }
+    var hasAccountWriteAuthorizer: Bool { accountWriteAuthorizer != nil }
 
     /// `transportFactory` 由组合根提供用途专属 transport：初始化时取一次，每次认证会话失效时再取一个
     /// 干净实例替换旧的；不存在回落到 `URLSession.shared` 的默认值（见 SECURITY-MODEL §1）。
     public init(
         requestAuthorizer: (any HTTPRequestAuthorizing)? = nil,
         historyWriteAuthorizer: (any HTTPRequestAuthorizing)? = nil,
+        accountWriteAuthorizer: (any HTTPSubjectBoundRequestAuthorizing)? = nil,
         transportFactory: @escaping @Sendable () -> any HTTPTransport,
         timestampProvider: @escaping @Sendable () -> Int64 = {
             Int64(Date().timeIntervalSince1970)
@@ -145,6 +150,7 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
         self.transportFactory = transportFactory
         self.requestAuthorizer = requestAuthorizer
         self.historyWriteAuthorizer = historyWriteAuthorizer
+        self.accountWriteAuthorizer = accountWriteAuthorizer
         self.timestampProvider = timestampProvider
         decoder = JSONDecoder()
     }
@@ -285,18 +291,9 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
             access.requiresAuthentication ? authenticatedSessionEpoch : nil
         var request: HTTPRequest
         let authorizationProvenance: AuthorizationProvenance
-        let activeAuthorizer: (any HTTPRequestAuthorizing)? =
-            switch access {
-            case .historyWrite:
-                historyWriteAuthorizer
-            case .accountRead:
-                requestAuthorizer
-            case .anonymous:
-                nil
-            }
-        if access.requiresAuthentication, let activeAuthorizer {
+        if access.requiresAuthentication, hasAuthorizer(for: access) {
             do {
-                request = try await activeAuthorizer.authorize(baseRequest)
+                request = try await authorize(baseRequest, access: access)
                 authorizationProvenance = .authenticated
             } catch is CancellationError {
                 throw CancellationError()
@@ -392,6 +389,39 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
         )
     }
 
+    private func hasAuthorizer(for access: RequestAccess) -> Bool {
+        switch access {
+        case .anonymous: false
+        case .accountRead: requestAuthorizer != nil
+        case .historyWrite: historyWriteAuthorizer != nil
+        case .accountWrite: accountWriteAuthorizer != nil
+        }
+    }
+
+    /// 按 `access` 交给对应的授权器；账户写入另把预期账户 mid 作为绑定主体，调用前已由 `hasAuthorizer` 确认注入。
+    private func authorize(
+        _ request: HTTPRequest,
+        access: RequestAccess
+    ) async throws -> HTTPRequest {
+        switch access {
+        case .accountRead:
+            guard let requestAuthorizer else { break }
+            return try await requestAuthorizer.authorize(request)
+        case .historyWrite:
+            guard let historyWriteAuthorizer else { break }
+            return try await historyWriteAuthorizer.authorize(request)
+        case .accountWrite(let expectedAccountID):
+            guard let accountWriteAuthorizer else { break }
+            return try await accountWriteAuthorizer.authorize(
+                request,
+                boundTo: String(expectedAccountID)
+            )
+        case .anonymous:
+            break
+        }
+        preconditionFailure("调用方先用 hasAuthorizer(for:) 确认已注入对应授权器")
+    }
+
     /// WBI 签名读取的唯一序列：取 key、签名、请求与会话 epoch 复核都在这里，endpoint 只给出 path、
     /// 参数与发送方式。
     ///
@@ -450,7 +480,9 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
     }
 
     /// 只有 `data` 恰好是 `{"v_voucher": …}` 才算挑战；正常响应里并列的 `v_voucher` 不影响解码。
-    private static func isRiskControlVoucher(_ body: Data) -> Bool {
+    ///
+    /// 读取管线与写入的 `postForm` 共用这一处判定。
+    static func isRiskControlVoucher(_ body: Data) -> Bool {
         guard body.range(of: Data(#""v_voucher""#.utf8)) != nil,
             let root = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
             let data = root["data"] as? [String: Any]
@@ -518,6 +550,11 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
         try endpoint(path: path) { $0.queryItems = queryItems }
     }
 
+    /// 不带 query 的地址（写请求）：不写空的 `?`，授权器要求写请求没有 query。
+    func endpoint(path: String) throws -> URL {
+        try endpoint(path: path) { _ in }
+    }
+
     /// WBI 签名后的 query 已按签名顺序编码，必须原样使用。
     func endpoint(
         path: String,
@@ -546,17 +583,11 @@ public actor BiliAPIClient: AuthenticatedSessionInvalidating {
         return url
     }
 
-    /// BVID 形状：`BV` 前缀加 1–22 位 ASCII 字母或数字；用 BVID 拼 query 或 Referer 的 endpoint
-    /// 都先过它。
-    static func isValidBVID(_ bvid: String) -> Bool {
-        bvid.hasPrefix("BV")
-            && bvid.count > 2
-            && bvid.count <= 24
-            && bvid.dropFirst(2).allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber) }
-    }
-
-    static func videoReferer(_ bvid: String) -> String {
-        "https://www.bilibili.com/video/\(bvid)/"
+    /// 视频请求的 Referer：`BVID.webPageURL` 加尾部斜杠，与网页版一致，播放心跳授权器也按这个形状核对；
+    /// BVID 不合法时抛 `invalidRequest`，不发出请求。
+    static func videoReferer(_ bvid: String) throws -> String {
+        guard let webPage = BVID.webPageURL(bvid) else { throw BiliAPIError.invalidRequest }
+        return webPage.absoluteString + "/"
     }
 }
 

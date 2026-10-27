@@ -2,7 +2,9 @@ import AppKit
 import BiliApplication
 import BiliModels
 
-/// 楼中楼面板：未展开时显示最多两条预览回复与“共 N 条回复”，展开后显示当前页回复与翻页、加载与重试。
+/// 楼中楼面板：未展开时显示最多两条预览回复与“共 N 条回复”，展开后显示当前页回复与页码条、加载与重试。
+///
+/// 看对话时原地换成那串对话：顶部「返回全部回复」，底部「加载更多」，回复行不再提供「查看对话」。
 ///
 /// 每次配置都按回复重建行视图（`resetRows` 先移除旧行）；回复状态与动作回调由条目传入，分页请求归 ViewModel。
 /// 属于播放侧栏的原生 item，用 AppKit 的理由见 ARCHITECTURE「原生 AppKit 集合视图」的播放侧栏一条。
@@ -22,14 +24,14 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
         target: nil,
         action: nil
     )
-    private let previousButton = NSButton(
-        title: VideoDetailFeatureStrings.localized("上一页"),
+    private let pager = NativePlaybackCommentReplyPager()
+    private let backButton = NSButton(
+        title: VideoDetailFeatureStrings.localized("返回全部回复"),
         target: nil,
         action: nil
     )
-    private let pageLabel = NSTextField(labelWithString: "")
-    private let nextButton = NSButton(
-        title: VideoDetailFeatureStrings.localized("下一页"),
+    private let loadMoreButton = NSButton(
+        title: VideoDetailFeatureStrings.localized("加载更多"),
         target: nil,
         action: nil
     )
@@ -40,8 +42,10 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
     private var textScope: NativePlaybackCommentTextScope?
     private var onExpand: (() -> Void)?
     private var onCollapse: (() -> Void)?
-    private var onPrevious: (() -> Void)?
-    private var onNext: (() -> Void)?
+    private var onShowPage: ((Int) -> Void)?
+    private var onShowDialog: ((BiliModels.Comment) -> Void)?
+    private var onLoadMoreDialog: (() -> Void)?
+    private var onCloseDialog: (() -> Void)?
     private var onRetry: (() -> Void)?
 
     override init(frame frameRect: NSRect) {
@@ -52,19 +56,7 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
         headerLabel.textColor = .secondaryLabelColor
         statusLabel.font = .preferredFont(forTextStyle: .callout)
         statusLabel.textColor = .secondaryLabelColor
-        pageLabel.font = .monospacedDigitSystemFont(
-            ofSize: NSFont.preferredFont(forTextStyle: .callout).pointSize,
-            weight: .regular
-        )
-        pageLabel.textColor = .secondaryLabelColor
-        pageLabel.alignment = .center
-        for button in [
-            expandButton,
-            collapseButton,
-            retryButton,
-            previousButton,
-            nextButton
-        ] {
+        for button in [expandButton, collapseButton, retryButton, backButton, loadMoreButton] {
             button.bezelStyle = .rounded
             button.controlSize = .small
         }
@@ -85,19 +77,27 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
         collapseButton.action = #selector(collapse)
         retryButton.target = self
         retryButton.action = #selector(retry)
-        previousButton.target = self
-        previousButton.action = #selector(previous)
-        nextButton.target = self
-        nextButton.action = #selector(next)
+        for button in [backButton, loadMoreButton] {
+            button.isBordered = false
+            button.contentTintColor = .controlAccentColor
+            button.alignment = .left
+        }
+        backButton.image = NSImage(systemSymbolName: "chevron.left", accessibilityDescription: nil)
+        backButton.imagePosition = .imageLeading
+        backButton.imageScaling = .scaleProportionallyDown
+        backButton.target = self
+        backButton.action = #selector(closeDialog)
+        loadMoreButton.target = self
+        loadMoreButton.action = #selector(loadMoreDialog)
         for subview in [
             headerLabel,
             statusLabel,
             expandButton,
             collapseButton,
             retryButton,
-            previousButton,
-            pageLabel,
-            nextButton
+            pager,
+            backButton,
+            loadMoreButton
         ] {
             addSubview(subview)
         }
@@ -124,9 +124,11 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
         onTextLayoutChange: @escaping () -> Void,
         onExpand: @escaping () -> Void,
         onCollapse: @escaping () -> Void,
-        onPrevious: @escaping () -> Void,
-        onNext: @escaping () -> Void,
+        onShowPage: @escaping (Int) -> Void,
         onRetry: @escaping () -> Void,
+        onShowDialog: @escaping (BiliModels.Comment) -> Void,
+        onLoadMoreDialog: @escaping () -> Void,
+        onCloseDialog: @escaping () -> Void,
         onOpenLink: @escaping (CommentLinkTarget) -> Void,
         onOpenPictures: @escaping (NativePlaybackCommentPictureGallery) -> Void,
         onOpenAuthorSpace: ((CommentAuthor) -> Void)?
@@ -138,9 +140,11 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
         self.textScope = textScope
         self.onExpand = onExpand
         self.onCollapse = onCollapse
-        self.onPrevious = onPrevious
-        self.onNext = onNext
+        self.onShowPage = onShowPage
         self.onRetry = onRetry
+        self.onShowDialog = onShowDialog
+        self.onLoadMoreDialog = onLoadMoreDialog
+        self.onCloseDialog = onCloseDialog
         guard case .available(let details) = thread.root.payload,
             details.replyCount > 0
         else {
@@ -149,10 +153,13 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
         }
         isHidden = false
         let expanded = replyState?.isExpanded == true
+        let dialog = expanded ? replyState?.dialog : nil
         let replies =
             expanded
-            ? (replyState?.replies ?? [])
+            ? replyState?.shownReplies ?? []
             : Array(thread.replyPreview.prefix(2))
+        // 「查看对话」只在翻页列表里、这一楼没有在加载时提供：预览与对话里不再进入另一串对话，翻页加载中点了也会被拒。
+        let offersDialog = expanded && dialog == nil && replyState?.isLoading != true
         for reply in replies {
             let row = NativePlaybackCommentRowView()
             row.configure(
@@ -165,50 +172,56 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
                 onTextLayoutChange: onTextLayoutChange,
                 onOpenLink: onOpenLink,
                 onOpenPictures: onOpenPictures,
-                onOpenAuthorSpace: onOpenAuthorSpace
+                onOpenAuthorSpace: onOpenAuthorSpace,
+                onViewDialog: offersDialog && reply.isReplyInDialog
+                    ? { [weak self] in self?.onShowDialog?(reply) }
+                    : nil
             )
             addSubview(row)
             replyRows.append(row)
         }
-        headerLabel.isHidden = !expanded
+        headerLabel.isHidden = !expanded || dialog != nil
+        backButton.isHidden = dialog == nil
         collapseButton.isHidden = !expanded
         expandButton.isHidden = expanded
         retryButton.isHidden = true
         statusLabel.isHidden = true
-        previousButton.isHidden = true
-        pageLabel.isHidden = true
-        nextButton.isHidden = true
-        if expanded {
-            let total = replyState?.totalCount ?? 0
+        pager.isHidden = true
+        loadMoreButton.isHidden = true
+        if expanded, let replyState {
+            let total = replyState.totalCount
             headerLabel.stringValue =
                 VideoDetailFeatureStrings.localized(
                     "共 \(CommentPresentationFormatting.compactCount(total > 0 ? total : details.replyCount)) 条回复"
                 )
-            if replyState?.isLoading == true {
+            switch NativePlaybackCommentRepliesFooter(replyState) {
+            case .loading:
                 statusLabel.stringValue = VideoDetailFeatureStrings.localized("回复加载中…")
                 statusLabel.isHidden = false
-            } else if let error = replyState?.error {
+            case .emptyDialog:
+                statusLabel.stringValue = VideoDetailFeatureStrings.localized(
+                    "这串对话暂时没有可显示的回复"
+                )
+                statusLabel.isHidden = false
+            case .failed(let error):
                 statusLabel.stringValue =
                     error.isRetryable
                     ? VideoDetailFeatureStrings.localized("回复加载失败") : error.nonRetryableDescription
                 statusLabel.isHidden = false
                 retryButton.isHidden = !error.isRetryable
-            } else if let replyState {
-                previousButton.isHidden = false
-                pageLabel.isHidden = false
-                nextButton.isHidden = false
-                previousButton.isEnabled = replyState.pageNumber > 1
-                nextButton.isEnabled = !replyState.isEnd
-                let pageCount = CommentPresentationFormatting.pageCount(
-                    totalCount: replyState.totalCount > 0
-                        ? replyState.totalCount : details.replyCount,
-                    pageSize: CommentUseCase.replyPageSize
-                )
-                pageLabel.stringValue = "\(replyState.pageNumber) / \(pageCount)"
-                pageLabel.setAccessibilityLabel(
-                    VideoDetailFeatureStrings.localized(
-                        "第 \(replyState.pageNumber) 页，共 \(pageCount) 页"
-                    )
+            case .loadMoreDialog:
+                loadMoreButton.isHidden = false
+            case .none:
+                break
+            case .pager:
+                pager.isHidden = false
+                pager.configure(
+                    currentPage: replyState.pageNumber,
+                    pageCount: NativePlaybackCommentReplyPager.pageCount(
+                        for: replyState,
+                        replyCount: details.replyCount
+                    ),
+                    onShowPage: { [weak self] in self?.onShowPage?($0) }
                 )
             }
         } else {
@@ -238,13 +251,19 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
         let expanded = replyState?.isExpanded == true
         if expanded {
             headerLabel.frame = NSRect(x: padding, y: y, width: max(1, width - 62), height: 20)
+            backButton.frame = NSRect(
+                x: padding,
+                y: y - 2,
+                width: min(max(1, width - 62), ceil(backButton.fittingSize.width)),
+                height: 24
+            )
             collapseButton.frame = NSRect(
                 x: max(padding, bounds.width - padding - 54),
                 y: y - 2,
                 width: 54,
                 height: 24
             )
-            y += 30
+            y += NativePlaybackCommentsItemMeasurement.replyHeaderRowHeight
         }
         for row in replyRows {
             guard let reply = row.commentForLayout else { continue }
@@ -256,13 +275,19 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
                 textScope: textScope
             )
             row.frame = NSRect(x: padding, y: y, width: width, height: height)
-            y += height + 8
+            y += height + NativePlaybackCommentsItemMeasurement.replyRowSpacing
         }
-        if !replyRows.isEmpty { y -= 8 }
-        if expanded {
-            if replyState?.isLoading == true {
-                statusLabel.frame = NSRect(x: padding, y: y, width: width, height: 32)
-            } else if replyState?.error != nil {
+        if !replyRows.isEmpty { y -= NativePlaybackCommentsItemMeasurement.replyRowSpacing }
+        if expanded, let replyState {
+            switch NativePlaybackCommentRepliesFooter(replyState) {
+            case .loading, .emptyDialog:
+                statusLabel.frame = NSRect(
+                    x: padding,
+                    y: y,
+                    width: width,
+                    height: NativePlaybackCommentsItemMeasurement.replyStatusHeight
+                )
+            case .failed:
                 statusLabel.frame = NSRect(
                     x: padding,
                     y: y + 5,
@@ -275,12 +300,24 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
                     width: 64,
                     height: 28
                 )
-            } else {
-                if !replyRows.isEmpty { y += 10 }
-                let third = width / 3
-                previousButton.frame = NSRect(x: padding, y: y, width: third, height: 26)
-                pageLabel.frame = NSRect(x: padding + third, y: y + 3, width: third, height: 20)
-                nextButton.frame = NSRect(x: padding + third * 2, y: y, width: third, height: 26)
+            case .pager:
+                if !replyRows.isEmpty { y += NativePlaybackCommentsItemMeasurement.replyFooterGap }
+                pager.frame = NSRect(
+                    x: padding,
+                    y: y,
+                    width: width,
+                    height: NativePlaybackCommentsItemMeasurement.replyPagerHeight
+                )
+            case .loadMoreDialog:
+                if !replyRows.isEmpty { y += NativePlaybackCommentsItemMeasurement.replyFooterGap }
+                loadMoreButton.frame = NSRect(
+                    x: padding,
+                    y: y,
+                    width: min(width, ceil(loadMoreButton.fittingSize.width)),
+                    height: NativePlaybackCommentsItemMeasurement.dialogLoadMoreHeight
+                )
+            case .none:
+                break
             }
         } else {
             if expandButton.isHidden {
@@ -309,9 +346,12 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
         textScope = nil
         onExpand = nil
         onCollapse = nil
-        onPrevious = nil
-        onNext = nil
+        onShowPage = nil
+        pager.reset()
         onRetry = nil
+        onShowDialog = nil
+        onLoadMoreDialog = nil
+        onCloseDialog = nil
         headerLabel.stringValue = ""
         statusLabel.stringValue = ""
     }
@@ -326,7 +366,14 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
 
     @objc private func expand() { onExpand?() }
     @objc private func collapse() { onCollapse?() }
-    @objc private func retry() { onRetry?() }
-    @objc private func previous() { onPrevious?() }
-    @objc private func next() { onNext?() }
+    /// 看对话时重试的是对话的这一页，否则是楼中楼的这一页。
+    @objc private func retry() {
+        if replyState?.dialog != nil {
+            onLoadMoreDialog?()
+        } else {
+            onRetry?()
+        }
+    }
+    @objc private func loadMoreDialog() { onLoadMoreDialog?() }
+    @objc private func closeDialog() { onCloseDialog?() }
 }

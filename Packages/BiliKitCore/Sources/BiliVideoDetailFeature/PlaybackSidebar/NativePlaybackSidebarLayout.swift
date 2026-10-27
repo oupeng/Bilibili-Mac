@@ -1,4 +1,5 @@
 import AppKit
+import BiliApplication
 
 /// 侧栏的单列布局：按条目顺序纵向排列，行高由控制器经 `heightProvider` 提供（带缓存的精确测量）。
 ///
@@ -354,94 +355,14 @@ struct NativePlaybackSidebarHeightCacheKey: Hashable {
     let revision: Int
 }
 
-/// 行高的有界 LRU 缓存：双向链表维护最近使用顺序，超过容量时淘汰最久未用的一项。
-///
-/// 由侧栏控制器独占持有，只在主线程使用；换视频不清空（身份已不同），拆除时清空。
-@MainActor
-final class NativePlaybackSidebarHeightCache {
-    /// 链表节点：前驱用 weak，避免相邻节点互相强引用成环。
-    private final class Node {
-        let key: NativePlaybackSidebarHeightCacheKey
-        var value: CGFloat
-        weak var previous: Node?
-        var next: Node?
-
-        init(key: NativePlaybackSidebarHeightCacheKey, value: CGFloat) {
-            self.key = key
-            self.value = value
-        }
-    }
-
-    /// 行高缓存条目上限（identity × 宽度桶 × 内容 revision）。
-    static let defaultCapacity = 2_048
-
-    let capacity: Int
-    private var nodes: [NativePlaybackSidebarHeightCacheKey: Node] = [:]
-    private var leastRecent: Node?
-    private var mostRecent: Node?
-
-    init(capacity: Int = defaultCapacity) {
-        precondition(capacity > 0)
-        self.capacity = capacity
-    }
-
-    var count: Int { nodes.count }
-
-    func value(for key: NativePlaybackSidebarHeightCacheKey) -> CGFloat? {
-        guard let node = nodes[key] else { return nil }
-        moveToMostRecent(node)
-        return node.value
-    }
-
-    func insert(_ value: CGFloat, for key: NativePlaybackSidebarHeightCacheKey) {
-        if let node = nodes[key] {
-            node.value = value
-            moveToMostRecent(node)
-            return
-        }
-        let node = Node(key: key, value: value)
-        nodes[key] = node
-        appendAsMostRecent(node)
-        if nodes.count > capacity, let oldest = leastRecent {
-            remove(oldest)
-            nodes[oldest.key] = nil
-        }
-    }
-
-    func removeAll() {
-        nodes.removeAll(keepingCapacity: true)
-        leastRecent = nil
-        mostRecent = nil
-    }
-
-    private func moveToMostRecent(_ node: Node) {
-        guard mostRecent !== node else { return }
-        detach(node)
-        appendAsMostRecent(node)
-    }
-
-    private func appendAsMostRecent(_ node: Node) {
-        node.previous = mostRecent
-        node.next = nil
-        mostRecent?.next = node
-        mostRecent = node
-        if leastRecent == nil { leastRecent = node }
-    }
-
-    private func detach(_ node: Node) {
-        let previous = node.previous
-        let next = node.next
-        previous?.next = next
-        next?.previous = previous
-        if leastRecent === node { leastRecent = next }
-        if mostRecent === node { mostRecent = previous }
-        node.previous = nil
-        node.next = nil
-    }
-
-    private func remove(_ node: Node) {
-        detach(node)
-    }
+extension CostBoundedLRUCacheLimits {
+    /// 侧栏行高缓存：每条行高的成本记 1，总成本上限即条目上限 2048（identity × 宽度桶 × 内容 revision）。
+    ///
+    /// 调小则改宽度、滚回或回到旧宽度时更常重新测量；调大只多占少量内存（每项一个 key 与一个 CGFloat）。
+    static let sidebarRowHeights = CostBoundedLRUCacheLimits(
+        maximumItemCost: 1,
+        maximumTotalCost: 2_048
+    )
 }
 
 /// 侧栏文字的测量与段落样式：测量与显示共用同一段落样式（按字符换行，限行时尾部截断），保证测出的高度与

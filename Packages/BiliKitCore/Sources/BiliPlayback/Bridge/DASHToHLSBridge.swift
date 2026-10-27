@@ -205,6 +205,8 @@ public struct DASHToHLSBridge: Sendable {
         else {
             throw DASHToHLSBridgeError.unsupportedAudioTrackCount(0)
         }
+        // 同一 AUDIO group 的音轨按同一条时间线互相切换，以原声 SIDX 起点为准；起点不一致的 AI 音轨在生成
+        // master 前丢弃，与配音请求失败一样只少一条配音，不让播放失败。
         let audioRenditions = loadedAudioRenditions.filter { rendition in
             rendition.selectedTrack.track.isDefault
                 || hasMatchingAudioTimeline(
@@ -371,6 +373,7 @@ public struct DASHToHLSBridge: Sendable {
                 )
                 localizedSubtitleCatalog = []
             }
+            // 两条 master 路径都引用这份显示名；原声音轨不写 LANGUAGE，菜单里的“原声”只来自这里。
             registrations.append(
                 LoopbackRouteRegistration(
                     relativePath: "metadata/localized-rendition-names.json",
@@ -398,14 +401,9 @@ public struct DASHToHLSBridge: Sendable {
         }
     }
 
-    /// 只有全部 reference 从 type-1 SAP 开始且 `SAP_delta_time` 为 0 时才发布 I-frame rendition。
+    /// 非空且每段都以独立帧开始时才发布 I-frame rendition；不合格只是不提供快进预览，不让播放失败。
     private func isEligibleForIFramePlaylist(_ index: SegmentIndex) -> Bool {
-        !index.references.isEmpty
-            && index.references.allSatisfy { reference in
-                reference.startsWithSAP
-                    && reference.sapType == 1
-                    && reference.sapDeltaTime == 0
-            }
+        !index.references.isEmpty && index.allReferencesStartWithType1SAP
     }
 
     func hasMatchingSubtitleTimeline(

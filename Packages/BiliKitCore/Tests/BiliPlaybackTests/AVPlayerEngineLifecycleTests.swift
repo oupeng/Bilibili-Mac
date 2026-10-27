@@ -68,7 +68,7 @@ extension AVPlayerEngineSuites {
             #expect(engine.currentTimelineSnapshot.identity == identity)
             #expect(engine.currentTimelineSnapshot.state == .ready)
 
-            try engine.setRate(1.25)
+            engine.player.defaultRate = 1.25
             engine.play()
             let playing = try await waitForTimeline(of: engine) {
                 $0.positionSeconds >= 0.15 || $0.state == .failed
@@ -102,10 +102,10 @@ extension AVPlayerEngineSuites {
             let userOverrideSession = try #require(
                 try engine.beginMomentaryPlaybackRate(2)
             )
-            try engine.setRate(1.5)
+            engine.player.defaultRate = 1.5
             engine.endMomentaryPlaybackRate(sessionID: userOverrideSession)
             #expect(abs(engine.player.rate - 1.5) < 0.01)
-            try engine.setRate(1.25)
+            engine.player.defaultRate = 1.25
 
             engine.pause()
             let requestedSeekGeneration = engine.currentTimelineSnapshot
@@ -135,10 +135,6 @@ extension AVPlayerEngineSuites {
                 engine.currentTimelineSnapshot.discontinuityGeneration
                     > loadGeneration
             )
-
-            #expect(throws: AVPlayerEngineError.invalidPlaybackRate) {
-                try engine.setRate(0)
-            }
 
             let replacementIdentity = PlaybackItemIdentity(
                 bvid: "BV1TimelineReplacement",

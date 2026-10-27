@@ -73,7 +73,7 @@ extension BiliAPIClient {
     func recentSubmissionDetail(
         for bvid: String
     ) async throws -> RecentSubmissionDetailPayload {
-        guard Self.isValidBVID(bvid) else { throw BiliAPIError.invalidRequest }
+        guard BVID.isValid(bvid) else { throw BiliAPIError.invalidRequest }
         return try await signedVideoDetail(
             bvid: bvid,
             access: .accountRead(missingCredential: .fail)
@@ -144,7 +144,7 @@ extension BiliAPIClient {
                     url: url,
                     referer: "https://www.bilibili.com/",
                     access: .accountRead(missingCredential: .useAnonymousRequest),
-                    additionalCookie: Self.searchBuvid3Cookie
+                    additionalCookie: Self.buvid3Cookie
                 ).payload
             }
         )

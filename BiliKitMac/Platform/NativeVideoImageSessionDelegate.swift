@@ -78,7 +78,7 @@ final class NativeVideoImageSessionGate: Sendable {
 }
 
 /// 图片 session 的 delegate：按 task 登记在途请求的 continuation 与累积正文，校验响应头、限制正文
-/// 大小并拒绝 redirect。
+/// 大小，拒绝 redirect 并在重定向回调里就让该请求失败。
 ///
 /// 每个 continuation 只 resume 一次：完成、校验失败或超限时先从登记表移除再在锁外 resume。登记表
 /// 只经 `Mutex` 访问；session 由 `NativeVideoImagePipeline` 持有并经 `NativeVideoImageSessionGate`
@@ -144,6 +144,10 @@ final class NativeVideoImageSessionDelegate: NSObject, URLSessionDataDelegate, S
     ) {
         // 图片请求不跟随 redirect，跳转目标不经来源校验，见 SECURITY-MODEL §4。
         completionHandler(nil)
+        // 拒绝之后 URLSession 要等这个 3xx 的正文传完才把它当最终响应交给 delegate；正文卡住或持续涓流时，
+        // 图片要到空闲超时才失败。所以在这里就按无效响应结束并取消 task，不等正文。
+        fail(task, with: .invalidResponse)
+        task.cancel()
     }
 
     func urlSession(

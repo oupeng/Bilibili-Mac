@@ -152,6 +152,10 @@ private final class BoundedRangeOperation: URLSessionRangeOperation, Sendable {
         finish(.failure(CancellationError()))
     }
 
+    func fail(_ error: HTTPRangeResponseError) {
+        finish(.failure(error))
+    }
+
     func receive(
         _ response: URLResponse,
         completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
@@ -195,7 +199,7 @@ private final class BoundedRangeOperation: URLSessionRangeOperation, Sendable {
                     body: state.retained,
                     byteCount: state.received,
                     requestDurationSeconds: max(
-                        durationSeconds(startedAt.duration(to: completedAt)),
+                        startedAt.duration(to: completedAt) / .seconds(1),
                         .leastNonzeroMagnitude
                     )
                 )
@@ -248,11 +252,5 @@ private final class BoundedRangeOperation: URLSessionRangeOperation, Sendable {
         resources.1?.cancel()
         resources.2?()
         outcome.resolve(result)
-    }
-
-    private func durationSeconds(_ duration: Duration) -> Double {
-        let components = duration.components
-        return Double(components.seconds)
-            + Double(components.attoseconds) / 1_000_000_000_000_000_000
     }
 }

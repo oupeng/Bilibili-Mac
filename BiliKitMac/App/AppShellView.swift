@@ -2,6 +2,7 @@ import BiliApplication
 import BiliAuthFeature
 import BiliBrowseFeature
 import BiliLibraryFeature
+import BiliUI
 import BiliVideoCollectionUI
 import BiliVideoDetailFeature
 import SwiftUI
@@ -32,13 +33,17 @@ struct AppShellView: View {
     let commentAssetURLResolver: CommentAssetURLResolver
     let commentLinkRouter: CommentLinkRouter
     let commentShortLinks: CommentShortLinkResolution
-    let commentImageSaver: NativeCommentImageSaver
+    /// 窗口的评论图片预览面板；换视频与退出播放时关闭，关窗时由窗口组装关闭。
+    let commentImagePreview: NativeCommentImagePreviewPresenter
     let seekPlayback: @MainActor (_ bvid: String, _ seconds: Int) -> Void
     let imagePipeline: NativeVideoImagePipeline
+    /// 窗口的账户写入：经环境交给各来源的卡片菜单，结果胶囊盖在主区底部。
+    let accountWrites: AccountWriteCoordinator
+    /// 播放页点赞、投币、收藏按钮的状态；窗口写入账户变化时交给它重读。
+    let engagementModel: VideoEngagementModel
     @Binding var isAuthenticationPresented: Bool
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var gridScroll = SourceGridScrollStates()
-    @State private var commentImagePreview: NativeCommentImagePreviewRequest?
     /// 侧栏「收藏夹」组是否展开；只在窗口内存里，默认展开。
     ///
     /// 放在这里而不是侧栏里：进入、退出播放时导航侧栏会重建。
@@ -46,7 +51,7 @@ struct AppShellView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        NavigationSplitView(columnVisibility: guardedColumnVisibility) {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             // 侧栏 = 底层（导航或播放详情）+ 可选的上下文层（UP 主空间）。两层并列叠放，
             // 各自按安全区布局；上下文层打开时底层保留状态（关闭后评论位置还在），但不可见、
             // 不可点、对辅助功能隐藏。播放详情是 AppKit，另经 `isObscured` 设 `isHidden`：
@@ -91,47 +96,55 @@ struct AppShellView: View {
                 max: sidebarMaximumWidth
             )
         } detail: {
-            NavigationStack(path: guardedPlaybackPath) {
+            NavigationStack(path: Bindable(navigationCoordinator).playbackPath) {
                 selectedSourceRoot
+                    // 写入结果胶囊挂在各页上而不是整个栈外：在 NavigationSplitView 的 detail 列里，挂在
+                    // NavigationStack 上的修饰符实际归根页面所有，压栈后随根页面移除，播放页上就看不到。播放页打开时
+                    // 这里不显示（根页面万一仍挂着，读屏也不会把同一条结果通告两次），播放页自己挂一份。
+                    .overlay(alignment: .bottom) {
+                        if navigationCoordinator.currentPlaybackBVID == nil {
+                            AccountWriteStatusOverlay(accountWrites: accountWrites)
+                        }
+                    }
                     .navigationDestination(
                         for: PlaybackDestination.self
                     ) { _ in
                         PlaybackDestinationView(
                             model: videoModel,
                             danmakuModel: danmakuModel,
+                            engagementModel: engagementModel,
                             playerContent: playerContent,
                             imagePipeline: imagePipeline,
                             onRetry: retryPlayback,
                             onSelectRelatedVideo:
                                 navigationCoordinator.openPlayback
                         )
+                        .overlay(alignment: .bottom) {
+                            AccountWriteStatusOverlay(accountWrites: accountWrites)
+                        }
                     }
             }
         }
+        // 来源网格、相关推荐横排与它们的卡片菜单都在这棵树里；写入口只转发意图，门槛与请求在 `AccountWriteCoordinator`。
+        .environment(\.videoCardAccountWriting, accountWriting)
+        .environment(\.videoEngagementActions, engagementActions)
         .navigationSplitViewStyle(.balanced)
-        .toolbarVisibility(
-            isCommentImagePreviewPresented ? .hidden : .automatic,
-            for: .windowToolbar
-        )
         .frame(minWidth: 760, minHeight: 560)
-        .overlay {
-            if let commentImagePreview,
-                commentImagePreview.bvid
-                    == navigationCoordinator.currentPlaybackBVID
-            {
-                NativeCommentImagePreviewView(
-                    request: commentImagePreview,
-                    imagePipeline: imagePipeline,
-                    resolveURL: commentAssetURLResolver,
-                    imageSaver: commentImageSaver,
-                    onDismiss: {
-                        dismissCommentImagePreview(restoringFocus: true)
-                    }
-                )
-            }
-        }
         .sheet(isPresented: $isAuthenticationPresented) {
             AuthenticationView(model: authenticationModel)
+        }
+        .sheet(item: favoritePicker) { picker in
+            FavoritePickerView(
+                model: picker,
+                onCancel: accountWrites.dismissFavoritePicker,
+                onRetry: accountWrites.retryFavoritePicker,
+                onConfirm: accountWrites.confirmFavoritePicker
+            )
+        }
+        .onChange(of: accountWrites.currentWritableAccount) {
+            // 登出、换号、其他窗口换号待复核：属于旧账户的「收藏到…」面板立即关闭，播放页按新账户重读互动状态。
+            accountWrites.writableAccountDidChange()
+            engagementModel.present(videoModel.presentedContext?.detail)
         }
         .onChange(of: searchSession.submittedCriteria) { previousCriteria, criteria in
             guard previousCriteria != criteria else { return }
@@ -157,8 +170,44 @@ struct AppShellView: View {
             previousBVID,
             currentBVID in
             guard previousBVID != currentBVID else { return }
-            dismissCommentImagePreview(restoringFocus: false)
+            commentImagePreview.playbackDidChange(to: currentBVID)
         }
+    }
+
+    /// 卡片菜单的账户写入口：门槛在菜单构造时求值，动作转给窗口的写入协调者。
+    private var accountWriting: VideoCardAccountWriting {
+        let accountWrites = accountWrites
+        return VideoCardAccountWriting(
+            isAvailable: { accountWrites.isWritable },
+            addToWatchLater: { accountWrites.addToWatchLater(bvid: $0) },
+            removeFromWatchLater: { accountWrites.removeFromWatchLater(bvid: $0) },
+            chooseFavoriteFolders: { accountWrites.chooseFavoriteFolders(bvid: $0) },
+            removeFromFavoriteFolder: { accountWrites.removeFromFavoriteFolder($0) },
+            dislikeRecommendation: { accountWrites.dislikeRecommendation($0) },
+            cancelRecommendationDislike: { accountWrites.cancelRecommendationDislike($0) }
+        )
+    }
+
+    /// 播放页点赞、投币、收藏按钮的写入口：门槛在按钮求值时读取，动作转给窗口的写入协调者。
+    private var engagementActions: VideoEngagementActions {
+        let accountWrites = accountWrites
+        return VideoEngagementActions(
+            isAvailable: { accountWrites.isWritable },
+            setLiked: { accountWrites.setLiked($0, bvid: $1) },
+            addCoins: { accountWrites.addCoins($0, alsoLike: $1, bvid: $2) },
+            chooseFavoriteFolders: { accountWrites.chooseFavoriteFolders(bvid: $0) }
+        )
+    }
+
+    /// 「收藏到…」面板的呈现：面板由写入协调者持有，sheet 被系统关闭（例如关窗）时交回协调者。
+    private var favoritePicker: Binding<FavoritePickerModel?> {
+        let accountWrites = accountWrites
+        return Binding(
+            get: { accountWrites.favoritePicker },
+            set: { picker in
+                if picker == nil { accountWrites.dismissFavoritePicker() }
+            }
+        )
     }
 
     /// 侧栏的选择值：读写都经来源描述映射，选中的条目记在来源自己的模型里，侧栏重建后照样恢复高亮。
@@ -173,32 +222,6 @@ struct AppShellView: View {
         navigationCoordinator.currentPlaybackBVID == nil
             ? "navigation"
             : "playback"
-    }
-
-    private var isCommentImagePreviewPresented: Bool {
-        guard let commentImagePreview else { return false }
-        return commentImagePreview.bvid
-            == navigationCoordinator.currentPlaybackBVID
-    }
-
-    private var guardedColumnVisibility: Binding<NavigationSplitViewVisibility> {
-        Binding(
-            get: { columnVisibility },
-            set: { nextVisibility in
-                guard !isCommentImagePreviewPresented else { return }
-                columnVisibility = nextVisibility
-            }
-        )
-    }
-
-    private var guardedPlaybackPath: Binding<[PlaybackDestination]> {
-        Binding(
-            get: { navigationCoordinator.playbackPath },
-            set: { path in
-                guard !isCommentImagePreviewPresented else { return }
-                navigationCoordinator.playbackPath = path
-            }
-        )
     }
 
     private var historyAccountScope: AccountSessionScope {
@@ -310,17 +333,7 @@ struct AppShellView: View {
         guard let bvid = navigationCoordinator.currentPlaybackBVID,
             let request = NativeCommentImagePreviewRequest(bvid: bvid, gallery: gallery)
         else { return }
-        commentImagePreview = request
-    }
-
-    private func dismissCommentImagePreview(restoringFocus: Bool) {
-        guard let request = commentImagePreview else { return }
-        commentImagePreview = nil
-        guard restoringFocus else { return }
-        Task { @MainActor in
-            await Task.yield()
-            request.restoreFocus()
-        }
+        commentImagePreview.present(request)
     }
 
     @ViewBuilder
@@ -409,6 +422,7 @@ private struct SourceGridScrollStates {
 private struct PlaybackDestinationView: View {
     let model: VideoViewModel
     let danmakuModel: DanmakuControlsViewModel
+    let engagementModel: VideoEngagementModel
     let playerContent: AnyView
     let imagePipeline: NativeVideoImagePipeline
     let onRetry: () -> Void
@@ -418,19 +432,33 @@ private struct PlaybackDestinationView: View {
         VideoPlaybackView(
             model: model,
             danmakuModel: danmakuModel,
+            engagementModel: engagementModel,
             onRetry: onRetry,
             onSelectRelatedVideo: onSelectRelatedVideo,
             relatedImageLoader: imagePipeline
         ) {
             playerContent
         }
-        // 播放页压在来源页（NavigationStack 根）之上，根页面为保留状态仍在渲染；macOS 不为压栈
-        // 页面绘制底色，必须自铺不透明窗口背景，并延伸到工具栏与侧栏下方。
+        // macOS 没有给压栈页面设底色的接口，页面本身透明：不带动画压栈时根页面已移除，透出的是窗口底；
+        // 带动画压栈时来源页留在下面继续绘制，会透出来。所以自铺不透明窗口背景，并延伸到工具栏与侧栏下方
+        // （见 ARCHITECTURE「播放页」）。
         .background {
             Color(nsColor: .windowBackgroundColor)
                 .ignoresSafeArea()
         }
         .navigationTitle("播放")
         .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
+    }
+}
+
+/// 写入结果胶囊的宿主：单独成一个 View，只有它读取协调者的结果，结果变化时不让整个外壳重新求值。
+private struct AccountWriteStatusOverlay: View {
+    let accountWrites: AccountWriteCoordinator
+
+    var body: some View {
+        AccountWriteStatusCapsule(
+            report: accountWrites.report,
+            sequence: accountWrites.reportSequence
+        )
     }
 }

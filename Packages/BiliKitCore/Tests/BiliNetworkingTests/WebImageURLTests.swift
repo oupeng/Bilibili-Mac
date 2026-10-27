@@ -8,6 +8,7 @@ struct WebImageURLTests {
     @Test(arguments: [
         "//i0.hdslb.com/bfs/archive/fixture.jpg",
         "http://i0.hdslb.com/bfs/archive/fixture.jpg",
+        "HTTP://i0.hdslb.com/bfs/archive/fixture.jpg",
         "https://i0.hdslb.com/bfs/archive/fixture.jpg"
     ])
     func upgradesPublicImageAddressesToHTTPS(value: String) {
@@ -27,6 +28,8 @@ struct WebImageURLTests {
         "https://user@i0.hdslb.com/bfs/archive/fixture.jpg",
         "ftp://i0.hdslb.com/bfs/archive/fixture.jpg",
         "javascript:fixture",
+        "http:i0.hdslb.com/bfs/archive/fixture.jpg",
+        "///i0.hdslb.com/bfs/archive/fixture.jpg",
         ""
     ])
     func rejectsAddressesOutsideThePublicHTTPSBaseline(value: String) {

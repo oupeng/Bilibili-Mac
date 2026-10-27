@@ -1,4 +1,5 @@
 import BiliApplication
+import BiliUI
 import SwiftUI
 
 /// 播放页工具栏的弹幕按钮：文字加图标，图标随开关变化（与快捷键 D 的反馈一致）；
@@ -245,12 +246,9 @@ private struct DanmakuSettingsPopover: View {
 
                 Spacer()
 
-                Text(
-                    model.opacity.value,
-                    format: .percent.precision(.fractionLength(0))
-                )
-                .font(.subheadline.weight(.semibold))
-                .monospacedDigit()
+                Text(danmakuPercentText(model.opacity.value))
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
             }
 
             Slider(
@@ -264,21 +262,12 @@ private struct DanmakuSettingsPopover: View {
                 Text(VideoDetailFeatureStrings.localized("透明度"))
             }
             .labelsHidden()
-            .accessibilityValue(
-                Text(
-                    model.opacity.value,
-                    format: .percent.precision(.fractionLength(0))
-                )
-            )
+            .accessibilityValue(Text(danmakuPercentText(model.opacity.value)))
 
             SliderScaleLabels(
                 labels: [
-                    DanmakuOpacity.allowedRange.lowerBound.formatted(
-                        .percent.precision(.fractionLength(0))
-                    ),
-                    DanmakuOpacity.allowedRange.upperBound.formatted(
-                        .percent.precision(.fractionLength(0))
-                    )
+                    danmakuPercentText(DanmakuOpacity.allowedRange.lowerBound),
+                    danmakuPercentText(DanmakuOpacity.allowedRange.upperBound)
                 ]
             )
         }
@@ -380,8 +369,16 @@ extension DanmakuSpeedLevel {
 
 extension DanmakuDisplayArea {
     fileprivate var displayName: String {
-        "\(rawValue)%"
+        danmakuPercentText(Double(rawValue) / 100)
     }
+}
+
+/// 弹幕面板里百分比（显示区域与透明度）的唯一写法。
+///
+/// locale 取与文案同语言的 `InterfaceLocale`；`Text(_:format:)` 会改用环境 `locale`，即系统 locale，所以先格式化成
+/// 字符串。
+private func danmakuPercentText(_ fraction: Double) -> String {
+    fraction.formatted(.percent.precision(.fractionLength(0)).locale(InterfaceLocale.current))
 }
 
 extension DanmakuDensity {

@@ -6,7 +6,7 @@ import Testing
 
 @testable import BiliVideoCollectionUI
 
-/// 原生网格的更新计划、回顶握手、滚动坐标换算、预备区域、悬停与卡片页脚宽度契约。
+/// 原生网格的更新计划（含锚点接替与差异动画规则）、回顶握手、滚动坐标换算、预备区域、悬停与卡片页脚宽度契约。
 @Suite(.timeLimit(.minutes(1)))
 struct NativeVideoGridTests {
     @Test
@@ -83,18 +83,65 @@ struct NativeVideoGridTests {
 
     @Test
     func replacementKeepsAnchorOnlyWhileAnchorCardRemains() {
-        let refresh = NativeVideoGridUpdatePlan(
-            previousIDs: ["BV-a", "BV-b", "BV-c"],
-            previousContents: ["BV-a": "same", "BV-b": "same", "BV-c": "same"],
-            updatedIDs: ["BV-new", "BV-a"],
-            updatedContents: ["BV-new": "inserted", "BV-a": "same"]
-        )
+        let refresh = Self.plan(from: ["BV-a", "BV-b", "BV-c"], to: ["BV-new", "BV-a"])
 
         let keptAnchor = NativeVideoGridViewportAnchor(id: "BV-a", offsetFromViewportTop: 0)
         let replacedAnchor = NativeVideoGridViewportAnchor(id: "BV-c", offsetFromViewportTop: 0)
 
-        #expect(refresh.retains(keptAnchor))
-        #expect(!refresh.retains(replacedAnchor))
+        #expect(refresh.retainedAnchor(keptAnchor) == keptAnchor)
+        #expect(refresh.retainedAnchor(replacedAnchor) == nil)
+    }
+
+    @Test
+    func removalHandsTheAnchorToTheNextRemainingCardAtTheSameDistance() {
+        let previous = ["BV-a", "BV-b", "BV-c", "BV-d", "BV-e"]
+        let anchor = NativeVideoGridViewportAnchor(id: "BV-b", offsetFromViewportTop: 37)
+
+        let single = Self.plan(from: previous, to: ["BV-a", "BV-c", "BV-d", "BV-e"])
+        let mergedRemovals = Self.plan(from: previous, to: ["BV-a", "BV-d", "BV-e"])
+        let removalThroughTheEnd = Self.plan(from: previous, to: ["BV-a"])
+        let removalAndInsertion = Self.plan(from: previous, to: ["BV-a", "BV-c", "BV-new"])
+        let removalAndReorder = Self.plan(from: previous, to: ["BV-c", "BV-a", "BV-d", "BV-e"])
+
+        #expect(
+            single.retainedAnchor(anchor) == .init(id: "BV-c", offsetFromViewportTop: 37)
+        )
+        #expect(
+            mergedRemovals.retainedAnchor(anchor)
+                == .init(id: "BV-d", offsetFromViewportTop: 37)
+        )
+        #expect(removalThroughTheEnd.retainedAnchor(anchor) == nil)
+        #expect(removalAndInsertion.retainedAnchor(anchor) == nil)
+        #expect(removalAndReorder.retainedAnchor(anchor) == nil)
+    }
+
+    @Test
+    func differencesAnimateOnlyForLaidOutNonAppendChangesWithoutReducedMotion() {
+        let removal = Self.plan(from: ["BV-a", "BV-b"], to: ["BV-b"])
+        let replacement = Self.plan(from: ["BV-a", "BV-b"], to: ["BV-c", "BV-d"])
+        let append = Self.plan(from: ["BV-a", "BV-b"], to: ["BV-a", "BV-b", "BV-c"])
+        let unchanged = Self.plan(from: ["BV-a", "BV-b"], to: ["BV-a", "BV-b"])
+
+        #expect(removal.animatesDifferences(isLaidOut: true, reducesMotion: false))
+        #expect(replacement.animatesDifferences(isLaidOut: true, reducesMotion: false))
+        #expect(!removal.animatesDifferences(isLaidOut: true, reducesMotion: true))
+        #expect(!removal.animatesDifferences(isLaidOut: false, reducesMotion: false))
+        #expect(!append.animatesDifferences(isLaidOut: true, reducesMotion: false))
+        #expect(!unchanged.animatesDifferences(isLaidOut: true, reducesMotion: false))
+    }
+
+    private static func plan(
+        from previous: [String],
+        to updated: [String]
+    )
+        -> NativeVideoGridUpdatePlan
+    {
+        NativeVideoGridUpdatePlan(
+            previousIDs: previous,
+            previousContents: Dictionary(uniqueKeysWithValues: previous.map { ($0, "same") }),
+            updatedIDs: updated,
+            updatedContents: Dictionary(uniqueKeysWithValues: updated.map { ($0, "same") })
+        )
     }
 
     @Test
@@ -136,32 +183,6 @@ struct NativeVideoGridTests {
             state.requestID
         )
         #expect(!laterGridReplaysAcknowledgedRequest)
-    }
-
-    @Test
-    func anchorRetentionPreservesItemOffsetAndClampsBounds() {
-        #expect(
-            NativeVideoGridAnchorRetention.targetOffsetY(
-                itemOriginY: 1_200,
-                offsetFromViewportTop: 40,
-                maximumOffsetY: 2_000
-            ) == 1_160
-        )
-        #expect(
-            NativeVideoGridAnchorRetention.targetOffsetY(
-                itemOriginY: 2_400,
-                offsetFromViewportTop: 20,
-                maximumOffsetY: 2_000
-            ) == 2_000
-        )
-        #expect(
-            NativeVideoGridAnchorRetention.targetOffsetY(
-                itemOriginY: 10,
-                offsetFromViewportTop: 40,
-                minimumOffsetY: -52,
-                maximumOffsetY: 2_000
-            ) == -30
-        )
     }
 
     /// 纵向 toolbar inset（网格）与横向侧栏 inset（shelf）共用同一逻辑坐标换算。
@@ -364,16 +385,6 @@ struct NativeVideoGridTests {
                 bounds: bounds
             )
         )
-    }
-
-    @Test
-    func operationEpochRejectsSupersededSnapshotCompletion() {
-        var epoch = NativeVideoGridOperationEpoch()
-        let first = epoch.advance()
-        let second = epoch.advance()
-
-        #expect(!epoch.accepts(first))
-        #expect(epoch.accepts(second))
     }
 
     @Test

@@ -54,7 +54,7 @@ struct ToolbarSearchField: NSViewRepresentable {
     ///
     /// 拥有联想请求 Task：系统重新索取、结束编辑、提交、选中联想与拆除视图时取消，
     /// 旧请求的结果不再交给系统。MainActor 隔离；`parent` 在每次 `updateNSView` 时换成最新的值。
-    /// 规则见 docs/ARCHITECTURE.md「搜索起始页」。
+    /// 联想的分区、条数与请求时机见 `SearchSuggestionPolicy`。
     @MainActor
     final class Coordinator: NSObject, NSSearchFieldDelegate, NSTextSuggestionsDelegate {
         typealias SuggestionItemType = String

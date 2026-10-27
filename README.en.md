@@ -1,0 +1,149 @@
+<p align="center">
+  <img
+    src="Design/AppIcon/v1/Marketing/BiliKit-AppIcon-Default-256.png"
+    width="136"
+    height="136"
+    alt="BiliKit App Icon Default"
+  >
+  &nbsp;&nbsp;
+  <img
+    src="Design/AppIcon/v1/Marketing/BiliKit-AppIcon-Dark-256.png"
+    width="136"
+    height="136"
+    alt="BiliKit App Icon Dark"
+  >
+</p>
+
+<h1 align="center">BiliKit</h1>
+
+<p align="center"><strong>Bilibili, done right on the Mac.</strong></p>
+
+<p align="center">An unofficial, open-source Bilibili client built with native Mac technologies</p>
+
+<p align="center">
+  <img alt="macOS 15+" src="https://img.shields.io/badge/macOS-15%2B-195CFF?style=flat">
+  <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple%20Silicon-arm64-195CFF?style=flat">
+  <img alt="Swift 6" src="https://img.shields.io/badge/Swift-6-FF607A?style=flat">
+  <a href="https://github.com/shiinayane/BiliKit-Mac/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/shiinayane/BiliKit-Mac?label=release&color=FF607A&style=flat"></a>
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-4A5568?style=flat"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/shiinayane/BiliKit-Mac/releases/latest"><strong>Download BiliKit</strong></a>
+</p>
+
+<p align="center">
+  <a href="README.md">简体中文</a> · <strong>English</strong> · <a href="README.ja.md">日本語</a>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="Design/Marketing/v2/BiliKit-Home-Dark.png">
+    <img src="Design/Marketing/v2/BiliKit-Home-Light.png" alt="BiliKit Home: Library and Favorites in the sidebar, a grid of recommended videos on the right">
+  </picture>
+</p>
+
+## Why BiliKit
+
+|  | Website / official Mac client | BiliKit |
+| --- | --- | --- |
+| Tech stack | The official client is built on Electron, essentially a web page | SwiftUI for the interface, AppKit where performance matters (video grids, comments, danmaku), AVPlayer for playback |
+| Download size | Official client is close to 200 MB | Under 10 MB |
+| Memory use | Official client often exceeds 1 GB | Around 100 MB |
+| Recommendations | Mixed with ads, live streams and pop-ups | Videos only; promoted cards and non-video items are filtered out |
+| After watching a video | Tabs keep piling up and the list you came from is gone | Go back in the same window, with the list right where you left it |
+| Player | Web player | System player: Picture in Picture, full screen, media keys, Control Center |
+| Without signing in | Limited resolution | 720P and 1080P available |
+
+<sub>The official client's tech stack and download size come from its official download (`pc_electron_mac/bili_mac.dmg`, September 2026).</sub>
+
+## Features
+
+- **Browse**: Home recommendations, Popular and Search, each remembering its own scroll position. Search shows your local search history and Bilibili Trending, with suggestions as you type.
+- **Library** (signed in): Watch Later and Watch history under "Library" in the sidebar, and each favorites folder you created listed under "Favorites". Watch history shows which kind of device you watched on. Watch Later can be sorted by date added, filtered by progress, date added or duration, and searched. Favorites folders open straight into paged videos, with sorting and search within the folder. Anime, courses, collections, audio and unavailable items are labeled with the reason and can't be opened.
+- **Card menu**: Right-click a video card to copy its link or open it in your browser. When signed in, you can also add it to Watch Later, save it to Favorites, mark a home recommendation as "Not Interested" (and undo it), and remove videos from the Watch Later and Favorites pages with right-click or ⌘⌫.
+- **Playback**: Automatic quality, playback speed, Picture in Picture, full screen, the system subtitle and audio track menus, Now Playing and media keys.
+- **Danmaku**: Runs on the same timeline as the video, so seeking, pausing and speed changes never put it out of sync; after you drag the progress bar, comments appear exactly where they belong. Speed, display area, density and opacity are adjustable, and colored danmaku from premium members shows up as usual.
+- **Video page**: Episodes, description, read-only comments (replies with page numbers and "View conversation", images and animated images) and related videos, all next to the player. Video links, @mentions and timestamps in descriptions and comments open or jump inside the app. When signed in, you can Like, Coin, Save, or do all three from the toolbar, and click an uploader to keep watching through their uploads in the sidebar without interrupting the current video.
+- **Sign in**: Scan a QR code with the Bilibili app. Your watch progress syncs to your Bilibili watch history.
+- **Updates**: The installer is signed and notarized by Apple, and new versions are announced in the app.
+- **Languages**: Simplified Chinese, Traditional Chinese, English and Japanese, following your system language.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="Design/Marketing/v2/BiliKit-Video-Detail-Dark.png">
+    <img src="Design/Marketing/v2/BiliKit-Video-Detail-Light.png" alt="BiliKit video page: danmaku and subtitles over the player, description and comments in the sidebar, related videos below">
+  </picture>
+</p>
+
+## Keyboard shortcuts
+
+| Key | Action |
+| --- | --- |
+| Space | Play / pause |
+| ← / → | Back / forward 5 seconds |
+| Hold ← / → | Temporarily play at 0.5× / 2×, back to normal on release |
+| ↑ / ↓ | Volume |
+| D | Toggle danmaku |
+| C | Toggle subtitles |
+| F | Enter / exit full screen |
+| Q | Like / remove like (signed in) |
+| Hold Q | Like, Coin, and Save (signed in) |
+| W | Coin (signed in) |
+| E | Save to Favorites… (signed in) |
+
+## What's next
+
+Nothing is scheduled at the moment.
+
+See the [roadmap](docs/ROADMAP.md) (in Chinese) for details.
+
+## Installation
+
+1. Download the [latest DMG](https://github.com/shiinayane/BiliKit-Mac/releases/latest).
+2. Drag BiliKit into Applications and open it.
+
+Requires an Apple Silicon Mac (M-series chip) and macOS 15 or later. On an Intel Mac, use
+[1.0.0](https://github.com/shiinayane/BiliKit-Mac/releases/tag/v1.0.0), the last version that supports Intel.
+For details on installing, uninstalling and updating, see the [distribution notes](DISTRIBUTION.md) (in Chinese).
+
+## FAQ
+
+<details>
+<summary>Is this the official client?</summary>
+
+No. BiliKit is an unofficial open-source project and is not affiliated with, endorsed or sponsored by Bilibili.
+</details>
+
+<details>
+<summary>Is signing in safe?</summary>
+
+You sign in with Bilibili's official QR code. Your sign-in information is stored only in this Mac's keychain and is not synced to iCloud.
+Apart from the update feed used to check for updates, BiliKit has no servers of its own and no analytics or ad SDKs, and it only likes, coins or saves when you do it yourself; it never follows or does anything else on your behalf. See the [privacy notes](PRIVACY.md) (in Chinese).
+</details>
+
+<details>
+<summary>Will it support downloads, live streams or multiple accounts?</summary>
+
+No. None of these are planned; BiliKit only aims to do one thing well: watching videos.
+</details>
+
+<details>
+<summary>Building from source</summary>
+
+Open `BiliKitMac.xcodeproj` in Xcode, choose the `BiliKitMac` scheme and "My Mac", then run. Full checks:
+
+```sh
+sh Scripts/run-quality-gates.sh app
+```
+
+The following documents are in Chinese:
+[Architecture](docs/ARCHITECTURE.md) · [Security model](docs/SECURITY-MODEL.md) · [Release process](docs/release/README.md) ·
+[Reporting security issues](SECURITY.md) · [App Icon sources](Design/AppIcon/v1/) · [Screenshots](Design/Marketing/v2/)
+</details>
+
+## License and notices
+
+The source code is licensed under the [MIT License](LICENSE). The BiliKit name, icon and marketing materials are not covered by the MIT License; see the
+[brand asset notice](BRAND-ASSETS.md) (in Chinese). Third-party dependencies are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) (in Chinese).
+Bilibili-related names and trademarks belong to their respective owners.

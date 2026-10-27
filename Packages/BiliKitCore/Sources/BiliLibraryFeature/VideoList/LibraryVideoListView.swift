@@ -15,7 +15,9 @@ import SwiftUI
 struct LibraryVideoListView<Item: Sendable & Equatable, Cursor: Equatable & Sendable>: View {
     let model: LibraryVideoListModel<Item, Cursor>
     let text: LibraryVideoListText
-    let card: (Item, Locale) -> NativeVideoCardPresentation
+    let card: (Item) -> NativeVideoCardPresentation
+    /// 卡片菜单的稍后再看写操作：稍后再看页是移除，观看历史是加入。
+    let watchLaterAction: NativeVideoCardMenu.WatchLaterAction
     let accountState: AccountPresentationState
     let gridHost: NativeVideoGridHostContext
     let onSelect: (String) -> Void
@@ -41,6 +43,7 @@ struct LibraryVideoListView<Item: Sendable & Equatable, Cursor: Equatable & Send
                     model: model,
                     text: text,
                     card: card,
+                    watchLaterAction: watchLaterAction,
                     gridHost: gridHost,
                     onSelect: onSelect
                 )

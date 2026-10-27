@@ -9,10 +9,12 @@ import SwiftUI
 ///
 /// 不拥有请求、翻页与复核（`FavoriteFolderViewModel`）；滚动位置、回顶请求与图片管线由根视图从 App 窗口转交。按页整体
 /// 替换，网格不做近尾自动加载（`tailState` 为 `.end`），末行下方为页码条留出 `PageNumberPagerGeometry.reservedHeight`。
-/// 回顶由 App 在 `successfulReloadGeneration` 前进时发出。
+/// 回顶由 App 在 `successfulReloadGeneration` 前进时发出；卡片菜单取 `LibraryVideoCardMenu`。
 struct FavoriteFolderContentView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.locale) private var locale
+    @Environment(\.openURL) private var openURL
+    @Environment(\.videoCardAccountWriting) private var accountWriting
     let model: FavoriteFolderViewModel
     let gridHost: NativeVideoGridHostContext
     let onSelect: (String) -> Void
@@ -165,13 +167,22 @@ struct FavoriteFolderContentView: View {
 
     private func grid(_ items: [FavoriteItem]) -> some View {
         NativeVideoGridView(
-            items: items.map { FavoriteCardPresentation(item: $0, locale: locale).nativeCard },
+            items: items.map { FavoriteCardPresentation(item: $0).nativeCard },
             accessibilityLabel: LibraryFeatureStrings.localized("收藏夹视频", locale: locale),
             tailState: .end,
             bottomInset: showsPager ? PageNumberPagerGeometry.reservedHeight : 0,
             host: gridHost,
             onNearEnd: {},
-            onSelect: onSelect
+            onSelect: onSelect,
+            cardMenu: { card in
+                LibraryVideoCardMenu.menu(
+                    for: card,
+                    openURL: openURL,
+                    writing: accountWriting,
+                    watchLater: .add,
+                    removeFromFavoriteFolder: folderRemoval(cardID: card.id, in: items)
+                )
+            }
         )
         .ignoresSafeArea(.container, edges: .top)
         .overlay(alignment: .top) {
@@ -181,6 +192,19 @@ struct FavoriteFolderContentView: View {
                 errorMessage: model.refreshError.map(failures.message(for:))
             )
         }
+    }
+
+    /// 「从此收藏夹移除」的动作：显示中的收藏夹与这张卡片的视频条目（`videoAID`）都确定时才有，合集、音频等没有。
+    private func folderRemoval(
+        cardID: String,
+        in items: [FavoriteItem]
+    ) -> (@MainActor @Sendable () -> Void)? {
+        guard let accountWriting,
+            let folderID = model.selectedFolderID,
+            let videoAID = items.first(where: { $0.id == cardID })?.videoAID,
+            let entry = FavoriteFolderEntry(folderID: folderID, videoAID: videoAID)
+        else { return nil }
+        return { accountWriting.removeFromFavoriteFolder(entry) }
     }
 
     /// 失败文案按模型的账户复核进度区分（`LibraryContentFailure`）。

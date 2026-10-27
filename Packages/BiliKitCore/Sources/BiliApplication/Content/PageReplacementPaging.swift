@@ -112,6 +112,16 @@ package struct PageReplacementPaging<Content: Sendable & Equatable>: Sendable, E
         return .show
     }
 
+    /// 已显示的页被本地改动（乐观移除一条或回滚）：换上新内容与总数，页码与总页数不变（下一次读取再校正）。
+    ///
+    /// 不在显示状态时不替换、返回 false：此时没有可改的内容，旧改动也不该落到别的页或别的请求上。
+    package mutating func replaceLoadedContent(_ content: Content, totalCount: Int?) -> Bool {
+        guard case .loaded(let page, _) = phase else { return false }
+        phase = .loaded(page: page, content: content)
+        self.totalCount = totalCount
+        return true
+    }
+
     /// 记录一页失败；总数保留，`currentPage` 仍是失败的页，重试请求同一页。
     package mutating func fail(page: Int, error: ContentApplicationError) {
         returnsToLastPage = false

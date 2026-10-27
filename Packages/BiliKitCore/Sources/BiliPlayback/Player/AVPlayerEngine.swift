@@ -82,6 +82,9 @@ public final class AVPlayerEngine:
         self.subtitleUseCase = subtitleUseCase
         self.sourcePreferenceProvider = sourcePreferenceProvider
         self.loudnessNormalizationEnabledProvider = loudnessNormalizationEnabledProvider
+        // 起播的媒体选择只按播放列表的 DEFAULT：音频总是原声，字幕默认关闭。打开后系统会按界面语言
+        // 挑 AUTOSELECT=YES 的 rendition，语言等于界面语言的 AI 配音会压过不写语言的原声。AI 配音另写
+        // AUTOSELECT=NO，与这里共同保证起播是原声。
         player.appliesMediaSelectionCriteriaAutomatically = false
         timeline = AVPlayerTimelineAdapter(player: player)
         timeline.onFailed = { [weak self] in
@@ -448,10 +451,6 @@ public final class AVPlayerEngine:
         }
     }
 
-    public func setRate(_ rate: Double) throws {
-        try timeline.setRate(rate)
-    }
-
     /// 临时改变当前播放速率，但不覆盖用户选择的永久速率。
     public func beginMomentaryPlaybackRate(_ rate: Double) throws -> UUID? {
         try timeline.beginMomentaryRate(rate)
@@ -525,10 +524,7 @@ public final class AVPlayerEngine:
         guard let item = player.currentItem,
             let duration = currentTimelineSnapshot.durationSeconds
         else { return false }
-        let components = time.components
-        let seconds =
-            Double(components.seconds)
-            + Double(components.attoseconds) / 1_000_000_000_000_000_000
+        let seconds = time / .seconds(1)
         guard seconds.isFinite, seconds >= 0, seconds <= duration else {
             return false
         }

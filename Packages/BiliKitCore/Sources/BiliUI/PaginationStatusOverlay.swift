@@ -4,6 +4,8 @@ import SwiftUI
 ///
 /// 首页推荐、热门、搜索、观看历史与稍后再看共用同一种样式（与顶部 `RefreshStatusCapsule` 一致的材质胶囊）。
 /// 只负责排版；标签与动作由调用方的 Feature 本地化并提供，是否给重试由调用方按 `isRetryable` 决定。
+/// 加载更多失败时把原因通告给读屏：分页在读屏焦点停在网格里时自动发生，底部胶囊不在焦点处。转圈不通告，
+/// 每翻一页都报会打断正在读的卡片；「继续加载」按钮是常驻控件，读屏可以像其他按钮一样找到它，也不通告。
 package struct PaginationStatusOverlay: View {
     /// 胶囊的状态；`idle` 不显示任何内容。
     package enum Status {
@@ -14,6 +16,12 @@ package struct PaginationStatusOverlay: View {
         case failed(message: String, retry: (() -> Void)?)
         /// 空页或全重复页之后不自动翻页，由用户点按继续。
         case manualLoadMore(title: String, action: () -> Void)
+
+        /// 只有失败原因要通告；加载中为 nil，所以重试后再次失败时同一句话也会再报一次。
+        package var announcement: String? {
+            if case .failed(let message, _) = self { return message }
+            return nil
+        }
     }
 
     private typealias Geometry = StatusCapsuleGeometry
@@ -61,6 +69,7 @@ package struct PaginationStatusOverlay: View {
         .padding(.horizontal, Geometry.horizontalInset)
         .padding(.bottom, Geometry.bottomInset)
         .animation(LoadingStateTransition.animation(reduceMotion: reduceMotion), value: phase)
+        .accessibilityAnnouncement(status.announcement, trigger: status.announcement)
     }
 
     private var phase: LoadingVisualPhase {

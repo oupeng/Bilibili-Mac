@@ -7,15 +7,18 @@ import Synchronization
 /// 已确认未登录时游客内容照常匿名请求；会话未确认、恢复中、复核失败或进程内已有窗口登录时仍失败关闭，
 /// 不让已登录用户在不知情时降级为匿名。启动时 Keychain 就不可用会让复核失败，此时同样失败关闭：
 /// 无法区分“从没登录”与“已登录但读不到凭据”。
+///
+/// 窗口在 MainActor 上 `synchronize`，授权器在请求所在的线程读 `isConfirmed`。只有这一个独立的标志，
+/// 没有要和它一起更新的状态，所以用 `Atomic` 而不用锁；读写用 acquiring／releasing 配对。
 final class AccountSignedOutConfirmation: Sendable {
-    private let confirmed = Mutex(false)
+    private let confirmed = Atomic<Bool>(false)
 
     var isConfirmed: Bool {
-        confirmed.withLock { $0 }
+        confirmed.load(ordering: .acquiring)
     }
 
     func synchronize(_ isConfirmed: Bool) {
-        confirmed.withLock { $0 = isConfirmed }
+        confirmed.store(isConfirmed, ordering: .releasing)
     }
 
     /// 窗口状态为未登录、没有进行中或失败的复核，且进程内没有窗口已发布登录。

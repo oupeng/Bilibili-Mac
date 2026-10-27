@@ -208,12 +208,10 @@ public actor CDNBenchmarkSampleDiscoverer {
         else {
             throw BiliAPIError.invalidRequest
         }
-        let formatter = DateFormatter()
-        formatter.calendar = calendar
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = timeZone
-        formatter.dateFormat = "yyyyMMdd"
-        return (formatter.string(from: from), formatter.string(from: to))
+        // ISO 8601 样式固定用公历与 ASCII 数字、不受用户 locale 影响，省略分隔符即接口要的 yyyyMMdd。
+        let format = Date.ISO8601FormatStyle(dateSeparator: .omitted, timeZone: timeZone)
+            .year().month().day()
+        return (from.formatted(format), to.formatted(format))
     }
 
     private func highestConsumableVideo(

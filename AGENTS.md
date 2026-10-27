@@ -4,7 +4,8 @@
 
 BiliKit 是原生、macOS-first、非官方 B 站浏览与播放客户端：Swift 6、SwiftUI + AppKit、AVPlayer，
 最低 macOS 15。App 与 Swift 模块名为 `BiliKit`；仓库、Xcode 工程和内部 App target 保留
-`BiliKitMac`。不要擅自加入下载、转码、导出、直播、多账号、区域解锁或写操作。
+`BiliKitMac`。不要擅自加入下载、转码、导出、直播、多账号、区域解锁，或 `docs/ROADMAP.md` 已列出之外的
+账户写操作。
 
 需要时只读这几份文档，它们描述的是现状：
 
@@ -16,7 +17,7 @@ BiliKit 是原生、macOS-first、非官方 B 站浏览与播放客户端：Swif
 ## 架构与安全
 
 ```text
-Bili*Feature ──> BiliApplication ──> BiliModels      Browse/VideoDetail/Library ──> BiliUI ──> Application
+Bili*Feature ──> BiliApplication ──> BiliModels      Bili*Feature ──> BiliUI ──> Application
                         ^ ports
 BiliAPI / BiliAuth / BiliPlayback ──> BiliNetworking    BiliDanmaku ──> Application/Models
 App（Composition、AppKit/AVKit 宿主）组装以上全部    Browse/VideoDetail/Library ──> BiliVideoCollectionUI（AppKit 卡片与网格）──> BiliUI
@@ -57,7 +58,8 @@ App（Composition、AppKit/AVKit 宿主）组装以上全部    Browse/VideoDeta
 - 不写：复述代码、PR／issue 编号、日期、“以前／改为／删除了……”、未来计划、没有 owner 的 TODO、
   只为测试存在的说明（需要“测试可注入”时应删掉这个缝隙）。
 - 修改行为的提交同步修改周围注释与 port 文档；注释与 ARCHITECTURE／SECURITY-MODEL 冲突按 bug 处理。
-  规则在文档里详述，代码里只留一句并指向文档。
+  跨文件的规则在文档里写一次，代码里只留一句并指向文档；只属于一个类型的行为、取值与实测系统行为写在
+  该类型的注释里，不搬进文档。
 - 测试用一句话写清每个 Suite 或测试类型固定的产品契约，不逐个测试写。
 
 ## 测试与 accessibility
@@ -73,6 +75,11 @@ App（Composition、AppKit/AVKit 宿主）组装以上全部    Browse/VideoDeta
 
 - 文档只写现状，改变边界或规则的提交同时更新上面对应文档。不新建 ADR、带日期的验证／证据记录或
   过程叙述；验证结论写进提交说明或 PR。
+- 各文档只收自己那一类：ARCHITECTURE 收模块边界、仍约束代码的决定（连同不采用的替代）与跨文件不变量；
+  SECURITY-MODEL 收安全与隐私规则，每节写明防什么；ROADMAP 收目标、阶段、候选与非目标，能力每项一行。
+  只改单个类型的行为、取值或实测数据的提交不改这些文档，改该类型的注释与测试。
+- `README.md` 是中文原文，`README.en.md` 与 `README.ja.md` 是它的译文，界面用词取 App 本地化里的对应译名；
+  改 README 的提交同时改三份，其余文档只有中文。
 
 ## 工作与验证
 

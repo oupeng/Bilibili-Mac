@@ -8,9 +8,11 @@ struct SubtitleUseCaseTests {
     @Test(arguments: [
         (kind: SubtitleTrackKind.standard, name: " 中文 ", expected: "中文"),
         (kind: .standard, name: "English", expected: "English"),
-        (kind: .automatic, name: "中文", expected: "中文（AI）"),
-        (kind: .automatic, name: "한국어", expected: "한국어（AI）"),
-        (kind: .automatic, name: "中文（AI）", expected: "中文（AI）"),
+        (kind: .automaticTranscription, name: "中文", expected: "中文（AI）"),
+        (kind: .automaticTranslation, name: "English", expected: "English（AI）"),
+        (kind: .automaticTranscription, name: "한국어", expected: "한국어（AI）"),
+        (kind: .automaticTranscription, name: "中文（AI）", expected: "中文（AI）"),
+        (kind: .automaticTranslation, name: "日本語（AI）", expected: "日本語（AI）"),
         (kind: .unknown, name: "Français", expected: "Français")
     ])
     func displayPolicyMarksOnlyAutomaticTracks(
@@ -30,7 +32,7 @@ struct SubtitleUseCaseTests {
                 id: $0,
                 languageCode: "und",
                 displayName: "Unknown",
-                kind: $0.hasPrefix("automatic") ? .automatic : .unknown
+                kind: $0.hasPrefix("automatic") ? .automaticTranscription : .unknown
             )
         }
 

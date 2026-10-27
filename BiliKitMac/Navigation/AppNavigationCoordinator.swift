@@ -115,6 +115,8 @@ final class AppNavigationCoordinator {
         openPlayback(intent, preservesSidebarContext: false)
     }
 
+    /// 建立播放 surface 即压栈播放页；调用方不得放进 `withAnimation`，否则来源网格会一直挂在播放页下面绘制
+    /// （见 ARCHITECTURE「播放页」）。
     private func openPlayback(
         _ intent: PlaybackSelectionIntent,
         preservesSidebarContext: Bool

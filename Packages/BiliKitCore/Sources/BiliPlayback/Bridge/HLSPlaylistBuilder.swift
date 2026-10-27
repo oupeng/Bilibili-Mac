@@ -135,13 +135,7 @@ public struct HLSIFramePlaylistBuilder: Sendable {
         guard index.timescale > 0 else {
             throw HLSPlaylistBuilderError.invalidTimescale
         }
-        guard
-            index.references.allSatisfy({ reference in
-                reference.startsWithSAP
-                    && reference.sapType == 1
-                    && reference.sapDeltaTime == 0
-            })
-        else {
+        guard index.allReferencesStartWithType1SAP else {
             throw HLSPlaylistBuilderError.nonIndependentIFrameSegments
         }
 
@@ -360,15 +354,20 @@ public struct HLSMasterPlaylistBuilder: Sendable {
                 audioAverageBitRate,
                 audioBitRates.average
             )
+            // macOS 27 的音轨菜单不显示音频的 NAME，B 站的配音标题在这里只用于 NAME 唯一性。
             let audioName = try safeAttribute(selectedAudio.track.displayName)
-            let audioLanguage = try safeLanguageTag(
-                selectedAudio.track.languageTag ?? "und"
-            )
+            // 没有语言标记的音轨（原声）不写 LANGUAGE：写 `und` 时系统菜单会附上“未知语言”。
+            // 这样原声在菜单里的名字只来自 `_hls.localized-rendition-names`，缺这份会话数据时只剩
+            // 系统加的“（原始）”标注；DASHToHLSBridge 生成的每份 master 都必须带它。
+            var audioLanguage = ""
+            if let languageTag = selectedAudio.track.languageTag {
+                audioLanguage = ",LANGUAGE=\"\(try safeLanguageTag(languageTag))\""
+            }
             let audioCharacteristics = try characteristics(
                 for: selectedAudio.track.role
             )
             var audioLine =
-                "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"\(audioGroupID)\",NAME=\"\(audioName)\",LANGUAGE=\"\(audioLanguage)\",CHARACTERISTICS=\"\(audioCharacteristics)\""
+                "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"\(audioGroupID)\",NAME=\"\(audioName)\"\(audioLanguage),CHARACTERISTICS=\"\(audioCharacteristics)\""
             if let channelCount = rendition.channelCount {
                 audioLine += ",CHANNELS=\"\(channelCount)\""
             }
@@ -483,13 +482,8 @@ public struct HLSMasterPlaylistBuilder: Sendable {
                     representationID: video.id
                 )
             }
-            guard
-                variant.index.references.allSatisfy({ reference in
-                    reference.startsWithSAP
-                        && reference.sapType == 1
-                        && reference.sapDeltaTime == 0
-                })
-            else {
+            // 空索引不在这里拒绝，交给下面 `bitRates(for:)` 报 `noMediaSegments`。
+            guard variant.index.allReferencesStartWithType1SAP else {
                 throw HLSPlaylistBuilderError.nonIndependentIFrameSegments
             }
             let bitRates = try bitRates(for: variant.index)
@@ -560,13 +554,9 @@ public struct HLSMasterPlaylistBuilder: Sendable {
         try safeCharacteristics([role.hlsCharacteristic])
     }
 
+    /// 空索引没有可声明独立的分段，不算独立。
     private func isIndependent(_ index: SegmentIndex) -> Bool {
-        !index.references.isEmpty
-            && index.references.allSatisfy {
-                $0.startsWithSAP
-                    && $0.sapType == 1
-                    && $0.sapDeltaTime == 0
-            }
+        !index.references.isEmpty && index.allReferencesStartWithType1SAP
     }
 
     private func yesNo(_ value: Bool) -> String {
