@@ -477,14 +477,17 @@ struct NativeVideoCardMenuTests {
         )
     }
 
+    @MainActor
     private static func commandDelete(in window: NSWindow) throws -> NSEvent {
-        try #require(
+        // 窗口属性只能在主线程读；`#require` 的展开不继承主线程隔离，先取出再交给它。
+        let windowNumber = window.windowNumber
+        return try #require(
             NSEvent.keyEvent(
                 with: .keyDown,
                 location: .zero,
                 modifierFlags: .command,
                 timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber,
+                windowNumber: windowNumber,
                 context: nil,
                 characters: "\u{7f}",
                 charactersIgnoringModifiers: "\u{7f}",
@@ -571,13 +574,16 @@ private struct GridFixture {
         _ modifierFlags: NSEvent.ModifierFlags,
         on view: NSView
     ) throws -> NSEvent {
-        try #require(
+        // 视图与窗口属性只能在主线程读；`#require` 的展开不继承主线程隔离，先取出再交给它。
+        let location = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+        let windowNumber = window.windowNumber
+        return try #require(
             NSEvent.mouseEvent(
                 with: type,
-                location: view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil),
+                location: location,
                 modifierFlags: modifierFlags,
                 timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber,
+                windowNumber: windowNumber,
                 context: nil,
                 eventNumber: 0,
                 clickCount: 1,

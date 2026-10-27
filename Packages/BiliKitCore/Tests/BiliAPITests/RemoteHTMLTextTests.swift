@@ -2,7 +2,7 @@ import Testing
 
 @testable import BiliAPI
 
-struct RemoteVideoTitleNormalizerTests {
+struct RemoteHTMLTextTests {
     @Test(
         arguments: [
             ("Tom&#x27;s", "Tom's"),
@@ -14,7 +14,7 @@ struct RemoteVideoTitleNormalizerTests {
         ]
     )
     func plainTextDecodesNamedDecimalAndHexEntitiesOnce(input: String, expected: String) {
-        #expect(RemoteVideoTitleNormalizer.plainText(input) == expected)
+        #expect(RemoteHTMLText.plainText(input) == expected)
     }
 
     @Test(
@@ -30,7 +30,7 @@ struct RemoteVideoTitleNormalizerTests {
         ]
     )
     func malformedAndUnknownEntitiesRemainLiteral(value: String) {
-        #expect(RemoteVideoTitleNormalizer.plainText(value) == value)
+        #expect(RemoteHTMLText.plainText(value) == value)
     }
 
     @Test
@@ -38,7 +38,7 @@ struct RemoteVideoTitleNormalizerTests {
         let title = "学习<em class=\"keyword\">macOS</em> &#x27;A&#x27; &lt;测试&gt; &amp;lt;"
 
         #expect(
-            RemoteVideoTitleNormalizer.searchResult(title)
+            RemoteHTMLText.searchResult(title)
                 == "学习macOS 'A' <测试> &lt;"
         )
     }

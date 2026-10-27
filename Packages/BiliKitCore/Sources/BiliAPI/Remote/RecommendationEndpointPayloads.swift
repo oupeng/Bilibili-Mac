@@ -81,12 +81,12 @@ struct RecommendationItemPayload: Decodable, Sendable {
             return nil
         }
         let normalizedReason = recommendationReason?.content.map {
-            RemoteVideoTitleNormalizer.plainText($0)
+            RemoteHTMLText.plainText($0)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return RecommendedVideo(
             bvid: bvid,
-            title: RemoteVideoTitleNormalizer.plainText(title),
+            title: RemoteHTMLText.plainText(title),
             coverURL: pic.flatMap(WebImageURL.parse),
             owner: owner.model(),
             statistics: stat.model(),

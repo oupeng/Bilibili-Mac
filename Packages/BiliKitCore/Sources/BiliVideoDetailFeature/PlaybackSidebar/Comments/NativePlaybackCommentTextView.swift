@@ -35,7 +35,7 @@ final class NativePlaybackCommentTextView: NSTextView, NSTextViewDelegate {
         isHorizontallyResizable = false
         isVerticallyResizable = false
         textContainerInset = .zero
-        linkTextAttributes = NativePlaybackTextLinks.textAttributes
+        NativePlaybackTextLinks.configure(self)
         setAccessibilityRole(.staticText)
     }
 

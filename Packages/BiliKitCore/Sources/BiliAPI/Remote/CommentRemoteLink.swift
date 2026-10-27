@@ -7,7 +7,7 @@ struct CommentJumpURLPayload: Decodable, Sendable {
     let pcURL: String?
     /// 搜索词链接：点击会离开播放去搜索页，与应用动线冲突，不生成链接。
     let isWordSearch: Bool
-    /// 官方客户端显示的标题（如短链指向的视频名）。
+    /// 官方客户端显示的标题（如短链指向的视频名），已还原 HTML 实体（见 `RemoteHTMLText`）。
     let title: String?
     /// 显示在链接前的小图标地址。
     let prefixIcon: String?
@@ -41,12 +41,15 @@ struct CommentJumpURLPayload: Decodable, Sendable {
         let extra = try? container.decodeIfPresent(ExtraPayload.self, forKey: .extra)
         isWordSearch = extra?.isWordSearch == true
         // 标题、图标与只链接一次都只影响显示，字段异常时按缺省处理，不拖累链接本身。
-        title = try? container.decodeIfPresent(String.self, forKey: .title)
+        title = (try? container.decodeIfPresent(String.self, forKey: .title))
+            .map(RemoteHTMLText.plainText)
         prefixIcon = try? container.decodeIfPresent(String.self, forKey: .prefixIcon)
         matchesOnce = container.decodeLossyBool(forKey: .matchOnce) ?? false
     }
 
     /// 替换正文原文显示的标题：去掉首尾空白后非空、且与原文不同时才替换。
+    ///
+    /// `label` 须是已还原实体的正文文字，与同样已还原的 `title` 比较，转义写法不同的同一段文字不算不同。
     ///
     /// 站外链接不替换，正文保留真实网址，点击前能看到要去的域名。
     func displayTitle(label: String, target: CommentLinkTarget) -> String? {
