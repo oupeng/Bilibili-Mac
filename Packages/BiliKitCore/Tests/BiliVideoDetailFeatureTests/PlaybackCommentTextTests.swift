@@ -259,6 +259,73 @@ struct PlaybackCommentTextTests: PlaybackSidebarFixtures {
         )
     }
 
+    /// 悬停提示：站外链接与短链提示真实地址（短链换成标题后仍在），应用内目标不提示；文本视图不弹出
+    /// 系统按内部链接值生成的提示。
+    @Test
+    @MainActor
+    func onlyLinksLeavingTheAppShowTheirAddressOnHover() throws {
+        let short = "https://b23.tv/Jf3cvv2"
+        let external = "https://example.com/shop"
+        let message = "\(short) \(external) BV17x411w7KC @回复用户"
+        let source = message as NSString
+        func range(of text: String) -> CommentTextRange {
+            let range = source.range(of: text)
+            return CommentTextRange(location: range.location, length: range.length)
+        }
+        let content = CommentContent(
+            message: message,
+            links: [
+                CommentLink(
+                    range: range(of: short),
+                    target: .shortLink(
+                        CommentExternalLinkReference(remoteURL: try #require(URL(string: short)))
+                    ),
+                    title: "视频标题"
+                ),
+                CommentLink(
+                    range: range(of: external),
+                    target: .external(
+                        CommentExternalLinkReference(remoteURL: try #require(URL(string: external)))
+                    )
+                ),
+                CommentLink(
+                    range: range(of: "BV17x411w7KC"),
+                    target: .video(bvid: "BV17x411w7KC", page: nil, startSeconds: nil)
+                ),
+                CommentLink(
+                    range: range(of: "@回复用户"),
+                    target: .member(
+                        CommentAuthor(id: CommentAuthorID(rawValue: "301"), name: "回复用户")
+                    )
+                )
+            ]
+        )
+        let rendered = makeCommentTextRenderer().render(
+            content,
+            scope: NativePlaybackCommentTextScope(
+                subject: .video(aid: 700_001),
+                rootID: CommentID(rawValue: 1),
+                revision: 1
+            )
+        )
+        let text = rendered.attributedString.string as NSString
+        func toolTip(at text: String) -> String? {
+            let location = (rendered.attributedString.string as NSString).range(of: text).location
+            return rendered.attributedString.attribute(.toolTip, at: location, effectiveRange: nil)
+                as? String
+        }
+
+        #expect(text.range(of: short).location == NSNotFound)
+        #expect(toolTip(at: "视频标题") == short)
+        #expect(toolTip(at: external) == external)
+        #expect(toolTip(at: "BV17x411w7KC") == nil)
+        #expect(toolTip(at: "@回复用户") == nil)
+
+        let textView = NSTextView()
+        NativePlaybackTextLinks.configure(textView)
+        #expect(!textView.displaysLinkToolTips)
+    }
+
     @Test
     @MainActor
     func commentRendererMapsLinkAttributesToTargetsAndSkipsInvalidRanges() {
