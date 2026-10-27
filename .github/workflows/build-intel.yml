@@ -104,7 +104,7 @@ jobs:
           cat << 'EOF' > patch_all.py
           import os, re, subprocess
 
-          # 1. 自动写入 WebCredentialStore.swift 双保险逻辑，抵御 Sync Fork 覆盖
+          # 1. 自动写入 WebCredentialStore.swift 双保险持久化，抵御 Sync Fork 覆盖
           cred_file = "Packages/BiliKitCore/Sources/BiliAuth/Credential/WebCredentialStore.swift"
           if os.path.exists(cred_file):
               fixed_store_code = """import Foundation
@@ -271,17 +271,24 @@ jobs:
                       except Exception:
                           pass
 
-          # 5. 【核心修复 v1.5.0】：将 AVAudioMixInputParametersTrackID.mixID(...) 整体替换为 kCMPersistentTrackID_Invalid
+          # 5. 【核心修复 v1.5.0】：彻底解决 LoudnessAudioMix.swift 中 .rawValue 与 TrackID 冲突
           mix_file = "Packages/BiliKitCore/Sources/BiliPlayback/Audio/LoudnessAudioMix.swift"
           if os.path.exists(mix_file):
               with open(mix_file, "r", encoding="utf-8") as f:
                   m_code = f.read()
-              # 匹配并完整替换 .mixID 调用链
-              m_code = re.sub(r'AVAudioMixInputParametersTrackID\.mixID(?:\([^)]*\))?', 'kCMPersistentTrackID_Invalid', m_code)
-              m_code = m_code.replace("AVAudioMixInputParametersTrackID", "kCMPersistentTrackID_Invalid")
+              # 注入 rawValue 兼容扩展，确保无论调用方是否访问 .rawValue 均完全合法
+              shim = """import CoreMedia
+          extension CMPersistentTrackID {
+              var rawValue: CMPersistentTrackID { self }
+          }
+          """
+              # 整体清理 AVAudioMixInputParametersTrackID 及其链式调用
+              m_code = re.sub(r'AVAudioMixInputParametersTrackID(?:\.[a-zA-Z0-9_\(\)]+)*', 'kCMPersistentTrackID_Invalid', m_code)
+              m_code = re.sub(r'kCMPersistentTrackID_Invalid(?:\.[a-zA-Z0-9_\(\)]+)+', 'kCMPersistentTrackID_Invalid', m_code)
+              m_code = shim + "\n" + m_code
               with open(mix_file, "w", encoding="utf-8") as f:
                   f.write(m_code)
-              print("Patched LoudnessAudioMix.swift: completely replaced trackID with kCMPersistentTrackID_Invalid!")
+              print("Patched LoudnessAudioMix.swift with rawValue extension and trackID shim!")
 
           # 6. 【核心修复】：向下兼容 LoudnessProcessingTap.swift
           loudness_file = "Packages/BiliKitCore/Sources/BiliPlayback/Audio/LoudnessProcessingTap.swift"
