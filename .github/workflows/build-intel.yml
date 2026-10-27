@@ -271,16 +271,17 @@ jobs:
                       except Exception:
                           pass
 
-          # 5. 【核心修复 v1.5.0】：向下兼容 LoudnessAudioMix.swift 中的新音频轨道常量
+          # 5. 【核心修复 v1.5.0】：将 AVAudioMixInputParametersTrackID.mixID(...) 整体替换为 kCMPersistentTrackID_Invalid
           mix_file = "Packages/BiliKitCore/Sources/BiliPlayback/Audio/LoudnessAudioMix.swift"
           if os.path.exists(mix_file):
               with open(mix_file, "r", encoding="utf-8") as f:
                   m_code = f.read()
-              if "AVAudioMixInputParametersTrackID" in m_code:
-                  m_code = m_code.replace("AVAudioMixInputParametersTrackID", "kCMPersistentTrackID_Invalid")
-                  with open(mix_file, "w", encoding="utf-8") as f:
-                      f.write(m_code)
-                  print("Patched LoudnessAudioMix.swift for AVAudioMixInputParametersTrackID compatibility!")
+              # 匹配并完整替换 .mixID 调用链
+              m_code = re.sub(r'AVAudioMixInputParametersTrackID\.mixID(?:\([^)]*\))?', 'kCMPersistentTrackID_Invalid', m_code)
+              m_code = m_code.replace("AVAudioMixInputParametersTrackID", "kCMPersistentTrackID_Invalid")
+              with open(mix_file, "w", encoding="utf-8") as f:
+                  f.write(m_code)
+              print("Patched LoudnessAudioMix.swift: completely replaced trackID with kCMPersistentTrackID_Invalid!")
 
           # 6. 【核心修复】：向下兼容 LoudnessProcessingTap.swift
           loudness_file = "Packages/BiliKitCore/Sources/BiliPlayback/Audio/LoudnessProcessingTap.swift"
@@ -407,7 +408,6 @@ jobs:
           SCHEME="BiliKitMac"
           echo "Explicitly Target Scheme: $SCHEME"
 
-          # 确保依赖包完全就绪
           xcodebuild -resolvePackageDependencies -project BiliKitMac.xcodeproj -scheme "$SCHEME" || true
 
           xcodebuild build \
