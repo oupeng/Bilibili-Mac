@@ -45,6 +45,36 @@ struct WatchProgressSessionTests {
         #expect(ended.positionSeconds == 20)
     }
 
+    /// 播完之后跳回开头（单集循环的重播）再播放是新的一次观看：另起会话，第二轮播完照常报完成。
+    @Test
+    func replayAfterTheEndStartsANewCompletedSession() async throws {
+        let fixture = try makeFixture()
+        fixture.session.start()
+        fixture.session.setReportingAccess(signedIn: true)
+
+        fixture.send(state: .playing)
+        let first = await fixture.repository.nextReport()
+        fixture.time.value = 120
+        fixture.send(position: 120, state: .ended)
+        let firstEnded = await fixture.repository.nextReport()
+        #expect(firstEnded.event == .ended)
+        #expect(firstEnded.completed)
+
+        fixture.seek(to: 0)
+        fixture.send(position: 0, state: .playing)
+        let second = await fixture.repository.nextReport()
+        #expect(second.event == .started)
+        #expect(second.generation != first.generation)
+        #expect(second.playedSeconds == 0)
+
+        fixture.time.value = 240
+        fixture.send(position: 120, state: .ended)
+        let secondEnded = await fixture.repository.nextReport()
+        #expect(secondEnded.event == .ended)
+        #expect(secondEnded.completed)
+        #expect(secondEnded.generation == second.generation)
+    }
+
     @Test
     func exitAtEighteenUsesCurrentPositionInsteadOfLastPeriodic() async throws {
         let fixture = try makeFixture()

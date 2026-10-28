@@ -28,6 +28,7 @@ struct PlayerHostView: View {
     /// 点击弹幕关联视频卡片时在应用内打开该视频（参数是 BV 号）；为 nil 时卡片不接点击。
     let openDanmakuLinkedVideo: ((String) -> Void)?
     let actionMenu: PlayerActionMenuActions
+    let playbackEnd: PlayerPlaybackEndActions
     let timelineUpdates: (() -> AsyncStream<PlaybackTimelineSnapshot>)?
 
     init(
@@ -45,6 +46,7 @@ struct PlayerHostView: View {
         engagementShortcuts: PlayerEngagementShortcuts? = nil,
         openDanmakuLinkedVideo: ((String) -> Void)? = nil,
         actionMenu: PlayerActionMenuActions,
+        playbackEnd: PlayerPlaybackEndActions,
         timelineUpdates: (() -> AsyncStream<PlaybackTimelineSnapshot>)? = nil
     ) {
         self.player = player
@@ -61,6 +63,7 @@ struct PlayerHostView: View {
         self.engagementShortcuts = engagementShortcuts
         self.openDanmakuLinkedVideo = openDanmakuLinkedVideo
         self.actionMenu = actionMenu
+        self.playbackEnd = playbackEnd
         self.timelineUpdates = timelineUpdates
     }
 
@@ -83,6 +86,7 @@ struct PlayerHostView: View {
             engagementShortcuts: engagementShortcuts,
             openDanmakuLinkedVideo: openDanmakuLinkedVideo,
             actionMenu: actionMenu,
+            playbackEnd: playbackEnd,
             focusIdentity: videoModel?.presentedBVID
         )
         .task(id: previewProjectionIdentity) {
@@ -144,6 +148,7 @@ private struct AVPlayerContainerView: NSViewRepresentable {
     let engagementShortcuts: PlayerEngagementShortcuts?
     let openDanmakuLinkedVideo: ((String) -> Void)?
     let actionMenu: PlayerActionMenuActions
+    let playbackEnd: PlayerPlaybackEndActions
     let focusIdentity: String?
 
     func makeNSView(context: Context) -> NativePlayerHostView {
@@ -161,6 +166,7 @@ private struct AVPlayerContainerView: NSViewRepresentable {
         view.engagementShortcuts = engagementShortcuts
         view.danmakuOverlay.openLinkedVideo = openDanmakuLinkedVideo
         view.setActionMenu(actionMenu, openURL: context.environment.openURL)
+        view.startPlaybackEndObservation(playbackEnd)
         view.attachPlayer(player)
         view.setPlaybackPreparationBlocked(blocksNativePlaybackInteraction)
         view.showsFullScreenToggleButton = true
@@ -205,6 +211,7 @@ private struct AVPlayerContainerView: NSViewRepresentable {
     ) {
         view.setResumeNotice(nil, restartFromBeginning: {})
         view.setPreviewEndedNotice(nil)
+        view.stopPlaybackEndObservation()
         view.danmakuOverlay.detachSurface()
         view.danmakuOverlay.bind(to: nil)
         view.stopObservingFocusLoss()
@@ -235,7 +242,7 @@ enum PlayerPlaybackPreparationPolicy {
 /// controller（本地 key monitor）、浮层模型、player 的三个 KVO 观察与在途 seek 通知观察、当前 item 的
 /// 两个 KVO 观察与时间跳转观察，以及失焦通知观察；不拥有 player、弹幕 renderer 与弹幕 controller，它们由
 /// 窗口组装持有。
-/// 拆除由 `AVPlayerContainerView.dismantleNSView` 按顺序进行：清除提示、撤销弹幕 surface、
+/// 拆除由 `AVPlayerContainerView.dismantleNSView` 按顺序进行：清除提示、停止播完的处理、撤销弹幕 surface、
 /// 解开弹幕时钟与 item timebase 的绑定、停止失焦与 player 观察、停止键盘监听、结束临时倍速，最后断开
 /// player。`currentItem` 变化时先让弹幕 overlay 换绑时钟（见 `DanmakuOverlayView.bind(to:)`）。
 /// `momentaryRatePressID` 记录当前临时倍速对应的按压，结束回调按它比对，旧按压迟到的结束不影响新的
@@ -246,6 +253,7 @@ final class NativePlayerHostView: AVPlayerView {
     private let keyboardShortcuts = PlayerKeyboardShortcutController()
     private let overlayModel = PlayerOverlayModel()
     private let actionMenu = PlayerActionMenuController()
+    private let playbackEndObserver = PlayerPlaybackEndObserver()
     private let overlayHostingView: PassthroughHostingView<PlayerOverlayView>
     private var installedDanmakuOverlay = false
     private var isPresentingFullScreen = false
@@ -428,6 +436,17 @@ final class NativePlayerHostView: AVPlayerView {
     /// 动作菜单的意图与打开网页的入口；宿主创建与每次更新时调用。
     func setActionMenu(_ actions: PlayerActionMenuActions, openURL: OpenURLAction) {
         actionMenu.update(actions: actions, openURL: openURL)
+    }
+
+    /// 宿主创建时开始按「播放结束后」处理播完，拆除时停止；提示显示在播放器浮层上。
+    func startPlaybackEndObservation(_ actions: PlayerPlaybackEndActions) {
+        playbackEndObserver.start(actions) { [overlayModel] feedback in
+            overlayModel.showFeedback(.action(feedback))
+        }
+    }
+
+    func stopPlaybackEndObservation() {
+        playbackEndObserver.stop()
     }
 
     func setPreviewEndedNotice(_ message: String?) {

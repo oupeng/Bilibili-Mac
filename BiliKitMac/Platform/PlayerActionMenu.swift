@@ -5,7 +5,7 @@ import BiliVideoCollectionUI
 import BiliVideoDetailFeature
 import SwiftUI
 
-/// 播放器动作菜单的意图：加入稍后再看、取当前视频的网页地址与 BV 号、暂停播放。
+/// 播放器动作菜单的意图：加入稍后再看、取当前视频的网页地址与 BV 号、暂停播放，读写「播放结束后」偏好。
 ///
 /// 由 `WindowAdapters` 的播放器内容用视频模型、播放引擎的时间线与暂停、窗口的写入入口构造（`make`），交给
 /// `PlayerActionMenuController`。门槛与写入在窗口的写入协调者里，这里只决定当下能不能做、给什么提示；协调者没有发出
@@ -19,12 +19,15 @@ struct PlayerActionMenuActions {
     /// 当前可操作视频的 BV 号（`VideoViewModel.operableBVID`）。
     let bvid: @MainActor () -> String?
     let pausePlayback: @MainActor () -> Void
+    let endBehavior: @MainActor () -> PlaybackEndBehavior
+    let setEndBehavior: @MainActor (PlaybackEndBehavior) -> Void
 
     @MainActor
     static func make(
         videoModel: VideoViewModel,
         timeline: @escaping @MainActor () -> PlaybackTimelineSnapshot,
         pausePlayback: @escaping @MainActor () -> Void,
+        endBehavior: PlaybackEndBehaviorStore,
         window: PlayerWindowContext
     ) -> Self {
         Self(
@@ -36,12 +39,14 @@ struct PlayerActionMenuActions {
             },
             shareURL: { videoModel.shareURL(timeline: timeline()) },
             bvid: { videoModel.operableBVID },
-            pausePlayback: pausePlayback
+            pausePlayback: pausePlayback,
+            endBehavior: { endBehavior.behavior },
+            setEndBehavior: { endBehavior.behavior = $0 }
         )
     }
 }
 
-/// 动作菜单操作后在播放器顶部的提示。
+/// 动作菜单操作与「播放结束后」生效时在播放器顶部的提示。
 ///
 /// 全屏（AVKit 独立全屏窗口）下窗口底部的写入结果胶囊看不到，所以操作当下在播放器上给一句；稍后再看的写入结果
 /// 仍由胶囊说明，与点赞快捷键相同。`unavailable` 是执行时发现已没有可操作的视频（全屏下菜单的可用状态可能是旧的）。
@@ -51,6 +56,8 @@ enum PlayerActionFeedback: Equatable {
     case unavailable
     case linkCopied
     case bvidCopied
+    /// 选了「播放结束后」的一项，或播完时按它动作了（例如单集循环从头再播）。
+    case endBehavior(PlaybackEndBehavior)
 
     var label: String {
         switch self {
@@ -59,6 +66,7 @@ enum PlayerActionFeedback: Equatable {
         case .unavailable: AppStrings.localized("暂时无法操作当前视频")
         case .linkCopied: AppStrings.localized("已拷贝链接")
         case .bvidCopied: AppStrings.localized("已拷贝 BV 号")
+        case .endBehavior(let behavior): behavior.title
         }
     }
 
@@ -69,11 +77,30 @@ enum PlayerActionFeedback: Equatable {
         case .unavailable: "exclamationmark.circle"
         case .linkCopied: "link"
         case .bvidCopied: "doc.on.doc"
+        case .endBehavior(let behavior): behavior.symbolName
         }
     }
 }
 
-/// AVKit 控制条动作菜单（`AVPlayerView.actionPopUpButtonMenu`）的内容与执行。
+extension PlaybackEndBehavior {
+    /// 菜单项与提示共用的名字。
+    var title: String {
+        switch self {
+        case .stop: AppStrings.localized("不循环")
+        case .repeatOne: AppStrings.localized("单集循环")
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .stop: "arrow.right.to.line"
+        case .repeatOne: "repeat.1"
+        }
+    }
+}
+
+/// AVKit 控制条动作菜单（`AVPlayerView.actionPopUpButtonMenu`）的内容与执行：稍后再看、链接与 BV 号，以及「播放结束后」
+/// 单选。
 ///
 /// 用 AppKit：菜单由 AVKit 的原生控制条弹出，只接受 `NSMenu`。窗口下在控制条的动作菜单按钮里；全屏下 AVKit 把它收进
 /// 浮动控制条的「»」→「其他」子菜单。由 `NativePlayerHostView` 持有；菜单项只在创建时建一次，之后只原地改可用状态，
@@ -100,6 +127,16 @@ final class PlayerActionMenuController: NSObject, NSMenuDelegate {
         item(AppStrings.localized("拷贝 BV 号"), symbol: "doc.on.doc", action: #selector(copyBVID)),
         item(VideoCardMenuText.openInBrowser, symbol: "globe", action: #selector(openInBrowser))
     ]
+    /// 「播放结束后」的单选项，顺序与 `PlaybackEndBehavior.allCases` 一致；`representedObject` 是原始值。
+    private lazy var endBehaviorItems = PlaybackEndBehavior.allCases.map { behavior in
+        let item = item(
+            behavior.title,
+            symbol: behavior.symbolName,
+            action: #selector(chooseEndBehavior)
+        )
+        item.representedObject = behavior.rawValue
+        return item
+    }
 
     override init() {
         super.init()
@@ -108,6 +145,9 @@ final class PlayerActionMenuController: NSObject, NSMenuDelegate {
         menu.addItem(watchLaterItem)
         menu.addItem(.separator())
         videoItems.forEach(menu.addItem)
+        menu.addItem(.separator())
+        menu.addItem(.sectionHeader(title: AppStrings.localized("播放结束后")))
+        endBehaviorItems.forEach(menu.addItem)
         refreshItemStates()
     }
 
@@ -127,6 +167,12 @@ final class PlayerActionMenuController: NSObject, NSMenuDelegate {
         let hasVideo = actions?.bvid() != nil
         for item in videoItems {
             item.isEnabled = hasVideo
+        }
+        // 偏好与当前视频无关，没有视频时也可以改；宿主第一次 `update` 之前没有意图，禁用。
+        let selected = actions?.endBehavior()
+        for item in endBehaviorItems {
+            item.isEnabled = actions != nil
+            item.state = item.representedObject as? String == selected?.rawValue ? .on : .off
         }
     }
 
@@ -152,6 +198,17 @@ final class PlayerActionMenuController: NSObject, NSMenuDelegate {
         guard let bvid = actions?.bvid() else { return presentFeedback(.unavailable) }
         VideoLinkPasteboard.copy(text: bvid)
         presentFeedback(.bvidCopied)
+    }
+
+    @objc private func chooseEndBehavior(_ sender: NSMenuItem) {
+        guard let actions,
+            let behavior = (sender.representedObject as? String).flatMap(
+                PlaybackEndBehavior.init(rawValue:)
+            )
+        else { return }
+        actions.setEndBehavior(behavior)
+        refreshItemStates()
+        presentFeedback(.endBehavior(behavior))
     }
 
     /// 带当前时间打开网页，先暂停应用内播放：网页会自动播放，两边同时出声。

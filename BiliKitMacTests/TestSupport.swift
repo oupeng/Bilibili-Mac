@@ -591,6 +591,11 @@ final class RecordingPlayback: PlaybackControlling {
         resumeToken: PlaybackResumeToken
     ) async -> Bool { false }
 
+    func replayFromBeginning(
+        identity: PlaybackItemIdentity,
+        intent: PlaybackLoadIntent
+    ) async -> Bool { false }
+
     func pause() {}
 
     func stop() {

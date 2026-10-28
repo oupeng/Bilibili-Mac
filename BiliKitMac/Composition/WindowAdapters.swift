@@ -105,6 +105,8 @@ extension WindowAdapters {
                 LoudnessNormalizationPolicy.isSupported && settings.loudnessNormalizationEnabled
             }
         )
+        // 「播放结束后」偏好：设备级，动作菜单与播完的处理读写同一处。
+        let endBehavior = PlaybackEndBehaviorStore()
         let danmaku = LiveDanmaku(
             repository: BiliDanmakuRepository(client: api),
             timeline: playerEngine
@@ -178,7 +180,13 @@ extension WindowAdapters {
                             videoModel: videoModel,
                             timeline: { playerEngine.currentTimelineSnapshot },
                             pausePlayback: { playerEngine.pause() },
+                            endBehavior: endBehavior,
                             window: playerWindow
+                        ),
+                        playbackEnd: .make(
+                            videoModel: videoModel,
+                            observeTimeline: playerEngine.observeTimeline,
+                            store: endBehavior
                         ),
                         timelineUpdates: {
                             playerEngine.timelineUpdates()

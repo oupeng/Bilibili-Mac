@@ -380,8 +380,30 @@ public final class AVPlayerEngine:
         intent: PlaybackLoadIntent,
         resumeToken: PlaybackResumeToken
     ) async -> Bool {
-        guard activeResumeToken == resumeToken,
-            restartOperation == nil,
+        guard activeResumeToken == resumeToken else { return false }
+        return await seekToBeginningAndPlay(identity: identity, intent: intent) { engine in
+            engine.activeResumeToken == resumeToken
+        }
+    }
+
+    public func replayFromBeginning(
+        identity: PlaybackItemIdentity,
+        intent: PlaybackLoadIntent
+    ) async -> Bool {
+        guard timeline.currentSnapshot.state == .ended else { return false }
+        return await seekToBeginningAndPlay(identity: identity, intent: intent) { _ in true }
+    }
+
+    /// 断点浮层的「从头播放」与单集循环的重播共用：把仍是 `identity`、`intent` 的当前 item 定位到 0 秒并继续播放。
+    ///
+    /// 已有回到开头的动作在途、item 或意图已变时拒绝；seek 期间换 item、换意图、用户另有操作或 `stillValid` 不再成立
+    /// 时落点作废、不播放。落到开头附近才算成功，时间线统一记为 0 秒；成功后作废断点 token，断点浮层随之收起。
+    private func seekToBeginningAndPlay(
+        identity: PlaybackItemIdentity,
+        intent: PlaybackLoadIntent,
+        stillValid: (AVPlayerEngine) -> Bool
+    ) async -> Bool {
+        guard restartOperation == nil,
             loadIntent == intent,
             timeline.currentSnapshot.identity == identity,
             let item = player.currentItem
@@ -396,7 +418,7 @@ public final class AVPlayerEngine:
             }
         }
         let currentGeneration = loadGeneration
-        timeline.prepareResumeRestart(operationID: operation)
+        timeline.prepareRestartFromBeginning(operationID: operation)
         let interactionRevision = timeline.playbackInteractionRevision
         let didSeek = await seek(to: 0, tolerance: .zero)
         let settlement = settleSeek(
@@ -404,14 +426,14 @@ public final class AVPlayerEngine:
             didSeek: didSeek,
             isOwned: restartOperation == operation,
             item: item,
-            contextIsValid: activeResumeToken == resumeToken
+            contextIsValid: stillValid(self)
                 && loadGeneration == currentGeneration
                 && loadIntent == intent
                 && player.currentItem === item
                 && timeline.currentSnapshot.identity == identity
                 && timeline.playbackInteractionRevision == interactionRevision
         ) {
-            // 断点浮层只接受真正回到开头附近的落点，时间线统一记为 0 秒。
+            // 只接受真正回到开头附近的落点，时间线统一记为 0 秒。
             guard let resolvedPosition = Self.validSeconds(player.currentTime()),
                 resolvedPosition <= SeekPolicy.restartLandingLimitSeconds
             else { return nil }
