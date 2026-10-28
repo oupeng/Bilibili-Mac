@@ -161,6 +161,8 @@ EXTRA_ALLOWED = {
     "BiliKitMac/Platform/NativeVideoImageLoadingPorts.swift": {"BiliDanmaku", "BiliVideoCollectionUI"},
     "BiliKitMac/Platform/NativeVideoImagePipeline.swift": {"BiliNetworking"},
     "BiliKitMac/Platform/PlaybackPreferencesController.swift": {"AVFoundation"},
+    # 播放器动作菜单的「拷贝链接」与卡片菜单共用 BiliVideoCollectionUI 的剪贴板写法（VideoLinkPasteboard）。
+    "BiliKitMac/Platform/PlayerActionMenu.swift": {"BiliVideoCollectionUI"},
     "BiliKitMac/Platform/PlayerHostView.swift": {"AVKit", "BiliDanmaku", "BiliPlayback", "BiliVideoCollectionUI"},
     "BiliKitMac/Platform/PlayerKeyboardShortcutController.swift": {"BiliPlayback"},
     "BiliKitMac/Platform/PlayerOverlay.swift": {"AVFoundation", "BiliPlayback"},
