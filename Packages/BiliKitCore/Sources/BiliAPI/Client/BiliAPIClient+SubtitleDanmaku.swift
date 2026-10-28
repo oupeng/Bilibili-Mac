@@ -9,6 +9,8 @@ extension BiliAPIClient {
     private static let maximumSubtitleCatalogSize = 1 * 1_024 * 1_024
     /// 弹幕分段正文上限，与评论页相同，见 SECURITY-MODEL §4；超出不交给 protobuf 解码。
     private static let maximumDanmakuSegmentSize = 2 * 1_024 * 1_024
+    /// 互动弹幕响应上限：一个视频通常只有几条互动弹幕、几 KB；超出按响应异常失败关闭，不交给 protobuf 解码。
+    private static let maximumDanmakuViewSize = 512 * 1_024
     /// 被 HTTP 412 拒绝的弹幕分段再请求一次之前的等待时长。
     ///
     /// 弹幕分段会被间歇风控（游客更常见），稍后通常恢复。与 -403／v_voucher 的换 key 重试同属
@@ -71,20 +73,45 @@ extension BiliAPIClient {
                 ]
             },
             send: { url in
-                try await signedDanmakuSegment(
+                try await danmakuProtobuf(
                     url: url,
-                    referer: try Self.videoReferer(identity.bvid)
+                    referer: try Self.videoReferer(identity.bvid),
+                    maximumResponseSize: Self.maximumDanmakuSegmentSize
                 )
             }
         )
     }
 
-    /// 一次签好的分段请求：protobuf 正文不走 JSON envelope 管线，JSON／HTML 错误体在这里识别。
+    /// 互动弹幕：有授权器时按账户读取、本地无凭据时匿名请求同一 endpoint；不签 WBI，失败不重试。
+    ///
+    /// 只带 `type` 与 `oid`（cid），不带稿件 aid：实测匿名请求不需要它。正文校验与分段相同（见 SECURITY-MODEL §4）。
+    func danmakuViewData(for identity: PlaybackItemIdentity) async throws -> Data {
+        guard BVID.isValid(identity.bvid), identity.cid > 0 else {
+            throw BiliAPIError.invalidRequest
+        }
+        return try await danmakuProtobuf(
+            url: try endpoint(
+                path: BiliAccountReadPath.danmakuView,
+                queryItems: [
+                    URLQueryItem(name: "type", value: "1"),
+                    URLQueryItem(name: "oid", value: String(identity.cid))
+                ]
+            ),
+            referer: try Self.videoReferer(identity.bvid),
+            maximumResponseSize: Self.maximumDanmakuViewSize
+        )
+    }
+
+    /// 一次弹幕 protobuf 请求（分段与互动弹幕共用）：protobuf 正文不走 JSON envelope 管线，JSON／HTML 错误体在这里识别。
     ///
     /// 正文须非空、`Content-Type` 为 octet-stream 且不像 JSON 或 HTML，才原样交给 protobuf 解码；
     /// JSON 错误体只读状态码（-101 与 JSON 管线同一判定），其余一律 `nonProtobufResponse`，
     /// 不互相降级解析。见 SECURITY-MODEL §4。
-    private func signedDanmakuSegment(url: URL, referer: String) async throws -> Data {
+    private func danmakuProtobuf(
+        url: URL,
+        referer: String,
+        maximumResponseSize: Int
+    ) async throws -> Data {
         let access: RequestAccess =
             hasAccountAuthorizer
             ? .accountRead(missingCredential: .useAnonymousRequest)
@@ -99,7 +126,7 @@ extension BiliAPIClient {
                 ]
             ),
             access: access,
-            maximumResponseSize: Self.maximumDanmakuSegmentSize
+            maximumResponseSize: maximumResponseSize
         )
         let response = authorizedResponse.response
         guard !response.body.isEmpty else {

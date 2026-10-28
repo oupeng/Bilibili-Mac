@@ -13,7 +13,7 @@ struct DanmakuDuplicateGroup: Sendable, Equatable {
 ///
 /// 由 `DanmakuLayoutPlanner` 在车道布局前对一个分段调用，输入已过滤、按 (时间, ID) 排好序；纯函数，结果只取决于
 /// 输入，所以 seek 与连续播放看到同样的合并。分组不跨分段：分段末尾的组到此为止，下一段的同文弹幕另起一组。
-/// 不跨组累计：窗口之后的同文弹幕另起一组。条数怎样显示由 `DanmakuCountBadge` 决定，组首的正文不变。
+/// 不跨组累计：窗口之后的同文弹幕另起一组。UP 主弹幕不参与合并。条数怎样显示由 `DanmakuCountBadge` 决定，组首的正文不变。
 enum DanmakuDuplicateMerger {
     /// 从组首起算的合并时长（媒体秒）。
     ///
@@ -46,6 +46,11 @@ enum DanmakuDuplicateMerger {
         var groups: [Group] = []
         var openGroupIndex: [GroupKey: Int] = [:]
         for event in events {
+            // UP 主弹幕自成一组，也不吸收别人：并进观众的组会丢掉“UP主”标签，吸收观众的弹幕则把它们画成 UP 主的。
+            guard !event.isUploader else {
+                groups.append(Group(first: event, isHighLike: event.isHighLike))
+                continue
+            }
             let key = GroupKey(mode: event.mode, text: comparisonKey(for: event.text))
             if let index = openGroupIndex[key],
                 event.timeSeconds - groups[index].first.timeSeconds <= windowSeconds
@@ -75,7 +80,8 @@ enum DanmakuDuplicateMerger {
                     colorRGB: first.colorRGB,
                     colorStyle: first.colorStyle,
                     weight: first.weight,
-                    isHighLike: group.isHighLike
+                    isHighLike: group.isHighLike,
+                    isUploader: first.isUploader
                 ),
                 laterArrivalTimes: group.laterArrivalTimes
             )

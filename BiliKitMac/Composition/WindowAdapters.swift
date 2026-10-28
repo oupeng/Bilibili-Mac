@@ -213,7 +213,10 @@ private struct LiveDanmaku {
     let session: DanmakuSession
     let memoryPressure: SystemMemoryPressureObserver
 
-    init(repository: any DanmakuSegmentRepository, timeline: AVPlayerEngine) {
+    init(
+        repository: any DanmakuSegmentRepository & DanmakuCommandRepository,
+        timeline: AVPlayerEngine
+    ) {
         // 弹幕 layer 挂在弹幕 overlay 的时钟层下，本地时间就是媒体时间；时间点 0 用时钟定义的哨兵。
         let renderer = CoreAnimationDanmakuRenderer(
             beginTimeAtMediaZero: DanmakuTimebaseClock.beginTimeAtMediaZero
@@ -229,6 +232,7 @@ private struct LiveDanmaku {
         }
         session = DanmakuSession(
             useCase: DanmakuSegmentUseCase(repository: repository),
+            commandUseCase: DanmakuCommandUseCase(repository: repository),
             timeline: timeline,
             presentationSink: controller
         )

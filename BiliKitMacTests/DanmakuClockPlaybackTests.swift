@@ -221,7 +221,8 @@ struct DanmakuClockPlaybackTests {
             colorRGB: 0xFFFFFF,
             colorStyle: .solid,
             weight: 1,
-            isHighLike: false
+            isHighLike: false,
+            isUploader: false
         )
     }
 }

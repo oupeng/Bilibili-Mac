@@ -130,7 +130,8 @@ struct DanmakuDuplicateMergerTests {
         time: Double,
         text: String,
         mode: DanmakuPresentationMode = .scrolling,
-        isHighLike: Bool = false
+        isHighLike: Bool = false,
+        isUploader: Bool = false
     ) -> DanmakuEvent {
         DanmakuEvent(
             id: id,
@@ -141,7 +142,8 @@ struct DanmakuDuplicateMergerTests {
             colorRGB: 0xFFFFFF,
             colorStyle: .solid,
             weight: 1,
-            isHighLike: isHighLike
+            isHighLike: isHighLike,
+            isUploader: isUploader
         )
     }
 }

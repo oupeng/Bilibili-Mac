@@ -1,12 +1,12 @@
 import BiliApplication
 import BiliModels
 
-/// `DanmakuSegmentRepository` 的 B 站实现：读取分段 protobuf，解码为 `DanmakuSegment`
-/// 并映射为弹幕错误。
+/// `DanmakuSegmentRepository` 与 `DanmakuCommandRepository` 的 B 站实现：读取分段与互动弹幕 protobuf，解码为
+/// `DanmakuSegment`／`DanmakuCommands` 并映射为弹幕错误。
 ///
 /// 无状态；HTTP 412 的一次等待重试在 `BiliAPIClient.danmakuSegmentData` 内完成，
 /// 弹幕会话不再叠加重试，见 SECURITY-MODEL §3。
-public struct BiliDanmakuRepository: DanmakuSegmentRepository, Sendable {
+public struct BiliDanmakuRepository: DanmakuSegmentRepository, DanmakuCommandRepository, Sendable {
     private let client: BiliAPIClient
 
     public init(client: BiliAPIClient) {
@@ -24,6 +24,19 @@ public struct BiliDanmakuRepository: DanmakuSegmentRepository, Sendable {
             )
             let events = try DanmakuPayloadDecoder.events(from: data)
             return DanmakuSegment(index: index, events: events)
+        } catch {
+            throw BiliAPIError.domainError(
+                for: error,
+                fallback: DanmakuApplicationError.unavailable,
+                Self.map
+            )
+        }
+    }
+
+    public func commands(for identity: PlaybackItemIdentity) async throws -> DanmakuCommands {
+        do {
+            let data = try await client.danmakuViewData(for: identity)
+            return try DanmakuCommandDecoder.commands(from: data)
         } catch {
             throw BiliAPIError.domainError(
                 for: error,

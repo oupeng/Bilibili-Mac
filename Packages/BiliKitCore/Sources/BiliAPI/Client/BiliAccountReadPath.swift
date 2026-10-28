@@ -11,6 +11,8 @@ public enum BiliAccountReadPath {
     public static let subtitleCatalog = "/x/player/wbi/v2"
     /// 弹幕分段。
     public static let danmakuSegment = "/x/v2/dm/wbi/web/seg.so"
+    /// 互动弹幕（评分、投票、UP 主弹幕等）；不签 WBI。
+    public static let danmakuView = "/x/v2/dm/web/view"
     /// UP 主空间投稿（只按账户读取）。
     public static let uploaderVideos = "/x/space/wbi/arc/search"
     /// 根评论。

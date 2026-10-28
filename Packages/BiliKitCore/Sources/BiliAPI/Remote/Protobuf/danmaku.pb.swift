@@ -75,6 +75,44 @@ nonisolated struct Bilikit_Danmaku_Element: Sendable {
   init() {}
 }
 
+/// `/x/v2/dm/web/view` reply; only the interactive (command) danmaku list is read.
+nonisolated struct Bilikit_Danmaku_ViewReply: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var commandElements: [Bilikit_Danmaku_CommandElement] = []
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+/// One interactive danmaku. Field 3 (sender mid) arrives as a varint even though
+/// older community schemas declare it as a string; it is not needed and not declared.
+nonisolated struct Bilikit_Danmaku_CommandElement: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var id: Int64 = 0
+
+  var command: String = String()
+
+  var content: String = String()
+
+  var progressMilliseconds: Int32 = 0
+
+  /// JSON object whose shape depends on `command`.
+  var extra: String = String()
+
+  var idString: String = String()
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
 fileprivate nonisolated let _protobuf_package = "bilikit.danmaku"
@@ -199,6 +237,91 @@ nonisolated extension Bilikit_Danmaku_Element: SwiftProtobuf.Message, SwiftProto
     if lhs.idString != rhs.idString {return false}
     if lhs.attributes != rhs.attributes {return false}
     if lhs.colorful != rhs.colorful {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Bilikit_Danmaku_ViewReply: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".ViewReply"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{4}\u{9}command_elements\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 9: try { try decoder.decodeRepeatedMessageField(value: &self.commandElements) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.commandElements.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.commandElements, fieldNumber: 9)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Bilikit_Danmaku_ViewReply, rhs: Bilikit_Danmaku_ViewReply) -> Bool {
+    if lhs.commandElements != rhs.commandElements {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Bilikit_Danmaku_CommandElement: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".CommandElement"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{2}\u{3}command\0\u{1}content\0\u{3}progress_milliseconds\0\u{2}\u{3}extra\0\u{3}id_string\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.id) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.command) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.content) }()
+      case 6: try { try decoder.decodeSingularInt32Field(value: &self.progressMilliseconds) }()
+      case 9: try { try decoder.decodeSingularStringField(value: &self.extra) }()
+      case 10: try { try decoder.decodeSingularStringField(value: &self.idString) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.id != 0 {
+      try visitor.visitSingularInt64Field(value: self.id, fieldNumber: 1)
+    }
+    if !self.command.isEmpty {
+      try visitor.visitSingularStringField(value: self.command, fieldNumber: 4)
+    }
+    if !self.content.isEmpty {
+      try visitor.visitSingularStringField(value: self.content, fieldNumber: 5)
+    }
+    if self.progressMilliseconds != 0 {
+      try visitor.visitSingularInt32Field(value: self.progressMilliseconds, fieldNumber: 6)
+    }
+    if !self.extra.isEmpty {
+      try visitor.visitSingularStringField(value: self.extra, fieldNumber: 9)
+    }
+    if !self.idString.isEmpty {
+      try visitor.visitSingularStringField(value: self.idString, fieldNumber: 10)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Bilikit_Danmaku_CommandElement, rhs: Bilikit_Danmaku_CommandElement) -> Bool {
+    if lhs.id != rhs.id {return false}
+    if lhs.command != rhs.command {return false}
+    if lhs.content != rhs.content {return false}
+    if lhs.progressMilliseconds != rhs.progressMilliseconds {return false}
+    if lhs.extra != rhs.extra {return false}
+    if lhs.idString != rhs.idString {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

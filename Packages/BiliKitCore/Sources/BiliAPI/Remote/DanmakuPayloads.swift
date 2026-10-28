@@ -15,8 +15,6 @@ enum DanmakuPayloadDecoder {
     private static let maximumTextLength = 1_000_000
     /// 单条弹幕文字的字符数上限，超出整段失败。
     private static let maximumEventTextLength = 4_096
-    /// 弹幕时间点上限 24 小时，超出视为数据异常、整段失败。
-    private static let maximumTimeMilliseconds = 86_400_000
     private static let baseColorRGBMask: UInt32 = 0x00FF_FFFF
     /// 字段 24 `colorful` 里大会员渐变弹幕的类型号。
     private static let vipGradientColorfulType: Int32 = 60_001
@@ -39,20 +37,18 @@ enum DanmakuPayloadDecoder {
             guard let mode = presentationMode(element.mode) else {
                 return nil
             }
-            let text = element.content.trimmingCharacters(
-                in: .whitespacesAndNewlines
-            )
-            guard !text.isEmpty else {
+            guard let text = DanmakuWireValues.trimmedText(element.content) else {
                 return nil
             }
-            let id =
-                element.idString.isEmpty
-                ? (element.id > 0 ? String(element.id) : nil)
-                : element.idString
-            guard let id,
-                id.count <= 128,
-                element.progressMilliseconds >= 0,
-                element.progressMilliseconds <= maximumTimeMilliseconds,
+            // ID 或时间点不成立时整段按无效数据失败（见 `DanmakuWireValues`）。
+            guard
+                let id = DanmakuWireValues.identifier(
+                    idString: element.idString,
+                    numericID: element.id
+                ),
+                let timeSeconds = DanmakuWireValues.seconds(
+                    fromMilliseconds: element.progressMilliseconds
+                ),
                 text.count <= maximumEventTextLength
             else {
                 throw BiliAPIError.invalidDanmakuData
@@ -63,7 +59,7 @@ enum DanmakuPayloadDecoder {
             }
             return DanmakuEvent(
                 id: id,
-                timeSeconds: Double(element.progressMilliseconds) / 1_000,
+                timeSeconds: timeSeconds,
                 mode: mode,
                 text: text,
                 fontSize: DanmakuEvent.normalizedFontSize(Double(element.fontSize)),
@@ -72,7 +68,8 @@ enum DanmakuPayloadDecoder {
                 colorRGB: element.colorRgb & baseColorRGBMask,
                 colorStyle: colorStyle(element.colorful),
                 weight: Int(element.weight),
-                isHighLike: element.attributes & highLikeAttributeMask != 0
+                isHighLike: element.attributes & highLikeAttributeMask != 0,
+                isUploader: false
             )
         }
     }

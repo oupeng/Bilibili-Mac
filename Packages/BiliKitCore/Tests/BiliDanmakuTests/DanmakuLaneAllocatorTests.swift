@@ -440,7 +440,8 @@ struct DanmakuLaneAllocatorTests {
                 colorRGB: 0xFF_FF_FF,
                 colorStyle: .solid,
                 weight: 5,
-                isHighLike: false
+                isHighLike: false,
+                isUploader: false
             ),
             width: width,
             height: height,

@@ -8,8 +8,8 @@ import Testing
 @testable import BiliDanmaku
 
 /// 固定 Core Animation renderer 的契约：弹幕动画按媒体时间开始、模型值不可见，位置只由时钟层给出的
-/// 媒体时间决定；窗口尺寸变化只移动锚定边；纹理准备有界、内存压力与无效文本失败关闭；用户透明度在根层，
-/// 改动不带隐式过渡。
+/// 媒体时间决定；窗口尺寸变化只移动锚定边；纹理准备有界、内存压力与无效文本失败关闭；用户透明度在三个锚点层、
+/// 不影响互动弹幕卡片，改动不带隐式过渡。
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct CoreAnimationDanmakuRendererTests {
@@ -17,7 +17,7 @@ struct CoreAnimationDanmakuRendererTests {
     private static let beginTimeAtMediaZero: CFTimeInterval = 1e-100
 
     @Test
-    func rendererAppliesUserOpacityAtRootAndReleasesTextureBytes() async throws {
+    func rendererAppliesUserOpacityToDanmakuOnlyAndReleasesTextureBytes() async throws {
         let renderer = makeRenderer()
         let fixture = fixtureEvent(
             id: "one-layer",
@@ -34,7 +34,15 @@ struct CoreAnimationDanmakuRendererTests {
 
         let opacity = try #require(DanmakuOpacity(0.35))
         renderer.setOpacity(opacity)
-        #expect(abs(Double(renderer.rootLayer.opacity) - 0.35) < 0.001)
+        let sublayers = renderer.rootLayer.sublayers ?? []
+        #expect(renderer.rootLayer.opacity == 1)
+        let anchorOpacities = sublayers.prefix(3).map { Double($0.opacity) }
+        #expect(anchorOpacities.count == 3)
+        for anchorOpacity in anchorOpacities {
+            #expect(abs(anchorOpacity - 0.35) < 0.001)
+        }
+        // 最后一个子层是互动弹幕卡片容器，不随用户透明度变淡。
+        #expect(sublayers.last?.opacity == 1)
         #expect(layer.opacity == 1)
         #expect(danmakuLayers(renderer).count == 1)
         #expect(danmakuLayers(renderer).first === layer)
@@ -157,7 +165,8 @@ struct CoreAnimationDanmakuRendererTests {
             colorRGB: 0xFFFFFF,
             colorStyle: .solid,
             weight: 1,
-            isHighLike: false
+            isHighLike: false,
+            isUploader: false
         )
     }
 
@@ -220,7 +229,8 @@ struct CoreAnimationDanmakuRendererTests {
             colorRGB: 0xFFFFFF,
             colorStyle: .solid,
             weight: 1,
-            isHighLike: false
+            isHighLike: false,
+            isUploader: false
         )
         let oversized = DanmakuEvent(
             id: "oversized",
@@ -231,7 +241,8 @@ struct CoreAnimationDanmakuRendererTests {
             colorRGB: 0xFFFFFF,
             colorStyle: .solid,
             weight: 1,
-            isHighLike: false
+            isHighLike: false,
+            isUploader: false
         )
 
         #expect(
@@ -429,7 +440,8 @@ struct CoreAnimationDanmakuRendererTests {
                 colorRGB: 0xFFFFFF,
                 colorStyle: .solid,
                 weight: 1,
-                isHighLike: false
+                isHighLike: false,
+                isUploader: false
             )
             nextPreparationID += 1
             guard
@@ -522,7 +534,7 @@ struct CoreAnimationDanmakuRendererTests {
         #expect(abs(frame(bottom).maxY - (480 - laneHeight)) < 0.001)
     }
 
-    /// 挂上、移除、子层与几何变化不带隐式过渡：弹幕 layer、锚点层与 rootLayer 都禁用这些动作。
+    /// 挂上、移除、子层与几何变化不带隐式过渡：弹幕 layer、三个锚点层、互动弹幕卡片容器与 rootLayer 都禁用这些动作。
     @Test
     func renderedLayersAndRootDisableImplicitOrderingActions() async throws {
         let renderer = makeRenderer()
@@ -534,7 +546,7 @@ struct CoreAnimationDanmakuRendererTests {
         )
         let layer = try #require(danmakuLayers(renderer).first)
         let anchors = renderer.rootLayer.sublayers ?? []
-        #expect(anchors.count == 3)
+        #expect(anchors.count == 4)
 
         for key in [
             "onOrderIn", "onOrderOut", "sublayers", "position", "bounds", "opacity"
@@ -546,8 +558,10 @@ struct CoreAnimationDanmakuRendererTests {
     }
 
     /// 挂在三个锚点层下的全部弹幕 layer：滚动、顶部、底部依次，各自按挂上的先后。
+    ///
+    /// `rootLayer` 的前三个子层是锚点层，之后是互动弹幕卡片容器，卡片不算弹幕 layer。
     private func danmakuLayers(_ renderer: CoreAnimationDanmakuRenderer) -> [CALayer] {
-        (renderer.rootLayer.sublayers ?? []).flatMap { $0.sublayers ?? [] }
+        (renderer.rootLayer.sublayers ?? []).prefix(3).flatMap { $0.sublayers ?? [] }
     }
 
     private func makeRenderer() -> CoreAnimationDanmakuRenderer {

@@ -76,6 +76,11 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     /// 为 nil 时下一次检查一定对齐。任何一次 reconcile 都更新它，换 identity、停止、换 item、接管与交还
     /// surface 时清掉。
     private var reconciledDisplayTime: Double?
+    /// 会话交来的互动弹幕卡片与它所属的 identity；`stopPresentation` 时清空，换 identity 时保留（会话可能在新视频的
+    /// 第一个快照之前就交来）。
+    private var commandCards: (identity: PlaybackItemIdentity, cards: [DanmakuCommandCard])?
+    /// 已交给 backend 的卡片；与应显示的相同时不重复交。
+    private var presentedCommandCards: [DanmakuCommandCard] = []
 
     /// 窗口与屏幕尺寸由接管 surface 的宿主经 `updateSurface` 给出，之前不布局。
     public init(backend: any DanmakuRenderingBackend) {
@@ -112,6 +117,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
             resetTimelineState()
         }
         latestSnapshot = snapshot
+        refreshCommandCards()
         evaluate()
     }
 
@@ -124,6 +130,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     /// 由宿主在主线程调用，多次写入可能合并成一次；暂停中 seek 时没有后续快照，靠它对齐。
     public func displayClockDidChange(ownerID: UUID) {
         guard surfaceOwnerID == ownerID else { return }
+        refreshCommandCards()
         evaluate()
     }
 
@@ -147,9 +154,18 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         coordinator.setSegments(segments)
     }
 
+    public func setCommandCards(
+        _ cards: [DanmakuCommandCard],
+        for identity: PlaybackItemIdentity
+    ) {
+        commandCards = (identity, cards)
+        refreshCommandCards()
+    }
+
     public func setEnabled(_ enabled: Bool) {
         guard isEnabled != enabled else { return }
         isEnabled = enabled
+        refreshCommandCards()
         if enabled {
             reconcileAtDisplayTime()
         } else {
@@ -187,6 +203,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
 
     public func stopPresentation() {
         identity = nil
+        commandCards = nil
         resetTimelineState()
         backend.stop()
     }
@@ -200,6 +217,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         clockBox.clock = clock
         reconciledDisplayTime = nil
         materializer.clear()
+        refreshCommandCards()
         reconcileAtDisplayTime()
     }
 
@@ -211,6 +229,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         clockBox.clock = nil
         reconciledDisplayTime = nil
         materializer.clear()
+        refreshCommandCards()
         return true
     }
 
@@ -227,6 +246,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         materializer.clear()
         latestSnapshot = nil
         reconciledDisplayTime = nil
+        refreshCommandCards()
     }
 
     /// 只接受当前 owner 的尺寸更新：`width`/`height` 是窗口里弹幕画面的尺寸，`screenWidth`/`screenHeight`
@@ -295,6 +315,28 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         materializer.clear()
         latestSnapshot = nil
         reconciledDisplayTime = nil
+        refreshCommandCards()
+    }
+
+    /// 应显示的卡片：弹幕开着、已有当前 identity 的时间线、时钟读得到 D、卡片属于这个 identity；否则一张都不显示。
+    ///
+    /// 换 item 时最近快照已清，卡片先撤下，等新 item 的快照确认 identity 再显示。换视频时时钟层先解绑、停在旧视频
+    /// 最后的时刻且不发布 D，卡片要等新 item 的 D 有了（`displayClockDidChange`）才交，否则会按旧视频的时刻挂上、
+    /// 冻在加载画面上；与弹幕“读不到 D 时什么都不挂”同一条规则。
+    private func refreshCommandCards() {
+        var desired: [DanmakuCommandCard] = []
+        if isEnabled,
+            let identity,
+            latestSnapshot?.identity == identity,
+            clockBox.clock?.displayTime() != nil,
+            let commandCards,
+            commandCards.identity == identity
+        {
+            desired = commandCards.cards
+        }
+        guard desired != presentedCommandCards else { return }
+        presentedCommandCards = desired
+        backend.setCommandCards(desired)
     }
 
     /// 把当前设置与规划尺寸交给布局 coordinator；与上次相同时 coordinator 什么都不做，画面尚未布局

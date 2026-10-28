@@ -9,6 +9,7 @@ struct DanmakuTextureCacheKey: Hashable, Sendable {
     let text: String
     let fontSize: Double
     let isHighLike: Bool
+    let isUploader: Bool
     let colorRGB: UInt32
     let colorStyle: DanmakuColorStyle
     let backingScale: Double
@@ -143,6 +144,7 @@ enum DanmakuTextureRasterizer {
             text: measureKey.text,
             fontSize: measureKey.fontSize,
             isHighLike: measureKey.isHighLike,
+            isUploader: measureKey.isUploader,
             colorRGB: event.colorStyle == .vipGradient
                 ? vipGradientFillRGB : event.colorRGB & 0x00FF_FFFF,
             colorStyle: event.colorStyle,
@@ -161,6 +163,7 @@ enum DanmakuTextureRasterizer {
                     text: key.text,
                     fontSize: key.fontSize,
                     isHighLike: key.isHighLike,
+                    isUploader: key.isUploader,
                     backingScale: key.backingScale
                 ),
                 foreground: foreground
@@ -187,6 +190,19 @@ enum DanmakuTextureRasterizer {
                     ? layout.paddingPixels..<(layout.widthPixels - layout.paddingPixels)
                     : nil
             )
+        else {
+            return nil
+        }
+        let scale = CGFloat(key.backingScale)
+        guard
+            let pixels = layout.uploaderStyle.map({ style in
+                style.compose(
+                    textPixels: pixels,
+                    layout: layout,
+                    scale: scale,
+                    textLeft: CGFloat(layout.paddingPixels) / scale + style.leadingWidth
+                )
+            }) ?? pixels
         else {
             return nil
         }
@@ -411,10 +427,11 @@ enum DanmakuTextureRasterizer {
         context.scaleBy(x: scale, y: scale)
         let padding = CGFloat(layout.paddingPixels) / scale
         let baseline = padding + layout.descent
-        var textX = padding
+        // UP 主弹幕先让出黑底左留白与标签，标签在合成之后才画（见 `DanmakuUploaderStyle.compose`）。
+        var textX = padding + (layout.uploaderStyle?.leadingWidth ?? 0)
         if let icon = layout.highLikeIcon {
             let iconRect = CGRect(
-                origin: CGPoint(x: padding, y: baseline - icon.descentBelowBaseline),
+                origin: CGPoint(x: textX, y: baseline - icon.descentBelowBaseline),
                 size: icon.size
             )
             context.saveGState()

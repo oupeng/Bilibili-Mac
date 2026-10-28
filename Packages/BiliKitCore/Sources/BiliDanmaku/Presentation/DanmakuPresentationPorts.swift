@@ -19,6 +19,12 @@ public protocol DanmakuPresentationSink: AnyObject {
         _ segments: [Int: [DanmakuEvent]],
         for identity: PlaybackItemIdentity
     )
+    /// 当前视频的互动弹幕卡片，会话读到后交一次；identity 与呈现端当前的不一致时先记下，等这个 identity 的
+    /// 时间线到达后再显示。
+    func setCommandCards(
+        _ cards: [DanmakuCommandCard],
+        for identity: PlaybackItemIdentity
+    )
     func setEnabled(_ enabled: Bool)
     func setFilter(_ filter: DanmakuFilter)
     func setSpeedLevel(_ speedLevel: DanmakuSpeedLevel)
