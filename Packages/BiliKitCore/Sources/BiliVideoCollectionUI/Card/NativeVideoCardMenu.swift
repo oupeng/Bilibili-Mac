@@ -388,17 +388,3 @@ extension NativeVideoCollectionItem {
         (collectionView as? NativeVideoCardCollectionView)?.presentCardMenu(for: self) ?? false
     }
 }
-
-/// 把视频网页地址放进系统剪贴板：同一地址同时写成 URL 与纯文本，粘贴到网址栏与文本框都成立。
-///
-/// 卡片菜单与 App 的播放器动作菜单的「拷贝链接」共用。
-public enum VideoLinkPasteboard {
-    @MainActor
-    public static func copy(_ url: URL) {
-        let item = NSPasteboardItem()
-        item.setString(url.absoluteString, forType: .URL)
-        item.setString(url.absoluteString, forType: .string)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.writeObjects([item])
-    }
-}

@@ -221,7 +221,8 @@ struct PlayerWindowContext {
     let imagePipeline: NativeVideoImagePipeline
     let openVideo: @MainActor (_ bvid: String) -> Void
     let canWriteAccount: @MainActor () -> Bool
-    let addToWatchLater: @MainActor (_ bvid: String) -> Void
+    /// 返回是否发出（`AccountWriteCoordinator.addToWatchLater`）。
+    let addToWatchLater: @MainActor (_ bvid: String) -> Bool
 }
 
 /// 一个窗口的弹幕实现：Core Animation renderer、呈现控制器、加载分段并转发时间线的会话，以及系统内存压力监听。

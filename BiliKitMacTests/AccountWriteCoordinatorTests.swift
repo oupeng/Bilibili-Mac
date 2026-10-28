@@ -15,7 +15,7 @@ import Testing
 /// 删掉、失败放回原位；「收藏到…」面板确认时只提交勾选的差异，成功后侧栏收藏夹重读；窗口账户一变面板就关闭，重试与
 /// 确认也不在另一个账户下进行；播放页点赞乐观改动、失败放回，反方向的点赞在途时不再发，投币与三连成功后才改状态、三连
 /// 刷新收藏夹；首页推荐的「不感兴趣」与撤销先改卡片标记、失败放回，同一视频的两者同时只发一个，不在推荐里的不发；
-/// 快捷键在未登录、状态未知与全屏时给出提示；写入或面板读取的凭据类失败只请求一次复核，直到下一次写入成功；
+/// 快捷键在未登录、状态未知与全屏时给出提示；加入稍后再看报告是否发出；写入或面板读取的凭据类失败只请求一次复核，直到下一次写入成功；
 /// 关窗后不再接受意图。
 @Suite(.timeLimit(.minutes(1)))
 @MainActor
@@ -151,6 +151,21 @@ struct AccountWriteCoordinatorTests {
         }
     }
 
+    /// 加入稍后再看报告是否发出：同一视频已在途时不再发，播放器动作菜单据此不给提示。
+    @Test
+    func watchLaterAddReportsWhetherItWasSent() async throws {
+        let writes = AccountWriteRepositoryStub()
+        let window = try await signedInWindow(process: makeTestProcess(), writes: writes)
+        defer { window.close() }
+        let coordinator = window.accountWrites
+        let sequence = coordinator.reportSequence
+
+        #expect(coordinator.addToWatchLater(bvid: "BV17x411w7KC"))
+        #expect(!coordinator.addToWatchLater(bvid: "BV17x411w7KC"))
+        await waitForObservedState { coordinator.reportSequence != sequence }
+        #expect(await writes.calls.count == 1)
+    }
+
     @Test
     func closedGateSendsNothing() async throws {
         let writes = AccountWriteRepositoryStub()
@@ -162,7 +177,7 @@ struct AccountWriteCoordinatorTests {
         await window.authenticationModel.waitForCurrentTask()
 
         #expect(!window.accountWrites.isWritable)
-        window.accountWrites.addToWatchLater(bvid: "BV17x411w7KC")
+        #expect(!window.accountWrites.addToWatchLater(bvid: "BV17x411w7KC"))
         window.accountWrites.removeFromWatchLater(bvid: "BV17x411w7KC")
         window.close()
 

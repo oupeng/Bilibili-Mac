@@ -1177,30 +1177,30 @@
         }
       }
     },
-    "暂时无法添加到稍后再看" : {
+    "暂时无法操作当前视频" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Can’t add to Watch Later right now"
+            "value" : "Not available for this video right now"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "現在「あとで見る」に追加できません"
+            "value" : "現在この動画は操作できません"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "暂时无法添加到稍后再看"
+            "value" : "暂时无法操作当前视频"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "暫時無法加入稍後再看"
+            "value" : "暫時無法操作目前的影片"
           }
         }
       }

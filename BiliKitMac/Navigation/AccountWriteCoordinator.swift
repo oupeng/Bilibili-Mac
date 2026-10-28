@@ -105,13 +105,16 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
         currentAccount()
     }
 
-    func addToWatchLater(bvid: String) {
-        guard let target = VideoWriteTarget(bvid: bvid), let account = currentAccount() else {
-            return
-        }
+    /// 加入稍后再看；返回是否发出（BVID 不合法、没有写入账户或同一视频已在途时不发）。
+    @discardableResult
+    func addToWatchLater(bvid: String) -> Bool {
+        guard let target = VideoWriteTarget(bvid: bvid), let account = currentAccount(),
+            inFlight[.watchLaterAdded(target)] == nil
+        else { return false }
         start(.watchLaterAdded(target), account: account) { [watchLater] in
             try await watchLater.add(target, accountID: account.accountID)
         }
+        return true
     }
 
     /// 先在本窗口的稍后再看列表里乐观移除，失败或被取消时放回原位（列表此间被整体替换时由模型丢弃这次回滚）。

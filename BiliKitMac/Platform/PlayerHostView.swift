@@ -27,7 +27,7 @@ struct PlayerHostView: View {
     let engagementShortcuts: PlayerEngagementShortcuts?
     /// 点击弹幕关联视频卡片时在应用内打开该视频（参数是 BV 号）；为 nil 时卡片不接点击。
     let openDanmakuLinkedVideo: ((String) -> Void)?
-    let actionMenu: PlayerActionMenuActions?
+    let actionMenu: PlayerActionMenuActions
     let timelineUpdates: (() -> AsyncStream<PlaybackTimelineSnapshot>)?
 
     init(
@@ -44,7 +44,7 @@ struct PlayerHostView: View {
         toggleSubtitles: (() async -> NativeSubtitleToggleResult)? = nil,
         engagementShortcuts: PlayerEngagementShortcuts? = nil,
         openDanmakuLinkedVideo: ((String) -> Void)? = nil,
-        actionMenu: PlayerActionMenuActions? = nil,
+        actionMenu: PlayerActionMenuActions,
         timelineUpdates: (() -> AsyncStream<PlaybackTimelineSnapshot>)? = nil
     ) {
         self.player = player
@@ -143,7 +143,7 @@ private struct AVPlayerContainerView: NSViewRepresentable {
     let toggleSubtitles: (() async -> NativeSubtitleToggleResult)?
     let engagementShortcuts: PlayerEngagementShortcuts?
     let openDanmakuLinkedVideo: ((String) -> Void)?
-    let actionMenu: PlayerActionMenuActions?
+    let actionMenu: PlayerActionMenuActions
     let focusIdentity: String?
 
     func makeNSView(context: Context) -> NativePlayerHostView {
@@ -425,8 +425,8 @@ final class NativePlayerHostView: AVPlayerView {
         overlayModel.setResumeNotice(notice, restartFromBeginning: restartFromBeginning)
     }
 
-    /// 动作菜单的意图与打开网页的入口；为 nil 时菜单各项禁用。
-    func setActionMenu(_ actions: PlayerActionMenuActions?, openURL: OpenURLAction) {
+    /// 动作菜单的意图与打开网页的入口；宿主创建与每次更新时调用。
+    func setActionMenu(_ actions: PlayerActionMenuActions, openURL: OpenURLAction) {
         actionMenu.update(actions: actions, openURL: openURL)
     }
 

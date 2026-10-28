@@ -6,12 +6,13 @@ import Foundation
 ///
 /// 只读本模型的呈现状态与调用方给的时间线快照，不持有状态。
 extension VideoViewModel {
-    /// 当前呈现视频的网页地址；没有呈现的视频、或旧详情此刻不可操作（换视频加载中或失败）时为 nil。
+    /// 当前呈现视频的网页地址；没有可操作的视频（`operableBVID`）、或正在换分 P 时为 nil。
     ///
-    /// 多 P 视频带 `p=`。`timeline` 属于当前呈现的分 P 时按 `PlaybackShareLinkPolicy` 决定带不带 `t=`，否则不带时间：
+    /// 换分 P 期间呈现的还是旧分 P，给出的地址会指向用户刚离开的那一个，所以不给。多 P 视频带 `p=`。`timeline` 属于当前呈现的分 P 时按 `PlaybackShareLinkPolicy` 决定带不带 `t=`，否则不带时间：
     /// 换分 P 期间播放器上可能还是旧 item 的位置。
     public func shareURL(timeline: PlaybackTimelineSnapshot) -> URL? {
-        guard !blocksPresentedContext, let context = presentedContext else { return nil }
+        if case .loadingPage = state { return nil }
+        guard let bvid = operableBVID, let context = presentedContext else { return nil }
         let page = context.selectedPage
         let startSeconds =
             timeline.identity == presentedPlaybackIdentity
@@ -21,7 +22,7 @@ extension VideoViewModel {
                 durationSeconds: page.durationSeconds
             ) : nil
         return BVID.webPageURL(
-            context.detail.bvid,
+            bvid,
             pageNumber: context.pages.count > 1 ? page.index : nil,
             startSeconds: startSeconds
         )

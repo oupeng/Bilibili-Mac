@@ -32,7 +32,7 @@ enum PlayerMomentaryRate: Float, Equatable, Sendable {
     }
 }
 
-/// 快捷键操作后在播放器顶部显示的反馈徽标内容：文字、SF Symbol 与 VoiceOver 文案。
+/// 快捷键与动作菜单操作后在播放器顶部显示的反馈徽标内容：文字、SF Symbol 与 VoiceOver 文案。
 enum PlayerShortcutFeedback: Equatable {
     case momentaryRate(PlayerMomentaryRate)
     case relativeSeek(Int)

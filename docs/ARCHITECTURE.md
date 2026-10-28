@@ -212,10 +212,6 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
   构造、经 `cardMenu` 注入，不经 App 插槽。右键、Control-点按与读屏「显示菜单」走集合视图基类的同一条右键路径，卡片的
   读屏自定义操作取同一份描述，项、顺序与标题与菜单一致。右键与访达、「音乐」一致，不改选中、不移动键盘选择框。链接项
   只给卡片 ID 是合法 BVID 的可播放卡片，打开只经系统 `OpenURLAction`（见 `SECURITY-MODEL.md` §4）。
-- 播放器动作菜单：用 AVKit 控制条自带的动作菜单（`actionPopUpButtonMenu`），不在播放器上另加浮动按钮；它随原生控件
-  显隐，全屏时 AVKit 把它收进浮动控制条的「»」→「其他」。菜单与文案沿用卡片菜单的「拷贝链接」「在浏览器中打开」
-  「添加到稍后再看」，链接另带分 P 与当前时间（`VideoViewModel.shareURL`，时间线不属于当前分 P 时不带时间）；稍后再看
-  走窗口的写入协调者，打开网页同样只经 `OpenURLAction`。菜单每次打开按此刻的视频重建可用状态，执行时再核对一次。
 - **UP 主空间列表**：头部与投稿行是同一个 `NSCollectionView` 的原生 item，随列表滚到工具栏下由系统做边缘
   模糊。列表不接收键盘焦点，方向键、空格留给播放器快捷键。
 - 图片由窗口级匿名、有界的 `NativeVideoImagePipeline` 加载（Now Playing 封面另有进程级实例）；cell 离屏、复用
@@ -246,6 +242,9 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
   `PlayerLoadingPolicy` 判定；暂停中 seek 与原生进度条拖动只能从 seek 调用看出，所以窗口播放器是记录在途
   seek 的 `SeekTrackingPlayer`。
 - 键盘快捷键以 content overlay 中弹幕层所在窗口为准：AVKit detached 全屏只携带 content overlay。
+- 播放器上针对当前视频的低频操作（稍后再看、分享链接）放进 AVKit 控制条自带的动作菜单（`actionPopUpButtonMenu`），
+  不在画面上另加浮动按钮：它随原生控件显隐、外观原生，全屏时 AVKit 把它收进浮动控制条的「»」→「其他」。浮动按钮要么
+  自己计时显隐、与原生控件不同步，要么读 AVKit 的私有视图层级，目前都不采用（发送弹幕的入口另议，见 ROADMAP）。
 - 播放态侧栏替换导航侧栏，不另开右侧 inspector：播放期间导航使用率低，双栏把宽度留给视频。
 
 ### 动线与侧栏上下文层
