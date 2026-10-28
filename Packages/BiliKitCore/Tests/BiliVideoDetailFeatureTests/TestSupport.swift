@@ -478,11 +478,15 @@ final class PlayerStub: PlaybackControlling {
     private(set) var startedIntents: [PlaybackLoadIntent] = []
     private(set) var loadedStartPositions: [Double?] = []
     private(set) var restartTokens: [PlaybackResumeToken] = []
+    private let replaySucceeds: Bool
+    /// 收到的重播请求；结果由 init 的 `replaySucceeds` 决定。
+    private(set) var replayedIdentities: [PlaybackItemIdentity] = []
     private(set) var stopCallCount = 0
 
     init(
         startOutcome: PlaybackStartOutcome = .startedAtBeginning,
         restartSucceeds: Bool = false,
+        replaySucceeds: Bool = true,
         holdsRestarts: Bool = false,
         failingBVID: String? = nil,
         failingLoads: Set<Int> = [],
@@ -491,6 +495,7 @@ final class PlayerStub: PlaybackControlling {
     ) {
         self.startOutcome = startOutcome
         self.restartSucceeds = restartSucceeds
+        self.replaySucceeds = replaySucceeds
         self.holdsRestarts = holdsRestarts
         self.failingBVID = failingBVID
         self.failingLoads = failingLoads
@@ -555,6 +560,14 @@ final class PlayerStub: PlaybackControlling {
             await withCheckedContinuation { heldRestarts[index] = $0 }
         }
         return restartSucceeds
+    }
+
+    func replayFromBeginning(
+        identity: PlaybackItemIdentity,
+        intent: PlaybackLoadIntent
+    ) async -> Bool {
+        replayedIdentities.append(identity)
+        return replaySucceeds
     }
 
     func pause() {}

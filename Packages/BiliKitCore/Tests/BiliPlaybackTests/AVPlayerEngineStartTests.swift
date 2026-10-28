@@ -12,7 +12,7 @@ private typealias Comment = Testing.Comment
 
 extension AVPlayerEngineSuites {
     /// 固定起播契约：DASH→HLS item 就绪即位于 playlist 起播位置；自动起播受 intent、identity、
-    /// 用户暂停与 seek 约束，每个 intent 最多一次，续播 token 只允许一次从头播放。
+    /// 用户暂停与 seek 约束，每个 intent 最多一次，续播 token 只允许一次从头播放；重播只在停在结尾时成立。
     @Suite(.serialized, .timeLimit(.minutes(2)))
     struct AVPlayerEngineStartTests {
         /// `EXT-X-START` 让 DASH→HLS item 就绪时即精确位于起播位置（含非分段边界），可继续播放与回到开头。
@@ -259,6 +259,19 @@ extension AVPlayerEngineSuites {
                     resumeToken: resumeToken
                 ))
             )
+
+            // 单集循环的重播只在停在结尾时成立：播放中拒绝，播完后回到开头继续播放。
+            #expect(!(await engine.replayFromBeginning(identity: identity, intent: resumeIntent)))
+            let duration = try #require(engine.currentTimelineSnapshot.durationSeconds)
+            #expect(engine.requestSeek(to: .seconds(max(duration - 0.3, 0))))
+            try await waitForTimeline(of: engine) { $0.state == .ended }
+            #expect(
+                !(await engine.replayFromBeginning(identity: identity, intent: PlaybackLoadIntent()))
+            )
+            #expect(await engine.replayFromBeginning(identity: identity, intent: resumeIntent))
+            try await waitForTimeline(of: engine) { snapshot in
+                snapshot.state == .playing && snapshot.positionSeconds < duration / 2
+            }
         }
     }
 }
