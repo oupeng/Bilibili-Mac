@@ -345,7 +345,8 @@ enum NativePlaybackCommentImageStyle {
 
 /// 楼中楼面板展开后底部一行显示什么；面板配置、布局与行高测量共用这一份判断。
 enum NativePlaybackCommentRepliesFooter: Equatable {
-    /// 这一页或对话的这一页正在加载。
+    /// 这一页或对话的这一页正在加载，且提示已经露出（见 `PlaybackCommentReplyState.isLoadingStatusVisible`）；
+    /// 露出之前保留原来的页码条或「加载更多」。
     case loading
     /// 加载失败；可重试时带「重试」。
     case failed(CommentReadError)
@@ -360,8 +361,10 @@ enum NativePlaybackCommentRepliesFooter: Equatable {
 
     init(_ state: PlaybackCommentReplyState) {
         if let dialog = state.dialog {
-            if dialog.isLoading {
+            if dialog.isLoading, state.isLoadingStatusVisible {
                 self = .loading
+            } else if dialog.isLoading {
+                self = .loadMoreDialog
             } else if let error = dialog.error {
                 self = .failed(error)
             } else if dialog.isEnd {
@@ -369,7 +372,7 @@ enum NativePlaybackCommentRepliesFooter: Equatable {
             } else {
                 self = .loadMoreDialog
             }
-        } else if state.isLoading {
+        } else if state.isLoading, state.isLoadingStatusVisible {
             self = .loading
         } else if let error = state.error {
             self = .failed(error)

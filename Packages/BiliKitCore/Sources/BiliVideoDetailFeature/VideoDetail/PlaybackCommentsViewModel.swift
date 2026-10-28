@@ -25,6 +25,12 @@ public struct PlaybackCommentReplyState: Sendable, Equatable {
     public var isEnd = false
     public var error: CommentReadError?
     public var dialog: PlaybackCommentDialogState?
+    /// 这一页或对话这一页的加载提示是否已经露出；加载结束、收起与关掉对话时复位。
+    ///
+    /// 面板里还有回复可看（翻页、对话加载更多）时，提示要等 `PlaybackCommentsViewModel.loadingStatusDelay`
+    /// 后仍在加载才露出，期间保留原来的页码条或「加载更多」，快速返回时不闪；面板原本就空、或是失败后的重试，
+    /// 加载开始时就露出。面板与行高测量都经 `NativePlaybackCommentRepliesFooter` 读它，两边一致。
+    public var isLoadingStatusVisible = false
 
     public init() {}
 
@@ -94,11 +100,21 @@ public final class PlaybackCommentsViewModel: AccountRevalidationParticipant {
     @ObservationIgnored private var activeReplyRoots: [UUID: CommentID] = [:]
     @ObservationIgnored private var replyRequestIDs: [CommentID: UUID] = [:]
     @ObservationIgnored private var pendingReplyRequests: [PendingReplyRequest] = []
+    /// 每楼延迟露出加载提示的 Task。
+    ///
+    /// 新的一次加载开始、`cancelReplyRequest`、`cancelAllReplyTasks` 与 deinit 取消它；Task 醒来后按
+    /// `loadingStatusTokens` 比对，不是同一次加载就什么也不改。
+    @ObservationIgnored private var loadingStatusTasks: [CommentID: Task<Void, Never>] = [:]
+    /// 每楼加载提示的序号：每次开始加载时递增，延迟 Task 只在序号仍相同且仍在加载时露出提示。
+    @ObservationIgnored private var loadingStatusTokens: [CommentID: Int] = [:]
     @ObservationIgnored private var continuation: CommentContinuation?
     /// root 工作集身份；楼中楼请求以它拒绝跨 subject、排序或重载的旧结果。
     @ObservationIgnored private var rootGeneration = 0
     private static let maximumRetainedRootThreads = 1_000
     private static let maximumConcurrentReplyRequests = 4
+    /// 面板里还有回复时，加载提示延迟这么久才露出：多数翻页在这之内返回，不会闪一下「回复加载中…」；
+    /// 再长就会让慢请求看起来像没有响应。
+    static let loadingStatusDelay: Duration = .milliseconds(300)
 
     public init(useCase: CommentUseCase) {
         self.useCase = useCase
@@ -114,6 +130,9 @@ public final class PlaybackCommentsViewModel: AccountRevalidationParticipant {
 
     deinit {
         for task in activeReplyTasks.values {
+            task.cancel()
+        }
+        for task in loadingStatusTasks.values {
             task.cancel()
         }
     }
@@ -173,6 +192,7 @@ public final class PlaybackCommentsViewModel: AccountRevalidationParticipant {
         cancelReplyRequest(for: rootID)
         state.isExpanded = false
         state.isLoading = false
+        state.isLoadingStatusVisible = false
         state.error = nil
         state.requestedPageNumber = nil
         state.dialog = nil
@@ -181,12 +201,18 @@ public final class PlaybackCommentsViewModel: AccountRevalidationParticipant {
 
     /// 在楼中楼面板里查看 `reply` 所在的那串对话：面板原地换成按楼层排列的对话，「返回全部回复」回到原页。
     ///
-    /// 只对这一楼里回复别人的回复（`Comment.isReplyInDialog`）生效；面板未展开、这一页正在加载或已在看对话时不切换。
+    /// 只对这一楼里回复别人的回复（`Comment.isReplyInDialog`）生效；面板未展开或已在看对话时不切换。
+    /// 翻页还在加载时，面板仍显示原页的回复与入口：这时进入对话就放弃那次翻页，返回后仍是原页。
     public func showDialog(of reply: BiliModels.Comment, for rootID: CommentID) {
-        guard var state = replyStates[rootID], state.isExpanded, !state.isLoading,
+        guard var state = replyStates[rootID], state.isExpanded,
             state.dialog == nil, reply.rootID == rootID, reply.isReplyInDialog,
             let dialogID = reply.dialogID
         else { return }
+        if state.isLoading {
+            cancelReplyRequest(for: rootID)
+            state.isLoading = false
+            state.requestedPageNumber = nil
+        }
         state.dialog = PlaybackCommentDialogState(dialogID: dialogID)
         replyStates[rootID] = state
         loadDialogPage(rootID: rootID)
@@ -207,6 +233,7 @@ public final class PlaybackCommentsViewModel: AccountRevalidationParticipant {
         guard var state = replyStates[rootID], state.dialog != nil else { return }
         cancelReplyRequest(for: rootID)
         state.dialog = nil
+        state.isLoadingStatusVisible = false
         replyStates[rootID] = state
     }
 
@@ -354,10 +381,12 @@ public final class PlaybackCommentsViewModel: AccountRevalidationParticipant {
         guard let subject, var state = replyStates[rootID], state.isExpanded,
             !state.isLoading, state.dialog == nil
         else { return }
+        let revealsStatusNow = state.replies.isEmpty || state.error != nil
         state.requestedPageNumber = page
         state.isLoading = true
         state.error = nil
         replyStates[rootID] = state
+        beginLoadingStatus(for: rootID, revealsNow: revealsStatusNow)
         enqueueReplyRequest(rootID: rootID, target: .page(page), subject: subject)
     }
 
@@ -366,10 +395,12 @@ public final class PlaybackCommentsViewModel: AccountRevalidationParticipant {
         guard let subject, var state = replyStates[rootID], state.isExpanded,
             var dialog = state.dialog, !dialog.isLoading
         else { return }
+        let revealsStatusNow = dialog.replies.isEmpty || dialog.error != nil
         dialog.isLoading = true
         dialog.error = nil
         state.dialog = dialog
         replyStates[rootID] = state
+        beginLoadingStatus(for: rootID, revealsNow: revealsStatusNow)
         enqueueReplyRequest(
             rootID: rootID,
             target: .dialog(dialog.dialogID, fromFloor: dialog.nextFloor),
@@ -393,8 +424,35 @@ public final class PlaybackCommentsViewModel: AccountRevalidationParticipant {
         startPendingReplyRequests()
     }
 
+    /// 一次加载开始时决定提示何时露出：`revealsNow` 时立即露出，否则交给延迟 Task（见 `isLoadingStatusVisible`）。
+    ///
+    /// 调用方须已把这一楼置为加载中。
+    private func beginLoadingStatus(for rootID: CommentID, revealsNow: Bool) {
+        loadingStatusTasks.removeValue(forKey: rootID)?.cancel()
+        let token = (loadingStatusTokens[rootID] ?? 0) &+ 1
+        loadingStatusTokens[rootID] = token
+        replyStates[rootID]?.isLoadingStatusVisible = revealsNow
+        guard !revealsNow else { return }
+        loadingStatusTasks[rootID] = Task { [weak self] in
+            try? await Task.sleep(for: Self.loadingStatusDelay)
+            guard !Task.isCancelled else { return }
+            self?.revealLoadingStatus(for: rootID, token: token)
+        }
+    }
+
+    private func revealLoadingStatus(for rootID: CommentID, token: Int) {
+        guard loadingStatusTokens[rootID] == token else { return }
+        loadingStatusTasks[rootID] = nil
+        guard var state = replyStates[rootID], state.isExpanded,
+            state.dialog?.isLoading ?? state.isLoading
+        else { return }
+        state.isLoadingStatusVisible = true
+        replyStates[rootID] = state
+    }
+
     /// 这一楼排队中与在途的请求都作废；在途 Task 取消，回来的结果按请求 ID 不再写回。
     private func cancelReplyRequest(for rootID: CommentID) {
+        loadingStatusTasks.removeValue(forKey: rootID)?.cancel()
         pendingReplyRequests.removeAll { $0.rootID == rootID }
         if let requestID = replyRequestIDs.removeValue(forKey: rootID) {
             activeReplyTasks[requestID]?.cancel()
@@ -500,6 +558,7 @@ public final class PlaybackCommentsViewModel: AccountRevalidationParticipant {
             current.totalCount = batch.totalCount
             current.isEnd = batch.isEnd
             current.isLoading = false
+            current.isLoadingStatusVisible = false
             current.error = nil
         case .dialog(let page):
             guard var dialog = current.dialog, dialog.dialogID == page.dialogID else { return }
@@ -510,6 +569,7 @@ public final class PlaybackCommentsViewModel: AccountRevalidationParticipant {
             dialog.isLoading = false
             dialog.error = nil
             current.dialog = dialog
+            current.isLoadingStatusVisible = false
         }
         replyStates[request.rootID] = current
     }
@@ -529,6 +589,7 @@ public final class PlaybackCommentsViewModel: AccountRevalidationParticipant {
             }
         }
         if let error { recordAuthenticationInvalidationIfNeeded(error) }
+        current.isLoadingStatusVisible = false
         switch request.target {
         case .page:
             current.isLoading = false
@@ -562,6 +623,11 @@ public final class PlaybackCommentsViewModel: AccountRevalidationParticipant {
         for task in activeReplyTasks.values {
             task.cancel()
         }
+        for task in loadingStatusTasks.values {
+            task.cancel()
+        }
+        loadingStatusTasks = [:]
+        loadingStatusTokens = [:]
         replyRequestIDs = [:]
         pendingReplyRequests = []
     }

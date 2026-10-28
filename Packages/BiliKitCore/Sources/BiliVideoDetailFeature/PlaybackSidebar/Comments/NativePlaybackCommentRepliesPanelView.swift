@@ -7,6 +7,9 @@ import BiliModels
 /// 看对话时原地换成那串对话：顶部「返回全部回复」，底部「加载更多」，回复行不再提供「查看对话」。
 ///
 /// 每次配置都按回复重建行视图（`resetRows` 先移除旧行）；回复状态与动作回调由条目传入，分页请求归 ViewModel。
+/// 同一楼原地重配时，之前没显示过的回复行淡入（见 `newlyShownReplyIDs`），展开、翻页、进出对话与加载更多因此
+/// 都有过渡；收起后显示的预览不在原页里时同样淡入。行高不做动画，变化即时完成。控制器只对可见的楼原地重配，
+/// 复用前的 `reset` 清掉记录，滚动进来的行不淡入。
 /// 属于播放侧栏的原生 item，用 AppKit 的理由见 ARCHITECTURE「原生 AppKit 集合视图」的播放侧栏一条。
 @MainActor
 final class NativePlaybackCommentRepliesPanelView: NSView {
@@ -36,6 +39,9 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
         action: nil
     )
     private var replyRows: [NativePlaybackCommentRowView] = []
+    /// 上一次配置显示的是哪一楼的哪些回复；只用来判断这次哪些行是新出现的。
+    private var shownRootID: CommentID?
+    private var shownReplyIDs: Set<CommentID> = []
     private var thread: CommentThread?
     private var replyState: PlaybackCommentReplyState?
     private var textRenderer: NativePlaybackCommentTextRenderer?
@@ -149,6 +155,8 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
             details.replyCount > 0
         else {
             isHidden = true
+            shownRootID = thread.id
+            shownReplyIDs = []
             return
         }
         isHidden = false
@@ -158,10 +166,21 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
             expanded
             ? replyState?.shownReplies ?? []
             : Array(thread.replyPreview.prefix(2))
-        // 「查看对话」只在翻页列表里、这一楼没有在加载时提供：预览与对话里不再进入另一串对话，翻页加载中点了也会被拒。
-        let offersDialog = expanded && dialog == nil && replyState?.isLoading != true
+        // 「查看对话」只在翻页列表里提供，预览与对话里不再进入另一串对话。翻页加载中原页的回复还在，入口也保留，
+        // 不随点下一页先消失；这时点它会放弃那次翻页（见 `PlaybackCommentsViewModel.showDialog`）。
+        let offersDialog = expanded && dialog == nil
+        let fadingReplyIDs = Self.newlyShownReplyIDs(
+            previousRootID: shownRootID,
+            previousReplyIDs: shownReplyIDs,
+            rootID: thread.id,
+            replyIDs: replies.map(\.id)
+        )
+        shownRootID = thread.id
+        shownReplyIDs = Set(replies.map(\.id))
         for reply in replies {
             let row = NativePlaybackCommentRowView()
+            // 面板虽是 layer-backed，子视图的图层要到上屏绘制时才建；淡入要在加入时就挂上动画，所以行自己要图层。
+            row.wantsLayer = true
             row.configure(
                 comment: reply,
                 isReply: true,
@@ -179,6 +198,9 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
             )
             addSubview(row)
             replyRows.append(row)
+            if fadingReplyIDs.contains(reply.id) {
+                NativePlaybackSidebarFade.fadeIn(row)
+            }
         }
         headerLabel.isHidden = !expanded || dialog != nil
         backButton.isHidden = dialog == nil
@@ -340,6 +362,9 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
 
     func reset() {
         resetRows()
+        // 复用后的下一次配置按首次显示处理，不淡入。
+        shownRootID = nil
+        shownReplyIDs = []
         thread = nil
         replyState = nil
         textRenderer = nil
@@ -354,6 +379,19 @@ final class NativePlaybackCommentRepliesPanelView: NSView {
         onCloseDialog = nil
         headerLabel.stringValue = ""
         statusLabel.stringValue = ""
+    }
+
+    /// 同一楼原地重配时之前没显示过的回复；换了一楼或刚复用（`previousRootID` 为 nil）时为空，不淡入。
+    ///
+    /// 只看回复身份：表情、头像到达引起的重配不换回复，不会淡入；加载更多只淡入新接上的几条。
+    nonisolated static func newlyShownReplyIDs(
+        previousRootID: CommentID?,
+        previousReplyIDs: Set<CommentID>,
+        rootID: CommentID,
+        replyIDs: [CommentID]
+    ) -> Set<CommentID> {
+        guard previousRootID == rootID else { return [] }
+        return Set(replyIDs).subtracting(previousReplyIDs)
     }
 
     private func resetRows() {

@@ -48,6 +48,8 @@ struct NativePlaybackCommentThreadPresentation: Equatable {
             hasher.combine(replyState.requestedPageNumber)
             hasher.combine(replyState.totalCount)
             hasher.combine(replyState.isLoading)
+            // 加载提示延迟露出时只有它变化；漏掉它时提示永远露不出来。
+            hasher.combine(replyState.isLoadingStatusVisible)
             hasher.combine(replyState.isEnd)
             hasher.combine(String(describing: replyState.error))
             for reply in replyState.replies { Self.hash(reply, into: &hasher) }

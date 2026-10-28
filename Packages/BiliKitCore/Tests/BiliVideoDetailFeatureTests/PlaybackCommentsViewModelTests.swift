@@ -216,6 +216,52 @@ struct PlaybackCommentsViewModelTests {
         #expect(await repository.requestedReplyPages == [1, 3, 1])
     }
 
+    /// 面板还有回复时加载提示延迟露出，期间保留页码条；面板原本为空（首次展开、进入对话）时立即露出。
+    @Test
+    @MainActor
+    func loadingStatusWaitsWhileRepliesRemainButShowsAtOnceOnAnEmptyPanel() async {
+        let rootID = CommentID(rawValue: 22)
+        let repository = CommentRepositoryStub(
+            rootPages: [endPage([thread(22)])],
+            replyTotalCount: 25,
+            heldReplyPages: [1, 2],
+            holdsDialogs: true
+        )
+        let model = PlaybackCommentsViewModel(useCase: CommentUseCase(repository: repository))
+        func footer() -> NativePlaybackCommentRepliesFooter? {
+            model.replyStates[rootID].map(NativePlaybackCommentRepliesFooter.init)
+        }
+        model.activate(subject: .video(aid: 700_001))
+        await model.waitForCurrentRootTask()
+
+        model.expandReplies(for: rootID)
+        #expect(footer() == .loading)
+        await repository.waitForReplyRequestCount(1)
+        await repository.releaseReply(at: 0)
+        await waitForObservedState { model.replyStates[rootID]?.isLoading == false }
+
+        model.showReplyPage(2, for: rootID)
+        #expect(footer() == .pager)
+        await waitForObservedState { footer() == .loading }
+        await repository.waitForReplyRequestCount(2)
+        await repository.releaseReply(at: 1)
+        await waitForObservedState { model.replyStates[rootID]?.pageNumber == 2 }
+        #expect(footer() == .pager)
+
+        model.showDialog(of: reply(2_203, root: 22, parent: 2_202, dialog: 2_201), for: rootID)
+        #expect(footer() == .loading)
+        await repository.waitForDialogRequestCount(1)
+        await repository.releaseDialogs()
+        await waitForObservedState { model.replyStates[rootID]?.dialog?.isLoading == false }
+
+        model.loadMoreDialog(for: rootID)
+        #expect(footer() == .loadMoreDialog)
+        await waitForObservedState { footer() == .loading }
+        await repository.waitForDialogRequestCount(2)
+        await repository.releaseDialogs()
+        await waitForObservedState { model.replyStates[rootID]?.dialog?.isEnd == true }
+    }
+
     @Test
     @MainActor
     func failedReplyPageCannotBeSkippedAndRetryRequestsSamePage() async throws {
@@ -433,6 +479,39 @@ struct PlaybackCommentsViewModelTests {
 
         model.closeDialog(for: rootID)
         #expect(model.replyStates[rootID]?.dialog == nil)
+        #expect(model.replyStates[rootID]?.pageNumber == 1)
+        #expect(model.replyStates[rootID]?.replies == pageReplies)
+    }
+
+    /// 翻页还在加载时进入对话：放弃那次翻页，迟到的结果不写回，返回后仍是原页。
+    @Test
+    @MainActor
+    func enteringADialogWhileAPageLoadsAbandonsThePageChange() async {
+        let rootID = CommentID(rawValue: 70)
+        let repository = CommentRepositoryStub(
+            rootPages: [endPage([thread(70)])],
+            replyTotalCount: 25,
+            heldReplyPages: [2]
+        )
+        let model = PlaybackCommentsViewModel(useCase: CommentUseCase(repository: repository))
+        model.activate(subject: .video(aid: 700_001))
+        await model.waitForCurrentRootTask()
+        model.expandReplies(for: rootID)
+        await waitForObservedState { model.replyStates[rootID]?.isLoading == false }
+        let pageReplies = model.replyStates[rootID]?.replies
+
+        model.showReplyPage(2, for: rootID)
+        await repository.waitForReplyRequestCount(2)
+        model.showDialog(of: reply(73, root: 70, parent: 72, dialog: 71), for: rootID)
+        #expect(model.replyStates[rootID]?.isLoading == false)
+        #expect(model.replyStates[rootID]?.dialog != nil)
+        // 同一楼一次只有一个请求在途：被放弃的翻页结束后对话请求才发出，对话到达时翻页结果已经回来过。
+        await repository.releaseReply(at: 1)
+        await waitForObservedState {
+            model.replyStates[rootID]?.dialog?.hasLoadedFirstPage == true
+        }
+
+        model.closeDialog(for: rootID)
         #expect(model.replyStates[rootID]?.pageNumber == 1)
         #expect(model.replyStates[rootID]?.replies == pageReplies)
     }
