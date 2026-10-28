@@ -1,4 +1,5 @@
 @preconcurrency import AVFoundation
+import CoreMedia
 
 /// 响度均一化施加 gain 的 audio mix：在 item 全部音轨的混音（`mixID`）上设音量。
 ///
@@ -16,14 +17,20 @@ enum LoudnessAudioMix {
     ///
     /// 过渡之前的部分也设为新音量：音量曲线定义在 item 时间上，往回 seek 到锚点之前仍是新 gain。代价是
     /// 往回 seek 后再次播过锚点时会重放一次这段过渡。
-    @available(macOS 27.0, *)
+    private static func mixTrackID() -> CMPersistentTrackID {
+        if #available(macOS 27.0, *) {
+            return AVAudioMixInputParametersTrackID.mixID.rawValue
+        }
+        return kCMPersistentTrackID_Invalid
+    }
+
     static func make(
         volume: Float,
         rampingFrom previousVolume: Float? = nil,
         at itemTime: CMTime = .zero
     ) -> AVAudioMix {
         let parameters = AVMutableAudioMixInputParameters()
-        parameters.trackID = AVAudioMixInputParametersTrackID.mixID.rawValue
+        parameters.trackID = mixTrackID()
         parameters.setVolume(volume, at: .zero)
         if let previousVolume, previousVolume != volume,
             itemTime.isNumeric, itemTime > .zero
