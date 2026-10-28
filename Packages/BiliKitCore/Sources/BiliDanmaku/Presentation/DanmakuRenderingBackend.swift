@@ -80,6 +80,10 @@ public protocol DanmakuRenderingBackend: AnyObject {
     func remove(eventID: String)
     func clearAll()
     func setOpacity(_ opacity: DanmakuOpacity)
+    /// 换成这一组互动弹幕卡片（空数组即全部移除）；卡片按各自的媒体时间显隐、按窗口尺寸定位，不占车道。
+    ///
+    /// 由 `DanmakuPresentationController` 在卡片、identity、弹幕开关或时间线变化时调用，内容相同时不重复调用。
+    func setCommandCards(_ cards: [DanmakuCommandCard])
     func updateSurfaceSize(
         width: Double,
         height: Double,

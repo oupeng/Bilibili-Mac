@@ -234,6 +234,7 @@ struct DanmakuTextureCompositionTests {
                 text: text,
                 fontSize: 25,
                 isHighLike: false,
+                isUploader: false,
                 colorRGB: colorRGB,
                 colorStyle: colorStyle,
                 backingScale: backingScale

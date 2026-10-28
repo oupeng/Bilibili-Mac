@@ -128,6 +128,13 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
   也就没有 seek 期间辨认 time-jump 来源的竞态。progressive 单文件没有 playlist，不续播。
 - `discontinuityGeneration` 只给 Now Playing 决定何时重新发布已播时长；观看进度与弹幕不读它。同一次 seek
   只推进一次（吞掉落点附近的重复跳变）。
+- 关心边界的消费者（观看进度、播完的处理）用 `observe`，不用 `updates()`：后者订阅时补发当前快照、只保留最新值，
+  会把已经结束的快照当成新的结束，或漏掉夹在中间的边界。seek 会把 `ended` 改成 `paused`，所以“播完后又开始
+  播放”只能按会话是否已报过 ended 判断，不能只看上一个快照；观看进度据此把重播当作新的一次观看。
+- 播完的处理（「播放结束后」）只在同一 item 刚进入 `ended` 时触发一次，由 `VideoViewModel.handlePlaybackEnded`
+  核对快照仍属于此刻呈现、也是最新请求的那一项再动作；重播与断点浮层的「从头播放」共用引擎里同一条回到开头的 seek。
+  连播的下一项由视频模型决定（`PlaybackNextItem`），跳转由 App 经窗口导航执行，与侧栏选分 P、选集同一条路：视频模型
+  不导航，否则导航层的去重、当前意图与上下文层会和真实播放对不上。
 - 弹幕时钟层（App `Platform/DanmakuTimebaseClock`，owner 是 `DanmakuOverlayView`）是普通 `CALayer`，本地时间
   跟随当前 item `timebase`，更新不经过主线程。跨文件必须守住的约束：
   - timebase 的通知由播放器内部队列在持有 MediaToolbox 锁时同步发出：回调里调用 AVPlayer／AVPlayerItem
@@ -167,6 +174,19 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
 - 计数胶囊是正文 layer 的子层，条数、胶囊宽度与显隐都写成从弹幕时间点开始的关键帧动画，由时钟层按媒体时间
   切换，不随对齐步长刷新：materializer 只按步长对齐，暂停在两次对齐之间时按步长刷新的计数会停在旧值。胶囊里的
   “×”与数字是按字号与 backing scale 缓存的白色字形图，不经纹理准备 owner、不占正文纹理的准备名额。
+- 互动弹幕（`dm/web/view`）由弹幕会话在进入视频时读一次，失败只让它缺席。UP 主弹幕按时间并入对应的已缓存分段，
+  与分段弹幕一起排车道（不参与重复合并）；它的 ID 带 `command:` 前缀，不与分段弹幕的 ID 冲突。互动弹幕通常先于
+  分段到达；晚到时含 UP 主弹幕的分段重新交一次，该段与末尾占用因此变化的后续分段重排一次车道（只在视频有 UP 主
+  弹幕时发生）。不让分段等互动弹幕，接口慢或失败时普通弹幕不被拖住。互动弹幕卡片不占车道：renderer 把它们挂在所有弹幕之上的容器层里，显隐是从卡片时间点开始的
+  关键帧动画（淡入、淡出，出现时略微放大；与顶部弹幕同一做法，由时钟层按媒体时间切换），位置按窗口尺寸换算，改窗口
+  尺寸只重新定位。用户的弹幕透明度落在三个弹幕锚点层上，不落在 `rootLayer`，所以卡片不随它变淡。
+  呈现控制器只在弹幕开着、已有本视频时间线、时钟读得到 D 时把卡片交给 renderer，换 item 时先撤下：与弹幕同一条
+  “读不到 D 时什么都不挂”，否则换视频的加载期间卡片会按旧视频停下的时刻挂上、冻在画面上。
+- 关联视频卡片是弹幕层里唯一接收点击的东西。弹幕 overlay 的 `hitTest` 只在此刻显示的关联视频卡片上返回自己，
+  “此刻显示”按 overlay 时钟的 D 与卡片的时间区间判断（与显隐动画同一个时间），不读动画的呈现值；其余位置照常
+  穿透给 AVKit。点击在应用内打开该视频，走窗口导航的 `openPlayback`，与评论里不带时间的视频链接同一条路。封面经
+  BiliDanmaku 的取图 port 由窗口的图片管线加载，到达后只换卡片的封面子层，不重画卡片图；窗口组装播放器时把
+  管线交给 renderer，因为构造窗口 adapter 时管线还不存在。
 - 大会员彩色弹幕的外观按官方贴图的结论内置，不下载分段给的贴图，官方更换贴图时不会跟随。高赞弹幕的赞图标
   同样内置（SF Symbol），与文字一起栅格化进同一张纹理，是测量与纹理缓存 key 的一部分。
 
@@ -229,6 +249,9 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
   `PlayerLoadingPolicy` 判定；暂停中 seek 与原生进度条拖动只能从 seek 调用看出，所以窗口播放器是记录在途
   seek 的 `SeekTrackingPlayer`。
 - 键盘快捷键以 content overlay 中弹幕层所在窗口为准：AVKit detached 全屏只携带 content overlay。
+- 播放器上针对当前视频的低频操作（稍后再看、分享链接）放进 AVKit 控制条自带的动作菜单（`actionPopUpButtonMenu`），
+  不在画面上另加浮动按钮：它随原生控件显隐、外观原生，全屏时 AVKit 把它收进浮动控制条的「»」→「其他」。浮动按钮要么
+  自己计时显隐、与原生控件不同步，要么读 AVKit 的私有视图层级，目前都不采用（发送弹幕的入口另议，见 ROADMAP）。
 - 播放态侧栏替换导航侧栏，不另开右侧 inspector：播放期间导航使用率低，双栏把宽度留给视频。
 
 ### 动线与侧栏上下文层
@@ -244,7 +267,8 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
   设 `isHidden`，只设 SwiftUI 透明度与 hit testing 管不到 cursor rect 和 tracking area。进出动画只作用于
   上下文层，否则底层集合视图的布局变化也会被做成动画。
 - 上下文层的打开与关闭都经 `AppNavigationCoordinator`，按“从哪里打开”判断是否关闭：在上下文层里选的视频保留
-  它，其他入口换视频或关闭播放时关闭。不比较新视频的 UP 主：联合投稿的 UP 主字段可能是另一位。
+  它，其他入口换视频或关闭播放时关闭。播完后的自动连播与列表循环不是用户从别处换视频，同样保留它。不比较新视频的
+  UP 主：联合投稿的 UP 主字段可能是另一位。
 - 简介与评论里的链接：BiliAPI 分类目标（`CommentTextLinkDetector` 识别纯文字、`BiliShortLinkResolver` 读短链
   跳转），Composition 的 `CommentLinkRouting` 是目标到 App 路由的唯一翻译处，路由只由 `Navigation/` 的
   `CommentLinkOpener` 执行；时间跳转由 Composition 的 `seekPlayback` 校验 item 仍属该视频再跳。来源与形状

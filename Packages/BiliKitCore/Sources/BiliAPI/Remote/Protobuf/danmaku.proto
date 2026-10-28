@@ -26,3 +26,20 @@ message Element {
   // Colorful style; 60001 is the VIP gradient (white fill, gradient outline).
   int32 colorful = 24;
 }
+
+// `/x/v2/dm/web/view` reply; only the interactive (command) danmaku list is read.
+message ViewReply {
+  repeated CommandElement command_elements = 9;
+}
+
+// One interactive danmaku. Field 3 (sender mid) arrives as a varint even though
+// older community schemas declare it as a string; it is not needed and not declared.
+message CommandElement {
+  int64 id = 1;
+  string command = 4;
+  string content = 5;
+  int32 progress_milliseconds = 6;
+  // JSON object whose shape depends on `command`.
+  string extra = 9;
+  string id_string = 10;
+}

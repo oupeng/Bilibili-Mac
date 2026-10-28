@@ -62,6 +62,15 @@ final class SessionPresentationSink: DanmakuPresentationSink {
         resumeSatisfiedWaiters()
     }
 
+    /// 每次收到的互动弹幕卡片，按到达顺序。
+    private(set) var commandCardDeliveries:
+        [(identity: PlaybackItemIdentity, cards: [DanmakuCommandCard])] = []
+
+    func setCommandCards(_ cards: [DanmakuCommandCard], for identity: PlaybackItemIdentity) {
+        commandCardDeliveries.append((identity, cards))
+        resumeSatisfiedWaiters()
+    }
+
     func setEnabled(_ enabled: Bool) {
         enabledChanges.append(enabled)
     }
@@ -236,10 +245,10 @@ final class SessionTimeline: PlaybackTimelineProviding {
     }
 }
 
-/// 本 target 唯一的 `DanmakuSegmentRepository` 替身；按 behavior 立即成功、失败、每段首次失败
-/// 或挂起到测试显式释放，并按 identity 记录请求与并发峰值。成功的分段带上按分段号配置的弹幕，
-/// 未配置的分段为空。
-actor StubDanmakuRepository: DanmakuSegmentRepository {
+/// 本 target 唯一的 `DanmakuSegmentRepository` 与 `DanmakuCommandRepository` 替身；分段按 behavior 立即成功、失败、
+/// 每段首次失败或挂起到测试显式释放，并按 identity 记录请求与并发峰值。成功的分段带上按分段号配置的弹幕，
+/// 未配置的分段为空；互动弹幕立即返回配置的结果（默认没有互动弹幕）。
+actor StubDanmakuRepository: DanmakuSegmentRepository, DanmakuCommandRepository {
     enum Behavior: Sendable {
         case succeed
         case fail(DanmakuApplicationError)
@@ -254,6 +263,7 @@ actor StubDanmakuRepository: DanmakuSegmentRepository {
 
     private let behavior: Behavior
     private let eventsBySegment: [Int: [DanmakuEvent]]
+    private let commandsResult: Result<DanmakuCommands, DanmakuApplicationError>
     private var requests: [Request] = []
     private var active = 0
     private var maximumActive = 0
@@ -263,9 +273,18 @@ actor StubDanmakuRepository: DanmakuSegmentRepository {
     private var requestEvents: [PlaybackItemIdentity: TestEventCounter] = [:]
     private var cancellationEvents: [PlaybackItemIdentity: TestEventCounter] = [:]
 
-    init(_ behavior: Behavior = .succeed, eventsBySegment: [Int: [DanmakuEvent]] = [:]) {
+    init(
+        _ behavior: Behavior = .succeed,
+        eventsBySegment: [Int: [DanmakuEvent]] = [:],
+        commands: Result<DanmakuCommands, DanmakuApplicationError> = .success(.empty)
+    ) {
         self.behavior = behavior
         self.eventsBySegment = eventsBySegment
+        commandsResult = commands
+    }
+
+    func commands(for identity: PlaybackItemIdentity) async throws -> DanmakuCommands {
+        try commandsResult.get()
     }
 
     func segment(

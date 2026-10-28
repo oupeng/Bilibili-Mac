@@ -8,8 +8,8 @@ import Testing
 struct PlaybackSelectionProjectionTests {
     @Test
     func noCollectionSinglePageHidesSelectionAndMultiplePagesShowOnlyPagePicker() {
-        let single = projection(context: context(pages: [page(1)]))
-        let multiple = projection(context: context(pages: [page(1), page(2)]))
+        let single = projection(context: context(pages: [makeTestPage(1)]))
+        let multiple = projection(context: context(pages: [makeTestPage(1), makeTestPage(2)]))
 
         #expect(single.isHidden)
         #expect(!single.showsEpisodePicker)
@@ -21,10 +21,10 @@ struct PlaybackSelectionProjectionTests {
 
     @Test
     func singleEpisodeCollectionUsesPickerAndShowsPagePickerOnlyForMultiplePages() {
-        let onePage = [page(1)]
-        let twoPages = [page(1), page(2)]
-        let episode = episode(ordinal: 0, bvid: "BVCurrent", pages: twoPages)
-        let collection = collection(sections: [[episode]])
+        let onePage = [makeTestPage(1)]
+        let twoPages = [makeTestPage(1), makeTestPage(2)]
+        let episode = makeTestEpisode(ordinal: 0, bvid: "BVCurrent", pages: twoPages)
+        let collection = makeTestCollection(sections: [[episode]])
 
         let single = projection(
             context: context(pages: onePage, collection: collection)
@@ -43,16 +43,16 @@ struct PlaybackSelectionProjectionTests {
 
     @Test
     func emptyRemoteSectionDoesNotBecomeAnEpisodePickerGroup() {
-        let episode = episode(
+        let episode = makeTestEpisode(
             ordinal: 0,
             bvid: "BVCurrent",
-            pages: [page(1)],
+            pages: [makeTestPage(1)],
             section: 1
         )
         let projection = projection(
             context: context(
-                pages: [page(1)],
-                collection: collection(sections: [[], [episode]])
+                pages: [makeTestPage(1)],
+                collection: makeTestCollection(sections: [[], [episode]])
             )
         )
 
@@ -65,12 +65,12 @@ struct PlaybackSelectionProjectionTests {
     func eightyEpisodesPreserveSectionsAndUnavailableOptionsRemainVisibleDisabled() {
         let sections = (0..<4).map { section in
             (0..<20).map { item in
-                episode(
+                makeTestEpisode(
                     ordinal: section * 20 + item,
                     bvid: item == 19 && section == 3
                         ? nil
                         : "BV\(section)-\(item)",
-                    pages: [page(1)],
+                    pages: [makeTestPage(1)],
                     isConsistent: !(item == 19 && section == 3),
                     section: section
                 )
@@ -78,8 +78,8 @@ struct PlaybackSelectionProjectionTests {
         }
         let projection = projection(
             context: context(
-                pages: [page(1)],
-                collection: collection(sections: sections)
+                pages: [makeTestPage(1)],
+                collection: makeTestCollection(sections: sections)
             )
         )
 
@@ -92,17 +92,17 @@ struct PlaybackSelectionProjectionTests {
 
     @Test
     func missingCurrentEpisodeAndPendingPagesNeverFabricateEpisodeOrCID() {
-        let remote = episode(
+        let remote = makeTestEpisode(
             ordinal: 0,
             bvid: "BVRemote",
             pages: nil
         )
-        let collection = collection(sections: [[remote]])
+        let collection = makeTestCollection(sections: [[remote]])
         let missing = projection(
-            context: context(pages: [page(1)], collection: collection)
+            context: context(pages: [makeTestPage(1)], collection: collection)
         )
         let pending = projection(
-            context: context(pages: [page(1)], collection: collection),
+            context: context(pages: [makeTestPage(1)], collection: collection),
             selectedEpisodeID: remote.id,
             requestedBVID: "BVRemote",
             requestedCID: 99,
@@ -122,16 +122,16 @@ struct PlaybackSelectionProjectionTests {
     @Test
     func currentEpisodePositionUsesItsSectionOrder() {
         let episodes = (0..<10).map { ordinal in
-            episode(
+            makeTestEpisode(
                 ordinal: ordinal,
                 bvid: ordinal == 4 ? "BVCurrent" : "BV\(ordinal)",
-                pages: [page(1)]
+                pages: [makeTestPage(1)]
             )
         }
         let projection = projection(
             context: context(
-                pages: [page(1)],
-                collection: collection(sections: [
+                pages: [makeTestPage(1)],
+                collection: makeTestCollection(sections: [
                     Array(episodes[0..<3]),
                     Array(episodes[3..<10])
                 ])
@@ -144,34 +144,34 @@ struct PlaybackSelectionProjectionTests {
 
     @Test
     func duplicateBVIDUsesCIDToResolveOccurrenceAndDoesNotGuessWhenAmbiguous() {
-        let first = episode(
+        let first = makeTestEpisode(
             ordinal: 0,
             bvid: "BVCurrent",
-            pages: [page(1), page(2)]
+            pages: [makeTestPage(1), makeTestPage(2)]
         )
-        let second = episode(
+        let second = makeTestEpisode(
             ordinal: 1,
             bvid: "BVCurrent",
-            pages: [page(2), page(1)]
+            pages: [makeTestPage(2), makeTestPage(1)]
         )
-        let duplicateCollection = collection(sections: [[first, second]])
+        let duplicateCollection = makeTestCollection(sections: [[first, second]])
         let resolved = projection(
             context: context(
-                pages: [page(1), page(2)],
+                pages: [makeTestPage(1), makeTestPage(2)],
                 collection: duplicateCollection
             ),
             requestedBVID: "BVCurrent",
-            requestedCID: page(2).cid
+            requestedCID: makeTestPage(2).cid
         )
-        let ambiguousEpisode = episode(
+        let ambiguousEpisode = makeTestEpisode(
             ordinal: 1,
             bvid: "BVCurrent",
-            pages: [page(1)]
+            pages: [makeTestPage(1)]
         )
         let ambiguous = projection(
             context: context(
-                pages: [page(1)],
-                collection: collection(sections: [[first, ambiguousEpisode]])
+                pages: [makeTestPage(1)],
+                collection: makeTestCollection(sections: [[first, ambiguousEpisode]])
             )
         )
 
@@ -184,20 +184,20 @@ struct PlaybackSelectionProjectionTests {
 
     @Test
     func explicitDuplicateBVIDOccurrenceAlwaysWinsOverAutomaticMatching() {
-        let first = episode(
+        let first = makeTestEpisode(
             ordinal: 0,
             bvid: "BVCurrent",
-            pages: [page(1)]
+            pages: [makeTestPage(1)]
         )
-        let second = episode(
+        let second = makeTestEpisode(
             ordinal: 1,
             bvid: "BVCurrent",
-            pages: [page(1)]
+            pages: [makeTestPage(1)]
         )
         let projection = projection(
             context: context(
-                pages: [page(1)],
-                collection: collection(sections: [[first, second]])
+                pages: [makeTestPage(1)],
+                collection: makeTestCollection(sections: [[first, second]])
             ),
             selectedEpisodeID: second.id
         )
@@ -231,61 +231,6 @@ struct PlaybackSelectionProjectionTests {
     ) -> VideoContext {
         makeVideoContext(
             detail: makeVideoDetail(durationSeconds: 10, pages: pages, collection: collection)
-        )
-    }
-
-    private func page(_ index: Int) -> VideoPage {
-        VideoPage(
-            cid: Int64(1_000 + index),
-            index: index,
-            title: "P\(index)",
-            durationSeconds: 10
-        )
-    }
-
-    private func episode(
-        ordinal: Int,
-        bvid: String?,
-        pages: [VideoPage]?,
-        isConsistent: Bool = true,
-        section: Int = 0
-    ) -> VideoCollectionEpisode {
-        VideoCollectionEpisode(
-            id: VideoCollectionEpisodeIdentity(
-                seasonID: 1,
-                sectionID: Int64(section + 10),
-                episodeID: Int64(ordinal + 100)
-            ),
-            ordinal: ordinal,
-            aid: nil,
-            bvid: bvid,
-            title: "第 \(ordinal + 1) 集",
-            coverURL: nil,
-            durationSeconds: 10,
-            defaultCID: pages?.first?.cid,
-            knownPages: pages,
-            isIdentityConsistent: isConsistent
-        )
-    }
-
-    private func collection(
-        sections: [[VideoCollectionEpisode]]
-    ) -> VideoCollection {
-        VideoCollection(
-            id: 1,
-            title: "合集",
-            reportedEpisodeCount: sections.reduce(0) { $0 + $1.count },
-            sections: sections.enumerated().map { ordinal, episodes in
-                VideoCollectionSection(
-                    id: VideoCollectionSectionIdentity(
-                        seasonID: 1,
-                        sectionID: Int64(ordinal + 10)
-                    ),
-                    ordinal: ordinal,
-                    title: "分区 \(ordinal + 1)",
-                    episodes: episodes
-                )
-            }
         )
     }
 }

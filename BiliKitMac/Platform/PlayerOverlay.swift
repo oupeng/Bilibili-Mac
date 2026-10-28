@@ -32,7 +32,7 @@ enum PlayerMomentaryRate: Float, Equatable, Sendable {
     }
 }
 
-/// 快捷键操作后在播放器顶部显示的反馈徽标内容：文字、SF Symbol 与 VoiceOver 文案。
+/// 快捷键与动作菜单操作后在播放器顶部显示的反馈徽标内容：文字、SF Symbol 与 VoiceOver 文案。
 enum PlayerShortcutFeedback: Equatable {
     case momentaryRate(PlayerMomentaryRate)
     case relativeSeek(Int)
@@ -41,10 +41,12 @@ enum PlayerShortcutFeedback: Equatable {
     case danmaku(Bool)
     case subtitles(NativeSubtitleToggleResult)
     case engagement(PlayerEngagementFeedback)
+    case action(PlayerActionFeedback)
 
     var label: String {
         switch self {
         case .engagement(let feedback): feedback.label
+        case .action(let feedback): feedback.label
         case .momentaryRate(let rate): rate.label
         case .relativeSeek(let seconds):
             seconds < 0
@@ -64,6 +66,7 @@ enum PlayerShortcutFeedback: Equatable {
     var symbolName: String {
         switch self {
         case .engagement(let feedback): feedback.symbolName
+        case .action(let feedback): feedback.symbolName
         case .momentaryRate(let rate): rate.symbolName
         case .relativeSeek(let seconds):
             seconds < 0 ? "gobackward.5" : "goforward.5"
@@ -82,6 +85,7 @@ enum PlayerShortcutFeedback: Equatable {
     var accessibilityLabel: String {
         switch self {
         case .engagement(let feedback): feedback.accessibilityLabel
+        case .action(let feedback): feedback.label
         case .momentaryRate(let rate): rate.accessibilityLabel
         case .relativeSeek(let seconds):
             seconds < 0

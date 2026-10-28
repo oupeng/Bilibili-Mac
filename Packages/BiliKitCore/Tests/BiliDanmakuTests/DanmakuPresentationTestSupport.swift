@@ -38,7 +38,8 @@ func timedEvent(
         colorRGB: 0xFFFFFF,
         colorStyle: .solid,
         weight: 1,
-        isHighLike: false
+        isHighLike: false,
+        isUploader: false
     )
 }
 
@@ -215,6 +216,13 @@ final class RecordingRenderingBackend: DanmakuRenderingBackend {
 
     func setOpacity(_ opacity: DanmakuOpacity) {}
 
+    /// 每次交来的整组互动弹幕卡片，按到达顺序。
+    private(set) var commandCardChanges: [[DanmakuCommandCard]] = []
+
+    func setCommandCards(_ cards: [DanmakuCommandCard]) {
+        commandCardChanges.append(cards)
+    }
+
     /// 与 renderer 一样：backing scale 变化时静默取消在途准备，不回调。
     func updateSurfaceSize(
         width: Double,
@@ -278,7 +286,8 @@ func longTextEvent(id: String, time: Double) -> DanmakuEvent {
         colorRGB: 0xFFFFFF,
         colorStyle: .solid,
         weight: 1,
-        isHighLike: false
+        isHighLike: false,
+        isUploader: false
     )
 }
 

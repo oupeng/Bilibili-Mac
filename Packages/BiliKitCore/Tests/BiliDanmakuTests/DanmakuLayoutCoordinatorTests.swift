@@ -60,7 +60,8 @@ struct DanmakuLayoutCoordinatorTests {
                 colorRGB: $0.colorRGB,
                 colorStyle: $0.colorStyle,
                 weight: $0.weight,
-                isHighLike: $0.isHighLike
+                isHighLike: $0.isHighLike,
+                isUploader: $0.isUploader
             )
         }
         coordinator.setParameters(parameters(width: 800))

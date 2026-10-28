@@ -261,14 +261,7 @@ struct AppShellView: View {
             commentAssetURLResolver: commentAssetURLResolver,
             commentImagePipeline: imagePipeline,
             onRetry: retryPlayback,
-            onSelectPlayback: { bvid, preferredCID in
-                navigationCoordinator.openPlayback(
-                    PlaybackSelectionIntent(
-                        bvid: bvid,
-                        preferredCID: preferredCID
-                    )
-                )
-            },
+            onSelectPlayback: navigationCoordinator.openPlayback(_:preferredCID:),
             onOpenCommentLink: { commentLinkOpener.open(commentLinkRouter($0)) },
             onOpenCommentPictures: openCommentPictures,
             onOpenUploaderSpace: { navigationCoordinator.openUploaderSpace(owner: $0) },

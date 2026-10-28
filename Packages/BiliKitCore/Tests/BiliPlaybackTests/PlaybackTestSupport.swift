@@ -278,7 +278,13 @@ final class RawLoopbackClient: Sendable {
         guard let port = NWEndpoint.Port(rawValue: UInt16(port)) else {
             throw PlaybackFixtureError.missingPort
         }
-        connection = NWConnection(host: "127.0.0.1", port: port, using: .tcp)
+        // 显式要求 127.0.0.1 的任意本地端口。默认参数下，若 listener 的 `.any` 端口恰好落在本进程
+        // 早先某条 NWConnection 用过的临时端口上，Network.framework 会给连向它的新连接沿用那条旧连接的
+        // 对端端口作本地端口，四元组撞上旧连接的 TIME_WAIT 或已有连接，connect 经 `.waiting` 报
+        // EADDRINUSE；显式指定后新连接拿到的是新的临时端口。URLSession 与独立进程的客户端不受影响。
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        connection = NWConnection(host: "127.0.0.1", port: port, using: parameters)
     }
 
     /// 等到本端 TCP 握手完成；server 尚未处理该连接也会返回。

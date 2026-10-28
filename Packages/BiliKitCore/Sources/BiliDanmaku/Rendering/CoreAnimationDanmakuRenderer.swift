@@ -8,7 +8,8 @@ import QuartzCore
 ///
 /// Core Text shaping、整行 union mask、vImage 阴影与 RGBA 合成都由有界 preparation owner
 /// 在后台完成并包成 `CGImage`。MainActor 只把它设为一个普通 `CALayer` 的 contents；用户透明度统一落在
-/// `rootLayer.opacity`，活动 layer 不启用实时 shadow。
+/// 三个锚点层的 `opacity` 上，活动 layer 不启用实时 shadow。互动弹幕卡片不随用户透明度变淡：卡片是要读的信息，
+/// 弹幕调得很淡时卡片仍要看得清。
 ///
 /// 用 Core Animation 而不用 SwiftUI：每条弹幕是一个由渲染服务器插值的 layer 动画，不需要逐帧驱动（见
 /// docs/ARCHITECTURE.md「弹幕」）。`rootLayer` 由 App 挂在跟随播放 item timebase 的时钟层下，这里的
@@ -76,6 +77,8 @@ public final class CoreAnimationDanmakuRenderer:
     private let preparationOwner: DanmakuTexturePreparationOwner
     /// 合并弹幕的计数胶囊与它的字形图缓存。
     private let countBadgeLayers = DanmakuCountBadgeLayers()
+    /// 互动弹幕卡片；容器层挂在所有弹幕之上。
+    private let commandCardLayers: DanmakuCommandCardLayers
     /// 在屏 layer 的纹理字节合计，对照 `maximumActiveTextureByteCost`；每个 layer 计一次纹理的
     /// `byteCost`，共用同一 `CGImage` 的 layer 也各计一次，Core Animation 侧的拷贝不计入。
     private(set) var activeTextureByteCost = 0
@@ -99,6 +102,10 @@ public final class CoreAnimationDanmakuRenderer:
             anchor.actions = Self.disabledActions
             rootLayer.addSublayer(anchor)
         }
+        commandCardLayers = DanmakuCommandCardLayers { seconds in
+            Self.animationBeginTime(forMediaTime: seconds, mediaZero: beginTimeAtMediaZero)
+        }
+        rootLayer.addSublayer(commandCardLayers.containerLayer)
     }
 
     public func prepare(
@@ -250,10 +257,36 @@ public final class CoreAnimationDanmakuRenderer:
         removeAllEntries()
     }
 
+    public func setCommandCards(_ cards: [DanmakuCommandCard]) {
+        commandCardLayers.setCards(
+            cards,
+            reducesMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        )
+    }
+
+    /// 关联视频卡片取封面的来源；窗口组装时设置一次，没有时卡片只显示封面占位底色。
+    public var coverImages: (any DanmakuCoverImageLoading)? {
+        get { commandCardLayers.coverImages }
+        set { commandCardLayers.coverImages = newValue }
+    }
+
+    /// 显示时间 `displayTime` 时正在显示的关联视频卡片，位置换算到 `layer` 坐标。
+    ///
+    /// 由弹幕 overlay 在主线程调用，用来只在卡片上接点击、提供辅助功能元素；`displayTime` 取 overlay 自己的
+    /// 时钟，与卡片显隐动画同一个时间。弹幕关闭或会话结束时卡片已被移除，这里返回空。
+    public func visibleLinkCards(
+        displayTime: Double,
+        in layer: CALayer
+    ) -> [DanmakuVisibleLinkCard] {
+        commandCardLayers.visibleLinkCards(displayTime: displayTime, in: layer)
+    }
+
     public func setOpacity(_ opacity: DanmakuOpacity) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        rootLayer.opacity = Float(opacity.value)
+        for anchor in [scrollingAnchor, topAnchor, bottomAnchor] {
+            anchor.opacity = Float(opacity.value)
+        }
         CATransaction.commit()
     }
 
@@ -279,17 +312,28 @@ public final class CoreAnimationDanmakuRenderer:
         scrollingAnchor.position = CGPoint(x: surfaceSize.width, y: 0)
         topAnchor.position = CGPoint(x: surfaceSize.width / 2, y: 0)
         bottomAnchor.position = CGPoint(x: surfaceSize.width / 2, y: surfaceSize.height)
+        commandCardLayers.updateSurface(size: surfaceSize, backingScale: self.backingScale)
     }
 
-    /// 会话结束：取消在途准备并清屏。
+    /// 会话结束：取消在途准备并清屏，互动弹幕卡片一并移除。
     public func stop() {
         preparationOwner.cancelAllPreparations()
         removeAllEntries()
+        commandCardLayers.setCards([], reducesMotion: false)
     }
 
-    /// 媒体时间换算成时钟层下的动画开始时间；0 写成 `beginTimeAtMediaZero`，否则会被当作「现在」。
+    /// 媒体时间换算成时钟层下的动画开始时间，弹幕与互动弹幕卡片共用。
+    ///
+    /// 0 写成 `mediaZero`（宿主注入的哨兵），否则会被当作「现在」。
+    static func animationBeginTime(
+        forMediaTime seconds: Double,
+        mediaZero: CFTimeInterval
+    ) -> CFTimeInterval {
+        seconds > 0 ? seconds : mediaZero
+    }
+
     private func animationBeginTime(forMediaTime seconds: Double) -> CFTimeInterval {
-        seconds > 0 ? seconds : beginTimeAtMediaZero
+        Self.animationBeginTime(forMediaTime: seconds, mediaZero: beginTimeAtMediaZero)
     }
 
     /// 弹幕所属的锚点层；同一事件的模式不变，layer 一直挂在同一个锚点下。

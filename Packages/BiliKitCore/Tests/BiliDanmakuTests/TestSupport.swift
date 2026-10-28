@@ -11,7 +11,8 @@ func fixtureEvent(
     mode: DanmakuPresentationMode,
     colorRGB: UInt32 = 0xFFFFFF,
     fontSize: Double = 24,
-    isHighLike: Bool = false
+    isHighLike: Bool = false,
+    isUploader: Bool = false
 ) -> DanmakuEvent {
     DanmakuEvent(
         id: id,
@@ -22,6 +23,7 @@ func fixtureEvent(
         colorRGB: colorRGB,
         colorStyle: .solid,
         weight: 1,
-        isHighLike: isHighLike
+        isHighLike: isHighLike,
+        isUploader: isUploader
     )
 }

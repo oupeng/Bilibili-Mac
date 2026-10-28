@@ -23,9 +23,9 @@ struct PlayerEngagementShortcuts {
         /// 门槛满足、页面可操作且读到了正在播放的视频的互动状态时给出 BVID 与状态，否则给出提示。
         func target() -> Target {
             guard accountWrites.isWritable else { return .blocked(.signInRequired) }
-            guard !videoModel.blocksPresentedContext,
-                let bvid = engagementModel.bvid, bvid == videoModel.presentedBVID
-            else { return .blocked(.unavailable) }
+            guard let bvid = videoModel.operableBVID, engagementModel.bvid == bvid else {
+                return .blocked(.unavailable)
+            }
             guard let state = engagementModel.engagement else {
                 engagementModel.markNeedsReload(bvid: bvid)
                 return .blocked(.unavailable)

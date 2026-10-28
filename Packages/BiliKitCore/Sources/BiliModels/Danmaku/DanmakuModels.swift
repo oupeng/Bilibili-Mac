@@ -39,6 +39,8 @@ public struct DanmakuEvent: Sendable, Hashable, Identifiable {
     public let weight: Int
     /// B 站标记的高赞弹幕（分段 `attributes` 的 bit2）；只影响外观，不参与过滤与车道优先级。
     public let isHighLike: Bool
+    /// UP 主在自己视频里从播放器发的弹幕（互动弹幕 `#UP#`）；带“UP主”标签与底色，不参与重复合并。
+    public let isUploader: Bool
 
     public init(
         id: String,
@@ -49,7 +51,8 @@ public struct DanmakuEvent: Sendable, Hashable, Identifiable {
         colorRGB: UInt32,
         colorStyle: DanmakuColorStyle,
         weight: Int,
-        isHighLike: Bool
+        isHighLike: Bool,
+        isUploader: Bool
     ) {
         self.id = id
         self.timeSeconds = timeSeconds
@@ -60,6 +63,7 @@ public struct DanmakuEvent: Sendable, Hashable, Identifiable {
         self.colorStyle = colorStyle
         self.weight = weight
         self.isHighLike = isHighLike
+        self.isUploader = isUploader
     }
 }
 

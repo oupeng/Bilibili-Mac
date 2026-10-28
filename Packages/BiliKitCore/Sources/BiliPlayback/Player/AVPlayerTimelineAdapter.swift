@@ -391,7 +391,7 @@ final class AVPlayerTimelineAdapter {
         publishRequestedPlayback(token: token)
     }
 
-    func prepareResumeRestart(operationID: UUID) {
+    func prepareRestartFromBeginning(operationID: UUID) {
         interactionTracker.markObservedAllowingInternalSeek(to: 0)
         beginPendingSeek(operationID: operationID, to: 0)
     }

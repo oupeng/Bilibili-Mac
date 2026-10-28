@@ -38,7 +38,8 @@ struct DanmakuTextureRasterizerTests {
                     colorRGB: 0xFFFFFF,
                     colorStyle: .solid,
                     weight: 1,
-                    isHighLike: false
+                    isHighLike: false,
+                    isUploader: false
                 )
             ),
             try key(baseEvent, backingScale: 1),
@@ -50,11 +51,21 @@ struct DanmakuTextureRasterizerTests {
             ),
             try key(
                 fixtureEvent(
+                    id: "key-up",
+                    mode: .top,
+                    colorRGB: 0xFFFFFF,
+                    fontSize: 25,
+                    isUploader: true
+                )
+            ),
+            try key(
+                fixtureEvent(
                     id: "key-like",
                     mode: .top,
                     colorRGB: 0xFFFFFF,
                     fontSize: 25,
-                    isHighLike: true
+                    isHighLike: true,
+                    isUploader: false
                 )
             )
         ]
@@ -76,7 +87,8 @@ struct DanmakuTextureRasterizerTests {
                 mode: .scrolling,
                 colorRGB: 0x204060,
                 fontSize: 25,
-                isHighLike: true
+                isHighLike: true,
+                isUploader: false
             ),
             DanmakuEvent(
                 id: "vip",
@@ -87,7 +99,8 @@ struct DanmakuTextureRasterizerTests {
                 colorRGB: 0x00FF00,
                 colorStyle: .vipGradient,
                 weight: 1,
-                isHighLike: true
+                isHighLike: true,
+                isUploader: false
             )
         ]
         var cache = DanmakuTextMeasurementCache()
@@ -108,7 +121,8 @@ struct DanmakuTextureRasterizerTests {
                 id: "like",
                 mode: .scrolling,
                 fontSize: fontSize,
-                isHighLike: isHighLike
+                isHighLike: isHighLike,
+                isUploader: false
             )
             let key = try #require(DanmakuTextureRasterizer.key(event: event, backingScale: 2))
             return try #require(DanmakuTextureRasterizer.rasterize(key: key))
@@ -132,7 +146,8 @@ struct DanmakuTextureRasterizerTests {
                 colorRGB: colorRGB,
                 colorStyle: style,
                 weight: 1,
-                isHighLike: false
+                isHighLike: false,
+                isUploader: false
             )
         }
         let solid = try #require(
@@ -182,6 +197,7 @@ struct DanmakuTextureRasterizerTests {
                 text: "一二三四五六七八",
                 fontSize: 25,
                 isHighLike: false,
+                isUploader: false,
                 colorRGB: 0xFFFFFF,
                 colorStyle: style,
                 backingScale: 2
@@ -267,6 +283,7 @@ struct DanmakuTextureRasterizerTests {
             text: text,
             fontSize: 25,
             isHighLike: false,
+            isUploader: false,
             colorRGB: 0xFFFFFF,
             colorStyle: .solid,
             backingScale: 2
