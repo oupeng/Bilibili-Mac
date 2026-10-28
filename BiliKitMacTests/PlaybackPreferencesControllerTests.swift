@@ -118,15 +118,23 @@ struct PlaybackPreferencesControllerTests {
             store.saveOpacity(opacity)
             store.saveDisplayArea(.threeQuarters)
             store.saveDensity(.overlapping)
+            store.saveMergesDuplicates(false)
             #expect(
                 store.load()
                     == DanmakuPreferences(
                         speedLevel: .five,
                         opacity: opacity,
                         displayArea: .threeQuarters,
-                        density: .overlapping
+                        density: .overlapping,
+                        mergesDuplicates: false
                     )
             )
+            for invalidMerging: Any in [2, "false"] {
+                defaults.set(invalidMerging, forKey: "danmaku.mergesDuplicates")
+                #expect(
+                    store.load().mergesDuplicates == DanmakuPreferences.defaults.mergesDuplicates
+                )
+            }
 
             defaults.set(2.5, forKey: "danmaku.speedLevel")
             #expect(store.load().speedLevel == .three)

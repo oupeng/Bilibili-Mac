@@ -358,10 +358,12 @@ final class WindowComposition {
             initialOpacity: preferences.opacity,
             initialDisplayArea: preferences.displayArea,
             initialDensity: preferences.density,
+            initialMergesDuplicates: preferences.mergesDuplicates,
             saveSpeedLevel: { store.saveSpeedLevel($0) },
             saveOpacity: { store.saveOpacity($0) },
             saveDisplayArea: { store.saveDisplayArea($0) },
-            saveDensity: { store.saveDensity($0) }
+            saveDensity: { store.saveDensity($0) },
+            saveMergesDuplicates: { store.saveMergesDuplicates($0) }
         )
     }
 }
