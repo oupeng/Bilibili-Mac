@@ -1373,7 +1373,7 @@
         }
       }
     },
-    "下一集：%@" : {
+    "接着播放：%@" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1390,13 +1390,13 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "下一集：%@"
+            "value" : "接着播放：%@"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "下一集：%@"
+            "value" : "接著播放：%@"
           }
         }
       }

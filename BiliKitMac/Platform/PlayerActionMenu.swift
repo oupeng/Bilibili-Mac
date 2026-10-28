@@ -74,7 +74,7 @@ enum PlayerActionFeedback: Equatable {
         case .bvidCopied: AppStrings.localized("已拷贝 BV 号")
         case .endBehavior(let behavior): behavior.title
         case .replayFailed: AppStrings.localized("无法从头重播")
-        case .advancing(let title): AppStrings.localized("下一集：\(title)")
+        case .advancing(let title): AppStrings.localized("接着播放：\(title)")
         case .nextUnavailable: AppStrings.localized("下一集无法播放")
         }
     }

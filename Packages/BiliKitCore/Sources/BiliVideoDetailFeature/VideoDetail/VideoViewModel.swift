@@ -369,12 +369,10 @@ public final class VideoViewModel: AccountRevalidationParticipant {
         behavior: PlaybackEndBehavior
     ) async -> PlaybackEndHandling {
         guard snapshot.state == .ended,
+            isPresenting(snapshot),
             case .ready(let context) = state,
             let identity = presentedPlaybackIdentity,
-            snapshot.identity == identity,
-            requestedPlaybackIdentity == identity,
-            let intent = playbackIntent,
-            snapshot.loadIntent == intent
+            let intent = playbackIntent
         else { return .none }
         let next: PlaybackNextItem?
         switch PlaybackEndPolicy.action(behavior: behavior, accessNotice: context.accessNotice) {
@@ -383,18 +381,16 @@ public final class VideoViewModel: AccountRevalidationParticipant {
         case .replay:
             next = .replay
         case .next(let wraps):
-            let episode = context.detail.collection.flatMap { collection in
-                PlaybackCollectionEpisodeResolver.resolve(
-                    episodes: collection.sections.flatMap(\.episodes),
-                    explicitlySelectedID: selectedCollectionEpisode,
-                    bvid: identity.bvid,
-                    cid: identity.cid
-                )
+            // 用户在选集菜单里另选的一集还在解析：那是用户的选择，连播不抢。
+            if let selected = selectedCollectionEpisode,
+                collectionEpisodePageStates[selected] == .loading
+            {
+                return .none
             }
             next = PlaybackNextItem.after(
                 page: context.selectedPage,
                 in: context,
-                episode: episode,
+                episode: currentCollectionEpisode(for: identity, in: context),
                 wraps: wraps
             )
         }
@@ -412,11 +408,45 @@ public final class VideoViewModel: AccountRevalidationParticipant {
         case .page(let page):
             return .advance(.page(bvid: identity.bvid, page: page))
         case .episode(let episode):
-            guard episode.isIdentityConsistent, episode.bvid?.isEmpty == false else {
-                return .nextUnavailable
-            }
+            guard episode.isPlayableSelection else { return .nextUnavailable }
             return .advance(.episode(episode))
         }
+    }
+
+    /// `snapshot` 是否仍属于此刻呈现、也是最新请求的那一项（含同一次 load）。
+    ///
+    /// 播完的处理在动作前核对；连播的下一集解析完才跳转，跳转前也经它核对，期间用户换了分 P 或视频就作废。
+    public func isPresenting(_ snapshot: PlaybackTimelineSnapshot) -> Bool {
+        guard let identity = presentedPlaybackIdentity, let intent = playbackIntent else {
+            return false
+        }
+        return snapshot.identity == identity
+            && requestedPlaybackIdentity == identity
+            && snapshot.loadIntent == intent
+    }
+
+    /// 正在播放的分 P 是合集里的哪一集；认不出时为 nil。
+    ///
+    /// 选集菜单的选择只在同一 BV 时才算数：另选的一集可能还在解析或已失败，不代表正在播放的这一集。同一 BV 的各集
+    /// 各是一个分 P 时，按 CID 认出的那一集优先：在当前视频里换分 P 不更新选择，否则会一直按进入时的那一集算，
+    /// 播完最后一个分 P 又跳回已经播过的分 P。
+    private func currentCollectionEpisode(
+        for identity: PlaybackItemIdentity,
+        in context: VideoContext
+    ) -> VideoCollectionEpisode? {
+        guard let collection = context.detail.collection else { return nil }
+        let episodes = collection.sections.flatMap(\.episodes)
+        let byCID = episodes.filter { $0.bvid == identity.bvid && $0.defaultCID == identity.cid }
+        if byCID.count == 1 { return byCID[0] }
+        let explicit = selectedCollectionEpisode.flatMap { id in
+            episodes.first(where: { $0.id == id && $0.bvid == identity.bvid })?.id
+        }
+        return PlaybackCollectionEpisodeResolver.resolve(
+            episodes: episodes,
+            explicitlySelectedID: explicit,
+            bvid: identity.bvid,
+            cid: identity.cid
+        )
     }
 
     private func loadRelatedVideos(for bvid: String) {

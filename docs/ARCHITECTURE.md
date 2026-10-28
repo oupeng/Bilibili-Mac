@@ -267,7 +267,8 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
   设 `isHidden`，只设 SwiftUI 透明度与 hit testing 管不到 cursor rect 和 tracking area。进出动画只作用于
   上下文层，否则底层集合视图的布局变化也会被做成动画。
 - 上下文层的打开与关闭都经 `AppNavigationCoordinator`，按“从哪里打开”判断是否关闭：在上下文层里选的视频保留
-  它，其他入口换视频或关闭播放时关闭。不比较新视频的 UP 主：联合投稿的 UP 主字段可能是另一位。
+  它，其他入口换视频或关闭播放时关闭。播完后的自动连播与列表循环不是用户从别处换视频，同样保留它。不比较新视频的
+  UP 主：联合投稿的 UP 主字段可能是另一位。
 - 简介与评论里的链接：BiliAPI 分类目标（`CommentTextLinkDetector` 识别纯文字、`BiliShortLinkResolver` 读短链
   跳转），Composition 的 `CommentLinkRouting` 是目标到 App 路由的唯一翻译处，路由只由 `Navigation/` 的
   `CommentLinkOpener` 执行；时间跳转由 Composition 的 `seekPlayback` 校验 item 仍属该视频再跳。来源与形状

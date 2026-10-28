@@ -234,8 +234,8 @@ final class WindowComposition {
                 },
                 canWriteAccount: { accountWrites.isWritable },
                 addToWatchLater: { bvid in accountWrites.addToWatchLater(bvid: bvid) },
-                openPlayback: { [navigationCoordinator] bvid, preferredCID in
-                    navigationCoordinator.openPlayback(bvid, preferredCID: preferredCID)
+                continuePlayback: { [navigationCoordinator] bvid, preferredCID in
+                    navigationCoordinator.continuePlayback(bvid, preferredCID: preferredCID)
                 }
             )
         )

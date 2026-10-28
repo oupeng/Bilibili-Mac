@@ -20,4 +20,12 @@ public enum PlaybackEndAdvance: Sendable, Equatable {
     case page(bvid: String, page: VideoPage)
     /// 合集里的另一集；分 P 未知时要先经 `VideoViewModel.selectCollectionEpisode` 解析。
     case episode(VideoCollectionEpisode)
+
+    /// 提示里的名字，与选集菜单同一写法。
+    public var title: String {
+        switch self {
+        case .page(_, let page): page.displayLabel
+        case .episode(let episode): episode.displayTitle
+        }
+    }
 }

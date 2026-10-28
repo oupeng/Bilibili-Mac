@@ -18,7 +18,8 @@ enum PlaybackNextItem: Equatable {
         episode currentEpisode: VideoCollectionEpisode?,
         wraps: Bool
     ) -> Self? {
-        let pages = context.pages.sorted(by: { $0.index < $1.index })
+        // `context.pages` 由 `VideoUseCase` 按序号排好。
+        let pages = context.pages
         if let next = pages.first(where: { $0.index > currentPage.index }) {
             return .page(next)
         }

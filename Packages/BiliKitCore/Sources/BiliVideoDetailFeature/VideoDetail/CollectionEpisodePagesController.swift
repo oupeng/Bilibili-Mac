@@ -331,7 +331,8 @@ final class CollectionEpisodePagesController {
 
     /// 记下这一集解析失败；它正是当前选择时调用一次 `failureHandler`。
     ///
-    /// 不清 `selectionHandler`：用户随后在选集菜单里重试成功时仍按原来的选择跳转。
+    /// 不清 `selectionHandler`：用户随后在选集菜单里重试成功时仍按原来的选择跳转。连播已经提示“下一集无法播放”
+    /// 之后，用户在选集菜单里重试这一集成功，同样会跳过去，那是用户这次重试的结果。
     private func markFailed(
         _ identity: VideoCollectionEpisodeIdentity,
         _ error: ContentApplicationError

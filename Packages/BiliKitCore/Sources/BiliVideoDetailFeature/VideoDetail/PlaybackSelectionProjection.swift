@@ -13,11 +13,7 @@ enum PlaybackCollectionEpisodeResolver {
         bvid: String,
         cid: Int64?
     ) -> VideoCollectionEpisode? {
-        let eligibleEpisodes = episodes.filter {
-            $0.isIdentityConsistent
-                && $0.bvid?.isEmpty == false
-                && $0.knownPages != []
-        }
+        let eligibleEpisodes = episodes.filter(\.isPlayableSelection)
         if let explicitlySelectedID,
             let explicit = eligibleEpisodes.first(where: {
                 $0.id == explicitlySelectedID
@@ -46,6 +42,32 @@ enum PlaybackCollectionEpisodeResolver {
             candidates[0].knownPages == nil
         else { return nil }
         return candidates[0]
+    }
+}
+
+extension VideoCollectionEpisode {
+    /// 能作为播放目标的选集：身份一致、有 BV 号、分 P 不是已知为空。
+    ///
+    /// 选集菜单是否可选、认出当前是哪一集与连播的下一集都按它判断。
+    var isPlayableSelection: Bool {
+        isIdentityConsistent && bvid?.isEmpty == false && knownPages != []
+    }
+
+    /// 选集菜单与连播提示里的标题；接口没给标题时用“无法识别的选集”。
+    var displayTitle: String {
+        title.isEmpty ? VideoDetailFeatureStrings.localized("无法识别的选集") : title
+    }
+}
+
+extension VideoPage {
+    /// 分 P 在选集菜单与连播提示里的名字：「P1 · 标题」，标题为空时只有「P1」。
+    static func displayLabel(index: Int, title: String) -> String {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (["P\(index)"] + (title.isEmpty ? [] : [title])).joined(separator: " · ")
+    }
+
+    var displayLabel: String {
+        Self.displayLabel(index: index, title: title)
     }
 }
 
@@ -139,13 +161,10 @@ public struct PlaybackSelectionProjection: Sendable, Equatable {
                         PlaybackEpisodeOption(
                             id: episode.id,
                             sectionID: section.id,
-                            title: episode.title.isEmpty
-                                ? VideoDetailFeatureStrings.localized("无法识别的选集") : episode.title,
+                            title: episode.displayTitle,
                             bvid: episode.bvid,
                             preferredCID: episode.defaultCID,
-                            isEnabled: episode.isIdentityConsistent
-                                && episode.bvid?.isEmpty == false
-                                && episode.knownPages != []
+                            isEnabled: episode.isPlayableSelection
                         )
                     }
                 )
