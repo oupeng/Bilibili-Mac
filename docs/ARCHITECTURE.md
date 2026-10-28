@@ -55,7 +55,7 @@ BiliNetworking 不依赖任何 Bili 模块
 | `Bili*Feature` | SwiftUI View 与 `@MainActor` ViewModel：Browse（推荐、热门、搜索）、Library（观看历史、稍后再看、收藏夹）、Auth（扫码登录、登出与账户投影的来源）。来源条目到卡片的网格包装在拥有该来源的 Feature | adapter target、其他 Feature、直接 import AppKit/AVKit/AVFoundation |
 | `BiliVideoDetailFeature` | 播放页与侧栏上下文层的 UP 主空间：视频与分 P 意图、续播与链接起播、评论、弹幕设置、空间投稿，以及这些页面的呈现投影与 AppKit 视图（播放侧栏、评论图片预览、相关推荐横排、空间列表）。导航给出的选择意图怎样落到当前视频、失败后由谁重试，以及播放页失败的文案与是否可重试，只在这里 | 同其他 Feature，但可 import AppKit、CoreText（评论排版）与 ImageIO（动图逐帧解码）；不依赖 AVKit/AVFoundation、网络与 adapter；下载、校验、首帧解码、动图门槛与缓存只在 App 管线 |
 | `BiliUI` | Feature 共享的 SwiftUI 呈现：卡片与网格几何、骨架、状态胶囊、页码条、失败视图与文案、登录门槛、格式化、B 站图片缩略地址、临时反馈的读屏通告（全仓唯一入口，App 的播放器浮层也用它）；自己的字符串目录。默认 `package`，App 直接使用的才 `public`；无 library product | 除 Foundation、SwiftUI、BiliApplication 外的任何模块（含 BiliModels、AppKit 与其他 Feature） |
-| `BiliVideoCollectionUI` | 网格与横排共用的 AppKit 卡片、原生网格及其状态（回顶、锚点、准备区域）、集合视图的悬停、键盘与通知观察、图片淡入、近尾分页、内容差异、卡片取图 port `NativeVideoImageLoading` 与网格从窗口拿到的依赖 `NativeVideoGridHostContext`。App 用到的为 `public`，只有 Feature 用到的为 `package` | 除 BiliUI 外的 Bili 模块（含 BiliNetworking、adapter 与 Feature）；图片下载与缓存只经 port 注入 |
+| `BiliVideoCollectionUI` | 网格与横排共用的 AppKit 卡片、原生网格及其状态（回顶、锚点、准备区域）、集合视图的悬停、键盘与通知观察、可点视频条目的悬停与按下外观（卡片与 UP 主空间投稿行共用）、图片淡入、近尾分页、内容差异、卡片取图 port `NativeVideoImageLoading` 与网格从窗口拿到的依赖 `NativeVideoGridHostContext`。App 用到的为 `public`，只有 Feature 用到的为 `package` | 除 BiliUI 外的 Bili 模块（含 BiliNetworking、adapter 与 Feature）；图片下载与缓存只经 port 注入 |
 | App `BiliKitMac` | composition root（`Composition/` 的进程级与窗口级组装）、导航协调、来源描述、复核汇总与账户写入的协调和效果路由（`Navigation/`）、AVKit 宿主、图片管线、Settings、Now Playing、Sparkle | `App/` 与 `Navigation/` 不直接 import adapter 或平台框架，`Navigation/` 只依赖 Feature、Application 与 Models；具体实现只在 `Composition/`、`Platform/`、`Settings/`；`App/` 里 import Application 或 BiliVideoCollectionUI 的文件由脚本逐个登记 |
 
 补充规则：
@@ -159,7 +159,16 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
   （`DanmakuLaneAllocator`），改策略时不要弄坏。允许叠放的密度档、跨可见边界的多车道弹幕与按全部车道计数的
   同屏上限会打破前缀稳定，所以小窗口里比直接按小窗口排的更稀；换到更大的屏幕时整张重排一次。
 - 何时对齐只看 D 是否离开上次对齐后的一个步长，不识别 seek 或拖动；步长加相邻两次检查的间隔必须短于前瞻。
-- 大会员彩色弹幕的外观按官方贴图的结论内置，不下载分段给的贴图，官方更换贴图时不会跟随。
+- 重复弹幕合并在车道布局之前、按分段进行（`DanmakuDuplicateMerger`）：同一位置、归一化后同文、组首后固定 4 秒
+  内的弹幕并成组首一条。窗口与文字宽度、窗口尺寸都无关，组成员在排车道前就确定，所以合并后的布局仍是缓存分段与
+  设置的纯函数、种子只向前传；不跨分段，分段边界附近同一句话可能出现两次。组首正文不变，车道请求按正文宽加上
+  最终条数的计数胶囊宽申请，条数增长只在预留的空间里。纹理与在屏 layer 按 ID 复用，只有组首靠并入才带上高赞
+  图标时正文纹理会变，这时换 ID，否则旧纹理会被拉伸到新宽度。
+- 计数胶囊是正文 layer 的子层，条数、胶囊宽度与显隐都写成从弹幕时间点开始的关键帧动画，由时钟层按媒体时间
+  切换，不随对齐步长刷新：materializer 只按步长对齐，暂停在两次对齐之间时按步长刷新的计数会停在旧值。胶囊里的
+  “×”与数字是按字号与 backing scale 缓存的白色字形图，不经纹理准备 owner、不占正文纹理的准备名额。
+- 大会员彩色弹幕的外观按官方贴图的结论内置，不下载分段给的贴图，官方更换贴图时不会跟随。高赞弹幕的赞图标
+  同样内置（SF Symbol），与文字一起栅格化进同一张纹理，是测量与纹理缓存 key 的一部分。
 
 ### 原生 AppKit 集合视图
 

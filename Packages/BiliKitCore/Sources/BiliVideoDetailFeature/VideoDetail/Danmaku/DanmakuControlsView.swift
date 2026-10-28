@@ -55,6 +55,10 @@ private struct DanmakuSettingsPopover: View {
 
                 Divider()
 
+                mergeSettings
+
+                Divider()
+
                 densitySettings
 
                 Divider()
@@ -184,6 +188,23 @@ private struct DanmakuSettingsPopover: View {
             }
 
             Text(VideoDetailFeatureStrings.localized("至少保留一种显示类型"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var mergeSettings: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle(
+                VideoDetailFeatureStrings.localized("合并重复弹幕"),
+                isOn: Binding(
+                    get: { model.mergesDuplicates },
+                    set: { model.setMergesDuplicates($0) }
+                )
+            )
+            .toggleStyle(.checkbox)
+
+            Text(VideoDetailFeatureStrings.localized("4 秒内内容相同的弹幕只显示一条，并在末尾标出条数"))
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

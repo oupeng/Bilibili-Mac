@@ -34,6 +34,14 @@ public enum DanmakuDensity: Int, CaseIterable, Sendable, Equatable {
     public static let `default` = Self.normal
 }
 
+/// 合并重复弹幕的偏好；布尔值持久化在播放偏好里。
+public enum DanmakuDuplicateMerging {
+    /// 未保存偏好时的唯一默认值：开启。
+    ///
+    /// 刷屏时把同文弹幕并成一条带条数，多数视频画面更干净；设置、控件与 presentation 初值都从这里读取。
+    public static let defaultIsEnabled = true
+}
+
 /// 经过校验的弹幕不透明度，只能由 `allowedRange` 内的有限值构造；持久化值越界时播放偏好回退默认。
 public struct DanmakuOpacity: Sendable, Equatable {
     /// 设置滑块的取值范围与持久化值的校验共用它；调低下限会允许几乎看不见的弹幕。
@@ -74,5 +82,7 @@ public protocol DanmakuSessionControlling: AnyObject {
     func setOpacity(_ opacity: DanmakuOpacity)
     func setDisplayArea(_ displayArea: DanmakuDisplayArea)
     func setDensity(_ density: DanmakuDensity)
+    /// 是否合并重复弹幕；变化时整张重排。
+    func setMergesDuplicates(_ merges: Bool)
     func stop()
 }

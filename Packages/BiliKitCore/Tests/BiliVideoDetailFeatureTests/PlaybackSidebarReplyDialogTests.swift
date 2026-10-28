@@ -5,8 +5,10 @@ import Testing
 
 @testable import BiliVideoDetailFeature
 
-/// 楼中楼翻页列表里回复别人的回复带「查看对话」，点按交出这条回复；看对话时顶部换成「返回全部回复」、底部「加载更多」，
-/// 回复行不再提供入口。
+/// 楼中楼的对话入口、面板状态与过渡。
+///
+/// 翻页列表里回复别人的回复带「查看对话」，点按交出这条回复；看对话时顶部换成「返回全部回复」、底部「加载更多」，
+/// 回复行不再提供入口。面板状态变化都让这一行重载，原地重配时只有新出现的回复淡入。
 @Suite(.timeLimit(.minutes(1)))
 @MainActor
 struct PlaybackSidebarReplyDialogTests: PlaybackSidebarFixtures {
@@ -65,9 +67,10 @@ struct PlaybackSidebarReplyDialogTests: PlaybackSidebarFixtures {
                 .first { !$0.isHidden && $0.title == title }
         }
 
+        // 翻页加载中原页的回复还在，入口不先消失。
         state.isLoading = true
         configure(state)
-        #expect(visibleButton(VideoDetailFeatureStrings.localized("查看对话")) == nil)
+        #expect(visibleButton(VideoDetailFeatureStrings.localized("查看对话")) != nil)
 
         state.isLoading = false
         configure(state)
@@ -99,6 +102,68 @@ struct PlaybackSidebarReplyDialogTests: PlaybackSidebarFixtures {
         #expect(visibleButton(VideoDetailFeatureStrings.localized("加载更多")) == nil)
     }
 
+    /// 同一条目原地重配时，新出现的回复行带上淡入动画；回复不变的重配与复用后的首次配置都不带。
+    @Test
+    func inPlaceReconfigureFadesInOnlyNewReplyRows() {
+        let item = NativePlaybackCommentThreadItem()
+        func configure(_ state: PlaybackCommentReplyState) -> [NativePlaybackCommentRowView] {
+            let row = NativePlaybackCommentThreadPresentation(
+                subject: .video(aid: 700_001),
+                thread: commentThread(id: 3, message: "根评论", replyCount: 2),
+                replyState: state
+            )
+            item.view.frame = NSRect(
+                x: 0,
+                y: 0,
+                width: 408,
+                height: NativePlaybackCommentsItemMeasurement.thread(row, width: 408)
+            )
+            item.configure(
+                presentation: row,
+                textRenderer: makeCommentTextRenderer(),
+                avatarLoader: makeCommentAvatarLoader(),
+                pictureLoader: makeCommentPictureLoader(),
+                onTextLayoutChange: {},
+                onExpand: {},
+                onCollapse: {},
+                onShowPage: { _ in },
+                onRetry: {},
+                onShowDialog: { _ in },
+                onLoadMoreDialog: {},
+                onCloseDialog: {},
+                onOpenLink: { _ in },
+                onOpenPictures: { _ in },
+                onOpenAuthorSpace: nil
+            )
+            item.view.layoutSubtreeIfNeeded()
+            // 第一行是根评论，其余是面板里的回复行。
+            return Array(
+                descendants(of: item.view).compactMap { $0 as? NativePlaybackCommentRowView }
+                    .dropFirst()
+            )
+        }
+        func fades(_ rows: [NativePlaybackCommentRowView]) -> [Bool] {
+            rows.map { $0.layer?.animationKeys()?.isEmpty == false }
+        }
+        let fadesAreAllowed = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        var state = PlaybackCommentReplyState()
+        state.isExpanded = true
+        state.replies = [comment(id: 31, message: "第一页")]
+        state.totalCount = 2
+
+        #expect(fades(configure(state)) == [false])
+
+        state.replies = [comment(id: 32, message: "第二页")]
+        state.pageNumber = 2
+        #expect(fades(configure(state)) == [fadesAreAllowed])
+
+        #expect(fades(configure(state)) == [false])
+
+        item.prepareForReuse()
+        state.replies = [comment(id: 33, message: "复用后")]
+        #expect(fades(configure(state)) == [false])
+    }
+
     /// 进出对话、对话加载状态变化都改变这一行的 revision，侧栏据此重载这一行。
     @Test
     func dialogStateChangesTheThreadRevision() {
@@ -124,5 +189,36 @@ struct PlaybackSidebarReplyDialogTests: PlaybackSidebarFixtures {
         let loadedDialog = revision(state)
 
         #expect(Set([pageList, loadingDialog, loadedDialog]).count == 3)
+
+        // 加载提示延迟露出时只有这个标记变化，同样要让这一行重载。
+        state.isLoading = true
+        let quietLoading = revision(state)
+        state.isLoadingStatusVisible = true
+        #expect(revision(state) != quietLoading)
+    }
+
+    /// 同一楼原地重配时只有之前没显示过的回复淡入；换了一楼或刚复用都不淡入。
+    @Test
+    func onlyNewlyShownRepliesOfTheSameThreadFadeIn() {
+        let root = CommentID(rawValue: 3)
+        let ids = (31...33).map { CommentID(rawValue: $0) }
+        func fading(
+            previousRoot: CommentID?,
+            previous: [CommentID],
+            next: [CommentID]
+        ) -> Set<CommentID> {
+            NativePlaybackCommentRepliesPanelView.newlyShownReplyIDs(
+                previousRootID: previousRoot,
+                previousReplyIDs: Set(previous),
+                rootID: root,
+                replyIDs: next
+            )
+        }
+
+        #expect(fading(previousRoot: root, previous: [ids[0], ids[1]], next: ids) == [ids[2]])
+        #expect(fading(previousRoot: root, previous: [], next: ids) == Set(ids))
+        #expect(fading(previousRoot: root, previous: ids, next: ids).isEmpty)
+        #expect(fading(previousRoot: CommentID(rawValue: 4), previous: [], next: ids).isEmpty)
+        #expect(fading(previousRoot: nil, previous: [], next: ids).isEmpty)
     }
 }

@@ -61,6 +61,25 @@ struct DanmakuControlsViewModelTests {
     }
 
     @Test
+    func duplicateMergingStartsFromThePreferenceAndOnlyChangesAreSaved() {
+        let presentation = RecordingDanmakuPresentation()
+        var saved: [Bool] = []
+        let model = DanmakuControlsViewModel(
+            presentation: presentation,
+            initialMergesDuplicates: true,
+            saveMergesDuplicates: { saved.append($0) }
+        )
+
+        model.setMergesDuplicates(true)
+        model.setMergesDuplicates(false)
+        model.setMergesDuplicates(false)
+
+        #expect(presentation.mergesDuplicatesValues == [true, false])
+        #expect(saved == [false])
+        #expect(!model.mergesDuplicates)
+    }
+
+    @Test
     func modeVisibilityAndSessionLifecycleReachPresentationPort() {
         let presentation = RecordingDanmakuPresentation()
         let model = DanmakuControlsViewModel(presentation: presentation)
@@ -101,6 +120,7 @@ private final class RecordingDanmakuPresentation:
     private(set) var opacities: [DanmakuOpacity] = []
     private(set) var displayAreas: [DanmakuDisplayArea] = []
     private(set) var densities: [DanmakuDensity] = []
+    private(set) var mergesDuplicatesValues: [Bool] = []
     private(set) var stopCount = 0
     private var authenticationInvalidationHandler: (@MainActor () -> Void)?
 
@@ -134,6 +154,10 @@ private final class RecordingDanmakuPresentation:
 
     func setDensity(_ density: DanmakuDensity) {
         densities.append(density)
+    }
+
+    func setMergesDuplicates(_ merges: Bool) {
+        mergesDuplicatesValues.append(merges)
     }
 
     func setModeVisibility(

@@ -93,14 +93,17 @@ public final class DanmakuSession: DanmakuSessionControlling {
         top: Bool,
         bottom: Bool
     ) {
-        let filter = DanmakuFilter(
-            showsScrolling: scrolling,
-            showsTop: top,
-            showsBottom: bottom
-        )
-        guard presentationFilter != filter else { return }
-        presentationFilter = filter
-        presentationSink?.setFilter(filter)
+        var filter = presentationFilter
+        filter.showsScrolling = scrolling
+        filter.showsTop = top
+        filter.showsBottom = bottom
+        applyFilter(filter)
+    }
+
+    public func setMergesDuplicates(_ merges: Bool) {
+        var filter = presentationFilter
+        filter.mergesDuplicates = merges
+        applyFilter(filter)
     }
 
     public func setSpeedLevel(_ speedLevel: DanmakuSpeedLevel) {
@@ -117,6 +120,12 @@ public final class DanmakuSession: DanmakuSessionControlling {
 
     public func setDensity(_ density: DanmakuDensity) {
         presentationSink?.setDensity(density)
+    }
+
+    private func applyFilter(_ filter: DanmakuFilter) {
+        guard presentationFilter != filter else { return }
+        presentationFilter = filter
+        presentationSink?.setFilter(filter)
     }
 
     /// 幂等结束整个会话，而不只是隐藏弹幕图层。

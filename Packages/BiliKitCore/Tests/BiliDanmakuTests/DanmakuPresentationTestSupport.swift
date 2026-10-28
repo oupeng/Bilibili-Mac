@@ -37,7 +37,8 @@ func timedEvent(
         fontSize: 25,
         colorRGB: 0xFFFFFF,
         colorStyle: .solid,
-        weight: 1
+        weight: 1,
+        isHighLike: false
     )
 }
 
@@ -276,7 +277,8 @@ func longTextEvent(id: String, time: Double) -> DanmakuEvent {
         fontSize: 25,
         colorRGB: 0xFFFFFF,
         colorStyle: .solid,
-        weight: 1
+        weight: 1,
+        isHighLike: false
     )
 }
 

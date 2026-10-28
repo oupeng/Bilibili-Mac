@@ -156,7 +156,8 @@ struct CoreAnimationDanmakuRendererTests {
             fontSize: 25,
             colorRGB: 0xFFFFFF,
             colorStyle: .solid,
-            weight: 1
+            weight: 1,
+            isHighLike: false
         )
     }
 
@@ -218,7 +219,8 @@ struct CoreAnimationDanmakuRendererTests {
             fontSize: .nan,
             colorRGB: 0xFFFFFF,
             colorStyle: .solid,
-            weight: 1
+            weight: 1,
+            isHighLike: false
         )
         let oversized = DanmakuEvent(
             id: "oversized",
@@ -228,7 +230,8 @@ struct CoreAnimationDanmakuRendererTests {
             fontSize: 36,
             colorRGB: 0xFFFFFF,
             colorStyle: .solid,
-            weight: 1
+            weight: 1,
+            isHighLike: false
         )
 
         #expect(
@@ -425,7 +428,8 @@ struct CoreAnimationDanmakuRendererTests {
                 fontSize: 36,
                 colorRGB: 0xFFFFFF,
                 colorStyle: .solid,
-                weight: 1
+                weight: 1,
+                isHighLike: false
             )
             nextPreparationID += 1
             guard
@@ -621,7 +625,8 @@ struct CoreAnimationDanmakuRendererTests {
                 event: event,
                 width: metrics.width,
                 height: metrics.height,
-                durationSeconds: 4
+                durationSeconds: 4,
+                countBadge: nil
             ),
             laneIndex: lane,
             planningWidth: 800,

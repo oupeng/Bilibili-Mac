@@ -17,7 +17,7 @@ public enum DanmakuColorStyle: Sendable, Hashable {
 /// 车道布局与渲染消费。
 ///
 /// 解码时限定 ID、时间与正文长度，正文去掉首尾空白且非空；字号只保留 18、25、36，其他按 25；
-/// `weight` 为负的弹幕在车道布局前被过滤，不显示。
+/// `weight` 为负的弹幕在车道布局前被过滤，不显示。`isHighLike` 的弹幕开头画赞图标，纹理尺寸随之变宽。
 public struct DanmakuEvent: Sendable, Hashable, Identifiable {
     /// B 站的三档字号（小、标准、大）。
     public static let supportedFontSizes: Set<Double> = [18, 25, 36]
@@ -37,6 +37,8 @@ public struct DanmakuEvent: Sendable, Hashable, Identifiable {
     public let colorRGB: UInt32
     public let colorStyle: DanmakuColorStyle
     public let weight: Int
+    /// B 站标记的高赞弹幕（分段 `attributes` 的 bit2）；只影响外观，不参与过滤与车道优先级。
+    public let isHighLike: Bool
 
     public init(
         id: String,
@@ -46,7 +48,8 @@ public struct DanmakuEvent: Sendable, Hashable, Identifiable {
         fontSize: Double,
         colorRGB: UInt32,
         colorStyle: DanmakuColorStyle,
-        weight: Int
+        weight: Int,
+        isHighLike: Bool
     ) {
         self.id = id
         self.timeSeconds = timeSeconds
@@ -56,6 +59,7 @@ public struct DanmakuEvent: Sendable, Hashable, Identifiable {
         self.colorRGB = colorRGB
         self.colorStyle = colorStyle
         self.weight = weight
+        self.isHighLike = isHighLike
     }
 }
 

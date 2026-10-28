@@ -653,93 +653,16 @@ final class NativeVideoCardView: NSView {
 
     private func updateInteractionAppearance(animated: Bool = true) {
         guard let layer else { return }
-        let showsFocusRing = (selected && showsKeyboardFocus) || isContextMenuTarget
         // 不可用卡片不画悬停与按下：它们暗示点了会有反应；键盘选中框仍画，表示焦点停在这里。
-        let isPressed = isPressed && isActivatable
-        let isHovered = isHovered && isActivatable
-        let surfaceOpacity: CGFloat = isPressed ? 0.14 : (isHovered ? 0.08 : 0)
-        let showsStroke = isHovered || showsFocusRing
-        let targetBackground = NSColor.labelColor
-            .withAlphaComponent(surfaceOpacity).cgColor(for: effectiveAppearance)
-        let targetBorder = (showsFocusRing ? NSColor.controlAccentColor : .secondaryLabelColor)
-            .cgColor(for: effectiveAppearance)
-        let targetBorderWidth: CGFloat =
-            showsStroke
-            ? (NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast ? 2 : 1)
-            : 0
-        let reducesMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        let targetTransform =
-            isPressed && !reducesMotion
-            ? CATransform3DMakeScale(0.985, 0.985, 1)
-            : CATransform3DIdentity
-        let targetOpacity: Float = isPressed ? 0.82 : 1
-        let duration = animated && !reducesMotion ? 0.12 : 0
-        let presentation = layer.presentation()
-
-        // 先关掉隐式动画把 model 值一次写到目标，再从之前取得的 presentation 值显式补动画：
-        // 悬停或按下中途反向时从当前看到的样子接着变，不会跳回起点。
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer.backgroundColor = targetBackground
-        layer.borderColor = showsStroke ? targetBorder : NSColor.clear.cgColor
-        layer.borderWidth = targetBorderWidth
-        layer.transform = targetTransform
-        layer.opacity = targetOpacity
-        CATransaction.commit()
-
-        guard duration > 0 else {
-            layer.removeAllAnimations()
-            return
-        }
-        addAnimation(
+        NativeInteractiveSurface.apply(
+            NativeInteractiveSurface.State(
+                isHovered: isHovered && isActivatable,
+                isPressed: isPressed && isActivatable,
+                showsFocusRing: (selected && showsKeyboardFocus) || isContextMenuTarget
+            ),
             to: layer,
-            keyPath: "backgroundColor",
-            from: presentation?.backgroundColor,
-            to: targetBackground,
-            duration: duration
+            appearance: effectiveAppearance,
+            animated: animated
         )
-        addAnimation(
-            to: layer,
-            keyPath: "borderColor",
-            from: presentation?.borderColor,
-            to: showsStroke ? targetBorder : NSColor.clear.cgColor,
-            duration: duration
-        )
-        addAnimation(
-            to: layer,
-            keyPath: "borderWidth",
-            from: presentation?.borderWidth,
-            to: targetBorderWidth,
-            duration: duration
-        )
-        addAnimation(
-            to: layer,
-            keyPath: "transform",
-            from: presentation?.transform,
-            to: targetTransform,
-            duration: duration
-        )
-        addAnimation(
-            to: layer,
-            keyPath: "opacity",
-            from: presentation?.opacity,
-            to: targetOpacity,
-            duration: duration
-        )
-    }
-
-    private func addAnimation(
-        to layer: CALayer,
-        keyPath: String,
-        from: Any?,
-        to: Any,
-        duration: CFTimeInterval
-    ) {
-        let animation = CABasicAnimation(keyPath: keyPath)
-        animation.fromValue = from
-        animation.toValue = to
-        animation.duration = duration
-        animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        layer.add(animation, forKey: "native-video-card.\(keyPath)")
     }
 }

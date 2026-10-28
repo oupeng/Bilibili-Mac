@@ -439,11 +439,13 @@ struct DanmakuLaneAllocatorTests {
                 fontSize: 24,
                 colorRGB: 0xFF_FF_FF,
                 colorStyle: .solid,
-                weight: 5
+                weight: 5,
+                isHighLike: false
             ),
             width: width,
             height: height,
-            durationSeconds: duration
+            durationSeconds: duration,
+            countBadge: nil
         )
     }
 }

@@ -20,6 +20,8 @@ enum DanmakuPayloadDecoder {
     private static let baseColorRGBMask: UInt32 = 0x00FF_FFFF
     /// 字段 24 `colorful` 里大会员渐变弹幕的类型号。
     private static let vipGradientColorfulType: Int32 = 60_001
+    /// 字段 13 `attributes` 的位：bit0 保护、bit1 直播、bit2 高赞；只读高赞，其余位忽略。
+    private static let highLikeAttributeMask: Int32 = 1 << 2
 
     static func events(from data: Data) throws -> [DanmakuEvent] {
         let payload: Bilikit_Danmaku_SegmentReply
@@ -69,7 +71,8 @@ enum DanmakuPayloadDecoder {
                 // 不压进 RGB。
                 colorRGB: element.colorRgb & baseColorRGBMask,
                 colorStyle: colorStyle(element.colorful),
-                weight: Int(element.weight)
+                weight: Int(element.weight),
+                isHighLike: element.attributes & highLikeAttributeMask != 0
             )
         }
     }

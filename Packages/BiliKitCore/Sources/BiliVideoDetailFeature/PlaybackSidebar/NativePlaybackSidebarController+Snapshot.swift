@@ -56,7 +56,7 @@ extension NativePlaybackSidebarController {
             snapshots.invalidate()
             updateLayoutEntries(invalidating: changedItemIDs)
             let reloadedItemIDs = changedItemIDs.subtracting(
-                reconfigureVisibleUploader(in: changedItemIDs)
+                reconfigureVisibleItemsInPlace(in: changedItemIDs)
             )
             let indexPaths = Set(
                 reloadedItemIDs.compactMap { dataSource.indexPath(for: $0) }

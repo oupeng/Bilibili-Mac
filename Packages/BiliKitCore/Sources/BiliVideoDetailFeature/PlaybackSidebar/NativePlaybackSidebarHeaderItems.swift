@@ -138,7 +138,10 @@ private final class NativePlaybackSidebarUploaderView: NSView {
         spaceButton.isHidden = onOpenSpace == nil
         let avatarChanged = self.content?.avatarURL != content.avatarURL
         if NativePlaybackUploaderProfileReveal.fades(from: self.content, to: content) {
-            NativePlaybackUploaderProfileReveal.apply(to: self)
+            NativePlaybackSidebarFade.crossfade(
+                self,
+                key: "native-playback-uploader.profile-reveal"
+            )
         }
         self.content = content
         nameLabel.stringValue = content.name
