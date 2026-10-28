@@ -61,7 +61,8 @@ struct DanmakuViewportTests {
                 event: timedEvent(id: "viewport", time: 10, mode: mode),
                 width: width,
                 height: height,
-                durationSeconds: duration
+                durationSeconds: duration,
+                countBadge: nil
             ),
             laneIndex: lane,
             planningWidth: 1_200,

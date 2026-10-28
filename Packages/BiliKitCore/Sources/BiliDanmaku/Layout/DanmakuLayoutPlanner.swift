@@ -130,27 +130,37 @@ enum DanmakuLayoutPlanner {
         let unique = events.filter(parameters.filter.allows)
             .sorted(by: DanmakuEvent.precedes)
             .filter { seenIDs.insert($0.id).inserted }
-        let ordered =
-            parameters.filter.mergesDuplicates ? DanmakuDuplicateMerger.merged(unique) : unique
+        let groups =
+            parameters.filter.mergesDuplicates
+            ? DanmakuDuplicateMerger.merged(unique)
+            : unique.map { DanmakuDuplicateGroup(event: $0, laterArrivalTimes: []) }
         var allocator = seed
         var placements: [DanmakuLanePlacement] = []
         var maximumDuration = 0.0
-        for (offset, event) in ordered.enumerated() {
+        for (offset, group) in groups.enumerated() {
             if offset % cancellationCheckInterval == 0, Task.isCancelled {
                 return nil
             }
+            let event = group.event
             guard let metrics = measure(event) else { continue }
+            let countBadge = DanmakuCountBadge(
+                laterArrivalTimes: group.laterArrivalTimes,
+                fontSize: event.fontSize
+            )
+            // 按最终条数预留胶囊宽度，滚动时长与追尾都按整条宽度算；条数在预留的空间里增长。
+            let width = metrics.width + (countBadge?.reservedWidth ?? 0)
             let duration = DanmakuMotionPolicy.duration(
                 for: event.mode,
-                textWidth: metrics.width,
+                textWidth: width,
                 planningWidth: parameters.configuration.planningWidth,
                 speedLevel: parameters.speedLevel
             )
             let request = DanmakuLaneRequest(
                 event: event,
-                width: metrics.width,
+                width: width,
                 height: metrics.height,
-                durationSeconds: duration
+                durationSeconds: duration,
+                countBadge: countBadge
             )
             if let placement = allocator.admit(request, at: event.timeSeconds) {
                 placements.append(placement)

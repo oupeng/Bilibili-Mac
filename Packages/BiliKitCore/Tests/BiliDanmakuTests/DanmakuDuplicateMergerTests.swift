@@ -4,8 +4,8 @@ import Testing
 
 @testable import BiliDanmaku
 
-/// 重复弹幕合并的契约：同一位置、归一化后同文、组首后 4 秒内的弹幕并成一条带条数，组首的时间与样式不变；
-/// 不跨分段、不跨组累计；合并弹幕换用自己的 ID；开关关闭时布局不变。
+/// 重复弹幕合并的契约：同一位置、归一化后同文、组首后 4 秒内的弹幕并成组首一条，记下后续到达时间，组首的正文、
+/// 时间与样式不变；不跨分段、不跨组累计；只靠并入才带上高赞时换用自己的 ID；开关关闭时布局不变。
 @Suite
 struct DanmakuDuplicateMergerTests {
     @Test(
@@ -46,12 +46,13 @@ struct DanmakuDuplicateMergerTests {
 
         let merged = DanmakuDuplicateMerger.merged(events)
 
-        #expect(merged.map(\.text) == ["好耶 ×3", "别的", "好耶"])
-        #expect(merged.map(\.timeSeconds) == [10, 11, 10 + window + 0.01])
-        #expect(merged[0].id != "a")
-        #expect(merged[0].isHighLike)
-        #expect(merged[1] == events[1])
-        #expect(merged[2] == events[4])
+        #expect(merged.map(\.event.text) == ["好耶", "别的", "好耶"])
+        #expect(merged.map(\.event.timeSeconds) == [10, 11, 10 + window + 0.01])
+        #expect(merged.map(\.laterArrivalTimes) == [[12, 10 + window], [], []])
+        #expect(merged[0].event.id == "a" + DanmakuDuplicateMerger.promotedHighLikeIDSuffix)
+        #expect(merged[0].event.isHighLike)
+        #expect(merged[1].event == events[1])
+        #expect(merged[2].event == events[4])
     }
 
     @Test
@@ -62,7 +63,10 @@ struct DanmakuDuplicateMergerTests {
             event("c", time: 2, text: "好耶", mode: .bottom)
         ]
 
-        #expect(DanmakuDuplicateMerger.merged(events) == events)
+        #expect(
+            DanmakuDuplicateMerger.merged(events)
+                == events.map { DanmakuDuplicateGroup(event: $0, laterArrivalTimes: []) }
+        )
     }
 
     /// 组首后同一组只吸收窗口内的弹幕；窗口外的同文另起一组，从 1 开始计，不接着上一组累计。
@@ -73,10 +77,10 @@ struct DanmakuDuplicateMergerTests {
             event("e\(offset)", time: Double(offset) * window * 0.6, text: "草")
         }
 
-        #expect(DanmakuDuplicateMerger.merged(events).map(\.text) == ["草 ×2", "草 ×2", "草 ×2"])
+        #expect(DanmakuDuplicateMerger.merged(events).map(\.laterArrivalTimes.count) == [1, 1, 1])
     }
 
-    /// 开关打开时同一段内合并、不跨分段；关闭时与原来的布局一致。
+    /// 开关打开时同一段内合并、不跨分段，整条宽度按最终条数预留胶囊；关闭时与原来的布局一致。
     @Test
     func plannerMergesWithinASegmentOnlyWhenEnabled() throws {
         let boundary = DanmakuSegmentCache.segmentDurationSeconds
@@ -91,8 +95,15 @@ struct DanmakuDuplicateMergerTests {
         let merged = try #require(layouts(segments, mergesDuplicates: true))
         let plain = try #require(layouts(segments, mergesDuplicates: false))
 
-        #expect(merged[1]?.placements.map(\.request.event.text) == ["好耶 ×2"])
-        #expect(merged[2]?.placements.map(\.request.event.text) == ["好耶"])
+        let request = try #require(merged[1]?.placements.first?.request)
+        let badge = try #require(request.countBadge)
+        #expect(merged[1]?.placements.count == 1)
+        #expect(request.event.text == "好耶")
+        #expect(badge.laterArrivalTimes == [boundary - 1])
+        let textWidth = try #require(fixtureMetrics(request.event)?.width)
+        #expect(request.width == textWidth + badge.reservedWidth)
+        #expect(abs(request.textWidth - textWidth) < 1e-9)
+        #expect(merged[2]?.placements.map(\.request.countBadge) == [nil])
         #expect(plain[1]?.placements.map(\.request.event.id) == ["a", "b"])
         #expect(plain[2]?.placements.map(\.request.event.id) == ["c"])
     }
