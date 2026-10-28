@@ -76,6 +76,8 @@ public final class CoreAnimationDanmakuRenderer:
     private let preparationOwner: DanmakuTexturePreparationOwner
     /// 合并弹幕的计数胶囊与它的字形图缓存。
     private let countBadgeLayers = DanmakuCountBadgeLayers()
+    /// 互动弹幕卡片；容器层挂在所有弹幕之上。
+    private let commandCardLayers: DanmakuCommandCardLayers
     /// 在屏 layer 的纹理字节合计，对照 `maximumActiveTextureByteCost`；每个 layer 计一次纹理的
     /// `byteCost`，共用同一 `CGImage` 的 layer 也各计一次，Core Animation 侧的拷贝不计入。
     private(set) var activeTextureByteCost = 0
@@ -99,6 +101,12 @@ public final class CoreAnimationDanmakuRenderer:
             anchor.actions = Self.disabledActions
             rootLayer.addSublayer(anchor)
         }
+        commandCardLayers = DanmakuCommandCardLayers(
+            backingScale: DanmakuTextureRasterizer.defaultBackingScale
+        ) { seconds in
+            Self.animationBeginTime(forMediaTime: seconds, mediaZero: beginTimeAtMediaZero)
+        }
+        rootLayer.addSublayer(commandCardLayers.containerLayer)
     }
 
     public func prepare(
@@ -250,6 +258,10 @@ public final class CoreAnimationDanmakuRenderer:
         removeAllEntries()
     }
 
+    public func setCommandCards(_ cards: [DanmakuCommandCard]) {
+        commandCardLayers.setCards(cards)
+    }
+
     public func setOpacity(_ opacity: DanmakuOpacity) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -279,17 +291,28 @@ public final class CoreAnimationDanmakuRenderer:
         scrollingAnchor.position = CGPoint(x: surfaceSize.width, y: 0)
         topAnchor.position = CGPoint(x: surfaceSize.width / 2, y: 0)
         bottomAnchor.position = CGPoint(x: surfaceSize.width / 2, y: surfaceSize.height)
+        commandCardLayers.updateSurface(size: surfaceSize, backingScale: self.backingScale)
     }
 
-    /// 会话结束：取消在途准备并清屏。
+    /// 会话结束：取消在途准备并清屏，互动弹幕卡片一并移除。
     public func stop() {
         preparationOwner.cancelAllPreparations()
         removeAllEntries()
+        commandCardLayers.setCards([])
     }
 
-    /// 媒体时间换算成时钟层下的动画开始时间；0 写成 `beginTimeAtMediaZero`，否则会被当作「现在」。
+    /// 媒体时间换算成时钟层下的动画开始时间，弹幕与互动弹幕卡片共用。
+    ///
+    /// 0 写成 `mediaZero`（宿主注入的哨兵），否则会被当作「现在」。
+    static func animationBeginTime(
+        forMediaTime seconds: Double,
+        mediaZero: CFTimeInterval
+    ) -> CFTimeInterval {
+        seconds > 0 ? seconds : mediaZero
+    }
+
     private func animationBeginTime(forMediaTime seconds: Double) -> CFTimeInterval {
-        seconds > 0 ? seconds : beginTimeAtMediaZero
+        Self.animationBeginTime(forMediaTime: seconds, mediaZero: beginTimeAtMediaZero)
     }
 
     /// 弹幕所属的锚点层；同一事件的模式不变，layer 一直挂在同一个锚点下。

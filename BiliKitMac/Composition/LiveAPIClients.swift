@@ -22,6 +22,7 @@ enum LiveAPIClients {
         BiliAccountReadPath.subtitleCatalog,
         BiliAccountReadPath.uploaderVideos,
         BiliAccountReadPath.danmakuSegment,
+        BiliAccountReadPath.danmakuView,
         BiliAccountReadPath.commentReplies,
         BiliAccountReadPath.commentDialog,
         BiliAccountReadPath.rootComments,

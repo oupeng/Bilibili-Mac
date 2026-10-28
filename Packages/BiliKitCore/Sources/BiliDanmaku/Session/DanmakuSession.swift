@@ -2,14 +2,17 @@ import BiliApplication
 import BiliModels
 import Foundation
 
-/// 弹幕数据、时间线订阅、分段加载与 presentation 的会话 owner。
+/// 弹幕数据、时间线订阅、分段与互动弹幕加载和 presentation 的会话 owner。
 ///
 /// 同时最多加载两个 segment；失败的 segment 在当前 identity 内不再重试（被 412 间歇风控时的一次
 /// 延迟重试在 API 客户端内完成，等待期间占用加载名额）。generation 阻止切视频或 stop 后的迟到结果
 /// 写回。`stop` 必须取消所有任务（含等待中的重试）并清空分段缓存与 presentation。
 ///
-/// 拥有时间线订阅 Task、各分段的加载 Task 与分段缓存，取消点是 `stop`（换视频时由 `start` 先调用）与
-/// `deinit`；`stop` 先停止 presentation，再递增 generation、取消任务、清空缓存。只弱引用
+/// 拥有时间线订阅 Task、各分段的加载 Task、互动弹幕的加载 Task、分段缓存与互动弹幕，取消点是 `stop`（换视频时由
+/// `start` 先调用）与 `deinit`；`stop` 先停止 presentation，再递增 generation、取消任务、清空缓存。
+///
+/// 互动弹幕在 `start` 时读一次，失败不重试、只让互动弹幕缺席。其中的 UP 主弹幕按时间并入对应分段再交给呈现端，
+/// 与分段弹幕一起排车道；卡片单独交给呈现端。只弱引用
 /// presentation sink：呈现控制器由 App 的窗口组装持有。
 ///
 /// 会话只负责数据：每个快照原样交给呈现端，分段到达或被淘汰时把整份缓存交给呈现端；哪些弹幕在屏上
@@ -24,6 +27,7 @@ public final class DanmakuSession: DanmakuSessionControlling {
     private static let maximumConcurrentSegmentLoads = 2
 
     private let useCase: DanmakuSegmentUseCase
+    private let commandUseCase: DanmakuCommandUseCase
     private let timeline: any PlaybackTimelineProviding
     /// 弱引用：呈现控制器由 App 的窗口组装持有，会话不延长它的生命周期。
     private weak var presentationSink: (any DanmakuPresentationSink)?
@@ -41,21 +45,28 @@ public final class DanmakuSession: DanmakuSessionControlling {
     private var loadTasks: [Int: Task<Void, Never>] = [:]
     /// 当前 identity 内失败过的分段，不再请求；`stop` 时清空。
     private var failedSegmentIndices: Set<Int> = []
+    /// 当前 identity 的互动弹幕；读到之前与 `stop` 后为空。
+    private var commands = DanmakuCommands.empty
+    /// 读取互动弹幕的 Task；完成时自己置空，`stop` 与 `deinit` 时取消。
+    private var commandTask: Task<Void, Never>?
     /// 同一会话只报告一次需要复核账户，`stop` 时重置。
     private var authenticationInvalidationReported = false
 
     public init(
         useCase: DanmakuSegmentUseCase,
+        commandUseCase: DanmakuCommandUseCase,
         timeline: any PlaybackTimelineProviding,
         presentationSink: (any DanmakuPresentationSink)? = nil
     ) {
         self.useCase = useCase
+        self.commandUseCase = commandUseCase
         self.timeline = timeline
         self.presentationSink = presentationSink
     }
 
     deinit {
         timelineTask?.cancel()
+        commandTask?.cancel()
         for task in loadTasks.values {
             task.cancel()
         }
@@ -67,6 +78,7 @@ public final class DanmakuSession: DanmakuSessionControlling {
         generation &+= 1
         self.identity = identity
         segmentCache.begin(for: identity)
+        loadCommands(identity: identity, generation: generation)
         let updates = timeline.timelineUpdates()
         timelineTask = Task { [weak self] in
             for await snapshot in updates {
@@ -134,6 +146,9 @@ public final class DanmakuSession: DanmakuSessionControlling {
         generation &+= 1
         timelineTask?.cancel()
         timelineTask = nil
+        commandTask?.cancel()
+        commandTask = nil
+        commands = .empty
         for task in loadTasks.values {
             task.cancel()
         }
@@ -196,7 +211,7 @@ public final class DanmakuSession: DanmakuSessionControlling {
                     for: identity,
                     displayTime: self.presentationSink?.displayTime()
                 ) {
-                    self.presentationSink?.setSegments(self.segmentCache.segments, for: identity)
+                    self.presentationSink?.setSegments(self.presentationSegments(), for: identity)
                 }
                 self.requestRemainingSegments()
             } catch is CancellationError {
@@ -212,13 +227,55 @@ public final class DanmakuSession: DanmakuSessionControlling {
                 self.loadTasks[index] = nil
                 self.failedSegmentIndices.insert(index)
                 self.requestRemainingSegments()
-                if (error as? DanmakuApplicationError)?.requiresAccountRevalidation == true,
-                    !self.authenticationInvalidationReported
-                {
-                    self.authenticationInvalidationReported = true
-                    self.authenticationInvalidationHandler()
-                }
+                self.reportAuthenticationInvalidationIfNeeded(error)
             }
         }
+    }
+
+    private func reportAuthenticationInvalidationIfNeeded(_ error: any Error) {
+        guard (error as? DanmakuApplicationError)?.requiresAccountRevalidation == true,
+            !authenticationInvalidationReported
+        else { return }
+        authenticationInvalidationReported = true
+        authenticationInvalidationHandler()
+    }
+
+    /// 读一次互动弹幕：卡片交给呈现端；有 UP 主弹幕且已有分段时，把并入后的分段重新交一次。
+    private func loadCommands(identity: PlaybackItemIdentity, generation requestGeneration: Int) {
+        commandTask = Task { [weak self, commandUseCase] in
+            do {
+                let commands = try await commandUseCase.commands(for: identity)
+                try Task.checkCancellation()
+                guard let self,
+                    self.generation == requestGeneration,
+                    self.identity == identity
+                else { return }
+                self.commandTask = nil
+                self.commands = commands
+                self.presentationSink?.setCommandCards(commands.cards, for: identity)
+                if !commands.uploaderEvents.isEmpty, !self.segmentCache.segments.isEmpty {
+                    self.presentationSink?.setSegments(self.presentationSegments(), for: identity)
+                }
+            } catch {
+                guard let self, self.generation == requestGeneration else { return }
+                self.commandTask = nil
+                self.reportAuthenticationInvalidationIfNeeded(error)
+            }
+        }
+    }
+
+    /// 交给呈现端的分段：缓存的分段，各自并入时间落在本段的 UP 主弹幕（第 i 段覆盖 [(i − 1)·360, i·360) 秒）。
+    ///
+    /// 只并入已缓存的分段，所以分段淘汰与车道布局的种子规则不变；UP 主弹幕的 ID 带前缀，不与分段弹幕冲突。
+    private func presentationSegments() -> [Int: [DanmakuEvent]] {
+        let segments = segmentCache.segments
+        guard !commands.uploaderEvents.isEmpty else { return segments }
+        let duration = DanmakuSegmentCache.segmentDurationSeconds
+        var result = segments
+        for event in commands.uploaderEvents {
+            let index = Int(event.timeSeconds / duration) + 1
+            result[index]?.append(event)
+        }
+        return result
     }
 }

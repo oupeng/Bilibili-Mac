@@ -13,6 +13,7 @@ struct LocalizationCatalogTests {
         let featureBundleNames = [
             "BiliKitCore_BiliAuthFeature",
             "BiliKitCore_BiliBrowseFeature",
+            "BiliKitCore_BiliDanmaku",
             "BiliKitCore_BiliLibraryFeature",
             "BiliKitCore_BiliUI",
             "BiliKitCore_BiliVideoDetailFeature"

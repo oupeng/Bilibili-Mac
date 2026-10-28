@@ -72,7 +72,8 @@ enum DanmakuPayloadDecoder {
                 colorRGB: element.colorRgb & baseColorRGBMask,
                 colorStyle: colorStyle(element.colorful),
                 weight: Int(element.weight),
-                isHighLike: element.attributes & highLikeAttributeMask != 0
+                isHighLike: element.attributes & highLikeAttributeMask != 0,
+                isUploader: false
             )
         }
     }

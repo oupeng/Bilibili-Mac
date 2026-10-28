@@ -30,6 +30,7 @@ struct DanmakuSessionTests {
         let timeline = SessionTimeline()
         let session = DanmakuSession(
             useCase: DanmakuSegmentUseCase(repository: repository),
+            commandUseCase: DanmakuCommandUseCase(repository: repository),
             timeline: timeline
         )
 
@@ -57,6 +58,7 @@ struct DanmakuSessionTests {
         let timeline = SessionTimeline()
         let session = DanmakuSession(
             useCase: DanmakuSegmentUseCase(repository: repository),
+            commandUseCase: DanmakuCommandUseCase(repository: repository),
             timeline: timeline
         )
 
@@ -332,6 +334,7 @@ struct DanmakuSessionTests {
         let sink = SessionPresentationSink()
         let session = DanmakuSession(
             useCase: DanmakuSegmentUseCase(repository: repository),
+            commandUseCase: DanmakuCommandUseCase(repository: repository),
             timeline: timeline,
             presentationSink: sink
         )
@@ -379,6 +382,7 @@ struct DanmakuSessionTests {
         let sink = SessionPresentationSink()
         let session = DanmakuSession(
             useCase: DanmakuSegmentUseCase(repository: repository),
+            commandUseCase: DanmakuCommandUseCase(repository: repository),
             timeline: timeline,
             presentationSink: sink
         )

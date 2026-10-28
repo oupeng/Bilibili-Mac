@@ -55,7 +55,8 @@ let package = Package(
         ),
         .target(
             name: "BiliDanmaku",
-            dependencies: ["BiliApplication", "BiliModels"]
+            dependencies: ["BiliApplication", "BiliModels"],
+            resources: [.process("Resources")]
         ),
         .target(
             name: "BiliBrowseFeature",

@@ -255,7 +255,8 @@ struct PlayerHostViewIdentityTests {
             colorRGB: 0xFFFFFF,
             colorStyle: .solid,
             weight: 1,
-            isHighLike: false
+            isHighLike: false,
+            isUploader: false
         )
     }
 
@@ -330,6 +331,7 @@ private final class InstallSignalingBackend: DanmakuRenderingBackend {
     func remove(eventID: String) { renderer.remove(eventID: eventID) }
     func clearAll() { renderer.clearAll() }
     func setOpacity(_ opacity: DanmakuOpacity) { renderer.setOpacity(opacity) }
+    func setCommandCards(_ cards: [DanmakuCommandCard]) { renderer.setCommandCards(cards) }
     func updateSurfaceSize(width: Double, height: Double, backingScale: Double) {
         renderer.updateSurfaceSize(width: width, height: height, backingScale: backingScale)
     }

@@ -180,7 +180,8 @@ Sparkle 更新网络，以及任何 redirect 后的主机。只认精确主机�
 | 评论与简介短链 | 只认 `https://b23.tv/{1–16 位 ASCII 字母数字}`，请求时去掉 query 与 fragment；其他短链域名按评论外链处理 | 仅用户点击后发一次无凭据 `HEAD`（拒绝 redirect、短超时、不读正文），只读一次 3xx 的绝对或协议相对 `Location`，目标按评论外链同一规则分类；目标仍在 b23.tv（不论形状）、不是跳转或失败时，把原短链交给系统浏览器，不连续跟随；同一窗口同时只解析一个，新点击、换视频或关窗取消，关窗时释放 session；不记录短码与目标地址 |
 
 - 弹幕分段与评论页须通过状态、Content-Type 与 2 MiB 上限，再交给解码器；JSON、protobuf、HTML 错误页和
-  空响应不能互相降级解析。未知接口状态失败关闭。
+  空响应不能互相降级解析。未知接口状态失败关闭。互动弹幕（`dm/web/view`）走同一套 protobuf 校验，上限 512 KiB；
+  其中的 JSON `extra` 逐条限长解析，不合规只跳过这一条，里面的远端图片与跳转地址一律不读。
 - 所有远端图片（含侧栏账号头像）都经图片管线加载，不用 `AsyncImage` 等走系统共享 session、URL cache 或跟随
   redirect 的加载方式。
 - 图片管线（`NativeVideoImagePipeline`）：无凭据 session，响应必须 2xx、HTTPS、同主机、`image/*`、

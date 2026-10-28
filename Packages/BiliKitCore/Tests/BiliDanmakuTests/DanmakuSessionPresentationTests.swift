@@ -92,6 +92,54 @@ struct DanmakuSessionPresentationTests {
         session.stop()
     }
 
+    /// 互动弹幕在 `start` 时读一次：卡片交给呈现端，UP 主弹幕并入时间所在的分段。
+    @Test
+    func commandsDeliverCardsAndFoldUploaderDanmakuIntoItsSegment() async throws {
+        let identity = PlaybackItemIdentity(bvid: "BV1CommandSession", cid: 6)
+        let uploader = DanmakuEvent(
+            id: "command:up",
+            timeSeconds: 370,
+            mode: .scrolling,
+            text: "UP 主说",
+            fontSize: 25,
+            colorRGB: 0xFFFFFF,
+            colorStyle: .solid,
+            weight: 1,
+            isHighLike: false,
+            isUploader: true
+        )
+        let card = DanmakuCommandCard(
+            id: "command:grade",
+            timeSeconds: 10,
+            durationSeconds: 5,
+            position: DanmakuCardPosition(x: 0.5, y: 0.65),
+            content: .grade(
+                DanmakuGradeCard(title: "评分", averageScore: 9, participantCount: 1, myScore: nil)
+            )
+        )
+        let repository = StubDanmakuRepository(
+            eventsBySegment: [2: [timedEvent(id: "current", time: 380)]],
+            commands: DanmakuCommands(uploaderEvents: [uploader], cards: [card])
+        )
+        let (session, timeline, sink) = makeSession(repository: repository)
+
+        session.start(for: identity)
+        timeline.publish(
+            snapshot(identity: identity, position: 365, generation: 1, rate: 0, state: .paused)
+        )
+        try await sink.waitForUpdates { [unowned sink] in
+            let segment = sink.segmentDeliveries.last?.segments[2] ?? []
+            return !sink.commandCardDeliveries.isEmpty && segment.contains { $0.id == uploader.id }
+        }
+
+        #expect(sink.commandCardDeliveries.map(\.cards) == [[card]])
+        #expect(sink.commandCardDeliveries.allSatisfy { $0.identity == identity })
+        let delivered = try #require(sink.segmentDeliveries.last?.segments)
+        #expect(delivered[2]?.map(\.id).sorted() == ["command:up", "current"])
+        #expect(delivered[1]?.contains { $0.isUploader } == false)
+        session.stop()
+    }
+
     private func makeSession(
         repository: StubDanmakuRepository
     ) -> (DanmakuSession, SessionTimeline, SessionPresentationSink) {
@@ -99,6 +147,7 @@ struct DanmakuSessionPresentationTests {
         let sink = SessionPresentationSink()
         let session = DanmakuSession(
             useCase: DanmakuSegmentUseCase(repository: repository),
+            commandUseCase: DanmakuCommandUseCase(repository: repository),
             timeline: timeline,
             presentationSink: sink
         )

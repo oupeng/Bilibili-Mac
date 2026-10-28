@@ -3,13 +3,15 @@ import BiliModels
 import CoreText
 import Foundation
 
-/// 决定弹幕纹理尺寸的输入：文字、归一化字号、是否带高赞图标与 backing scale；颜色与描边样式不影响排版，不在其中。
+/// 决定弹幕纹理尺寸的输入：文字、归一化字号、是否带高赞图标、是否是 UP 主弹幕与 backing scale；颜色与描边样式不影响
+/// 排版，不在其中。
 ///
 /// 由 `DanmakuTextureRasterizer.measureKey` 归一化后生成；纹理缓存 key 在它之上再加颜色。
 struct DanmakuTextMeasureKey: Hashable, Sendable {
     let text: String
     let fontSize: Double
     let isHighLike: Bool
+    let isUploader: Bool
     let backingScale: Double
 }
 
@@ -19,6 +21,8 @@ struct DanmakuTextMeasureKey: Hashable, Sendable {
 /// 速度与追尾判断不会因两边各算一份而漂移。
 struct DanmakuTextLineLayout {
     let line: CTLine
+    /// UP 主弹幕的黑底与标签；普通弹幕为 nil。
+    let uploaderStyle: DanmakuUploaderStyle?
     /// 高赞弹幕开头的图标，画在文字左侧；没有时文字从留白处开始。
     let highLikeIcon: DanmakuHighLikeIcon?
     /// 基线以下的 point 深度，取文字与图标的较大者。
@@ -51,6 +55,7 @@ extension DanmakuTextureRasterizer {
             text: event.text,
             fontSize: DanmakuEvent.normalizedFontSize(event.fontSize),
             isHighLike: event.isHighLike,
+            isUploader: event.isUploader,
             backingScale: backingScale
         )
     }
@@ -94,6 +99,10 @@ extension DanmakuTextureRasterizer {
         var width = CGFloat(
             CTLineGetTypographicBounds(line, &ascent, &descent, &leading)
         )
+        let uploaderStyle = key.isUploader ? DanmakuUploaderStyle(fontSize: key.fontSize) : nil
+        if let uploaderStyle {
+            width += uploaderStyle.leadingWidth + uploaderStyle.trailingWidth
+        }
         let highLikeIcon =
             key.isHighLike ? DanmakuHighLikeIcon.icon(forFontSize: key.fontSize) : nil
         if let highLikeIcon {
@@ -134,6 +143,7 @@ extension DanmakuTextureRasterizer {
         }
         return DanmakuTextLineLayout(
             line: line,
+            uploaderStyle: uploaderStyle,
             highLikeIcon: highLikeIcon,
             descent: descent,
             widthPixels: widthPixels,

@@ -157,7 +157,8 @@ struct CoreAnimationDanmakuRendererTests {
             colorRGB: 0xFFFFFF,
             colorStyle: .solid,
             weight: 1,
-            isHighLike: false
+            isHighLike: false,
+            isUploader: false
         )
     }
 
@@ -220,7 +221,8 @@ struct CoreAnimationDanmakuRendererTests {
             colorRGB: 0xFFFFFF,
             colorStyle: .solid,
             weight: 1,
-            isHighLike: false
+            isHighLike: false,
+            isUploader: false
         )
         let oversized = DanmakuEvent(
             id: "oversized",
@@ -231,7 +233,8 @@ struct CoreAnimationDanmakuRendererTests {
             colorRGB: 0xFFFFFF,
             colorStyle: .solid,
             weight: 1,
-            isHighLike: false
+            isHighLike: false,
+            isUploader: false
         )
 
         #expect(
@@ -429,7 +432,8 @@ struct CoreAnimationDanmakuRendererTests {
                 colorRGB: 0xFFFFFF,
                 colorStyle: .solid,
                 weight: 1,
-                isHighLike: false
+                isHighLike: false,
+                isUploader: false
             )
             nextPreparationID += 1
             guard
@@ -522,7 +526,7 @@ struct CoreAnimationDanmakuRendererTests {
         #expect(abs(frame(bottom).maxY - (480 - laneHeight)) < 0.001)
     }
 
-    /// 挂上、移除、子层与几何变化不带隐式过渡：弹幕 layer、锚点层与 rootLayer 都禁用这些动作。
+    /// 挂上、移除、子层与几何变化不带隐式过渡：弹幕 layer、三个锚点层、互动弹幕卡片容器与 rootLayer 都禁用这些动作。
     @Test
     func renderedLayersAndRootDisableImplicitOrderingActions() async throws {
         let renderer = makeRenderer()
@@ -534,7 +538,7 @@ struct CoreAnimationDanmakuRendererTests {
         )
         let layer = try #require(danmakuLayers(renderer).first)
         let anchors = renderer.rootLayer.sublayers ?? []
-        #expect(anchors.count == 3)
+        #expect(anchors.count == 4)
 
         for key in [
             "onOrderIn", "onOrderOut", "sublayers", "position", "bounds", "opacity"
@@ -545,7 +549,7 @@ struct CoreAnimationDanmakuRendererTests {
         }
     }
 
-    /// 挂在三个锚点层下的全部弹幕 layer：滚动、顶部、底部依次，各自按挂上的先后。
+    /// 挂在三个锚点层下的全部弹幕 layer：滚动、顶部、底部依次，各自按挂上的先后；卡片容器没有卡片时不贡献 layer。
     private func danmakuLayers(_ renderer: CoreAnimationDanmakuRenderer) -> [CALayer] {
         (renderer.rootLayer.sublayers ?? []).flatMap { $0.sublayers ?? [] }
     }

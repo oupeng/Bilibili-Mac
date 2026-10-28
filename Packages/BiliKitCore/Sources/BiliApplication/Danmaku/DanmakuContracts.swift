@@ -61,3 +61,27 @@ public struct DanmakuSegmentUseCase: Sendable {
         return segment
     }
 }
+
+/// 互动弹幕读取 port，实现是 BiliAPI 的 `BiliDanmakuRepository`，只经 `DanmakuCommandUseCase` 调用。
+///
+/// 一个视频读一次；失败抛出 `DanmakuApplicationError`，调用方只让互动弹幕缺席，不影响分段弹幕。取消原样传播为
+/// `CancellationError`。
+public protocol DanmakuCommandRepository: Sendable {
+    func commands(for identity: PlaybackItemIdentity) async throws -> DanmakuCommands
+}
+
+/// 验证互动弹幕请求的 identity 后交给 adapter。
+public struct DanmakuCommandUseCase: Sendable {
+    private let repository: any DanmakuCommandRepository
+
+    public init(repository: any DanmakuCommandRepository) {
+        self.repository = repository
+    }
+
+    public func commands(for identity: PlaybackItemIdentity) async throws -> DanmakuCommands {
+        guard !identity.bvid.isEmpty, identity.cid > 0 else {
+            throw DanmakuApplicationError.invalidRequest
+        }
+        return try await repository.commands(for: identity)
+    }
+}
