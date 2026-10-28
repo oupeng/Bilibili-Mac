@@ -58,6 +58,8 @@ enum PlayerActionFeedback: Equatable {
     case bvidCopied
     /// 选了「播放结束后」的一项，或播完时按它动作了（例如单集循环从头再播）。
     case endBehavior(PlaybackEndBehavior)
+    /// 单集循环要从头再播，但播放器没能回到开头、仍停在结尾。
+    case replayFailed
 
     var label: String {
         switch self {
@@ -67,6 +69,7 @@ enum PlayerActionFeedback: Equatable {
         case .linkCopied: AppStrings.localized("已拷贝链接")
         case .bvidCopied: AppStrings.localized("已拷贝 BV 号")
         case .endBehavior(let behavior): behavior.title
+        case .replayFailed: AppStrings.localized("无法从头重播")
         }
     }
 
@@ -78,6 +81,7 @@ enum PlayerActionFeedback: Equatable {
         case .linkCopied: "link"
         case .bvidCopied: "doc.on.doc"
         case .endBehavior(let behavior): behavior.symbolName
+        case .replayFailed: "exclamationmark.circle"
         }
     }
 }
@@ -103,10 +107,11 @@ extension PlaybackEndBehavior {
 /// 单选。
 ///
 /// 用 AppKit：菜单由 AVKit 的原生控制条弹出，只接受 `NSMenu`。窗口下在控制条的动作菜单按钮里；全屏下 AVKit 把它收进
-/// 浮动控制条的「»」→「其他」子菜单。由 `NativePlayerHostView` 持有；菜单项只在创建时建一次，之后只原地改可用状态，
+/// 浮动控制条的「»」→「其他」子菜单。由 `NativePlayerHostView` 持有；菜单项只在创建时建一次，之后只原地改可用状态与勾选，
 /// 菜单打开期间宿主更新也不会删掉用户正指着的项。宿主在创建与每次更新时经 `update` 换上意图并刷新可用状态，窗口下菜单
 /// 每次打开时（`menuNeedsUpdate`）再刷新一次；全屏时 AVKit 不保证调用它，可用状态可能停在上次刷新时，所以执行时再核对，
-/// 已没有可操作的视频就提示，不对旧视频动作。打开网页只经 SwiftUI 的 `OpenURLAction`，地址只由合法 BVID 拼出，
+/// 已没有可操作的视频就提示，不对旧视频动作。「播放结束后」是设备级偏好：另一个窗口改了它，全屏中的这个菜单在下次刷新前
+/// 可能还勾着旧值，播完时的处理总是读当下的值。打开网页只经 SwiftUI 的 `OpenURLAction`，地址只由合法 BVID 拼出，
 /// 见 SECURITY-MODEL §4。不持有 Task。
 @MainActor
 final class PlayerActionMenuController: NSObject, NSMenuDelegate {

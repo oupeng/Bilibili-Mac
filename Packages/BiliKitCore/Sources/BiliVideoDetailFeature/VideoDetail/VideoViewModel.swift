@@ -355,7 +355,7 @@ public final class VideoViewModel: AccountRevalidationParticipant {
         }
     }
 
-    /// 当前 item 播完时按偏好处理（`PlaybackEndPolicy`），返回是否已从头重播。
+    /// 当前 item 播完时按偏好处理（`PlaybackEndPolicy`），返回做了什么。
     ///
     /// 由 App 的播放结束观察者在时间线刚进入 `ended` 时调用一次。`snapshot` 必须属于此刻呈现、也是最新请求的那一项，
     /// 且页面已就绪；用户刚另选了分 P 或视频、旧 item 的结束才到时不动作。重播成功后断点浮层随之收起：它说的“上次看到”
@@ -363,7 +363,7 @@ public final class VideoViewModel: AccountRevalidationParticipant {
     public func handlePlaybackEnded(
         _ snapshot: PlaybackTimelineSnapshot,
         behavior: PlaybackEndBehavior
-    ) async -> Bool {
+    ) async -> PlaybackEndHandling {
         guard snapshot.state == .ended,
             case .ready(let context) = state,
             let identity = presentedPlaybackIdentity,
@@ -371,18 +371,18 @@ public final class VideoViewModel: AccountRevalidationParticipant {
             requestedPlaybackIdentity == identity,
             let intent = playbackIntent,
             snapshot.loadIntent == intent
-        else { return false }
+        else { return .none }
         switch PlaybackEndPolicy.action(behavior: behavior, accessNotice: context.accessNotice) {
         case .none:
-            return false
+            return .none
         case .replay:
             guard await playback.replayFromBeginning(identity: identity, intent: intent) else {
-                return false
+                return .replayFailed
             }
             if presentedPlaybackIdentity == identity {
                 resumeNotice = nil
             }
-            return true
+            return .replayed
         }
     }
 

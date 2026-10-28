@@ -65,7 +65,8 @@ public final class WatchProgressSession {
     /// 以及累计的播放时长与最大位置。
     ///
     /// 由 `active` 唯一持有，结束时置 nil。`reportingDisabled` 在本会话任一报告失败或被取消后置位，
-    /// 之后不再入队；`didEnqueueEnded` 保证每个会话只入队一次 ended，置位后再开始播放就另起会话。
+    /// 之后不再入队；`didEnqueueEnded` 在会话到达 ended 时置位（报告已停用时并不真的入队），保证每个会话至多一次
+    /// ended，置位后再开始播放就另起会话。
     private struct ActiveSession {
         let target: WatchProgressTarget
         let sessionStartTimestamp: Int64
@@ -207,9 +208,10 @@ public final class WatchProgressSession {
             finishActiveSession(completed: active?.lastSnapshot.state == .ended)
         }
 
-        // 已经报过 ended 的会话不再继续：播完后跳回开头或拖回去再播（含单集循环的重播）是新的一次观看。跳转先把
-        // ended 改成 paused，只看上一个快照是不是 ended 会把这一轮算成旧会话的 resumed。
-        if active?.didEnqueueEnded == true, snapshot.state == .playing {
+        // 已到达 ended 的会话不再继续：播完后跳回开头或拖回去再播（含单集循环的重播）是新的一次观看。跳转先把
+        // ended 改成 paused，起播时还常先报 buffering；只看上一个快照是不是 ended、或只认 playing，都会让旧会话
+        // 再报一次 resumed。这里在缓冲时就结束旧会话，等真正 playing 才开新会话。
+        if active?.didEnqueueEnded == true, Self.isHeartbeatActive(snapshot.state) {
             active = nil
         }
 

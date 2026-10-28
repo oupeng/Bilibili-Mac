@@ -186,6 +186,7 @@ extension WindowAdapters {
                         playbackEnd: .make(
                             videoModel: videoModel,
                             observeTimeline: playerEngine.observeTimeline,
+                            currentTimeline: { playerEngine.currentTimelineSnapshot },
                             store: endBehavior
                         ),
                         timelineUpdates: {

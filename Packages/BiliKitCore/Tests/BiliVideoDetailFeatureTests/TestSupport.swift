@@ -478,14 +478,15 @@ final class PlayerStub: PlaybackControlling {
     private(set) var startedIntents: [PlaybackLoadIntent] = []
     private(set) var loadedStartPositions: [Double?] = []
     private(set) var restartTokens: [PlaybackResumeToken] = []
-    /// 收到的重播请求；`replaySucceeds` 决定结果。
+    private let replaySucceeds: Bool
+    /// 收到的重播请求；结果由 init 的 `replaySucceeds` 决定。
     private(set) var replayedIdentities: [PlaybackItemIdentity] = []
-    var replaySucceeds = true
     private(set) var stopCallCount = 0
 
     init(
         startOutcome: PlaybackStartOutcome = .startedAtBeginning,
         restartSucceeds: Bool = false,
+        replaySucceeds: Bool = true,
         holdsRestarts: Bool = false,
         failingBVID: String? = nil,
         failingLoads: Set<Int> = [],
@@ -494,6 +495,7 @@ final class PlayerStub: PlaybackControlling {
     ) {
         self.startOutcome = startOutcome
         self.restartSucceeds = restartSucceeds
+        self.replaySucceeds = replaySucceeds
         self.holdsRestarts = holdsRestarts
         self.failingBVID = failingBVID
         self.failingLoads = failingLoads

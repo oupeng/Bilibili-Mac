@@ -45,7 +45,8 @@ struct WatchProgressSessionTests {
         #expect(ended.positionSeconds == 20)
     }
 
-    /// 播完之后跳回开头（单集循环的重播）再播放是新的一次观看：另起会话，第二轮播完照常报完成。
+    /// 播完之后跳回开头（单集循环的重播）再播放是新的一次观看：起播时的缓冲不让旧会话再报 resumed，真正播放时
+    /// 另起会话，第二轮播完照常报完成。
     @Test
     func replayAfterTheEndStartsANewCompletedSession() async throws {
         let fixture = try makeFixture()
@@ -61,6 +62,7 @@ struct WatchProgressSessionTests {
         #expect(firstEnded.completed)
 
         fixture.seek(to: 0)
+        fixture.send(position: 0, state: .buffering)
         fixture.send(position: 0, state: .playing)
         let second = await fixture.repository.nextReport()
         #expect(second.event == .started)

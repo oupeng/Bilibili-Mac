@@ -40,18 +40,28 @@ struct PlayerPlaybackEndActions {
     /// 刚进入 `ended` 的快照；处理完给出提示，没有动作时为 nil。
     let handleEnded: @MainActor (PlaybackTimelineSnapshot) async -> PlayerActionFeedback?
 
+    /// 重播失败时，只有播放器仍停在这一项的结尾才提示：期间用户另有操作或换了项，失败是预期内的，不打扰。
     @MainActor
     static func make(
         videoModel: VideoViewModel,
         observeTimeline: @escaping Observing,
+        currentTimeline: @escaping @MainActor () -> PlaybackTimelineSnapshot,
         store: PlaybackEndBehaviorStore
     ) -> Self {
         Self(
             observeTimeline: observeTimeline,
             handleEnded: { snapshot in
                 let behavior = store.behavior
-                return await videoModel.handlePlaybackEnded(snapshot, behavior: behavior)
-                    ? .endBehavior(behavior) : nil
+                switch await videoModel.handlePlaybackEnded(snapshot, behavior: behavior) {
+                case .none:
+                    return nil
+                case .replayed:
+                    return .endBehavior(behavior)
+                case .replayFailed:
+                    let current = currentTimeline()
+                    return current.state == .ended && current.loadIntent == snapshot.loadIntent
+                        ? .replayFailed : nil
+                }
             }
         )
     }
@@ -63,8 +73,10 @@ struct PlayerPlaybackEndActions {
 /// 所以用户在已播完时才改偏好、宿主重建、或时间线重复发布 `ended` 都不会触发；不能用只保留最新值、订阅时补发的
 /// `timelineUpdates()`，那样会把已经结束的快照当成新的结束。是否真的动作、作用于哪一项由 `VideoViewModel` 再核对。
 ///
-/// 由 `NativePlayerHostView` 持有：宿主创建时 `start`，拆除时 `stop`（先取消订阅，再取消在途的处理）。处理用一个 Task，
-/// 新的结束到来时取消旧的；Task 只弱引用本类型，在主线程运行。
+/// 由 `NativePlayerHostView` 持有：宿主创建时 `start`，拆除时 `stop`（先取消订阅，再取消在途的处理）。订阅期间时间线
+/// 经回调强持有视频模型，而视频模型持有引擎，宿主拆除时必须 `stop` 才断开这个环。处理用一个 Task，新的结束到来时
+/// 取消旧的；Task 只弱引用本类型，在主线程运行。取消只拦住提示，拦不住已经发给引擎的重播：引擎自己按 item、意图与
+/// 用户操作作废过期的回到开头。
 @MainActor
 final class PlayerPlaybackEndObserver {
     private var cancelObservation: (@MainActor @Sendable () -> Void)?

@@ -1272,7 +1272,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "1 本リピート"
+            "value" : "1本リピート"
           }
         },
         "zh-Hans" : {
@@ -1285,6 +1285,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "單集循環"
+          }
+        }
+      }
+    },
+    "无法从头重播" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn’t Replay from the Beginning"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最初から再生できませんでした"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法从头重播"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法從頭重播"
           }
         }
       }

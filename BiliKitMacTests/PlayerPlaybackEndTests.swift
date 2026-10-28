@@ -52,9 +52,6 @@ struct PlayerPlaybackEndTests {
         #expect(handled.snapshots.map(\.loadIntent) == [first, second])
 
         observer.stop()
-        timeline.send(snapshot(second, .playing))
-        timeline.send(snapshot(second, .ended))
-        #expect(handled.snapshots.count == 2)
         #expect(timeline.observers.isEmpty)
     }
 

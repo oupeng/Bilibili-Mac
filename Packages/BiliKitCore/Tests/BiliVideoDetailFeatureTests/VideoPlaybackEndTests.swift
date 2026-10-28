@@ -6,7 +6,7 @@ import Testing
 @testable import BiliVideoDetailFeature
 
 /// 播完的处理只作用于此刻呈现、也是最新请求的那一项：单集循环时重播它，不循环、时间线还没到结尾、
-/// 或结束来自别的 item 时不动作。
+/// 或结束来自别的 item 时不动作；重播成功后断点浮层收起，失败时保留并报告没有重播。
 @Suite(.timeLimit(.minutes(1)))
 struct VideoPlaybackEndTests {
     @Test
@@ -30,7 +30,7 @@ struct VideoPlaybackEndTests {
             _ snapshot: PlaybackTimelineSnapshot,
             _ behavior: PlaybackEndBehavior = .repeatOne
         ) async -> Bool {
-            await model.handlePlaybackEnded(snapshot, behavior: behavior)
+            await model.handlePlaybackEnded(snapshot, behavior: behavior) == .replayed
         }
         #expect(await !handles(snapshot(identity, intent, .ended), .stop))
         #expect(await !handles(snapshot(identity, intent, .paused)))
@@ -40,6 +40,41 @@ struct VideoPlaybackEndTests {
 
         #expect(await handles(snapshot(identity, intent, .ended)))
         #expect(player.replayedIdentities == [identity])
+    }
+
+    @Test(arguments: [true, false])
+    @MainActor
+    func replayClearsTheResumeNoticeOnlyWhenItSucceeds(succeeds: Bool) async throws {
+        let fixture = ContentFixtures()
+        let metadata = try #require(
+            PlaybackResumeMetadata(lastPlayedCID: 900_001, positionMilliseconds: 42_500)
+        )
+        let player = PlayerStub(
+            startOutcome: .resumed(positionSeconds: 42.5, token: PlaybackResumeToken()),
+            replaySucceeds: succeeds
+        )
+        let model = makeVideoViewModel(
+            useCase: VideoUseCase(
+                repository: VideoRepositoryStub(
+                    fixture,
+                    playback: { _, _ in fixture.playback(resuming: metadata) }
+                )
+            ),
+            playback: player
+        )
+        model.loadVideo(fixture.bvid)
+        await waitUntilSettled(model)
+        let identity = try #require(model.presentedPlaybackIdentity)
+        let intent = try #require(player.loadedIntents.last)
+        #expect(model.resumeNotice != nil)
+
+        let replayed = await model.handlePlaybackEnded(
+            snapshot(identity, intent, .ended),
+            behavior: .repeatOne
+        )
+
+        #expect(replayed == (succeeds ? .replayed : .replayFailed))
+        #expect((model.resumeNotice == nil) == succeeds)
     }
 
     private func snapshot(
