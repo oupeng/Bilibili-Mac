@@ -48,11 +48,11 @@ public final class CoreAnimationDanmakuRenderer:
     static let maximumActiveTextureByteCost = 64 * 1_024 * 1_024
     /// 每个弹幕 layer 上唯一的位移／显隐动画的 key。
     static let animationKey = "danmaku"
-    /// 弹幕 layer、锚点层与 `rootLayer` 上禁用的隐式动画：挂上、移除、子层与几何变化都不带过渡。
+    /// 弹幕 layer、锚点层、`rootLayer` 与计数胶囊上禁用的隐式动画：挂上、移除、子层与几何变化都不带过渡。
     ///
     /// 用 `actions` 逐个 layer 关掉，而不是给改动另包显式事务：顶层显式事务在 commit 时就单独提交，会把
     /// 同一次 reconcile 的增删拆进不同的提交；速率为 0 时移除的淡出过渡还会冻在第一帧。
-    private static let disabledActions: [String: any CAAction] = [
+    static let disabledActions: [String: any CAAction] = [
         "onOrderIn": NSNull(), "onOrderOut": NSNull(), "sublayers": NSNull(),
         "position": NSNull(), "bounds": NSNull(), "opacity": NSNull()
     ]
@@ -74,6 +74,8 @@ public final class CoreAnimationDanmakuRenderer:
     private var entries: [String: Entry] = [:]
     private var surfaceSize = CGSize.zero
     private let preparationOwner: DanmakuTexturePreparationOwner
+    /// 合并弹幕的计数胶囊与它的字形图缓存。
+    private let countBadgeLayers = DanmakuCountBadgeLayers()
     /// 在屏 layer 的纹理字节合计，对照 `maximumActiveTextureByteCost`；每个 layer 计一次纹理的
     /// `byteCost`，共用同一 `CGImage` 的 layer 也各计一次，Core Animation 侧的拷贝不计入。
     private(set) var activeTextureByteCost = 0
@@ -301,11 +303,13 @@ public final class CoreAnimationDanmakuRenderer:
 
     /// 按 placement 设定 layer 在锚点局部坐标里的几何、不可见的模型值与唯一的动画；挂上与布局替换共用。
     ///
-    /// 局部坐标 y 轴向下（继承 `rootLayer` 的翻转）。滚动弹幕从右边缘外侧（x = +w/2）走完
-    /// `DanmakuMotionPolicy.scrollingTravel` 的行程，到规划画布左外侧（x = −(规划宽度 + w/2)）；底部弹幕在底边之上，y 为负。
+    /// 局部坐标 y 轴向下（继承 `rootLayer` 的翻转）。layer 的宽度只是正文纹理宽 t；合并弹幕的计数胶囊作为子层挂在
+    /// 正文右侧、在 layer 边界之外，整条宽度 w 含胶囊的预留。滚动弹幕从正文左缘贴着右边缘（x = +t/2）走完
+    /// `DanmakuMotionPolicy.scrollingTravel` 按 w 算的行程，胶囊右缘最终离开规划画布左外侧；顶部、底部弹幕按正文居中，
+    /// 胶囊挂在右边；底部弹幕在底边之上，y 为负。
     private func configure(_ layer: CALayer, for placement: DanmakuLanePlacement) {
         let request = placement.request
-        let width = request.width
+        let width = request.textWidth
         layer.bounds = CGRect(x: 0, y: 0, width: width, height: request.height)
         let animation: CABasicAnimation
         switch request.event.mode {
@@ -315,7 +319,7 @@ public final class CoreAnimationDanmakuRenderer:
             let exitX =
                 entryX
                 - DanmakuMotionPolicy.scrollingTravel(
-                    textWidth: width,
+                    textWidth: request.width,
                     planningWidth: placement.planningWidth
                 )
             layer.position = CGPoint(x: exitX, y: placement.edgeOffset + request.height / 2)
@@ -340,6 +344,17 @@ public final class CoreAnimationDanmakuRenderer:
         animation.duration = request.durationSeconds
         animation.isRemovedOnCompletion = false
         layer.add(animation, forKey: Self.animationKey)
+        countBadgeLayers.replaceBadge(
+            on: layer,
+            badge: request.countBadge,
+            textWidth: width,
+            height: request.height,
+            admittedAtSeconds: placement.admittedAtSeconds,
+            beginTime: animation.beginTime,
+            duration: request.durationSeconds,
+            backingScale: backingScale,
+            reducesMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        )
     }
 
     private func removeAllEntries() {

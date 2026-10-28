@@ -625,7 +625,8 @@ struct CoreAnimationDanmakuRendererTests {
                 event: event,
                 width: metrics.width,
                 height: metrics.height,
-                durationSeconds: 4
+                durationSeconds: 4,
+                countBadge: nil
             ),
             laneIndex: lane,
             planningWidth: 800,

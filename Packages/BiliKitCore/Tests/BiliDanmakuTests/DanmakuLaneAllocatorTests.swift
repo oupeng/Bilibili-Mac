@@ -444,7 +444,8 @@ struct DanmakuLaneAllocatorTests {
             ),
             width: width,
             height: height,
-            durationSeconds: duration
+            durationSeconds: duration,
+            countBadge: nil
         )
     }
 }

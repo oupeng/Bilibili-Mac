@@ -135,23 +135,35 @@ extension DanmakuLaneConfiguration {
     }
 }
 
-/// 一条已测量的弹幕申请车道时的输入：纹理尺寸（point，含描边与阴影留白）与运动时长（媒体秒）。
+/// 一条已测量的弹幕申请车道时的输入：占用尺寸（point，含描边与阴影留白）与运动时长（媒体秒）。
+///
+/// `width` 是整条占用的宽度：正文纹理宽，合并弹幕再加上计数胶囊的预留宽度；滚动行程、追尾与可见时段都按它算。
+/// 正文纹理本身的宽度是 `textWidth`。
 public struct DanmakuLaneRequest: Sendable, Equatable {
     public let event: DanmakuEvent
     public let width: Double
     public let height: Double
     public let durationSeconds: Double
+    /// 合并弹幕的计数胶囊；没有同文弹幕时为 nil。
+    public let countBadge: DanmakuCountBadge?
 
     init(
         event: DanmakuEvent,
         width: Double,
         height: Double,
-        durationSeconds: Double
+        durationSeconds: Double,
+        countBadge: DanmakuCountBadge?
     ) {
         self.event = event
         self.width = width
         self.height = height
         self.durationSeconds = durationSeconds
+        self.countBadge = countBadge
+    }
+
+    /// 正文纹理的宽度：整条宽度去掉计数胶囊的预留。
+    var textWidth: Double {
+        width - (countBadge?.reservedWidth ?? 0)
     }
 
     var isValid: Bool {
