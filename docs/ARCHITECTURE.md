@@ -242,6 +242,9 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
   `PlayerLoadingPolicy` 判定；暂停中 seek 与原生进度条拖动只能从 seek 调用看出，所以窗口播放器是记录在途
   seek 的 `SeekTrackingPlayer`。
 - 键盘快捷键以 content overlay 中弹幕层所在窗口为准：AVKit detached 全屏只携带 content overlay。
+- 播放器上针对当前视频的低频操作（稍后再看、分享链接）放进 AVKit 控制条自带的动作菜单（`actionPopUpButtonMenu`），
+  不在画面上另加浮动按钮：它随原生控件显隐、外观原生，全屏时 AVKit 把它收进浮动控制条的「»」→「其他」。浮动按钮要么
+  自己计时显隐、与原生控件不同步，要么读 AVKit 的私有视图层级，目前都不采用（发送弹幕的入口另议，见 ROADMAP）。
 - 播放态侧栏替换导航侧栏，不另开右侧 inspector：播放期间导航使用率低，双栏把宽度留给视频。
 
 ### 动线与侧栏上下文层

@@ -27,6 +27,7 @@ struct PlayerHostView: View {
     let engagementShortcuts: PlayerEngagementShortcuts?
     /// 点击弹幕关联视频卡片时在应用内打开该视频（参数是 BV 号）；为 nil 时卡片不接点击。
     let openDanmakuLinkedVideo: ((String) -> Void)?
+    let actionMenu: PlayerActionMenuActions
     let timelineUpdates: (() -> AsyncStream<PlaybackTimelineSnapshot>)?
 
     init(
@@ -43,6 +44,7 @@ struct PlayerHostView: View {
         toggleSubtitles: (() async -> NativeSubtitleToggleResult)? = nil,
         engagementShortcuts: PlayerEngagementShortcuts? = nil,
         openDanmakuLinkedVideo: ((String) -> Void)? = nil,
+        actionMenu: PlayerActionMenuActions,
         timelineUpdates: (() -> AsyncStream<PlaybackTimelineSnapshot>)? = nil
     ) {
         self.player = player
@@ -58,6 +60,7 @@ struct PlayerHostView: View {
         self.toggleSubtitles = toggleSubtitles
         self.engagementShortcuts = engagementShortcuts
         self.openDanmakuLinkedVideo = openDanmakuLinkedVideo
+        self.actionMenu = actionMenu
         self.timelineUpdates = timelineUpdates
     }
 
@@ -79,6 +82,7 @@ struct PlayerHostView: View {
             toggleSubtitles: toggleSubtitles,
             engagementShortcuts: engagementShortcuts,
             openDanmakuLinkedVideo: openDanmakuLinkedVideo,
+            actionMenu: actionMenu,
             focusIdentity: videoModel?.presentedBVID
         )
         .task(id: previewProjectionIdentity) {
@@ -139,6 +143,7 @@ private struct AVPlayerContainerView: NSViewRepresentable {
     let toggleSubtitles: (() async -> NativeSubtitleToggleResult)?
     let engagementShortcuts: PlayerEngagementShortcuts?
     let openDanmakuLinkedVideo: ((String) -> Void)?
+    let actionMenu: PlayerActionMenuActions
     let focusIdentity: String?
 
     func makeNSView(context: Context) -> NativePlayerHostView {
@@ -155,6 +160,7 @@ private struct AVPlayerContainerView: NSViewRepresentable {
         )
         view.engagementShortcuts = engagementShortcuts
         view.danmakuOverlay.openLinkedVideo = openDanmakuLinkedVideo
+        view.setActionMenu(actionMenu, openURL: context.environment.openURL)
         view.attachPlayer(player)
         view.setPlaybackPreparationBlocked(blocksNativePlaybackInteraction)
         view.showsFullScreenToggleButton = true
@@ -179,6 +185,7 @@ private struct AVPlayerContainerView: NSViewRepresentable {
         view.toggleSubtitles = toggleSubtitles
         view.engagementShortcuts = engagementShortcuts
         view.danmakuOverlay.openLinkedVideo = openDanmakuLinkedVideo
+        view.setActionMenu(actionMenu, openURL: context.environment.openURL)
         view.setResumeNotice(
             resumeNotice,
             restartFromBeginning: restartFromBeginning
@@ -238,6 +245,7 @@ final class NativePlayerHostView: AVPlayerView {
     let danmakuOverlay: DanmakuOverlayView
     private let keyboardShortcuts = PlayerKeyboardShortcutController()
     private let overlayModel = PlayerOverlayModel()
+    private let actionMenu = PlayerActionMenuController()
     private let overlayHostingView: PassthroughHostingView<PlayerOverlayView>
     private var installedDanmakuOverlay = false
     private var isPresentingFullScreen = false
@@ -306,6 +314,10 @@ final class NativePlayerHostView: AVPlayerView {
             overlayModel.interactiveFrame
         }
         keyboardShortcuts.feedbackPresenter = overlayModel
+        actionMenu.presentFeedback = { [overlayModel] feedback in
+            overlayModel.showFeedback(.action(feedback))
+        }
+        actionPopUpButtonMenu = actionMenu.menu
         keyboardShortcuts.onKeyboardMomentaryRateBegan = {
             [weak self] rate, pressID in
             self?.beginMomentaryPlaybackRate(rate, pressID: pressID)
@@ -411,6 +423,11 @@ final class NativePlayerHostView: AVPlayerView {
         restartFromBeginning: @escaping () -> Void
     ) {
         overlayModel.setResumeNotice(notice, restartFromBeginning: restartFromBeginning)
+    }
+
+    /// 动作菜单的意图与打开网页的入口；宿主创建与每次更新时调用。
+    func setActionMenu(_ actions: PlayerActionMenuActions, openURL: OpenURLAction) {
+        actionMenu.update(actions: actions, openURL: openURL)
     }
 
     func setPreviewEndedNotice(_ message: String?) {

@@ -201,7 +201,7 @@ extension NativeVideoCardMenu {
 extension NativeVideoCardMenu.Item {
     /// 「拷贝链接」「在浏览器中打开」两项：只给可进入播放的卡片，否则为空。
     ///
-    /// 拷贝把同一地址同时写成 URL 与纯文本；打开只经系统的 `OpenURLAction`，不预取、不附加凭据，见 SECURITY-MODEL §4。
+    /// 拷贝经 `VideoLinkPasteboard`；打开只经系统的 `OpenURLAction`，不预取、不附加凭据，见 SECURITY-MODEL §4。
     static func videoLinks(
         for card: NativeVideoCardPresentation,
         webPageURL: URL,
@@ -210,11 +210,7 @@ extension NativeVideoCardMenu.Item {
         guard card.isActivatable else { return [] }
         return [
             Self(id: "copyLink", title: VideoCardMenuText.copyLink, systemImage: "link") {
-                let item = NSPasteboardItem()
-                item.setString(webPageURL.absoluteString, forType: .URL)
-                item.setString(webPageURL.absoluteString, forType: .string)
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.writeObjects([item])
+                VideoLinkPasteboard.copy(webPageURL)
             },
             Self(
                 id: "openInBrowser",

@@ -83,6 +83,10 @@ public final class VideoViewModel: AccountRevalidationParticipant {
             false
         }
     }
+    /// 此刻可以操作的视频（播放器的点赞、投币、收藏快捷键与动作菜单作用于它）；旧详情不可操作时为 nil。
+    public var operableBVID: String? {
+        blocksPresentedContext ? nil : presentedBVID
+    }
     /// App 层只用稳定的视频 subject 协调评论；分 P/CID 切换不重置同一视频评论。
     public var presentedVideoIdentity: (bvid: String, aid: Int64)? {
         guard let detail = presentedContext?.detail, let aid = detail.aid else {
