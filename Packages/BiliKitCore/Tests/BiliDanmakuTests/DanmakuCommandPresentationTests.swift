@@ -65,19 +65,22 @@ struct DanmakuCommandPresentationTests {
         )
     }
 
-    @Test
-    func cardLayersShowOnlyDuringTheirMediaTime() throws {
+    @Test(arguments: [false, true])
+    func cardLayersFadeDuringTheirMediaTime(reducesMotion: Bool) throws {
         let layers = DanmakuCommandCardLayers(backingScale: 2) { $0 }
         layers.updateSurface(size: CGSize(width: 800, height: 450), backingScale: 2)
-        layers.setCards([Self.gradeCard])
+        layers.setCards([Self.gradeCard], reducesMotion: reducesMotion)
 
         let layer = try #require(layers.containerLayer.sublayers?.first)
         let animation = try #require(
-            layer.animation(forKey: DanmakuCommandCardLayers.animationKey) as? CABasicAnimation
+            layer.animation(forKey: DanmakuCommandCardLayers.animationKey) as? CAKeyframeAnimation
         )
         #expect(layer.opacity == 0)
         #expect(animation.beginTime == 12)
         #expect(animation.duration == 5)
+        #expect(animation.keyTimes == [0, 0.04, 0.96, 1])
+        let scale = layer.animation(forKey: DanmakuCommandCardLayers.scaleAnimationKey)
+        #expect((scale == nil) == reducesMotion)
         #expect(layer.bounds.width == DanmakuCommandCardArtwork.cardWidth)
         #expect(layer.contents != nil)
 
@@ -85,7 +88,7 @@ struct DanmakuCommandPresentationTests {
         #expect(layers.containerLayer.sublayers?.first === layer)
         #expect(layer.position.x == 200)
 
-        layers.setCards([])
+        layers.setCards([], reducesMotion: reducesMotion)
         #expect(layers.containerLayer.sublayers?.isEmpty ?? true)
     }
 

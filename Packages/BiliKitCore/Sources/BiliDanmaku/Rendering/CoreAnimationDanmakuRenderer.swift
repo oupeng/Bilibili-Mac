@@ -8,7 +8,8 @@ import QuartzCore
 ///
 /// Core Text shaping、整行 union mask、vImage 阴影与 RGBA 合成都由有界 preparation owner
 /// 在后台完成并包成 `CGImage`。MainActor 只把它设为一个普通 `CALayer` 的 contents；用户透明度统一落在
-/// `rootLayer.opacity`，活动 layer 不启用实时 shadow。
+/// 三个锚点层的 `opacity` 上，活动 layer 不启用实时 shadow。互动弹幕卡片不随用户透明度变淡：卡片是要读的信息，
+/// 弹幕调得很淡时卡片仍要看得清。
 ///
 /// 用 Core Animation 而不用 SwiftUI：每条弹幕是一个由渲染服务器插值的 layer 动画，不需要逐帧驱动（见
 /// docs/ARCHITECTURE.md「弹幕」）。`rootLayer` 由 App 挂在跟随播放 item timebase 的时钟层下，这里的
@@ -259,13 +260,18 @@ public final class CoreAnimationDanmakuRenderer:
     }
 
     public func setCommandCards(_ cards: [DanmakuCommandCard]) {
-        commandCardLayers.setCards(cards)
+        commandCardLayers.setCards(
+            cards,
+            reducesMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        )
     }
 
     public func setOpacity(_ opacity: DanmakuOpacity) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        rootLayer.opacity = Float(opacity.value)
+        for anchor in [scrollingAnchor, topAnchor, bottomAnchor] {
+            anchor.opacity = Float(opacity.value)
+        }
         CATransaction.commit()
     }
 
@@ -298,7 +304,7 @@ public final class CoreAnimationDanmakuRenderer:
     public func stop() {
         preparationOwner.cancelAllPreparations()
         removeAllEntries()
-        commandCardLayers.setCards([])
+        commandCardLayers.setCards([], reducesMotion: false)
     }
 
     /// 媒体时间换算成时钟层下的动画开始时间，弹幕与互动弹幕卡片共用。

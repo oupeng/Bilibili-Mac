@@ -11,8 +11,8 @@ enum DanmakuCommandCardArtwork {
     static let cardWidth: CGFloat = 200
     static let cornerRadius: CGFloat = 10
     static let padding: CGFloat = 12
-    /// 底色：半透明黑，与计数胶囊、UP 主弹幕同一做法，任何画面上白字都清楚。
-    static let backgroundOpacity = 0.6
+    /// 底色：半透明黑，与计数胶囊、UP 主弹幕同一做法，任何画面上白字都清楚；比计数胶囊深，卡片字多、字小。
+    static let backgroundOpacity = 0.7
     static let secondaryTextOpacity = 0.7
     /// 强调色：B 站粉，与 UP 主标签一致。
     static let accentRGB = DanmakuUploaderStyle.tagRGB
