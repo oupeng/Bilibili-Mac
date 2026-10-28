@@ -89,8 +89,10 @@ final class UploaderSpaceVideoRowItem: NSCollectionViewItem, NativeHoverableColl
     }
 }
 
-/// 投稿行的内容视图：封面、标题、数据与“正在播放”标记，整行可点、悬停高亮；高度固定为
-/// `UploaderSpaceGeometry.rowHeight`。
+/// 投稿行的内容视图：封面、标题、数据与“正在播放”标记，整行可点；高度固定为 `UploaderSpaceGeometry.rowHeight`。
+///
+/// 悬停与按下用视频卡片同一份 `NativeInteractiveSurface` 外观，写在自己的 layer 上；正在播放的强调底色放在最底层的
+/// `currentHighlightLayer`，与悬停底色、描边互不覆盖。整行自己跟踪按下：子视图一律不接鼠标，在行内松开才激活。
 @MainActor
 final class UploaderSpaceVideoRowView: NSView {
     override var isFlipped: Bool { true }
@@ -114,12 +116,16 @@ final class UploaderSpaceVideoRowView: NSView {
     private var row: UploaderVideoRowPresentation?
     private var isCurrent = false
     private var isHovered = false
+    private var isPressed = false
+    private let currentHighlightLayer = CALayer()
     private var trackingArea: NSTrackingArea?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.cornerRadius = UploaderSpaceGeometry.rowCornerRadius
+        currentHighlightLayer.cornerRadius = UploaderSpaceGeometry.rowCornerRadius
+        layer?.insertSublayer(currentHighlightLayer, at: 0)
 
         cover.layer?.cornerRadius = UploaderSpaceGeometry.coverCornerRadius
         cover.setAccessibilityElement(false)
@@ -167,10 +173,9 @@ final class UploaderSpaceVideoRowView: NSView {
         }
         playingIcon.setAccessibilityElement(false)
 
-        addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(activate)))
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
-        refreshBackground()
+        refreshAppearance(animated: false)
     }
 
     @available(*, unavailable)
@@ -206,14 +211,14 @@ final class UploaderSpaceVideoRowView: NSView {
                     : row.accessibilityLabel
             )
         }
-        refreshBackground()
+        refreshAppearance(animated: false)
         needsLayout = true
     }
 
     func setHovered(_ isHovered: Bool) {
         guard self.isHovered != isHovered else { return }
         self.isHovered = isHovered
-        refreshBackground()
+        refreshAppearance(animated: true)
     }
 
     func reset() {
@@ -221,15 +226,20 @@ final class UploaderSpaceVideoRowView: NSView {
         onActivate = nil
         onHoverChange = nil
         isHovered = false
+        isPressed = false
         isCurrent = false
         titleLabel.stringValue = ""
         metadataLabel.stringValue = ""
         cover.setImage(nil, animated: false)
-        refreshBackground()
+        refreshAppearance(animated: false)
     }
 
     override func layout() {
         super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        currentHighlightLayer.frame = bounds
+        CATransaction.commit()
         let padding = UploaderSpaceGeometry.rowPadding
         let coverFrame = NSRect(
             x: padding,
@@ -327,9 +337,29 @@ final class UploaderSpaceVideoRowView: NSView {
         onHoverChange?(false)
     }
 
+    /// 整行是一个按钮：标题等子视图不接鼠标，按下、拖动与松开都落在行上。
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        super.hitTest(point) == nil ? nil : self
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        setPressed(true)
+    }
+
+    /// 拖出行外时抬起按下外观，拖回来再按下，与系统按钮一致。
+    override func mouseDragged(with event: NSEvent) {
+        setPressed(bounds.contains(convert(event.locationInWindow, from: nil)))
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        let isInside = bounds.contains(convert(event.locationInWindow, from: nil))
+        setPressed(false)
+        if isInside { activate() }
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        refreshBackground()
+        refreshAppearance(animated: false)
     }
 
     override func accessibilityPerformPress() -> Bool {
@@ -337,18 +367,39 @@ final class UploaderSpaceVideoRowView: NSView {
         return true
     }
 
-    @objc private func activate() {
+    private func activate() {
         onActivate?()
     }
 
-    private func refreshBackground() {
-        let fill: NSColor =
+    private func setPressed(_ isPressed: Bool) {
+        guard self.isPressed != isPressed else { return }
+        self.isPressed = isPressed
+        refreshAppearance(animated: true)
+    }
+
+    private func refreshAppearance(animated: Bool) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        currentHighlightLayer.backgroundColor =
             isCurrent
-            ? .controlAccentColor.withAlphaComponent(0.15)
-            : isHovered ? .labelColor.withAlphaComponent(0.06) : .clear
-        layer?.backgroundColor = fill.cgColor(for: effectiveAppearance)
+            ? NSColor.controlAccentColor.withAlphaComponent(
+                UploaderSpaceGeometry.currentRowFillOpacity
+            ).cgColor(for: effectiveAppearance)
+            : nil
         collaborationLabel.layer?.borderColor =
             NSColor.secondaryLabelColor.cgColor(for: effectiveAppearance)
+        CATransaction.commit()
+        guard let layer else { return }
+        NativeInteractiveSurface.apply(
+            NativeInteractiveSurface.State(
+                isHovered: isHovered,
+                isPressed: isPressed,
+                showsFocusRing: false
+            ),
+            to: layer,
+            appearance: effectiveAppearance,
+            animated: animated
+        )
     }
 }
 
