@@ -13,7 +13,7 @@ import os
 /// 在应用内打开该视频，悬停时换手形光标；其余位置 `hitTest` 返回 nil，点击与悬停照常落到下方的 AVKit 视图。
 /// 卡片是否在显示按本视图时钟的 D 与卡片的时间区间判断（见 `CoreAnimationDanmakuRenderer.visibleLinkCards`），
 /// 与画面上卡片的显隐同一个时间；光标只在鼠标移动时更新，卡片在静止的指针下出现或消失不换光标。
-/// 辅助功能为每张正在显示的关联视频卡片提供一个按钮元素，按下与点击走同一条路径。
+/// 不为卡片提供辅助功能元素：实测 AVKit 不把 content overlay 里的子元素交给辅助功能客户端，挂了也读不到。
 ///
 /// 弹幕的时间来自 `clock`（`DanmakuTimebaseClock`）：时钟层的本地时间跟随绑定 item 的 timebase 时间，
 /// 由 timebase 通知在后台队列上驱动，暂停、倍速、seek、缓冲停顿与播放结束都由它跟随，renderer 的
@@ -51,8 +51,6 @@ final class DanmakuOverlayView: NSView {
     private var needsAncestorCheck = false
     /// 点击关联视频卡片时打开该视频（参数是 BV 号）；由播放器宿主设置，为 nil 时卡片不接点击。
     var openLinkedVideo: ((String) -> Void)?
-    /// 按下时命中的卡片 BV 号；抬起时仍在同一张卡片上才打开，按下后拖出卡片或卡片消失就作废。
-    private var pressedLinkBVID: String?
     /// 是否由本视图换上了手形光标；移出卡片或离开本视图时换回箭头，只还原自己换上的光标。
     private var showsLinkCursor = false
 
@@ -77,6 +75,9 @@ final class DanmakuOverlayView: NSView {
             self.controller.displayClockDidChange(ownerID: self.ownerID)
             self.checkClockAncestorsIfNeeded()
         }
+        addGestureRecognizer(
+            NSClickGestureRecognizer(target: self, action: #selector(linkCardClicked))
+        )
     }
 
     @available(*, unavailable)
@@ -153,33 +154,16 @@ final class DanmakuOverlayView: NSView {
         updateLinkCursor(isOverCard: false)
     }
 
-    override func mouseDown(with event: NSEvent) {
-        pressedLinkBVID = visibleLinkCard(at: location(of: event))?.card.bvid
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        defer { pressedLinkBVID = nil }
-        guard let bvid = pressedLinkBVID,
-            visibleLinkCard(at: location(of: event))?.card.bvid == bvid
-        else {
+    /// 卡片点击由手势识别器识别，不重写 `mouseDown`／`mouseUp`。
+    ///
+    /// AVKit 在播放器内容视图（本视图的祖先）上挂了延迟主键事件的点击识别器，按下与抬起要等它判定失败后才补发给
+    /// 本视图，补发时已对不上卡片，点击就丢了。识别器直接收到原始事件，在抬起时识别。
+    @objc private func linkCardClicked(_ recognizer: NSClickGestureRecognizer) {
+        let point = recognizer.location(in: self)
+        guard recognizer.state == .ended, let bvid = visibleLinkCard(at: point)?.card.bvid else {
             return
         }
         openLinkedVideo?(bvid)
-    }
-
-    override func accessibilityChildren() -> [Any]? {
-        visibleLinkCards().map { visible in
-            let element = DanmakuLinkCardAccessibilityElement { [weak self] in
-                self?.openLinkedVideo?(visible.card.bvid)
-            }
-            element.setAccessibilityParent(self)
-            element.setAccessibilityRole(.button)
-            element.setAccessibilityLabel(
-                AppStrings.localized("关联视频：\(visible.card.title)")
-            )
-            element.setAccessibilityFrameInParentSpace(visible.frame)
-            return element
-        }
     }
 
     /// 此刻正在显示的关联视频卡片，位置在本视图坐标（本视图的 layer 与视图同一坐标）。
@@ -321,23 +305,6 @@ final class DanmakuOverlayView: NSView {
         previousScreenSize = nil
         previousBackingScale = nil
         updateSurfaceIfNeeded()
-    }
-}
-
-/// 关联视频卡片的辅助功能按钮：按下与鼠标点击一样打开该视频。
-///
-/// 每次读取 overlay 的子元素时按此刻显示的卡片重新生成，不缓存；卡片消失后旧元素不再出现在子元素里。
-private final class DanmakuLinkCardAccessibilityElement: NSAccessibilityElement {
-    private let open: () -> Void
-
-    init(open: @escaping () -> Void) {
-        self.open = open
-        super.init()
-    }
-
-    override func accessibilityPerformPress() -> Bool {
-        open()
-        return true
     }
 }
 
