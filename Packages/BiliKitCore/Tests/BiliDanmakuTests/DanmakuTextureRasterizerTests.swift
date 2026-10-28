@@ -37,7 +37,8 @@ struct DanmakuTextureRasterizerTests {
                     fontSize: 25,
                     colorRGB: 0xFFFFFF,
                     colorStyle: .solid,
-                    weight: 1
+                    weight: 1,
+                    isHighLike: false
                 )
             ),
             try key(baseEvent, backingScale: 1),
@@ -46,6 +47,15 @@ struct DanmakuTextureRasterizerTests {
             ),
             try key(
                 fixtureEvent(id: "key-size", mode: .top, colorRGB: 0xFFFFFF, fontSize: 36)
+            ),
+            try key(
+                fixtureEvent(
+                    id: "key-like",
+                    mode: .top,
+                    colorRGB: 0xFFFFFF,
+                    fontSize: 25,
+                    isHighLike: true
+                )
             )
         ]
 
@@ -60,6 +70,14 @@ struct DanmakuTextureRasterizerTests {
         let events = [
             fixtureEvent(id: "mixed", mode: .scrolling, fontSize: 25),
             fixtureEvent(id: "small", mode: .top, colorRGB: 0x204060, fontSize: 18),
+            fixtureEvent(id: "like-small", mode: .scrolling, fontSize: 18, isHighLike: true),
+            fixtureEvent(
+                id: "like",
+                mode: .scrolling,
+                colorRGB: 0x204060,
+                fontSize: 25,
+                isHighLike: true
+            ),
             DanmakuEvent(
                 id: "vip",
                 timeSeconds: 1,
@@ -68,7 +86,8 @@ struct DanmakuTextureRasterizerTests {
                 fontSize: 36,
                 colorRGB: 0x00FF00,
                 colorStyle: .vipGradient,
-                weight: 1
+                weight: 1,
+                isHighLike: true
             )
         ]
         var cache = DanmakuTextMeasurementCache()
@@ -79,6 +98,25 @@ struct DanmakuTextureRasterizerTests {
             let texture = try #require(DanmakuTextureRasterizer.rasterize(key: key))
             #expect(cache.metrics(for: event, backingScale: backingScale) == texture.metrics)
         }
+    }
+
+    /// 高赞弹幕：开头的图标只加宽纹理，不撑高行高，同字号的车道高度不变。
+    @Test(arguments: DanmakuEvent.supportedFontSizes.sorted())
+    func highLikeIconWidensWithoutChangingHeight(fontSize: Double) throws {
+        func texture(isHighLike: Bool) throws -> DanmakuTexturePayload {
+            let event = fixtureEvent(
+                id: "like",
+                mode: .scrolling,
+                fontSize: fontSize,
+                isHighLike: isHighLike
+            )
+            let key = try #require(DanmakuTextureRasterizer.key(event: event, backingScale: 2))
+            return try #require(DanmakuTextureRasterizer.rasterize(key: key))
+        }
+        let plain = try texture(isHighLike: false)
+        let liked = try texture(isHighLike: true)
+        #expect(liked.widthPixels > plain.widthPixels)
+        #expect(liked.heightPixels == plain.heightPixels)
     }
 
     /// 大会员彩色弹幕：缓存键与普通弹幕区分，填充固定为白色、不随事件颜色变化。
@@ -93,7 +131,8 @@ struct DanmakuTextureRasterizerTests {
                 fontSize: 25,
                 colorRGB: colorRGB,
                 colorStyle: style,
-                weight: 1
+                weight: 1,
+                isHighLike: false
             )
         }
         let solid = try #require(
@@ -142,6 +181,7 @@ struct DanmakuTextureRasterizerTests {
             let key = DanmakuTextureCacheKey(
                 text: "一二三四五六七八",
                 fontSize: 25,
+                isHighLike: false,
                 colorRGB: 0xFFFFFF,
                 colorStyle: style,
                 backingScale: 2
@@ -226,6 +266,7 @@ struct DanmakuTextureRasterizerTests {
         DanmakuTextureCacheKey(
             text: text,
             fontSize: 25,
+            isHighLike: false,
             colorRGB: 0xFFFFFF,
             colorStyle: .solid,
             backingScale: 2

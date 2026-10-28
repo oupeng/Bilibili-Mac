@@ -122,7 +122,8 @@ struct DanmakuLayoutPlannerTests {
                 fontSize: 25,
                 colorRGB: 0xFFFFFF,
                 colorStyle: .solid,
-                weight: 1
+                weight: 1,
+                isHighLike: false
             )
         }
         let result = try #require(layouts([1: events.reversed()], configuration: lanes))
@@ -233,7 +234,8 @@ func scrollingEvent(id: String, time: Double, width: Int) -> DanmakuEvent {
         fontSize: 25,
         colorRGB: 0xFFFFFF,
         colorStyle: .solid,
-        weight: 1
+        weight: 1,
+        isHighLike: false
     )
 }
 
@@ -281,7 +283,8 @@ func denseEvents(segment: Int, count: Int, seed: UInt64) -> [DanmakuEvent] {
             fontSize: 25,
             colorRGB: 0xFFFFFF,
             colorStyle: .solid,
-            weight: 1
+            weight: 1,
+            isHighLike: false
         )
     }
 }

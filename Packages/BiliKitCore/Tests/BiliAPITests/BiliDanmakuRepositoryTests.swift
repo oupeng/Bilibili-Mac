@@ -434,6 +434,33 @@ struct BiliDanmakuRepositoryTests {
         #expect(event.colorRGB == 0xFF_FFFF)
     }
 
+    /// 字段 13 只认 bit2 为高赞；保护、直播等其他位不影响。
+    @Test(
+        arguments: [
+            (Int32(0b100), true),
+            (0b111, true),
+            (0b011, false),
+            (0, false)
+        ]
+    )
+    func decoderMapsOnlyTheHighLikeAttributeBit(attributes: Int32, expected: Bool) throws {
+        var element = Bilikit_Danmaku_Element()
+        element.id = 6
+        element.progressMilliseconds = 1_000
+        element.mode = 1
+        element.fontSize = 25
+        element.content = "high like fixture"
+        element.attributes = attributes
+        var payload = Bilikit_Danmaku_SegmentReply()
+        payload.elements = [element]
+
+        let event = try #require(
+            try DanmakuPayloadDecoder.events(from: payload.serializedData()).first
+        )
+
+        #expect(event.isHighLike == expected)
+    }
+
     @Test
     func decoderUsesOnlySupportedReceivedFontSizes() throws {
         let sizes: [Int32] = [0, 12, 18, 25, 36, 45, 64]

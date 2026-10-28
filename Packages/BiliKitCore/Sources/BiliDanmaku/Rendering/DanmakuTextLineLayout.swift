@@ -3,12 +3,13 @@ import BiliModels
 import CoreText
 import Foundation
 
-/// 决定弹幕纹理尺寸的输入：文字、归一化字号与 backing scale；颜色与描边样式不影响排版，不在其中。
+/// 决定弹幕纹理尺寸的输入：文字、归一化字号、是否带高赞图标与 backing scale；颜色与描边样式不影响排版，不在其中。
 ///
 /// 由 `DanmakuTextureRasterizer.measureKey` 归一化后生成；纹理缓存 key 在它之上再加颜色。
 struct DanmakuTextMeasureKey: Hashable, Sendable {
     let text: String
     let fontSize: Double
+    let isHighLike: Bool
     let backingScale: Double
 }
 
@@ -18,6 +19,9 @@ struct DanmakuTextMeasureKey: Hashable, Sendable {
 /// 速度与追尾判断不会因两边各算一份而漂移。
 struct DanmakuTextLineLayout {
     let line: CTLine
+    /// 高赞弹幕开头的图标，画在文字左侧；没有时文字从留白处开始。
+    let highLikeIcon: DanmakuHighLikeIcon?
+    /// 基线以下的 point 深度，取文字与图标的较大者。
     let descent: CGFloat
     let widthPixels: Int
     let heightPixels: Int
@@ -46,6 +50,7 @@ extension DanmakuTextureRasterizer {
         return DanmakuTextMeasureKey(
             text: event.text,
             fontSize: DanmakuEvent.normalizedFontSize(event.fontSize),
+            isHighLike: event.isHighLike,
             backingScale: backingScale
         )
     }
@@ -62,7 +67,8 @@ extension DanmakuTextureRasterizer {
         )
     }
 
-    /// 测量与栅格化共用的排版：Core Text 排出一行，四周留出描边与阴影的扩散，并按像素上限校验。
+    /// 测量与栅格化共用的排版：Core Text 排出一行，高赞弹幕在前面留出图标与间距，四周留出描边与阴影的扩散，
+    /// 并按像素上限校验。
     ///
     /// `foreground` 只影响字形颜色，不影响排版；测量时传 nil。
     static func lineLayout(
@@ -85,9 +91,17 @@ extension DanmakuTextureRasterizer {
         var ascent: CGFloat = 0
         var descent: CGFloat = 0
         var leading: CGFloat = 0
-        let width = CGFloat(
+        var width = CGFloat(
             CTLineGetTypographicBounds(line, &ascent, &descent, &leading)
         )
+        let highLikeIcon =
+            key.isHighLike ? DanmakuHighLikeIcon.icon(forFontSize: key.fontSize) : nil
+        if let highLikeIcon {
+            width += highLikeIcon.size.width + highLikeIcon.spacing
+            // 图标以对齐框底边坐在基线上；small 档本就落在文字的上下伸展之内，取并集只防符号尺寸变化时被裁掉。
+            ascent = max(ascent, highLikeIcon.size.height - highLikeIcon.descentBelowBaseline)
+            descent = max(descent, highLikeIcon.descentBelowBaseline)
+        }
         let height = ascent + descent + leading
         guard width.isFinite, height.isFinite, width > 0, height > 0 else {
             return nil
@@ -120,6 +134,7 @@ extension DanmakuTextureRasterizer {
         }
         return DanmakuTextLineLayout(
             line: line,
+            highLikeIcon: highLikeIcon,
             descent: descent,
             widthPixels: widthPixels,
             heightPixels: heightPixels,

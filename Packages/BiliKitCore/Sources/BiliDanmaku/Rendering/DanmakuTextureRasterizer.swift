@@ -8,6 +8,7 @@ import Foundation
 struct DanmakuTextureCacheKey: Hashable, Sendable {
     let text: String
     let fontSize: Double
+    let isHighLike: Bool
     let colorRGB: UInt32
     let colorStyle: DanmakuColorStyle
     let backingScale: Double
@@ -141,6 +142,7 @@ enum DanmakuTextureRasterizer {
         return DanmakuTextureCacheKey(
             text: measureKey.text,
             fontSize: measureKey.fontSize,
+            isHighLike: measureKey.isHighLike,
             colorRGB: event.colorStyle == .vipGradient
                 ? vipGradientFillRGB : event.colorRGB & 0x00FF_FFFF,
             colorStyle: event.colorStyle,
@@ -158,6 +160,7 @@ enum DanmakuTextureRasterizer {
                 DanmakuTextMeasureKey(
                     text: key.text,
                     fontSize: key.fontSize,
+                    isHighLike: key.isHighLike,
                     backingScale: key.backingScale
                 ),
                 foreground: foreground
@@ -166,7 +169,9 @@ enum DanmakuTextureRasterizer {
         else {
             return nil
         }
-        guard draw(layout, scale: CGFloat(key.backingScale), into: fill) else {
+        guard
+            draw(layout, foreground: foreground, scale: CGFloat(key.backingScale), into: fill)
+        else {
             free(fill)
             return nil
         }
@@ -382,8 +387,11 @@ enum DanmakuTextureRasterizer {
     }
 
     /// 把排好的一行字画进 `pixels`：`layout` 尺寸、已清零的预乘 RGBA。
+    ///
+    /// 高赞图标用 `foreground` 填充，与文字同色；之后的描边与阴影按整张 alpha 生成，图标与文字一并带上。
     private static func draw(
         _ layout: DanmakuTextLineLayout,
+        foreground: CGColor,
         scale: CGFloat,
         into pixels: UnsafeMutableRawPointer
     ) -> Bool {
@@ -402,7 +410,21 @@ enum DanmakuTextureRasterizer {
         }
         context.scaleBy(x: scale, y: scale)
         let padding = CGFloat(layout.paddingPixels) / scale
-        context.textPosition = CGPoint(x: padding, y: padding + layout.descent)
+        let baseline = padding + layout.descent
+        var textX = padding
+        if let icon = layout.highLikeIcon {
+            let iconRect = CGRect(
+                origin: CGPoint(x: padding, y: baseline - icon.descentBelowBaseline),
+                size: icon.size
+            )
+            context.saveGState()
+            context.clip(to: iconRect, mask: icon.mask)
+            context.setFillColor(foreground)
+            context.fill(iconRect)
+            context.restoreGState()
+            textX += icon.size.width + icon.spacing
+        }
+        context.textPosition = CGPoint(x: textX, y: baseline)
         CTLineDraw(layout.line, context)
         return true
     }
