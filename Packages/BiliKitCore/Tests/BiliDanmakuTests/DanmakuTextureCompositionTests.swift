@@ -233,6 +233,7 @@ struct DanmakuTextureCompositionTests {
             let key = DanmakuTextureCacheKey(
                 text: text,
                 fontSize: 25,
+                isHighLike: false,
                 colorRGB: colorRGB,
                 colorStyle: colorStyle,
                 backingScale: backingScale
