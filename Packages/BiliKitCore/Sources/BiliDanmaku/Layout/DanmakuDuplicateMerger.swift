@@ -1,4 +1,3 @@
-import BiliApplication
 import BiliModels
 import Foundation
 
@@ -10,19 +9,17 @@ struct DanmakuDuplicateGroup: Sendable, Equatable {
     let laterArrivalTimes: [Double]
 }
 
-/// 重复弹幕合并：同一显示位置、归一化后正文相同、在组首的合并时长之内到达的弹幕并成组首一条。
+/// 重复弹幕合并：同一显示位置、归一化后正文相同、在组首出场后 `windowSeconds` 之内的弹幕并成组首一条。
 ///
 /// 由 `DanmakuLayoutPlanner` 在车道布局前对一个分段调用，输入已过滤、按 (时间, ID) 排好序；纯函数，结果只取决于
 /// 输入，所以 seek 与连续播放看到同样的合并。分组不跨分段：分段末尾的组到此为止，下一段的同文弹幕另起一组。
-/// 不跨组累计：合并时长之后的同文弹幕另起一组。条数怎样显示由 `DanmakuCountBadge` 决定，组首的正文不变。
+/// 不跨组累计：窗口之后的同文弹幕另起一组。条数怎样显示由 `DanmakuCountBadge` 决定，组首的正文不变。
 enum DanmakuDuplicateMerger {
-    /// 滚动组首的合并时长按这个宽度（point）的播放区换算：组首在这么宽的窗口里从右边缘进场到尾缘离开左边界。
+    /// 从组首起算的合并时长（媒体秒）。
     ///
-    /// 合并时长不能取真实窗口宽度，否则改窗口尺寸就要重排（见 docs/ARCHITECTURE.md「弹幕」）。偏长的代价重：组首
-    /// 已离开窗口还在吞同文弹幕，这句话在用户眼前消失、条数涨在看不见的地方；偏短的代价轻：组首还在屏上时同文的
-    /// 下一组又飘出来。取常见播放区里偏窄的宽度：播放区不窄于它时组首在整个合并时长内都看得见，更宽时后段同文会
-    /// 再出一条。调大并得更充分但更窄的窗口会偏长，调小则正常窗口里重复更多。
-    static let referenceViewportWidth = 640.0
+    /// 与宽度、窗口都无关，组的成员在排车道前就能确定；取顶部、底部弹幕的显示时长，也接近窄窗口里滚动弹幕的
+    /// 可见时长。调长并得更多，但宽窗口里组首还没飞完、同文弹幕被并掉的时间也更长；调短则刷屏时并得少。
+    static let windowSeconds = DanmakuMotionPolicy.fixedSeconds
     /// 同一字符连续出现超过这么多次时折叠到这个次数再比较：“哈哈哈哈哈”与“哈哈哈”、“2333333”与“2333”算同一条。
     ///
     /// 调小会把“哈哈”与“哈哈哈”也并到一起，调大则长短不同的刷屏不再合并。
@@ -33,47 +30,16 @@ enum DanmakuDuplicateMerger {
     /// 就会重新准备纹理。正文不变的合并弹幕沿用组首 ID，开关合并时原位换上新的 placement。
     static let promotedHighLikeIDSuffix = "#highLike"
 
-    /// 组首 `event` 的合并时长（媒体秒）：顶部、底部弹幕是显示时长；滚动弹幕是在 `referenceViewportWidth` 宽的
-    /// 播放区里的可见时长，按正文宽与速度档算，不含计数胶囊。
-    ///
-    /// 加上胶囊后整条更宽，规划画布窄于约 3200pt 时可见得更久，所以不含胶囊算出的时长不会超过实际可见时长，也
-    /// 避开了“宽度取决于条数、条数又取决于时长”的循环。
-    static func windowSeconds(
-        for event: DanmakuEvent,
-        textWidth: Double,
-        planningWidth: Double,
-        speedLevel: DanmakuSpeedLevel
-    ) -> Double {
-        let duration = DanmakuMotionPolicy.duration(
-            for: event.mode,
-            textWidth: textWidth,
-            planningWidth: planningWidth,
-            speedLevel: speedLevel
-        )
-        guard event.mode == .scrolling else { return duration }
-        return DanmakuMotionPolicy.scrollingVisibleSeconds(
-            textWidth: textWidth,
-            planningWidth: planningWidth,
-            durationSeconds: duration,
-            viewportWidth: referenceViewportWidth
-        )
-    }
-
     /// 合并后的组，顺序仍按组首的 (时间, ID)；没有同文的弹幕自成一组。
     ///
-    /// `events` 必须已按 `DanmakuEvent.precedes` 排序。`windowSeconds` 给出一条弹幕作组首时的合并时长；为 nil（无法
-    /// 测量、不会显示）时它不开组，也不吸收后来者。
-    static func merged(
-        _ events: [DanmakuEvent],
-        windowSeconds: (DanmakuEvent) -> Double?
-    ) -> [DanmakuDuplicateGroup] {
+    /// `events` 必须已按 `DanmakuEvent.precedes` 排序。
+    static func merged(_ events: [DanmakuEvent]) -> [DanmakuDuplicateGroup] {
         struct GroupKey: Hashable {
             let mode: DanmakuPresentationMode
             let text: String
         }
         struct Group {
             let first: DanmakuEvent
-            let windowSeconds: Double?
             var laterArrivalTimes: [Double] = []
             var isHighLike: Bool
         }
@@ -82,21 +48,14 @@ enum DanmakuDuplicateMerger {
         for event in events {
             let key = GroupKey(mode: event.mode, text: comparisonKey(for: event.text))
             if let index = openGroupIndex[key],
-                let window = groups[index].windowSeconds,
-                event.timeSeconds - groups[index].first.timeSeconds <= window
+                event.timeSeconds - groups[index].first.timeSeconds <= windowSeconds
             {
                 groups[index].laterArrivalTimes.append(event.timeSeconds)
                 groups[index].isHighLike = groups[index].isHighLike || event.isHighLike
                 continue
             }
             openGroupIndex[key] = groups.count
-            groups.append(
-                Group(
-                    first: event,
-                    windowSeconds: windowSeconds(event),
-                    isHighLike: event.isHighLike
-                )
-            )
+            groups.append(Group(first: event, isHighLike: event.isHighLike))
         }
         return groups.map { group in
             let first = group.first

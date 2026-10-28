@@ -29,6 +29,34 @@
         }
       }
     },
+    "4 秒内内容相同的弹幕只显示一条，并在末尾标出条数" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Identical danmaku within 4 seconds appear once, with a count at the end"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4秒以内の同じ内容の弾幕は1つにまとめ、末尾に件数を表示します"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4 秒内内容相同的弹幕只显示一条，并在末尾标出条数"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4 秒內內容相同的彈幕只顯示一條，並在末尾標出條數"
+          }
+        }
+      }
+    },
     "IP属地：%@" : {
       "localizations" : {
         "en" : {
@@ -2965,34 +2993,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "第 %lld 頁，共 %lld 頁"
-          }
-        }
-      }
-    },
-    "第一条显示期间，内容相同的弹幕并入它，并在右侧标出条数" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Identical danmaku arriving while the first is shown are merged into it, with a count on the right"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "最初の弾幕が表示されている間に届いた同じ内容の弾幕はまとめ、右側に件数を表示します"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "第一条显示期间，内容相同的弹幕并入它，并在右侧标出条数"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "第一條顯示期間，內容相同的彈幕併入它，並在右側標出條數"
           }
         }
       }

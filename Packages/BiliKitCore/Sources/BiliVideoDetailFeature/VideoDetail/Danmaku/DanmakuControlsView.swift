@@ -204,7 +204,7 @@ private struct DanmakuSettingsPopover: View {
             )
             .toggleStyle(.checkbox)
 
-            Text(VideoDetailFeatureStrings.localized("第一条显示期间，内容相同的弹幕并入它，并在右侧标出条数"))
+            Text(VideoDetailFeatureStrings.localized("4 秒内内容相同的弹幕只显示一条，并在末尾标出条数"))
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

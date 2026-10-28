@@ -4,9 +4,8 @@ import Testing
 
 @testable import BiliDanmaku
 
-/// 重复弹幕合并的契约：同一位置、归一化后同文、在组首合并时长内到达的弹幕并成组首一条，记下后续到达时间，组首的
-/// 正文、时间与样式不变；滚动组首的合并时长是在参考宽度播放区里的可见时长，顶部、底部是显示时长；不跨分段、不跨组
-/// 累计；只靠并入才带上高赞时换用自己的 ID；开关关闭时布局不变。
+/// 重复弹幕合并的契约：同一位置、归一化后同文、组首后 4 秒内的弹幕并成组首一条，记下后续到达时间，组首的正文、
+/// 时间与样式不变；不跨分段、不跨组累计；只靠并入才带上高赞时换用自己的 ID；开关关闭时布局不变。
 @Suite
 struct DanmakuDuplicateMergerTests {
     @Test(
@@ -36,7 +35,7 @@ struct DanmakuDuplicateMergerTests {
 
     @Test
     func duplicatesWithinTheWindowBecomeOneCountedEvent() {
-        let window = Self.window
+        let window = DanmakuDuplicateMerger.windowSeconds
         let events = [
             event("a", time: 10, text: "好耶"),
             event("b", time: 11, text: "别的"),
@@ -45,7 +44,7 @@ struct DanmakuDuplicateMergerTests {
             event("e", time: 10 + window + 0.01, text: "好耶")
         ]
 
-        let merged = DanmakuDuplicateMerger.merged(events) { _ in Self.window }
+        let merged = DanmakuDuplicateMerger.merged(events)
 
         #expect(merged.map(\.event.text) == ["好耶", "别的", "好耶"])
         #expect(merged.map(\.event.timeSeconds) == [10, 11, 10 + window + 0.01])
@@ -56,51 +55,6 @@ struct DanmakuDuplicateMergerTests {
         #expect(merged[2].event == events[4])
     }
 
-    /// 合并时长取不到（无法测量）的弹幕不开组，后来的同文弹幕各自出现。
-    @Test
-    func unmeasurableLeaderDoesNotAbsorbLaterDuplicates() {
-        let events = [event("a", time: 1, text: "好耶"), event("b", time: 2, text: "好耶")]
-
-        let merged = DanmakuDuplicateMerger.merged(events) { $0.id == "a" ? nil : Self.window }
-
-        #expect(merged.map(\.event.id) == ["a", "b"])
-        #expect(merged.map(\.laterArrivalTimes) == [[], []])
-    }
-
-    /// 滚动组首的合并时长等于它在参考宽度播放区里的可见时长，比规划画布上的运动时长短；顶部、底部是显示时长。
-    @Test
-    func windowFollowsVisibilityInTheReferenceViewport() {
-        let planningWidth = 1_920.0
-        let scrolling = DanmakuDuplicateMerger.windowSeconds(
-            for: event("s", time: 0, text: "好耶"),
-            textWidth: 100,
-            planningWidth: planningWidth,
-            speedLevel: .default
-        )
-        let duration = DanmakuMotionPolicy.duration(
-            for: .scrolling,
-            textWidth: 100,
-            planningWidth: planningWidth,
-            speedLevel: .default
-        )
-        let visible = DanmakuMotionPolicy.scrollingVisibleSeconds(
-            textWidth: 100,
-            planningWidth: planningWidth,
-            durationSeconds: duration,
-            viewportWidth: DanmakuDuplicateMerger.referenceViewportWidth
-        )
-        #expect(scrolling == visible)
-        #expect(scrolling < duration)
-        #expect(
-            DanmakuDuplicateMerger.windowSeconds(
-                for: event("t", time: 0, text: "好耶", mode: .top),
-                textWidth: 100,
-                planningWidth: planningWidth,
-                speedLevel: .default
-            ) == DanmakuMotionPolicy.fixedSeconds
-        )
-    }
-
     @Test
     func differentPositionsAreNotMerged() {
         let events = [
@@ -109,21 +63,21 @@ struct DanmakuDuplicateMergerTests {
             event("c", time: 2, text: "好耶", mode: .bottom)
         ]
 
-        let merged = DanmakuDuplicateMerger.merged(events) { _ in Self.window }
-        let expected = events.map { DanmakuDuplicateGroup(event: $0, laterArrivalTimes: []) }
-        #expect(merged == expected)
+        #expect(
+            DanmakuDuplicateMerger.merged(events)
+                == events.map { DanmakuDuplicateGroup(event: $0, laterArrivalTimes: []) }
+        )
     }
 
     /// 组首后同一组只吸收窗口内的弹幕；窗口外的同文另起一组，从 1 开始计，不接着上一组累计。
     @Test
     func laterGroupsStartCountingAgain() {
-        let window = Self.window
+        let window = DanmakuDuplicateMerger.windowSeconds
         let events = (0..<6).map { offset in
             event("e\(offset)", time: Double(offset) * window * 0.6, text: "草")
         }
 
-        let merged = DanmakuDuplicateMerger.merged(events) { _ in Self.window }
-        #expect(merged.map(\.laterArrivalTimes.count) == [1, 1, 1])
+        #expect(DanmakuDuplicateMerger.merged(events).map(\.laterArrivalTimes.count) == [1, 1, 1])
     }
 
     /// 开关打开时同一段内合并、不跨分段，整条宽度按最终条数预留胶囊；关闭时与原来的布局一致。
@@ -153,8 +107,6 @@ struct DanmakuDuplicateMergerTests {
         #expect(plain[1]?.placements.map(\.request.event.id) == ["a", "b"])
         #expect(plain[2]?.placements.map(\.request.event.id) == ["c"])
     }
-
-    private static let window = 4.0
 
     private func layouts(
         _ segments: [Int: [DanmakuEvent]],

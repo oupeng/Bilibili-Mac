@@ -132,16 +132,7 @@ enum DanmakuLayoutPlanner {
             .filter { seenIDs.insert($0.id).inserted }
         let groups =
             parameters.filter.mergesDuplicates
-            ? DanmakuDuplicateMerger.merged(unique) { event in
-                measure(event).map {
-                    DanmakuDuplicateMerger.windowSeconds(
-                        for: event,
-                        textWidth: $0.width,
-                        planningWidth: parameters.configuration.planningWidth,
-                        speedLevel: parameters.speedLevel
-                    )
-                }
-            }
+            ? DanmakuDuplicateMerger.merged(unique)
             : unique.map { DanmakuDuplicateGroup(event: $0, laterArrivalTimes: []) }
         var allocator = seed
         var placements: [DanmakuLanePlacement] = []
