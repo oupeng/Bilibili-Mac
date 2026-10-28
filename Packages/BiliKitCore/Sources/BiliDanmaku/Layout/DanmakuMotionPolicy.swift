@@ -57,6 +57,21 @@ enum DanmakuMotionPolicy {
         planningWidth + textWidth
     }
 
+    /// 滚动弹幕在宽 `viewportWidth` 的窗口里从进场起可见的时长（媒体秒）：按自己的匀速换算尾缘越过窗口左边界的
+    /// 时刻，窗口不比规划画布窄时就是整个运动时长。
+    ///
+    /// 取景框的可见判断与重复弹幕合并的时长都用它；两处另算的话，合并时长会与屏上实际可见的时段错开。
+    static func scrollingVisibleSeconds(
+        textWidth: Double,
+        planningWidth: Double,
+        durationSeconds: Double,
+        viewportWidth: Double
+    ) -> Double {
+        let travel = scrollingTravel(textWidth: textWidth, planningWidth: planningWidth)
+        guard travel > 0 else { return 0 }
+        return durationSeconds * min((viewportWidth + textWidth) / travel, 1)
+    }
+
     /// 滚动弹幕的匀速（point／媒体秒）：行程除以运动时长。
     ///
     /// 用的是钳制后的时长，所以碰到时长上下限时与 `duration` 里的基准速度不同；屏上实际的速度是这一个。
