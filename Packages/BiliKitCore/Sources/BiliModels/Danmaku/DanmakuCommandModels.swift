@@ -1,3 +1,5 @@
+import Foundation
+
 /// 互动弹幕卡片在播放区上的位置：卡片中心占播放区宽、高的比例，都在 0...1。
 ///
 /// 取自接口的 `posX_2`／`posY_2`（百分比）；卡片超出播放区时由 renderer 往里收。
@@ -60,6 +62,23 @@ public struct DanmakuVoteCard: Sendable, Equatable {
     }
 }
 
+/// 关联视频互动弹幕：UP 主在自己视频里指向另一个视频的卡片，点击在应用内打开。
+///
+/// 只带打开所需的 BV 号与展示用的标题、封面；不带接口给的跳转链接，打开只按 `bvid` 走应用内导航
+/// （见 SECURITY-MODEL §4）。
+public struct DanmakuLinkCard: Sendable, Equatable {
+    public let bvid: String
+    public let title: String
+    /// 已过 BFS 图床来源规则的封面；没有或不合规时为 nil，卡片照常显示，封面位置留占位底色。
+    public let coverURL: URL?
+
+    public init(bvid: String, title: String, coverURL: URL?) {
+        self.bvid = bvid
+        self.title = title
+        self.coverURL = coverURL
+    }
+}
+
 /// 一张互动弹幕卡片：在 `timeSeconds` 出现，显示 `durationSeconds` 后消失。
 ///
 /// 由 BiliAPI 的 `DanmakuCommandDecoder` 从 `dm/web/view` 解码产生，弹幕会话交给呈现端，renderer 按媒体时间显示；
@@ -68,6 +87,7 @@ public struct DanmakuCommandCard: Sendable, Equatable, Identifiable {
     public enum Content: Sendable, Equatable {
         case grade(DanmakuGradeCard)
         case vote(DanmakuVoteCard)
+        case link(DanmakuLinkCard)
     }
 
     public let id: String
@@ -112,7 +132,7 @@ public struct DanmakuCommands: Sendable, Equatable {
     }
 }
 
-/// 卡片内容的描述同样不展示标题、问题与选项正文，见 SECURITY-MODEL §8。
+/// 卡片内容的描述同样不展示标题、问题、选项正文与关联视频，见 SECURITY-MODEL §8。
 extension DanmakuGradeCard: CustomStringConvertible, CustomDebugStringConvertible {
     public var description: String { "DanmakuGradeCard(redacted)" }
     public var debugDescription: String { description }
@@ -120,6 +140,11 @@ extension DanmakuGradeCard: CustomStringConvertible, CustomDebugStringConvertibl
 
 extension DanmakuVoteCard: CustomStringConvertible, CustomDebugStringConvertible {
     public var description: String { "DanmakuVoteCard(redacted)" }
+    public var debugDescription: String { description }
+}
+
+extension DanmakuLinkCard: CustomStringConvertible, CustomDebugStringConvertible {
+    public var description: String { "DanmakuLinkCard(redacted)" }
     public var debugDescription: String { description }
 }
 

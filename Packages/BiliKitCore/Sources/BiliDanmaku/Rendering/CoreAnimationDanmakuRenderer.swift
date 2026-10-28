@@ -264,6 +264,23 @@ public final class CoreAnimationDanmakuRenderer:
         )
     }
 
+    /// 关联视频卡片取封面的来源；窗口组装时设置一次，没有时卡片只显示封面占位底色。
+    public var coverImages: (any DanmakuCoverImageLoading)? {
+        get { commandCardLayers.coverImages }
+        set { commandCardLayers.coverImages = newValue }
+    }
+
+    /// 显示时间 `displayTime` 时正在显示的关联视频卡片，位置换算到 `layer` 坐标。
+    ///
+    /// 由弹幕 overlay 在主线程调用，用来只在卡片上接点击、提供辅助功能元素；`displayTime` 取 overlay 自己的
+    /// 时钟，与卡片显隐动画同一个时间。弹幕关闭或会话结束时卡片已被移除，这里返回空。
+    public func visibleLinkCards(
+        displayTime: Double,
+        in layer: CALayer
+    ) -> [DanmakuVisibleLinkCard] {
+        commandCardLayers.visibleLinkCards(displayTime: displayTime, in: layer)
+    }
+
     public func setOpacity(_ opacity: DanmakuOpacity) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)

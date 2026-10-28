@@ -25,6 +25,8 @@ struct PlayerHostView: View {
     let toggleDanmaku: (() -> Bool)?
     let toggleSubtitles: (() async -> NativeSubtitleToggleResult)?
     let engagementShortcuts: PlayerEngagementShortcuts?
+    /// 点击弹幕关联视频卡片时在应用内打开该视频（参数是 BV 号）；为 nil 时卡片不接点击。
+    let openDanmakuLinkedVideo: ((String) -> Void)?
     let timelineUpdates: (() -> AsyncStream<PlaybackTimelineSnapshot>)?
 
     init(
@@ -40,6 +42,7 @@ struct PlayerHostView: View {
         toggleDanmaku: (() -> Bool)? = nil,
         toggleSubtitles: (() async -> NativeSubtitleToggleResult)? = nil,
         engagementShortcuts: PlayerEngagementShortcuts? = nil,
+        openDanmakuLinkedVideo: ((String) -> Void)? = nil,
         timelineUpdates: (() -> AsyncStream<PlaybackTimelineSnapshot>)? = nil
     ) {
         self.player = player
@@ -54,6 +57,7 @@ struct PlayerHostView: View {
         self.toggleDanmaku = toggleDanmaku
         self.toggleSubtitles = toggleSubtitles
         self.engagementShortcuts = engagementShortcuts
+        self.openDanmakuLinkedVideo = openDanmakuLinkedVideo
         self.timelineUpdates = timelineUpdates
     }
 
@@ -74,6 +78,7 @@ struct PlayerHostView: View {
             toggleDanmaku: toggleDanmaku,
             toggleSubtitles: toggleSubtitles,
             engagementShortcuts: engagementShortcuts,
+            openDanmakuLinkedVideo: openDanmakuLinkedVideo,
             focusIdentity: videoModel?.presentedBVID
         )
         .task(id: previewProjectionIdentity) {
@@ -133,6 +138,7 @@ private struct AVPlayerContainerView: NSViewRepresentable {
     let toggleDanmaku: (() -> Bool)?
     let toggleSubtitles: (() async -> NativeSubtitleToggleResult)?
     let engagementShortcuts: PlayerEngagementShortcuts?
+    let openDanmakuLinkedVideo: ((String) -> Void)?
     let focusIdentity: String?
 
     func makeNSView(context: Context) -> NativePlayerHostView {
@@ -148,6 +154,7 @@ private struct AVPlayerContainerView: NSViewRepresentable {
             toggleSubtitles: toggleSubtitles
         )
         view.engagementShortcuts = engagementShortcuts
+        view.danmakuOverlay.openLinkedVideo = openDanmakuLinkedVideo
         view.attachPlayer(player)
         view.setPlaybackPreparationBlocked(blocksNativePlaybackInteraction)
         view.showsFullScreenToggleButton = true
@@ -171,6 +178,7 @@ private struct AVPlayerContainerView: NSViewRepresentable {
         view.toggleDanmaku = toggleDanmaku
         view.toggleSubtitles = toggleSubtitles
         view.engagementShortcuts = engagementShortcuts
+        view.danmakuOverlay.openLinkedVideo = openDanmakuLinkedVideo
         view.setResumeNotice(
             resumeNotice,
             restartFromBeginning: restartFromBeginning

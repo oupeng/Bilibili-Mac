@@ -225,6 +225,13 @@ final class WindowComposition {
                 accountWrites: accountWrites,
                 engagementModel: engagementModel,
                 videoModel: videoModel
+            ),
+            // 与评论里不带时间的视频链接同一导航：换到该视频的播放页，离开侧栏上下文层。
+            PlayerDanmakuLinks(
+                imagePipeline: imagePipelineOwner.pipeline,
+                openVideo: { [navigationCoordinator] bvid in
+                    navigationCoordinator.openPlayback(bvid)
+                }
             )
         )
         commentAssetURLResolver = adapters.commentAssetURLResolver

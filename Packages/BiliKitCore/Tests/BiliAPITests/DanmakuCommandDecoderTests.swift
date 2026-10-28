@@ -7,8 +7,9 @@ import Testing
 
 @testable import BiliAPI
 
-/// 互动弹幕的契约：`dm/web/view` 不签 WBI、只带 type 与 cid；第一版只认 UP 主弹幕、评分与投票，其余类型与不合规的
-/// 单条跳过；卡片的时长与位置越界时取默认值；条数超限或 protobuf 解不开时整份失败。
+/// 互动弹幕的契约：`dm/web/view` 不签 WBI、只带 type 与 cid；只认 UP 主弹幕、评分、投票与关联视频，其余类型与
+/// 不合规的单条跳过；关联视频只按合法 BV 号打开、封面须落在 BFS 图床；卡片的时长与位置越界时取默认值；
+/// 条数超限或 protobuf 解不开时整份失败。
 @Suite(.timeLimit(.minutes(1)))
 struct DanmakuCommandDecoderTests {
     private let identity = PlaybackItemIdentity(bvid: "BV1DanmakuFixture", cid: 700_001)
@@ -110,6 +111,60 @@ struct DanmakuCommandDecoderTests {
                 )
         )
         #expect(vote.description == "DanmakuCommandCard(redacted)")
+    }
+
+    /// 关联视频取 BV 号、标题与升级为 HTTPS 的图床封面，不读 `jump_url`；BV 号不合法时跳过，
+    /// 封面不在图床上时卡片照常留下、只缺封面，标题缺失时退回弹幕正文。
+    @Test
+    func linkCardsOpenOnlyByBVIDAndKeepOnlyBFSCovers() throws {
+        let commands = try DanmakuCommandDecoder.commands(
+            from: payload([
+                element(
+                    id: 1,
+                    command: "#LINK#",
+                    content: "怀孕后身体的变化",
+                    progress: 18_098,
+                    extra:
+                        #"{"aid":117497638487905,"title":"怀孕以后身体器官变化-山东方言","#
+                        + #""bvid":"BV18NHg6KEkb","posX_2":50,"posY_2":65,"#
+                        + #""arc_pic":"http://i0.hdslb.com/bfs/archive/cover.jpg","#
+                        + #""arc_duration":123,"duration":5000,"#
+                        + #""jump_url":"https://evil.example/video/BV18NHg6KEkb"}"#
+                ),
+                element(
+                    id: 2,
+                    command: "#LINK#",
+                    content: "正文作标题",
+                    progress: 20_000,
+                    extra: #"{"bvid":"BV1q1x36aEZE","arc_pic":"https://evil.example/bfs/a.jpg"}"#
+                ),
+                element(
+                    id: 3,
+                    command: "#LINK#",
+                    content: "x",
+                    progress: 21_000,
+                    extra: #"{"bvid":"av170001","title":"t"}"#
+                )
+            ])
+        )
+
+        #expect(commands.cards.map(\.id) == ["command:1", "command:2"])
+        let first = try #require(commands.cards.first)
+        #expect(first.timeSeconds == 18.098)
+        #expect(
+            first.content
+                == .link(
+                    DanmakuLinkCard(
+                        bvid: "BV18NHg6KEkb",
+                        title: "怀孕以后身体器官变化-山东方言",
+                        coverURL: URL(string: "https://i0.hdslb.com/bfs/archive/cover.jpg")
+                    )
+                )
+        )
+        #expect(
+            commands.cards.last?.content
+                == .link(DanmakuLinkCard(bvid: "BV1q1x36aEZE", title: "正文作标题", coverURL: nil))
+        )
     }
 
     /// 单条不合规只跳过这一条；时长、位置越界或缺失时取默认值，没投过、没评过为 nil。

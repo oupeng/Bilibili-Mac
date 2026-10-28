@@ -291,7 +291,7 @@ func makeTestAdapters(
         makePlaybackAuthenticationInvalidations: { AsyncStream { $0.finish() } },
         danmakuPresentation: RecordingDanmakuPresentation(),
         danmakuPreferences: DefaultDanmakuPreferencesStore(),
-        makePlayerContent: { _, _, _ in AnyView(EmptyView()) },
+        makePlayerContent: { _, _, _, _ in AnyView(EmptyView()) },
         seekPlayback: { _, _ in },
         nowPlayingConnection: .idle,
         makeWatchProgressConnection: { _ in watchProgress },
