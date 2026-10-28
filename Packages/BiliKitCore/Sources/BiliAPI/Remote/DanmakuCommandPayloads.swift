@@ -1,4 +1,5 @@
 import BiliModels
+import BiliNetworking
 import Foundation
 import SwiftProtobuf
 
@@ -6,8 +7,9 @@ import SwiftProtobuf
 ///
 /// 调用前响应已在 `BiliAPIClient` 通过 Content-Type、非 JSON／HTML 与大小上限检查（见 SECURITY-MODEL §4）。
 /// protobuf 本身解不开或条数超限时整份失败；单条互动弹幕的字段越界、类型不认识或 `extra` 不合规只跳过这一条，
-/// 不连累其他条。第一版只认 UP 主弹幕（`#UP#`）、评分（`#GRADE#`）与投票（`#VOTE#`），其余类型跳过。
-/// `extra` 里的远端图片地址一律不读，卡片只用本地绘制的图形。
+/// 不连累其他条。只认 UP 主弹幕（`#UP#`）、评分（`#GRADE#`）、投票（`#VOTE#`）与关联视频（`#LINK#`），
+/// 其余类型跳过。`extra` 里的远端地址只读关联视频的封面 `arc_pic`，须过 `BiliBFSImageURLPolicy`，不合规时
+/// 卡片照常留下、只缺封面；跳转链接 `jump_url` 不读，打开只按校验过的 BV 号（见 SECURITY-MODEL §4）。
 enum DanmakuCommandDecoder {
     /// 一个视频的互动弹幕条数上限，超出整份失败；实测热门视频不超过十几条。
     private static let maximumCommandCount = 200
@@ -69,7 +71,7 @@ enum DanmakuCommandDecoder {
                 ) {
                     uploaderEvents.append(event)
                 }
-            case "#GRADE#", "#VOTE#":
+            case "#GRADE#", "#VOTE#", "#LINK#":
                 if cards.count < maximumCardCount,
                     let card = card(id: idPrefix + id, time: time, element: element)
                 {
@@ -111,12 +113,16 @@ enum DanmakuCommandDecoder {
             return nil
         }
         let content: DanmakuCommandCard.Content
-        if element.command == "#GRADE#" {
+        switch element.command {
+        case "#GRADE#":
             guard let grade = gradeCard(extra, fallbackTitle: element.content) else { return nil }
             content = .grade(grade)
-        } else {
+        case "#VOTE#":
             guard let vote = voteCard(extra) else { return nil }
             content = .vote(vote)
+        default:
+            guard let link = linkCard(extra, fallbackTitle: element.content) else { return nil }
+            content = .link(link)
         }
         let milliseconds =
             extra.duration.flatMap { displayDurationRange.contains($0) ? $0 : nil }
@@ -183,6 +189,23 @@ enum DanmakuCommandDecoder {
         )
     }
 
+    /// 关联视频：BV 号不合法或没有标题时跳过；标题缺失时退回弹幕正文。
+    private static func linkCard(
+        _ extra: CommandExtraPayload,
+        fallbackTitle: String
+    ) -> DanmakuLinkCard? {
+        guard let bvid = extra.bvid, BVID.isValid(bvid),
+            let title = text(extra.title ?? fallbackTitle)
+        else {
+            return nil
+        }
+        // 封面是 `http:` 的图床地址，先按接口图片统一升级为 HTTPS，再要求落在 BFS 图床上。
+        let coverURL = extra.arcPic
+            .flatMap(WebImageURL.parse)
+            .flatMap { BiliBFSImageURLPolicy.allows($0) ? $0 : nil }
+        return DanmakuLinkCard(bvid: bvid, title: title, coverURL: coverURL)
+    }
+
     /// `posX_2`／`posY_2` 是卡片中心在播放区里的百分比；缺失或越界时用默认位置。
     private static func position(_ extra: CommandExtraPayload) -> DanmakuCardPosition {
         guard let x = extra.posX2, let y = extra.posY2,
@@ -205,7 +228,7 @@ enum DanmakuCommandDecoder {
     }
 }
 
-/// 评分与投票 `extra` 里用到的字段；单个字段类型不对时按缺失处理，由调用方决定这一条是否成立。
+/// 评分、投票与关联视频 `extra` 里用到的字段；单个字段类型不对时按缺失处理，由调用方决定这一条是否成立。
 private struct CommandExtraPayload: Decodable {
     struct Option: Decodable {
         let idx: Int?
@@ -235,14 +258,18 @@ private struct CommandExtraPayload: Decodable {
     let options: [Option]?
     let cnt: Int?
     let myVote: Int?
+    let bvid: String?
+    let title: String?
+    let arcPic: String?
 
     enum CodingKeys: String, CodingKey {
-        case duration, msg, count, question, options, cnt
+        case duration, msg, count, question, options, cnt, bvid, title
         case posX2 = "posX_2"
         case posY2 = "posY_2"
         case avgScore = "avg_score"
         case midScore = "mid_score"
         case myVote = "my_vote"
+        case arcPic = "arc_pic"
     }
 
     init(from decoder: any Swift.Decoder) throws {
@@ -258,5 +285,8 @@ private struct CommandExtraPayload: Decodable {
         options = container.decodeLossyIfPresent([Option].self, forKey: .options)
         cnt = container.decodeLossyIfPresent(Int.self, forKey: .cnt)
         myVote = container.decodeLossyIfPresent(Int.self, forKey: .myVote)
+        bvid = container.decodeLossyIfPresent(String.self, forKey: .bvid)
+        title = container.decodeLossyIfPresent(String.self, forKey: .title)
+        arcPic = container.decodeLossyIfPresent(String.self, forKey: .arcPic)
     }
 }

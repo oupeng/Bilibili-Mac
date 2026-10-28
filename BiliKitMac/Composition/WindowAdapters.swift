@@ -51,7 +51,9 @@ struct WindowAdapters {
     let danmakuPreferences: any DanmakuPreferencesStoring
     /// 播放器宿主视图；窗口组装时调用一次，结果随窗口存活。
     let makePlayerContent:
-        @MainActor (VideoViewModel, DanmakuControlsViewModel, PlayerEngagementShortcuts) -> AnyView
+        @MainActor (
+            VideoViewModel, DanmakuControlsViewModel, PlayerEngagementShortcuts, PlayerDanmakuLinks
+        ) -> AnyView
     /// 在当前视频的播放器里跳到某秒并播放；播放器 item 不属于该视频时不动作。
     let seekPlayback: @MainActor (_ bvid: String, _ seconds: Int) -> Void
     let nowPlayingConnection: SystemNowPlayingPlaybackConnection
@@ -141,8 +143,9 @@ extension WindowAdapters {
             makePlaybackAuthenticationInvalidations: subtitleAuthenticationInvalidations.makeStream,
             danmakuPresentation: danmaku.session,
             danmakuPreferences: UserDefaultsDanmakuPreferencesStore(),
-            makePlayerContent: { videoModel, danmakuModel, engagementShortcuts in
-                AnyView(
+            makePlayerContent: { videoModel, danmakuModel, engagementShortcuts, danmakuLinks in
+                danmaku.renderer.coverImages = danmakuLinks.imagePipeline
+                return AnyView(
                     PlayerHostView(
                         player: player,
                         danmakuRenderer: danmaku.renderer,
@@ -170,6 +173,7 @@ extension WindowAdapters {
                             await playerEngine.toggleNativeSubtitles()
                         },
                         engagementShortcuts: engagementShortcuts,
+                        openDanmakuLinkedVideo: danmakuLinks.openVideo,
                         timelineUpdates: {
                             playerEngine.timelineUpdates()
                         }
@@ -201,6 +205,13 @@ extension WindowAdapters {
             synchronizeSignedOutConfirmation: signedOutConfirmation.synchronize
         )
     }
+}
+
+/// 弹幕关联视频卡片在窗口层的依赖，构造窗口 adapter 时还不存在，由窗口组装播放器时交给 `makePlayerContent`：
+/// 封面经窗口的图片管线加载，点击经窗口导航在应用内打开视频。
+struct PlayerDanmakuLinks {
+    let imagePipeline: NativeVideoImagePipeline
+    let openVideo: @MainActor (_ bvid: String) -> Void
 }
 
 /// 一个窗口的弹幕实现：Core Animation renderer、呈现控制器、加载分段并转发时间线的会话，以及系统内存压力监听。

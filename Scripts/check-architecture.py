@@ -149,7 +149,8 @@ EXTRA_ALLOWED = {
     "BiliKitMac/App/FavoritesToolbarControls.swift": {"BiliApplication"},
     # 观看进度连接、播放器宿主与网格、侧栏共用同一份通知观察集合（NativeVideoNotificationObservers）；
     # 图片管线在 NativeVideoImageLoadingPorts 实现卡片取图 port（NativeVideoImageLoading）；侧栏账号头像
-    # （AccountAvatarImage）的 SwiftUI 淡入与评论图片预览共用 NativeImageFadeTransition。
+    # （AccountAvatarImage）的 SwiftUI 淡入与评论图片预览共用 NativeImageFadeTransition；同一文件还实现弹幕关联视频
+    # 卡片的取封面 port（DanmakuCoverImageLoading）。
     "BiliKitMac/Composition/WatchProgressWindowConnection.swift": {"BiliVideoCollectionUI"},
     "BiliKitMac/Platform/AccountAvatarImage.swift": {"BiliVideoCollectionUI"},
     "BiliKitMac/Platform/AppUpdater.swift": {"Sparkle"},
@@ -157,7 +158,7 @@ EXTRA_ALLOWED = {
     # 通知在后台队列上驱动，弹幕动画随它运行。
     "BiliKitMac/Platform/DanmakuOverlayView.swift": {"AVFoundation", "BiliDanmaku"},
     "BiliKitMac/Platform/DanmakuTimebaseClock.swift": {"CoreMedia", "QuartzCore"},
-    "BiliKitMac/Platform/NativeVideoImageLoadingPorts.swift": {"BiliVideoCollectionUI"},
+    "BiliKitMac/Platform/NativeVideoImageLoadingPorts.swift": {"BiliDanmaku", "BiliVideoCollectionUI"},
     "BiliKitMac/Platform/NativeVideoImagePipeline.swift": {"BiliNetworking"},
     "BiliKitMac/Platform/PlaybackPreferencesController.swift": {"AVFoundation"},
     "BiliKitMac/Platform/PlayerHostView.swift": {"AVKit", "BiliDanmaku", "BiliPlayback", "BiliVideoCollectionUI"},

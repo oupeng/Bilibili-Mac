@@ -181,7 +181,9 @@ Sparkle 更新网络，以及任何 redirect 后的主机。只认精确主机�
 
 - 弹幕分段与评论页须通过状态、Content-Type 与 2 MiB 上限，再交给解码器；JSON、protobuf、HTML 错误页和
   空响应不能互相降级解析。未知接口状态失败关闭。互动弹幕（`dm/web/view`）走同一套 protobuf 校验，上限 512 KiB；
-  其中的 JSON `extra` 逐条限长解析，不合规只跳过这一条，里面的远端图片与跳转地址一律不读。
+  其中的 JSON `extra` 逐条限长解析，不合规只跳过这一条。远端图片只读关联视频封面 `arc_pic`：升级为 HTTPS 后须过
+  BFS 图床规则（`BiliBFSImageURLPolicy`），不合规时卡片只缺封面；跳转地址 `jump_url` 不读，点击只按校验过的
+  BVID 在应用内打开，防止弹幕数据把用户带到任意网址。
 - 所有远端图片（含侧栏账号头像）都经图片管线加载，不用 `AsyncImage` 等走系统共享 session、URL cache 或跟随
   redirect 的加载方式。
 - 图片管线（`NativeVideoImagePipeline`）：无凭据 session，响应必须 2xx、HTTPS、同主机、`image/*`、

@@ -1,6 +1,6 @@
 import Foundation
 
-/// B 站 BFS 图床图片的来源规则：评论头像、表情、正文图片、链接前置图标与热搜图标共用。
+/// B 站 BFS 图床图片的来源规则：评论头像、表情、正文图片、链接前置图标、热搜图标与关联视频弹幕的封面共用。
 ///
 /// 只接受 `i0`／`i1`／`i2.hdslb.com` 与 `album.biliimg.com` 上 `/bfs/` 下的 HTTPS 路径，端口缺省或
 /// 443，拒绝 userinfo、query、fragment、空段、点段、反斜杠、控制字符与编码后的 `%`、`/`、`\`；
@@ -8,7 +8,8 @@ import Foundation
 /// 较早的评论图片用它，缩略参数同样可用。
 ///
 /// 调用方：`BiliCommentAssetResolver` 在拼缩略参数前后各检查一次，不通过时不加载该图或退回原图；
-/// `TrendingSearchKeywordPayload` 在图标升级为 HTTPS 后检查，不通过时只丢图标。
+/// `TrendingSearchKeywordPayload` 在图标升级为 HTTPS 后检查，不通过时只丢图标；`DanmakuCommandDecoder` 对
+/// 关联视频卡片的封面同样升级后检查，不通过时卡片只缺封面。
 enum BiliBFSImageURLPolicy {
     private static let bfsPathPrefix = "/bfs/"
     /// 精确主机名，不做后缀匹配；新增主机即扩大无凭据图片请求可达的范围，须先确认是 B 站图床。

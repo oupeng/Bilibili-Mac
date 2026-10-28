@@ -1,4 +1,5 @@
 import BiliBrowseFeature
+import BiliDanmaku
 import BiliVideoCollectionUI
 import BiliVideoDetailFeature
 import CoreGraphics
@@ -27,6 +28,18 @@ extension NativeVideoImagePipeline: TrendingSearchIconLoading {
 
     func trendingSearchIcon(for url: URL) async -> CGImage? {
         await image(for: url, variant: .trendingSearchIcon)?.image
+    }
+}
+
+/// 弹幕关联视频卡片经 BiliDanmaku 的 `DanmakuCoverImageLoading` 取封面：用卡片封面用途，与网格共用缓存；
+/// 请求地址与响应仍走本管线的校验（见 SECURITY-MODEL §4）。
+extension NativeVideoImagePipeline: DanmakuCoverImageLoading {
+    func cachedDanmakuCover(for url: URL) -> CGImage? {
+        cachedImage(for: url, variant: .cover)
+    }
+
+    func danmakuCover(for url: URL) async -> CGImage? {
+        await image(for: url, variant: .cover)?.image
     }
 }
 

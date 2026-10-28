@@ -2,10 +2,12 @@ import AppKit
 import BiliModels
 import CoreText
 
-/// 把一张互动弹幕卡片（评分、投票）画成一张图：半透明黑底圆角、白字，强调色是 B 站粉。
+/// 把一张互动弹幕卡片（评分、投票、关联视频）画成一张图：半透明黑底圆角、白字，强调色是 B 站粉。
 ///
 /// 由 `DanmakuCommandCardLayers` 在主线程调用；解码时每个视频最多留 30 张卡片（BiliAPI 的
-/// `DanmakuCommandDecoder.maximumCardCount`），每张画一次。卡片固定宽度，不随播放区缩放，与弹幕字号一致。图标都是 SF Symbol，不读接口给出的远端图片。
+/// `DanmakuCommandDecoder.maximumCardCount`），每张画一次。卡片固定宽度，不随播放区缩放，与弹幕字号一致。
+/// 图标都是 SF Symbol。关联视频的封面不画进这张图：图里只留占位底色，`Artwork.coverFrame` 给出位置，
+/// 封面到达后由卡片层放进那里的子层，不必为它重画整张卡。
 /// 竖向排版只由 `Rows` 算一次：卡片高度与每行的位置出自同一份行高，改行高不会裁字。
 enum DanmakuCommandCardArtwork {
     /// 卡片宽度（point）。
@@ -43,10 +45,22 @@ enum DanmakuCommandCardArtwork {
     static let voteTextBaselineInset: CGFloat = 5
     /// 选项文字与右侧百分比之间至少留出的间距。
     static let votePercentSpacing: CGFloat = 6
+    /// 关联视频封面的尺寸（16:9，现在的稿件封面多是这个比例，其他比例填满后裁切）与圆角。
+    static let coverSize = CGSize(width: 64, height: 36)
+    static let coverCornerRadius: CGFloat = 4
+    /// 封面到达前占位底色的不透明度，与投票横条底轨一致。
+    static let coverPlaceholderOpacity = voteTrackOpacity
+    /// 封面与右侧标题的间距。
+    static let coverSpacing: CGFloat = 8
+    /// 关联视频标题最多两行，第二行超长时截断。
+    static let linkTitleLineCount = 2
+    static let linkTitleFontSize: CGFloat = 12
 
     struct Artwork {
         let image: CGImage
         let size: CGSize
+        /// 关联视频封面在卡片里的位置（point，原点在左上角、y 向下，与卡片层的子层坐标一致）；其他卡片为 nil。
+        var coverFrame: CGRect?
     }
 
     static func artwork(for card: DanmakuCommandCard, scale: CGFloat) -> Artwork? {
@@ -61,6 +75,21 @@ enum DanmakuCommandCardArtwork {
             return render(height: rows.cardHeight, scale: scale) { context in
                 drawVote(vote, rows: rows, in: context)
             }
+        case .link(let link):
+            let rows = Rows.link
+            let cover = CGRect(
+                origin: CGPoint(x: padding, y: rows.bottom(ofRow: 1)),
+                size: coverSize
+            )
+            var artwork = render(height: rows.cardHeight, scale: scale) { context in
+                drawLink(link, rows: rows, cover: cover, in: context)
+            }
+            // 绘制坐标原点在左下角，子层坐标原点在左上角。
+            artwork?.coverFrame = CGRect(
+                origin: CGPoint(x: cover.minX, y: rows.cardHeight - cover.maxY),
+                size: cover.size
+            )
+            return artwork
         }
     }
 
@@ -86,6 +115,12 @@ enum DanmakuCommandCardArtwork {
                     + Array(repeating: voteRowSpacing, count: optionCount) + [0]
             )
         }
+
+        /// 关联视频卡两行：类型、封面与右侧标题。
+        static let link = Rows(
+            heights: [headerFontSize, coverSize.height],
+            spacingsAfter: [lineSpacing, 0]
+        )
 
         var cardHeight: CGFloat {
             padding * 2 + heights.reduce(0, +) + spacingsAfter.reduce(0, +)
@@ -217,6 +252,43 @@ enum DanmakuCommandCardArtwork {
         )
     }
 
+    /// 类型、封面占位与封面右侧最多两行的标题，标题与封面顶边对齐。
+    private static func drawLink(
+        _ link: DanmakuLinkCard,
+        rows: Rows,
+        cover: CGRect,
+        in context: CGContext
+    ) {
+        drawHeader(
+            "play.rectangle.fill",
+            DanmakuStrings.localized("关联视频"),
+            baseline: rows.bottom(ofRow: 0),
+            in: context
+        )
+        fill(
+            cover,
+            radius: coverCornerRadius,
+            color: NSColor.white.withAlphaComponent(coverPlaceholderOpacity),
+            in: context
+        )
+        let titleFont = font(linkTitleFontSize, .semibold)
+        let textX = cover.maxX + coverSpacing
+        let lines = wrapped(
+            link.title,
+            titleFont,
+            NSColor.white,
+            maxWidth: cardWidth - padding - textX,
+            maxLines: linkTitleLineCount
+        )
+        let lineHeight = titleFont.ascender - titleFont.descender
+        var baseline = cover.maxY - titleFont.ascender
+        for line in lines {
+            context.textPosition = CGPoint(x: textX, y: baseline)
+            CTLineDraw(line, context)
+            baseline -= lineHeight
+        }
+    }
+
     /// 左上角的图标与类型名。
     private static func drawHeader(
         _ symbolName: String,
@@ -327,6 +399,37 @@ enum DanmakuCommandCardArtwork {
         guard width(full) > maxWidth else { return full }
         let token = line("…", font, color)
         return CTLineCreateTruncatedLine(full, Double(max(maxWidth, 0)), .end, token) ?? full
+    }
+
+    /// 按宽度断行，最多 `maxLines` 行；还有剩余文字时最后一行截断。
+    private static func wrapped(
+        _ text: String,
+        _ font: NSFont,
+        _ color: NSColor,
+        maxWidth: CGFloat,
+        maxLines: Int
+    ) -> [CTLine] {
+        let attributed = NSAttributedString(
+            string: text,
+            attributes: [.font: font, .foregroundColor: color.cgColor]
+        )
+        let typesetter = CTTypesetterCreateWithAttributedString(attributed)
+        let length = attributed.length
+        var lines: [CTLine] = []
+        var start = 0
+        while start < length, lines.count < maxLines {
+            if lines.count == maxLines - 1 {
+                let rest = (text as NSString).substring(from: start)
+                lines.append(truncated(rest, font, color, maxWidth: maxWidth))
+                break
+            }
+            let count = CTTypesetterSuggestLineBreak(typesetter, start, Double(max(maxWidth, 1)))
+            guard count > 0 else { break }
+            let range = CFRange(location: start, length: count)
+            lines.append(CTTypesetterCreateLine(typesetter, range))
+            start += count
+        }
+        return lines
     }
 
     private static func width(_ line: CTLine) -> CGFloat {

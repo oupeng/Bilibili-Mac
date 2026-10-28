@@ -2,13 +2,17 @@ import AppKit
 import BiliModels
 import QuartzCore
 
-/// 互动弹幕卡片（评分、投票）的 Core Animation 层：按媒体时间显隐，按窗口尺寸定位，不占车道。
+/// 互动弹幕卡片（评分、投票、关联视频）的 Core Animation 层：按媒体时间显隐，按窗口尺寸定位，不占车道。
 ///
 /// 由 `CoreAnimationDanmakuRenderer` 持有；`containerLayer` 挂在 renderer 的 `rootLayer` 下、所有弹幕之上，与窗口同尺寸，
 /// 裁剪随 `rootLayer`；用户的弹幕透明度只作用于弹幕的锚点层，卡片不随它变淡。拥有当前卡片与各自的 layer：`setCards` 整组替换，`updateSurface` 只重新定位，
 /// 换 backing scale 时重画卡片图。显隐是从卡片时间点开始、持续显示时长的关键帧动画（模型值不透明度 0）：开头淡入并
 /// 从略小放大到原尺寸，结尾淡出。由时钟层按媒体时间切换，不随对齐步长刷新，暂停、seek、倍速都与连续播放一致；
 /// 开了“减弱动态效果”时只淡入淡出、不缩放。
+///
+/// 关联视频的封面经 `coverImages` 加载，按地址各一个 Task，由本类型持有：`setCards` 换掉的卡片不再用到的地址
+/// 当场取消并丢掉已到的封面，清屏（空卡片组）时全部取消。封面到达时只换那张卡片的封面子层，不重画卡片图；
+/// 加载失败不重试，下次换卡片组时再请求。Task 弱引用本类型，迟到的结果按地址是否仍在当前卡片组里丢弃。
 @MainActor
 final class DanmakuCommandCardLayers {
     /// 卡片离窗口边缘至少留出的距离（point）；位置超出时往里收。
@@ -26,6 +30,14 @@ final class DanmakuCommandCardLayers {
     let containerLayer = CALayer()
     private var cards: [DanmakuCommandCard] = []
     private var layers: [CALayer] = []
+    /// 与 `layers` 一一对应：关联视频卡片的封面子层，其他卡片为 nil。
+    private var coverLayers: [CALayer?] = []
+    /// 封面来源；窗口组装时设置一次，为 nil 时关联视频卡片只显示占位底色。
+    var coverImages: (any DanmakuCoverImageLoading)?
+    /// 当前卡片组用到的、已经到达的封面。
+    private var covers: [URL: CGImage] = [:]
+    /// 在途的封面加载，完成（无论成败）时移除。
+    private var coverLoads: [URL: Task<Void, Never>] = [:]
     private var surfaceSize = CGSize.zero
     private var reducesMotion = false
     private var backingScale: Double
@@ -49,7 +61,65 @@ final class DanmakuCommandCardLayers {
         guard cards != self.cards || reducesMotion != self.reducesMotion else { return }
         self.cards = cards
         self.reducesMotion = reducesMotion
+        updateCoverLoads()
         rebuild()
+    }
+
+    /// 显示时间 `displayTime` 落在显示区间里的关联视频卡片，位置换算到 `layer` 坐标。
+    ///
+    /// 按卡片的时间区间判断，不读动画的呈现值：与时钟层用的是同一个 D，淡入淡出的那一小段也算在显示。
+    func visibleLinkCards(displayTime: Double, in layer: CALayer) -> [DanmakuVisibleLinkCard] {
+        zip(cards, layers).compactMap { card, cardLayer in
+            guard case .link(let link) = card.content,
+                displayTime >= card.timeSeconds,
+                displayTime < card.timeSeconds + card.durationSeconds
+            else {
+                return nil
+            }
+            return DanmakuVisibleLinkCard(
+                card: link,
+                frame: containerLayer.convert(cardLayer.frame, to: layer)
+            )
+        }
+    }
+
+    /// 让在途加载与已到封面只覆盖当前卡片组用到的地址：多余的取消、丢掉，缺的先查缓存，未命中再加载。
+    private func updateCoverLoads() {
+        let wanted = Set(
+            cards.compactMap { card -> URL? in
+                guard case .link(let link) = card.content else { return nil }
+                return link.coverURL
+            }
+        )
+        for (url, task) in coverLoads where !wanted.contains(url) {
+            task.cancel()
+            coverLoads[url] = nil
+        }
+        covers = covers.filter { wanted.contains($0.key) }
+        guard let coverImages else { return }
+        for url in wanted where covers[url] == nil && coverLoads[url] == nil {
+            if let cached = coverImages.cachedDanmakuCover(for: url) {
+                covers[url] = cached
+                continue
+            }
+            coverLoads[url] = Task { [weak self] in
+                let image = await coverImages.danmakuCover(for: url)
+                self?.coverDidLoad(image, for: url)
+            }
+        }
+    }
+
+    /// 在加载它的 Task 里调用；先看取消：被取消的旧 Task 不得移除同一地址后来的新 Task。
+    private func coverDidLoad(_ image: CGImage?, for url: URL) {
+        guard !Task.isCancelled, coverLoads.removeValue(forKey: url) != nil, let image else {
+            return
+        }
+        covers[url] = image
+        for (card, coverLayer) in zip(cards, coverLayers) {
+            if case .link(let link) = card.content, link.coverURL == url {
+                coverLayer?.contents = image
+            }
+        }
     }
 
     /// 窗口尺寸或 backing scale 变化：尺寸只重新定位，scale 变了才重画卡片图。
@@ -70,14 +140,31 @@ final class DanmakuCommandCardLayers {
             layer.removeAllAnimations()
             layer.removeFromSuperlayer()
         }
+        coverLayers = []
         layers = cards.map { card in
             let layer = CALayer()
             layer.actions = CoreAnimationDanmakuRenderer.disabledActions
             let scale = CGFloat(backingScale)
-            if let artwork = DanmakuCommandCardArtwork.artwork(for: card, scale: scale) {
+            let artwork = DanmakuCommandCardArtwork.artwork(for: card, scale: scale)
+            if let artwork {
                 layer.contents = artwork.image
                 layer.bounds = CGRect(origin: .zero, size: artwork.size)
             }
+            coverLayers.append(
+                artwork?.coverFrame.map { frame in
+                    let cover = CALayer()
+                    cover.actions = CoreAnimationDanmakuRenderer.disabledActions
+                    cover.frame = frame
+                    cover.cornerRadius = DanmakuCommandCardArtwork.coverCornerRadius
+                    cover.masksToBounds = true
+                    cover.contentsGravity = .resizeAspectFill
+                    if case .link(let link) = card.content, let url = link.coverURL {
+                        cover.contents = covers[url]
+                    }
+                    layer.addSublayer(cover)
+                    return cover
+                }
+            )
             layer.contentsScale = CGFloat(backingScale)
             layer.contentsGravity = .resize
             // 模型不透明度为 0，显示期间由动画撑起。
