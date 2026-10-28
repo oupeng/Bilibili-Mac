@@ -9,7 +9,7 @@ import SwiftUI
 ///
 /// 不拥有请求、翻页与复核（`FavoriteFolderViewModel`）；滚动位置、回顶请求与图片管线由根视图从 App 窗口转交。按页整体
 /// 替换，网格不做近尾自动加载（`tailState` 为 `.end`），末行下方为页码条留出 `PageNumberPagerGeometry.reservedHeight`。
-/// 回顶由 App 在 `successfulReloadGeneration` 前进时发出；卡片菜单取 `LibraryVideoCardMenu`。
+/// 回顶由 App 在 `successfulReloadGeneration` 前进时发出；卡片菜单取 `LibraryVideoCardMenu`。换夹时整块重建，不与旧夹做过渡。
 struct FavoriteFolderContentView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.locale) private var locale
@@ -37,6 +37,9 @@ struct FavoriteFolderContentView: View {
                 )
             }
         }
+        // 换夹在侧栏上等同换来源：整块按收藏夹换掉，不经上面的阶段动画。否则旧夹的网格会留到阶段过渡结束才移除，
+        // 新夹就绪前会先闪过旧夹的内容；同一夹内翻页、换排序与搜索仍按阶段过渡。
+        .id(model.selectedFolderID)
     }
 
     @ViewBuilder
