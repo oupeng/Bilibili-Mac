@@ -133,6 +133,8 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
   播放”只能按会话是否已报过 ended 判断，不能只看上一个快照；观看进度据此把重播当作新的一次观看。
 - 播完的处理（「播放结束后」）只在同一 item 刚进入 `ended` 时触发一次，由 `VideoViewModel.handlePlaybackEnded`
   核对快照仍属于此刻呈现、也是最新请求的那一项再动作；重播与断点浮层的「从头播放」共用引擎里同一条回到开头的 seek。
+  连播的下一项由视频模型决定（`PlaybackNextItem`），跳转由 App 经窗口导航执行，与侧栏选分 P、选集同一条路：视频模型
+  不导航，否则导航层的去重、当前意图与上下文层会和真实播放对不上。
 - 弹幕时钟层（App `Platform/DanmakuTimebaseClock`，owner 是 `DanmakuOverlayView`）是普通 `CALayer`，本地时间
   跟随当前 item `timebase`，更新不经过主线程。跨文件必须守住的约束：
   - timebase 的通知由播放器内部队列在持有 MediaToolbox 锁时同步发出：回调里调用 AVPlayer／AVPlayerItem
@@ -265,7 +267,8 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
   设 `isHidden`，只设 SwiftUI 透明度与 hit testing 管不到 cursor rect 和 tracking area。进出动画只作用于
   上下文层，否则底层集合视图的布局变化也会被做成动画。
 - 上下文层的打开与关闭都经 `AppNavigationCoordinator`，按“从哪里打开”判断是否关闭：在上下文层里选的视频保留
-  它，其他入口换视频或关闭播放时关闭。不比较新视频的 UP 主：联合投稿的 UP 主字段可能是另一位。
+  它，其他入口换视频或关闭播放时关闭。播完后的自动连播与列表循环不是用户从别处换视频，同样保留它。不比较新视频的
+  UP 主：联合投稿的 UP 主字段可能是另一位。
 - 简介与评论里的链接：BiliAPI 分类目标（`CommentTextLinkDetector` 识别纯文字、`BiliShortLinkResolver` 读短链
   跳转），Composition 的 `CommentLinkRouting` 是目标到 App 路由的唯一翻译处，路由只由 `Navigation/` 的
   `CommentLinkOpener` 执行；时间跳转由 Composition 的 `seekPlayback` 校验 item 仍属该视频再跳。来源与形状

@@ -469,12 +469,9 @@ private final class NativePlaybackSidebarSelectionView: NSView {
 }
 
 extension NativePlaybackSidebarSelectionItem {
-    /// 分 P 菜单项：「P1 · 标题 · 时长」，标题为空时省略这一段。
+    /// 分 P 菜单项：「P1 · 标题 · 时长」，标题为空时省略这一段（`VideoPage.displayLabel`）。
     static func pageMenuTitle(index: Int, title: String, durationSeconds: Int) -> String {
-        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return
-            (["P\(index)"] + (title.isEmpty ? [] : [title])
-            + [VideoDurationFormatting.string(seconds: durationSeconds)])
-            .joined(separator: " · ")
+        VideoPage.displayLabel(index: index, title: title) + " · "
+            + VideoDurationFormatting.string(seconds: durationSeconds)
     }
 }

@@ -2,7 +2,7 @@ import Testing
 
 @testable import BiliApplication
 
-/// 播完时：不循环停下，单集循环重播；充电试看片段播完一律停下。
+/// 播完时：不循环停下，单集循环重播，自动连播播下一项，列表循环播下一项并在末尾回到开头；充电试看片段播完一律停下。
 struct PlaybackEndPolicyTests {
     @Test
     func behaviorDecidesUnlessThePreviewEnded() {
@@ -16,7 +16,16 @@ struct PlaybackEndPolicyTests {
             PlaybackEndPolicy.action(behavior: .repeatOne, accessNotice: .upowerExclusive)
                 == .replay
         )
-        #expect(PlaybackEndPolicy.action(behavior: .repeatOne, accessNotice: preview) == .none)
+        #expect(
+            PlaybackEndPolicy.action(behavior: .autoAdvance, accessNotice: nil)
+                == .next(wraps: false)
+        )
+        #expect(
+            PlaybackEndPolicy.action(behavior: .repeatList, accessNotice: nil) == .next(wraps: true)
+        )
+        for behavior in PlaybackEndBehavior.allCases {
+            #expect(PlaybackEndPolicy.action(behavior: behavior, accessNotice: preview) == .none)
+        }
         #expect(PlaybackEndBehavior.defaultValue == .stop)
     }
 }

@@ -102,6 +102,19 @@ final class AppNavigationCoordinator {
         openPlayback(PlaybackSelectionIntent(bvid: bvid))
     }
 
+    /// 播放页侧栏的选分 P、选集：在当前视频里换分 P，或换到合集里的另一集；离开侧栏上下文层。
+    func openPlayback(_ bvid: String, preferredCID: Int64?) {
+        openPlayback(PlaybackSelectionIntent(bvid: bvid, preferredCID: preferredCID))
+    }
+
+    /// 播完后的自动连播与列表循环：与侧栏选分 P、选集同一意图，但不是用户从别处换视频，侧栏上下文层保留。
+    func continuePlayback(_ bvid: String, preferredCID: Int64?) {
+        openPlayback(
+            PlaybackSelectionIntent(bvid: bvid, preferredCID: preferredCID),
+            preservesSidebarContext: true
+        )
+    }
+
     /// 从侧栏上下文层（UP 主空间）里选择视频：用户仍在逛这个空间，上下文层保留。
     func openPlaybackFromSidebarContext(_ bvid: String) {
         openPlayback(PlaybackSelectionIntent(bvid: bvid), preservesSidebarContext: true)

@@ -60,6 +60,10 @@ enum PlayerActionFeedback: Equatable {
     case endBehavior(PlaybackEndBehavior)
     /// 单集循环要从头再播，但播放器没能回到开头、仍停在结尾。
     case replayFailed
+    /// 自动连播或列表循环正在换到下一个分 P 或下一集；`title` 是它的标题。
+    case advancing(title: String)
+    /// 下一集缺少能播放它的身份，或它的分 P 解析失败，停下。
+    case nextUnavailable
 
     var label: String {
         switch self {
@@ -70,6 +74,8 @@ enum PlayerActionFeedback: Equatable {
         case .bvidCopied: AppStrings.localized("已拷贝 BV 号")
         case .endBehavior(let behavior): behavior.title
         case .replayFailed: AppStrings.localized("无法从头重播")
+        case .advancing(let title): AppStrings.localized("接着播放：\(title)")
+        case .nextUnavailable: AppStrings.localized("下一集无法播放")
         }
     }
 
@@ -81,7 +87,8 @@ enum PlayerActionFeedback: Equatable {
         case .linkCopied: "link"
         case .bvidCopied: "doc.on.doc"
         case .endBehavior(let behavior): behavior.symbolName
-        case .replayFailed: "exclamationmark.circle"
+        case .replayFailed, .nextUnavailable: "exclamationmark.circle"
+        case .advancing: "forward.end"
         }
     }
 }
@@ -92,6 +99,8 @@ extension PlaybackEndBehavior {
         switch self {
         case .stop: AppStrings.localized("不循环")
         case .repeatOne: AppStrings.localized("单集循环")
+        case .autoAdvance: AppStrings.localized("自动连播")
+        case .repeatList: AppStrings.localized("列表循环")
         }
     }
 
@@ -99,6 +108,8 @@ extension PlaybackEndBehavior {
         switch self {
         case .stop: "arrow.right.to.line"
         case .repeatOne: "repeat.1"
+        case .autoAdvance: "forward.end"
+        case .repeatList: "repeat"
         }
     }
 }

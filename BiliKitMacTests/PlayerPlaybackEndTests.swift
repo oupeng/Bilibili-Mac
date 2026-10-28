@@ -33,7 +33,7 @@ struct PlayerPlaybackEndTests {
         observer.start(
             PlayerPlaybackEndActions(
                 observeTimeline: timeline.observe,
-                handleEnded: { snapshot in
+                handleEnded: { snapshot, _ in
                     handled.snapshots.append(snapshot)
                     return .endBehavior(.repeatOne)
                 }

@@ -233,7 +233,10 @@ final class WindowComposition {
                     navigationCoordinator.openPlayback(bvid)
                 },
                 canWriteAccount: { accountWrites.isWritable },
-                addToWatchLater: { bvid in accountWrites.addToWatchLater(bvid: bvid) }
+                addToWatchLater: { bvid in accountWrites.addToWatchLater(bvid: bvid) },
+                continuePlayback: { [navigationCoordinator] bvid, preferredCID in
+                    navigationCoordinator.continuePlayback(bvid, preferredCID: preferredCID)
+                }
             )
         )
         commentAssetURLResolver = adapters.commentAssetURLResolver

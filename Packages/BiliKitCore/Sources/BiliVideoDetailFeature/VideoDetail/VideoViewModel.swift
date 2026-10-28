@@ -213,12 +213,16 @@ public final class VideoViewModel: AccountRevalidationParticipant {
         }
     }
 
-    /// Picker 选择 episode 后解析其 pages；未知 pages 只在校验完成后提交跨 BVID 意图。
+    /// Picker 或自动连播选择 episode 后解析其 pages；未知 pages 只在校验完成后提交跨 BVID 意图。
+    ///
+    /// `onFailed` 在这一集仍是当前选择、解析却失败时调用一次（自动连播据此说明下一集无法播放）；侧栏不传，失败由
+    /// 选集菜单里的重试呈现。
     public func selectCollectionEpisode(
         _ episode: VideoCollectionEpisode,
-        onResolved: @escaping (String, Int64?) -> Void
+        onResolved: @escaping (String, Int64?) -> Void,
+        onFailed: (() -> Void)? = nil
     ) {
-        collectionEpisodes.select(episode, onResolved: onResolved)
+        collectionEpisodes.select(episode, onResolved: onResolved, onFailed: onFailed)
     }
 
     public func retryCollectionEpisodePages(_ episode: VideoCollectionEpisode) {
@@ -355,25 +359,43 @@ public final class VideoViewModel: AccountRevalidationParticipant {
         }
     }
 
-    /// 当前 item 播完时按偏好处理（`PlaybackEndPolicy`），返回做了什么。
+    /// 当前 item 播完时按偏好处理（`PlaybackEndPolicy`），返回做了什么或要调用方接着做什么。
     ///
     /// 由 App 的播放结束观察者在时间线刚进入 `ended` 时调用一次。`snapshot` 必须属于此刻呈现、也是最新请求的那一项，
-    /// 且页面已就绪；用户刚另选了分 P 或视频、旧 item 的结束才到时不动作。重播成功后断点浮层随之收起：它说的“上次看到”
-    /// 已经不是这一轮。
+    /// 且页面已就绪；用户刚另选了分 P 或视频、旧 item 的结束才到时不动作。重播在这里执行，成功后断点浮层随之收起：它说的
+    /// “上次看到”已经不是这一轮。下一项（`PlaybackNextItem`）只给出，不在这里跳转：跳转要经过 App 的导航。
     public func handlePlaybackEnded(
         _ snapshot: PlaybackTimelineSnapshot,
         behavior: PlaybackEndBehavior
     ) async -> PlaybackEndHandling {
         guard snapshot.state == .ended,
+            isPresenting(snapshot),
             case .ready(let context) = state,
             let identity = presentedPlaybackIdentity,
-            snapshot.identity == identity,
-            requestedPlaybackIdentity == identity,
-            let intent = playbackIntent,
-            snapshot.loadIntent == intent
+            let intent = playbackIntent
         else { return .none }
+        let next: PlaybackNextItem?
         switch PlaybackEndPolicy.action(behavior: behavior, accessNotice: context.accessNotice) {
         case .none:
+            return .none
+        case .replay:
+            next = .replay
+        case .next(let wraps):
+            // 用户在选集菜单里另选的一集还在解析：那是用户的选择，连播不抢。
+            if let selected = selectedCollectionEpisode,
+                collectionEpisodePageStates[selected] == .loading
+            {
+                return .none
+            }
+            next = PlaybackNextItem.after(
+                page: context.selectedPage,
+                in: context,
+                episode: currentCollectionEpisode(for: identity, in: context),
+                wraps: wraps
+            )
+        }
+        switch next {
+        case nil:
             return .none
         case .replay:
             guard await playback.replayFromBeginning(identity: identity, intent: intent) else {
@@ -383,7 +405,48 @@ public final class VideoViewModel: AccountRevalidationParticipant {
                 resumeNotice = nil
             }
             return .replayed
+        case .page(let page):
+            return .advance(.page(bvid: identity.bvid, page: page))
+        case .episode(let episode):
+            guard episode.isPlayableSelection else { return .nextUnavailable }
+            return .advance(.episode(episode))
         }
+    }
+
+    /// `snapshot` 是否仍属于此刻呈现、也是最新请求的那一项（含同一次 load）。
+    ///
+    /// 播完的处理在动作前核对；连播的下一集解析完才跳转，跳转前也经它核对，期间用户换了分 P 或视频就作废。
+    public func isPresenting(_ snapshot: PlaybackTimelineSnapshot) -> Bool {
+        guard let identity = presentedPlaybackIdentity, let intent = playbackIntent else {
+            return false
+        }
+        return snapshot.identity == identity
+            && requestedPlaybackIdentity == identity
+            && snapshot.loadIntent == intent
+    }
+
+    /// 正在播放的分 P 是合集里的哪一集；认不出时为 nil。
+    ///
+    /// 选集菜单的选择只在同一 BV 时才算数：另选的一集可能还在解析或已失败，不代表正在播放的这一集。同一 BV 的各集
+    /// 各是一个分 P 时，按 CID 认出的那一集优先：在当前视频里换分 P 不更新选择，否则会一直按进入时的那一集算，
+    /// 播完最后一个分 P 又跳回已经播过的分 P。
+    private func currentCollectionEpisode(
+        for identity: PlaybackItemIdentity,
+        in context: VideoContext
+    ) -> VideoCollectionEpisode? {
+        guard let collection = context.detail.collection else { return nil }
+        let episodes = collection.sections.flatMap(\.episodes)
+        let byCID = episodes.filter { $0.bvid == identity.bvid && $0.defaultCID == identity.cid }
+        if byCID.count == 1 { return byCID[0] }
+        let explicit = selectedCollectionEpisode.flatMap { id in
+            episodes.first(where: { $0.id == id && $0.bvid == identity.bvid })?.id
+        }
+        return PlaybackCollectionEpisodeResolver.resolve(
+            episodes: episodes,
+            explicitlySelectedID: explicit,
+            bvid: identity.bvid,
+            cid: identity.cid
+        )
     }
 
     private func loadRelatedVideos(for bvid: String) {
