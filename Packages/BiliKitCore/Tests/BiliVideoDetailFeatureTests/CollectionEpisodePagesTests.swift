@@ -5,7 +5,7 @@ import Testing
 
 @testable import BiliVideoDetailFeature
 
-/// 合集选集的分 P：按需读取且同一 BVID 只请求一次，失败只影响该选集并可重试，被取代或 reset 后的迟到结果被丢弃，缓存有上界。
+/// 合集选集的分 P：按需读取且同一 BVID 只请求一次，失败只影响该选集、通知一次选择者并可重试（重试成功仍按原选择跳转），被取代或 reset 后的迟到结果被丢弃，缓存有上界。
 @Suite(.timeLimit(.minutes(1)))
 struct CollectionEpisodePagesTests {
     @Test
@@ -198,12 +198,19 @@ struct CollectionEpisodePagesTests {
 
         model.loadVideo(fixtures.rootBVID)
         await waitUntilSettled(model)
-        model.selectCollectionEpisode(fixtures.lazyEpisode) { _, _ in }
+        var failures = 0
+        var resolved: [String] = []
+        model.selectCollectionEpisode(
+            fixtures.lazyEpisode,
+            onResolved: { bvid, _ in resolved.append(bvid) },
+            onFailed: { failures += 1 }
+        )
         await waitForObservedState {
             model.collectionEpisodePageStates[fixtures.lazyEpisode.id]
                 == .failed(.transportFailure)
         }
         #expect(model.presentedContext?.detail.bvid == fixtures.rootBVID)
+        #expect(failures == 1)
 
         model.retryCollectionEpisodePages(fixtures.lazyEpisode)
         await waitForObservedState {
@@ -211,6 +218,8 @@ struct CollectionEpisodePagesTests {
                 == .loaded(bvid: fixtures.episodeBVID)
         }
         #expect(await repository.episodeDetailRequestCount(in: fixtures) == 2)
+        #expect(failures == 1)
+        #expect(resolved == [fixtures.episodeBVID])
     }
 
     @Test

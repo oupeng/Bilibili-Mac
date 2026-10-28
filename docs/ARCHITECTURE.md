@@ -133,6 +133,8 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
   播放”只能按会话是否已报过 ended 判断，不能只看上一个快照；观看进度据此把重播当作新的一次观看。
 - 播完的处理（「播放结束后」）只在同一 item 刚进入 `ended` 时触发一次，由 `VideoViewModel.handlePlaybackEnded`
   核对快照仍属于此刻呈现、也是最新请求的那一项再动作；重播与断点浮层的「从头播放」共用引擎里同一条回到开头的 seek。
+  连播的下一项由视频模型决定（`PlaybackNextItem`），跳转由 App 经窗口导航执行，与侧栏选分 P、选集同一条路：视频模型
+  不导航，否则导航层的去重、当前意图与上下文层会和真实播放对不上。
 - 弹幕时钟层（App `Platform/DanmakuTimebaseClock`，owner 是 `DanmakuOverlayView`）是普通 `CALayer`，本地时间
   跟随当前 item `timebase`，更新不经过主线程。跨文件必须守住的约束：
   - timebase 的通知由播放器内部队列在持有 MediaToolbox 锁时同步发出：回调里调用 AVPlayer／AVPlayerItem

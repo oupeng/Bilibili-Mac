@@ -213,12 +213,16 @@ public final class VideoViewModel: AccountRevalidationParticipant {
         }
     }
 
-    /// Picker 选择 episode 后解析其 pages；未知 pages 只在校验完成后提交跨 BVID 意图。
+    /// Picker 或自动连播选择 episode 后解析其 pages；未知 pages 只在校验完成后提交跨 BVID 意图。
+    ///
+    /// `onFailed` 在这一集仍是当前选择、解析却失败时调用一次（自动连播据此说明下一集无法播放）；侧栏不传，失败由
+    /// 选集菜单里的重试呈现。
     public func selectCollectionEpisode(
         _ episode: VideoCollectionEpisode,
-        onResolved: @escaping (String, Int64?) -> Void
+        onResolved: @escaping (String, Int64?) -> Void,
+        onFailed: (() -> Void)? = nil
     ) {
-        collectionEpisodes.select(episode, onResolved: onResolved)
+        collectionEpisodes.select(episode, onResolved: onResolved, onFailed: onFailed)
     }
 
     public func retryCollectionEpisodePages(_ episode: VideoCollectionEpisode) {
@@ -355,11 +359,11 @@ public final class VideoViewModel: AccountRevalidationParticipant {
         }
     }
 
-    /// 当前 item 播完时按偏好处理（`PlaybackEndPolicy`），返回做了什么。
+    /// 当前 item 播完时按偏好处理（`PlaybackEndPolicy`），返回做了什么或要调用方接着做什么。
     ///
     /// 由 App 的播放结束观察者在时间线刚进入 `ended` 时调用一次。`snapshot` 必须属于此刻呈现、也是最新请求的那一项，
-    /// 且页面已就绪；用户刚另选了分 P 或视频、旧 item 的结束才到时不动作。重播成功后断点浮层随之收起：它说的“上次看到”
-    /// 已经不是这一轮。
+    /// 且页面已就绪；用户刚另选了分 P 或视频、旧 item 的结束才到时不动作。重播在这里执行，成功后断点浮层随之收起：它说的
+    /// “上次看到”已经不是这一轮。下一项（`PlaybackNextItem`）只给出，不在这里跳转：跳转要经过 App 的导航。
     public func handlePlaybackEnded(
         _ snapshot: PlaybackTimelineSnapshot,
         behavior: PlaybackEndBehavior
@@ -372,8 +376,30 @@ public final class VideoViewModel: AccountRevalidationParticipant {
             let intent = playbackIntent,
             snapshot.loadIntent == intent
         else { return .none }
+        let next: PlaybackNextItem?
         switch PlaybackEndPolicy.action(behavior: behavior, accessNotice: context.accessNotice) {
         case .none:
+            return .none
+        case .replay:
+            next = .replay
+        case .next(let wraps):
+            let episode = context.detail.collection.flatMap { collection in
+                PlaybackCollectionEpisodeResolver.resolve(
+                    episodes: collection.sections.flatMap(\.episodes),
+                    explicitlySelectedID: selectedCollectionEpisode,
+                    bvid: identity.bvid,
+                    cid: identity.cid
+                )
+            }
+            next = PlaybackNextItem.after(
+                page: context.selectedPage,
+                in: context,
+                episode: episode,
+                wraps: wraps
+            )
+        }
+        switch next {
+        case nil:
             return .none
         case .replay:
             guard await playback.replayFromBeginning(identity: identity, intent: intent) else {
@@ -383,6 +409,13 @@ public final class VideoViewModel: AccountRevalidationParticipant {
                 resumeNotice = nil
             }
             return .replayed
+        case .page(let page):
+            return .advance(.page(bvid: identity.bvid, page: page))
+        case .episode(let episode):
+            guard episode.isIdentityConsistent, episode.bvid?.isEmpty == false else {
+                return .nextUnavailable
+            }
+            return .advance(.episode(episode))
         }
     }
 

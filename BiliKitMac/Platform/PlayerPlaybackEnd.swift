@@ -1,4 +1,5 @@
 import BiliApplication
+import BiliModels
 import BiliVideoDetailFeature
 import Foundation
 
@@ -26,9 +27,10 @@ struct PlaybackEndBehaviorStore {
     }
 }
 
-/// 播完时的处理：订阅播放时间线，交给视频模型按偏好处理，返回要在播放器上显示的提示。
+/// 播完时的处理：订阅播放时间线，交给视频模型按偏好处理，执行它要求的跳转，给出要在播放器上显示的提示。
 ///
-/// 由 `WindowAdapters` 的播放器内容用播放引擎与视频模型构造（`make`），交给 `PlayerPlaybackEndObserver`。不持有状态。
+/// 由 `WindowAdapters` 的播放器内容用播放引擎、视频模型与窗口导航构造（`make`），交给 `PlayerPlaybackEndObserver`。
+/// 下一个分 P 与下一集都走窗口导航（与侧栏选分 P、选集同一条路），下一集的分 P 未知时先经视频模型解析。不持有状态。
 struct PlayerPlaybackEndActions {
     typealias Observer = @MainActor (PlaybackTimelineSnapshot) -> Void
     typealias Observing = @MainActor (@escaping Observer) -> @MainActor @Sendable () -> Void
@@ -37,8 +39,13 @@ struct PlayerPlaybackEndActions {
     ///
     /// 订阅当下先收到一次当前快照（`PlaybackTimeline.observe`）。
     let observeTimeline: Observing
-    /// 刚进入 `ended` 的快照；处理完给出提示，没有动作时为 nil。
-    let handleEnded: @MainActor (PlaybackTimelineSnapshot) async -> PlayerActionFeedback?
+    /// 处理刚进入 `ended` 的快照，返回处理当下的提示；没有动作时为 nil。
+    ///
+    /// 之后才知道的结果（下一集的分 P 解析失败）经第二个参数提示。
+    let handleEnded:
+        @MainActor (
+            PlaybackTimelineSnapshot, @escaping @MainActor (PlayerActionFeedback) -> Void
+        ) async -> PlayerActionFeedback?
 
     /// 重播失败时，只有播放器仍停在这一项的结尾才提示：期间用户另有操作或换了项，失败是预期内的，不打扰。
     @MainActor
@@ -46,11 +53,12 @@ struct PlayerPlaybackEndActions {
         videoModel: VideoViewModel,
         observeTimeline: @escaping Observing,
         currentTimeline: @escaping @MainActor () -> PlaybackTimelineSnapshot,
-        store: PlaybackEndBehaviorStore
+        store: PlaybackEndBehaviorStore,
+        openPlayback: @escaping @MainActor (_ bvid: String, _ preferredCID: Int64?) -> Void
     ) -> Self {
         Self(
             observeTimeline: observeTimeline,
-            handleEnded: { snapshot in
+            handleEnded: { snapshot, presentLater in
                 let behavior = store.behavior
                 switch await videoModel.handlePlaybackEnded(snapshot, behavior: behavior) {
                 case .none:
@@ -61,6 +69,18 @@ struct PlayerPlaybackEndActions {
                     let current = currentTimeline()
                     return current.state == .ended && current.loadIntent == snapshot.loadIntent
                         ? .replayFailed : nil
+                case .advance(.page(let bvid, let page)):
+                    openPlayback(bvid, page.cid)
+                    return .advancing(title: page.title.isEmpty ? "P\(page.index)" : page.title)
+                case .advance(.episode(let episode)):
+                    videoModel.selectCollectionEpisode(
+                        episode,
+                        onResolved: { bvid, preferredCID in openPlayback(bvid, preferredCID) },
+                        onFailed: { presentLater(.nextUnavailable) }
+                    )
+                    return .advancing(title: episode.title)
+                case .nextUnavailable:
+                    return .nextUnavailable
                 }
             }
         )
@@ -99,7 +119,7 @@ final class PlayerPlaybackEndObserver {
             guard let self, self.entersEnded(snapshot) else { return }
             self.handling?.cancel()
             self.handling = Task { [weak self] in
-                guard let feedback = await actions.handleEnded(snapshot),
+                guard let feedback = await actions.handleEnded(snapshot, present),
                     self != nil, !Task.isCancelled
                 else { return }
                 present(feedback)

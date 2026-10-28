@@ -6,6 +6,10 @@ public enum PlaybackEndBehavior: String, CaseIterable, Sendable {
     case stop
     /// 从头再播当前分 P。
     case repeatOne
+    /// 播下一个分 P，分 P 播完后播合集当前分部的下一集，没有下一个就停下。
+    case autoAdvance
+    /// 同自动连播，到了末尾回到合集当前分部的第一集；没有合集时回到 P1，只有一个分 P 时等同单集循环。
+    case repeatList
 
     public static let defaultValue = PlaybackEndBehavior.stop
 }
@@ -14,6 +18,8 @@ public enum PlaybackEndBehavior: String, CaseIterable, Sendable {
 public enum PlaybackEndAction: Sendable, Equatable {
     case none
     case replay
+    /// 播列表里的下一项；`wraps` 为 true 时到了末尾回到开头。下一项是什么由播放页按分 P 与合集决定。
+    case next(wraps: Bool)
 }
 
 /// 播完时按偏好与当前视频的访问状态决定动作；纯函数，不读播放器。
@@ -29,6 +35,8 @@ public enum PlaybackEndPolicy {
         return switch behavior {
         case .stop: .none
         case .repeatOne: .replay
+        case .autoAdvance: .next(wraps: false)
+        case .repeatList: .next(wraps: true)
         }
     }
 }

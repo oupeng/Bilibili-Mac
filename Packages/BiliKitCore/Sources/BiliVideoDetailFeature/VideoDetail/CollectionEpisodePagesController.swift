@@ -30,6 +30,8 @@ final class CollectionEpisodePagesController {
     @ObservationIgnored private var cache: [String: [VideoPage]] = [:]
     @ObservationIgnored private var cacheOrder: [String] = []
     @ObservationIgnored private var selectionHandler: ((String, Int64?) -> Void)?
+    /// 当前选择的这一集解析失败时调用一次，随后清空；换选择、清空或解析成功时丢弃。
+    @ObservationIgnored private var failureHandler: (() -> Void)?
     @ObservationIgnored private var selectionIsExplicit = false
     @ObservationIgnored private var seasonID: Int64?
     @ObservationIgnored private var requestGeneration = 0
@@ -42,10 +44,11 @@ final class CollectionEpisodePagesController {
         task?.cancel()
     }
 
-    /// Picker 选择 episode 后解析其 pages；未知 pages 只在校验完成后调用 `onResolved`。
+    /// Picker 或自动连播选择 episode 后解析其 pages；未知 pages 只在校验完成后调用 `onResolved`，失败时调用 `onFailed`。
     func select(
         _ episode: VideoCollectionEpisode,
-        onResolved: @escaping (String, Int64?) -> Void
+        onResolved: @escaping (String, Int64?) -> Void,
+        onFailed: (() -> Void)?
     ) {
         guard contains(episode) else { return }
         if selectedEpisode != episode.id {
@@ -54,6 +57,7 @@ final class CollectionEpisodePagesController {
         selectedEpisode = episode.id
         selectionIsExplicit = true
         selectionHandler = onResolved
+        failureHandler = onFailed
         resolveOrEnqueue(episode)
     }
 
@@ -99,6 +103,7 @@ final class CollectionEpisodePagesController {
             self.selectedEpisode = nil
             selectionIsExplicit = false
             selectionHandler = nil
+            failureHandler = nil
         }
         pageStates = pageStates.filter { validIdentities.contains($0.key) }
         synchronizeSelection(preferredCID: preferredCID)
@@ -115,6 +120,7 @@ final class CollectionEpisodePagesController {
         selectedEpisode = nil
         selectionIsExplicit = false
         selectionHandler = nil
+        failureHandler = nil
         pageStates.removeAll()
         cache.removeAll()
         cacheOrder.removeAll()
@@ -124,7 +130,7 @@ final class CollectionEpisodePagesController {
 
     private func resolveOrEnqueue(_ episode: VideoCollectionEpisode) {
         guard episode.isIdentityConsistent, let bvid = episode.bvid else {
-            pageStates[episode.id] = .failed(.invalidResponse)
+            markFailed(episode.id, .invalidResponse)
             return
         }
         if let knownPages = episode.knownPages {
@@ -207,11 +213,11 @@ final class CollectionEpisodePagesController {
                 completeSelectionIfPossible()
             } catch let error as ContentApplicationError {
                 for identity in waiters {
-                    pageStates[identity] = .failed(error)
+                    markFailed(identity, error)
                 }
             } catch {
                 for identity in waiters {
-                    pageStates[identity] = .failed(.invalidResponse)
+                    markFailed(identity, .invalidResponse)
                 }
             }
         case .failure(let error):
@@ -219,7 +225,7 @@ final class CollectionEpisodePagesController {
                 onAuthenticationInvalid?()
             }
             for identity in waiters {
-                pageStates[identity] = .failed(error)
+                markFailed(identity, error)
             }
         case .cancelled:
             for identity in waiters where pageStates[identity] == .loading {
@@ -243,9 +249,9 @@ final class CollectionEpisodePagesController {
             pageStates[identity] = .loaded(bvid: bvid)
             completeSelectionIfPossible()
         } catch let error as ContentApplicationError {
-            pageStates[identity] = .failed(error)
+            markFailed(identity, error)
         } catch {
-            pageStates[identity] = .failed(.invalidResponse)
+            markFailed(identity, .invalidResponse)
         }
     }
 
@@ -318,8 +324,22 @@ final class CollectionEpisodePagesController {
         selectedEpisode = currentEpisode?.id
         selectionIsExplicit = currentEpisode?.id == explicitSelectionForContext
         selectionHandler = nil
+        failureHandler = nil
         guard let currentEpisode else { return }
         cacheAndMark(context.pages, bvid: context.detail.bvid, requested: currentEpisode.id)
+    }
+
+    /// 记下这一集解析失败；它正是当前选择时调用一次 `failureHandler`。
+    ///
+    /// 不清 `selectionHandler`：用户随后在选集菜单里重试成功时仍按原来的选择跳转。
+    private func markFailed(
+        _ identity: VideoCollectionEpisodeIdentity,
+        _ error: ContentApplicationError
+    ) {
+        pageStates[identity] = .failed(error)
+        guard identity == selectedEpisode, let handler = failureHandler else { return }
+        failureHandler = nil
+        handler()
     }
 
     private func contains(_ episode: VideoCollectionEpisode) -> Bool {
@@ -357,6 +377,7 @@ final class CollectionEpisodePagesController {
             self.selectedEpisode = nil
             selectionIsExplicit = false
             selectionHandler = nil
+            failureHandler = nil
             return
         }
         if episode.bvid == preservedBVID,
@@ -371,6 +392,7 @@ final class CollectionEpisodePagesController {
         self.selectedEpisode = nil
         selectionIsExplicit = false
         selectionHandler = nil
+        failureHandler = nil
     }
 
     private func completeSelectionIfPossible(_ resolvedEpisode: VideoCollectionEpisode? = nil) {
@@ -387,11 +409,12 @@ final class CollectionEpisodePagesController {
         if let defaultCID = episode.defaultCID,
             !pages.contains(where: { $0.cid == defaultCID })
         {
-            pageStates[episode.id] = .failed(.invalidResponse)
+            markFailed(episode.id, .invalidResponse)
             return
         }
         let handler = selectionHandler
         selectionHandler = nil
+        failureHandler = nil
         handler?(bvid, episode.defaultCID ?? pages.first?.cid)
     }
 }
