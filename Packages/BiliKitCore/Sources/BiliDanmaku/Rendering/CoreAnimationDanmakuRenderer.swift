@@ -102,9 +102,7 @@ public final class CoreAnimationDanmakuRenderer:
             anchor.actions = Self.disabledActions
             rootLayer.addSublayer(anchor)
         }
-        commandCardLayers = DanmakuCommandCardLayers(
-            backingScale: DanmakuTextureRasterizer.defaultBackingScale
-        ) { seconds in
+        commandCardLayers = DanmakuCommandCardLayers { seconds in
             Self.animationBeginTime(forMediaTime: seconds, mediaZero: beginTimeAtMediaZero)
         }
         rootLayer.addSublayer(commandCardLayers.containerLayer)

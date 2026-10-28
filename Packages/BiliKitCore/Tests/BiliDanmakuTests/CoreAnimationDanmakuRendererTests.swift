@@ -557,9 +557,11 @@ struct CoreAnimationDanmakuRendererTests {
         }
     }
 
-    /// 挂在三个锚点层下的全部弹幕 layer：滚动、顶部、底部依次，各自按挂上的先后；卡片容器没有卡片时不贡献 layer。
+    /// 挂在三个锚点层下的全部弹幕 layer：滚动、顶部、底部依次，各自按挂上的先后。
+    ///
+    /// `rootLayer` 的前三个子层是锚点层，之后是互动弹幕卡片容器，卡片不算弹幕 layer。
     private func danmakuLayers(_ renderer: CoreAnimationDanmakuRenderer) -> [CALayer] {
-        (renderer.rootLayer.sublayers ?? []).flatMap { $0.sublayers ?? [] }
+        (renderer.rootLayer.sublayers ?? []).prefix(3).flatMap { $0.sublayers ?? [] }
     }
 
     private func makeRenderer() -> CoreAnimationDanmakuRenderer {

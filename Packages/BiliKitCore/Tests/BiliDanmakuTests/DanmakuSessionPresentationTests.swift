@@ -119,7 +119,7 @@ struct DanmakuSessionPresentationTests {
         )
         let repository = StubDanmakuRepository(
             eventsBySegment: [2: [timedEvent(id: "current", time: 380)]],
-            commands: DanmakuCommands(uploaderEvents: [uploader], cards: [card])
+            commands: .success(DanmakuCommands(uploaderEvents: [uploader], cards: [card]))
         )
         let (session, timeline, sink) = makeSession(repository: repository)
 
@@ -137,6 +137,31 @@ struct DanmakuSessionPresentationTests {
         let delivered = try #require(sink.segmentDeliveries.last?.segments)
         #expect(delivered[2]?.map(\.id).sorted() == ["command:up", "current"])
         #expect(delivered[1]?.contains { $0.isUploader } == false)
+        session.stop()
+    }
+
+    /// 互动弹幕读取失败只让它缺席：分段照常交出，凭据失效时报告一次账户复核。
+    @Test
+    func failedCommandsLeaveSegmentsAndReportRevalidationOnce() async throws {
+        let identity = PlaybackItemIdentity(bvid: "BV1CommandFailure", cid: 7)
+        let repository = StubDanmakuRepository(
+            eventsBySegment: [1: [timedEvent(id: "segment", time: 10)]],
+            commands: .failure(.authenticationInvalid)
+        )
+        let (session, timeline, sink) = makeSession(repository: repository)
+        var revalidationCount = 0
+        session.setAuthenticationInvalidationHandler { revalidationCount += 1 }
+
+        session.start(for: identity)
+        timeline.publish(
+            snapshot(identity: identity, position: 10, generation: 1, rate: 0, state: .paused)
+        )
+        try await sink.waitForUpdates { [unowned sink] in
+            sink.segmentDeliveries.last?.segments[1]?.isEmpty == false && revalidationCount == 1
+        }
+
+        #expect(sink.commandCardDeliveries.isEmpty)
+        #expect(revalidationCount == 1)
         session.stop()
     }
 

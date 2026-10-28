@@ -16,9 +16,11 @@ import Testing
 /// App 测试 target 共用的等待与记录替身；各测试文件不再各自复制。
 
 /// renderer 挂在滚动、顶部、底部三个锚点层下的全部弹幕 layer，按锚点顺序、各自按挂上的先后。
+///
+/// `rootLayer` 的前三个子层是锚点层，之后是互动弹幕卡片容器，卡片不算弹幕 layer。
 @MainActor
 func danmakuLayers(of renderer: CoreAnimationDanmakuRenderer) -> [CALayer] {
-    (renderer.rootLayer.sublayers ?? []).flatMap { $0.sublayers ?? [] }
+    (renderer.rootLayer.sublayers ?? []).prefix(3).flatMap { $0.sublayers ?? [] }
 }
 
 /// `timebase` 在宿主时刻 `host`（与 `CACurrentMediaTime()` 同为 mach 时间的秒数）的媒体时间。

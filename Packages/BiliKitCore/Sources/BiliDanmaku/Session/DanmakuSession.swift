@@ -36,8 +36,8 @@ public final class DanmakuSession: DanmakuSessionControlling {
     private var presentationEnabled = true
     private var presentationFilter = DanmakuFilter()
     private var identity: PlaybackItemIdentity?
-    /// `start` 与 `stop` 时递增；加载 Task 带上发起时的值，返回后比对，不等就丢弃分段、
-    /// 失败记录与账户复核报告。
+    /// `start` 与 `stop` 时递增；分段与互动弹幕的加载 Task 带上发起时的值，返回后比对，不等就丢弃分段、
+    /// 互动弹幕、失败记录与账户复核报告。
     private var generation = 0
     /// 订阅时间线的 Task；弱引用 self，`stop` 与 `deinit` 时取消。
     private var timelineTask: Task<Void, Never>?
@@ -267,14 +267,14 @@ public final class DanmakuSession: DanmakuSessionControlling {
     /// 交给呈现端的分段：缓存的分段，各自并入时间落在本段的 UP 主弹幕（第 i 段覆盖 [(i − 1)·360, i·360) 秒）。
     ///
     /// 只并入已缓存的分段，所以分段淘汰与车道布局的种子规则不变；UP 主弹幕的 ID 带前缀，不与分段弹幕冲突。
+    /// 互动弹幕晚于分段到达时，含 UP 主弹幕的分段会重新交一次，呈现端为它（以及末尾占用因此变化的后续分段）
+    /// 重排一次车道；不让分段等互动弹幕，是为了互动弹幕接口慢或失败时普通弹幕不被拖住。
     private func presentationSegments() -> [Int: [DanmakuEvent]] {
         let segments = segmentCache.segments
         guard !commands.uploaderEvents.isEmpty else { return segments }
-        let duration = DanmakuSegmentCache.segmentDurationSeconds
         var result = segments
         for event in commands.uploaderEvents {
-            let index = Int(event.timeSeconds / duration) + 1
-            result[index]?.append(event)
+            result[DanmakuSegmentCache.segmentIndex(at: event.timeSeconds)]?.append(event)
         }
         return result
     }

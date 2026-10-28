@@ -247,7 +247,7 @@ final class SessionTimeline: PlaybackTimelineProviding {
 
 /// 本 target 唯一的 `DanmakuSegmentRepository` 与 `DanmakuCommandRepository` 替身；分段按 behavior 立即成功、失败、
 /// 每段首次失败或挂起到测试显式释放，并按 identity 记录请求与并发峰值。成功的分段带上按分段号配置的弹幕，
-/// 未配置的分段为空；互动弹幕立即返回配置的 `commands`。
+/// 未配置的分段为空；互动弹幕立即返回配置的结果（默认没有互动弹幕）。
 actor StubDanmakuRepository: DanmakuSegmentRepository, DanmakuCommandRepository {
     enum Behavior: Sendable {
         case succeed
@@ -263,7 +263,7 @@ actor StubDanmakuRepository: DanmakuSegmentRepository, DanmakuCommandRepository 
 
     private let behavior: Behavior
     private let eventsBySegment: [Int: [DanmakuEvent]]
-    private let configuredCommands: DanmakuCommands
+    private let commandsResult: Result<DanmakuCommands, DanmakuApplicationError>
     private var requests: [Request] = []
     private var active = 0
     private var maximumActive = 0
@@ -276,15 +276,15 @@ actor StubDanmakuRepository: DanmakuSegmentRepository, DanmakuCommandRepository 
     init(
         _ behavior: Behavior = .succeed,
         eventsBySegment: [Int: [DanmakuEvent]] = [:],
-        commands: DanmakuCommands = .empty
+        commands: Result<DanmakuCommands, DanmakuApplicationError> = .success(.empty)
     ) {
         self.behavior = behavior
         self.eventsBySegment = eventsBySegment
-        configuredCommands = commands
+        commandsResult = commands
     }
 
     func commands(for identity: PlaybackItemIdentity) async throws -> DanmakuCommands {
-        configuredCommands
+        try commandsResult.get()
     }
 
     func segment(

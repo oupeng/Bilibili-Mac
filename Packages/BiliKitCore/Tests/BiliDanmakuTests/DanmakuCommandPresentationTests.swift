@@ -6,7 +6,8 @@ import Testing
 
 @testable import BiliDanmaku
 
-/// 互动弹幕在呈现端的契约：卡片只在弹幕开着、已有本视频时间线时交给 renderer，关闭、换 item、停止时撤下；
+/// 互动弹幕在呈现端的契约：卡片只在弹幕开着、已有本视频时间线、时钟读得到 D 时交给 renderer，关闭、换 item、
+/// 停止时撤下，别的视频的卡片不显示；
 /// 卡片按媒体时间显隐、中心按位置比例落在窗口里并往里收；UP 主弹幕不参与重复合并，带标签与黑底后只加宽、不加高。
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
@@ -14,26 +15,62 @@ struct DanmakuCommandPresentationTests {
     private let identity = PlaybackItemIdentity(bvid: "BV1CommandCards", cid: 9)
 
     @Test
-    func cardsFollowTheTimelineIdentityAndTheDanmakuSwitch() {
+    func cardsWaitForTheTimelineAndDisplayTimeAndFollowTheDanmakuSwitch() {
         let backend = RecordingRenderingBackend()
         let controller = DanmakuPresentationController(backend: backend)
+        let clock = ManualDisplayClock()
+        let owner = UUID()
         let cards = [Self.gradeCard]
+        controller.attachSurface(ownerID: owner, clock: clock)
 
-        // 新视频的卡片先于它的第一个快照到达时先记下，快照到了才显示。
+        // 新视频的卡片先于它的第一个快照到达时先记下；有了快照还要等时钟读得到 D。
         controller.setCommandCards(cards, for: identity)
-        #expect(backend.commandCardChanges.isEmpty)
         controller.apply(snapshot(identity: identity, position: 1, generation: 1))
+        #expect(backend.commandCardChanges.isEmpty)
+        clock.time = 1
+        controller.displayClockDidChange(ownerID: owner)
         #expect(backend.commandCardChanges == [cards])
 
         controller.setEnabled(false)
         controller.setEnabled(true)
         // 换 item 时先撤下，等新 item 的快照确认 identity 再显示。
-        let owner = UUID()
-        controller.attachSurface(ownerID: owner, clock: ManualDisplayClock())
         controller.playerItemWillChange(ownerID: owner)
         controller.apply(snapshot(identity: identity, position: 2, generation: 1))
         controller.stopPresentation()
         #expect(backend.commandCardChanges == [cards, [], cards, [], cards, []])
+    }
+
+    /// 卡片属于另一个视频时不显示。
+    @Test
+    func cardsForAnotherVideoAreNotShown() {
+        let backend = RecordingRenderingBackend()
+        let controller = DanmakuPresentationController(backend: backend)
+        let clock = ManualDisplayClock()
+        clock.time = 1
+        controller.attachSurface(ownerID: UUID(), clock: clock)
+        let other = PlaybackItemIdentity(bvid: "BV1AnotherVideo", cid: 10)
+
+        controller.setCommandCards([Self.gradeCard], for: other)
+        controller.apply(snapshot(identity: identity, position: 1, generation: 1))
+
+        #expect(backend.commandCardChanges.isEmpty)
+    }
+
+    /// renderer 端到端：卡片挂在弹幕锚点层之后的容器里，换 backing scale 重画后数量不变，`stop` 时移除。
+    @Test
+    func rendererInstallsRedrawsAndClearsCards() throws {
+        let renderer = CoreAnimationDanmakuRenderer(beginTimeAtMediaZero: 1e-100)
+        renderer.updateSurfaceSize(width: 800, height: 450, backingScale: 2)
+        renderer.setCommandCards([Self.gradeCard])
+        let container = try #require(renderer.rootLayer.sublayers?.last)
+        #expect(container.sublayers?.count == 1)
+
+        renderer.updateSurfaceSize(width: 800, height: 450, backingScale: 1)
+        #expect(container.sublayers?.count == 1)
+        #expect(container.sublayers?.first?.contentsScale == 1)
+
+        renderer.stop()
+        #expect(container.sublayers?.isEmpty ?? true)
     }
 
     @Test
@@ -67,7 +104,7 @@ struct DanmakuCommandPresentationTests {
 
     @Test(arguments: [false, true])
     func cardLayersFadeDuringTheirMediaTime(reducesMotion: Bool) throws {
-        let layers = DanmakuCommandCardLayers(backingScale: 2) { $0 }
+        let layers = DanmakuCommandCardLayers { $0 }
         layers.updateSurface(size: CGSize(width: 800, height: 450), backingScale: 2)
         layers.setCards([Self.gradeCard], reducesMotion: reducesMotion)
 

@@ -51,6 +51,15 @@ struct DanmakuTextureRasterizerTests {
             ),
             try key(
                 fixtureEvent(
+                    id: "key-up",
+                    mode: .top,
+                    colorRGB: 0xFFFFFF,
+                    fontSize: 25,
+                    isUploader: true
+                )
+            ),
+            try key(
+                fixtureEvent(
                     id: "key-like",
                     mode: .top,
                     colorRGB: 0xFFFFFF,

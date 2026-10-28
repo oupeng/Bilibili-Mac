@@ -111,3 +111,19 @@ public struct DanmakuCommands: Sendable, Equatable {
         self.cards = cards
     }
 }
+
+/// 卡片内容的描述同样不展示标题、问题与选项正文，见 SECURITY-MODEL §8。
+extension DanmakuGradeCard: CustomStringConvertible, CustomDebugStringConvertible {
+    public var description: String { "DanmakuGradeCard(redacted)" }
+    public var debugDescription: String { description }
+}
+
+extension DanmakuVoteCard: CustomStringConvertible, CustomDebugStringConvertible {
+    public var description: String { "DanmakuVoteCard(redacted)" }
+    public var debugDescription: String { description }
+}
+
+extension DanmakuVoteOption: CustomStringConvertible, CustomDebugStringConvertible {
+    public var description: String { "DanmakuVoteOption(redacted)" }
+    public var debugDescription: String { description }
+}

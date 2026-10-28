@@ -32,18 +32,21 @@ final class DanmakuCommandCardLayers {
     /// 媒体时间换算成时钟层下的动画开始时间，与弹幕动画同一规则（见 `CoreAnimationDanmakuRenderer`）。
     private let beginTime: (Double) -> CFTimeInterval
 
-    init(backingScale: Double, beginTime: @escaping (Double) -> CFTimeInterval) {
-        self.backingScale = backingScale
+    /// backing scale 先取默认值，宿主挂上 surface 后经 `updateSurface` 换成窗口的实际值。
+    init(beginTime: @escaping (Double) -> CFTimeInterval) {
+        backingScale = DanmakuTextureRasterizer.defaultBackingScale
         self.beginTime = beginTime
         containerLayer.anchorPoint = .zero
         containerLayer.actions = CoreAnimationDanmakuRenderer.disabledActions
     }
 
-    /// 整组换成 `cards`，与当前相同时什么都不做。
+    /// 整组换成 `cards`，卡片与 `reducesMotion` 都与当前相同时什么都不做。
     ///
     /// `reducesMotion` 为 true 时出现不缩放，由 renderer 读系统设置后给出，之后换 backing scale 重画时沿用。
     func setCards(_ cards: [DanmakuCommandCard], reducesMotion: Bool) {
-        guard cards != self.cards else { return }
+        // 显示时长不是正数的卡片没有可见区间，关键帧也算不出来，直接不挂。
+        let cards = cards.filter { $0.durationSeconds > 0 }
+        guard cards != self.cards || reducesMotion != self.reducesMotion else { return }
         self.cards = cards
         self.reducesMotion = reducesMotion
         rebuild()

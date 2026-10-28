@@ -130,6 +130,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
     /// 由宿主在主线程调用，多次写入可能合并成一次；暂停中 seek 时没有后续快照，靠它对齐。
     public func displayClockDidChange(ownerID: UUID) {
         guard surfaceOwnerID == ownerID else { return }
+        refreshCommandCards()
         evaluate()
     }
 
@@ -216,6 +217,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         clockBox.clock = clock
         reconciledDisplayTime = nil
         materializer.clear()
+        refreshCommandCards()
         reconcileAtDisplayTime()
     }
 
@@ -227,6 +229,7 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         clockBox.clock = nil
         reconciledDisplayTime = nil
         materializer.clear()
+        refreshCommandCards()
         return true
     }
 
@@ -315,14 +318,17 @@ public final class DanmakuPresentationController: DanmakuPresentationSink {
         refreshCommandCards()
     }
 
-    /// 应显示的卡片：弹幕开着、已有当前 identity 的时间线、卡片属于这个 identity；否则一张都不显示。
+    /// 应显示的卡片：弹幕开着、已有当前 identity 的时间线、时钟读得到 D、卡片属于这个 identity；否则一张都不显示。
     ///
-    /// 换 item 时最近快照已清，卡片先撤下，等新 item 的快照确认 identity 再显示，旧视频的卡片不会按新时间线出现。
+    /// 换 item 时最近快照已清，卡片先撤下，等新 item 的快照确认 identity 再显示。换视频时时钟层先解绑、停在旧视频
+    /// 最后的时刻且不发布 D，卡片要等新 item 的 D 有了（`displayClockDidChange`）才交，否则会按旧视频的时刻挂上、
+    /// 冻在加载画面上；与弹幕“读不到 D 时什么都不挂”同一条规则。
     private func refreshCommandCards() {
         var desired: [DanmakuCommandCard] = []
         if isEnabled,
             let identity,
             latestSnapshot?.identity == identity,
+            clockBox.clock?.displayTime() != nil,
             let commandCards,
             commandCards.identity == identity
         {

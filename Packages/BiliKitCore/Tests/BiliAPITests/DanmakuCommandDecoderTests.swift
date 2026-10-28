@@ -179,6 +179,45 @@ struct DanmakuCommandDecoderTests {
         )
     }
 
+    /// 票数、参与人数超出上限的单条跳过（绘制时相加不会溢出）；卡片按时间先后最多留 `maximumCardCount` 张。
+    @Test
+    func hugeCountsAreSkippedAndCardsAreCapped() throws {
+        let huge = Int.max / 2
+        let skipped = try DanmakuCommandDecoder.commands(
+            from: payload([
+                element(
+                    id: 1,
+                    command: "#VOTE#",
+                    content: "x",
+                    progress: 1_000,
+                    extra: #"{"question":"q","cnt":1,"options":[{"idx":1,"desc":"a","cnt":"#
+                        + "\(huge)" + #"},{"idx":2,"desc":"b","cnt":1}]}"#
+                ),
+                element(
+                    id: 2,
+                    command: "#GRADE#",
+                    content: "x",
+                    progress: 1_000,
+                    extra: #"{"avg_score":9,"count":"# + "\(huge)" + "}"
+                )
+            ])
+        )
+        #expect(skipped.cards.isEmpty)
+
+        let many = (0..<(DanmakuCommandDecoder.maximumCardCount + 5)).map {
+            element(
+                id: Int64($0 + 1),
+                command: "#GRADE#",
+                content: "评分",
+                progress: Int32($0 * 1_000),
+                extra: #"{"avg_score":9,"count":1}"#
+            )
+        }
+        let capped = try DanmakuCommandDecoder.commands(from: payload(many))
+        #expect(capped.cards.count == DanmakuCommandDecoder.maximumCardCount)
+        #expect(capped.cards.last?.id == "command:\(DanmakuCommandDecoder.maximumCardCount)")
+    }
+
     @Test
     func tooManyEntriesOrUndecodableBodiesFailTheWholeResponse() throws {
         let many = (0..<201).map {
@@ -217,7 +256,8 @@ struct DanmakuCommandDecoderTests {
     private func protobufResponse(
         _ elements: [Bilikit_Danmaku_CommandElement]
     ) throws -> HTTPResponse {
-        // 空回复序列化为 0 字节，会被当作空正文拒绝；这里补一个空的字段 9，等价于没有互动弹幕的真实响应。
+        // 空回复序列化为 0 字节，会被当作空正文拒绝；这里补一条全默认值的字段 9（没有 ID，解码时被跳过），
+        // 等价于没有可显示互动弹幕的真实响应。
         var body = try payload(elements)
         if body.isEmpty { body = Data([0x4A, 0x00]) }
         return HTTPResponse(

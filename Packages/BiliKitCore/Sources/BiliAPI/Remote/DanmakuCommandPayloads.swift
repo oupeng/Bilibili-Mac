@@ -11,12 +11,19 @@ import SwiftProtobuf
 enum DanmakuCommandDecoder {
     /// 一个视频的互动弹幕条数上限，超出整份失败；实测热门视频不超过十几条。
     private static let maximumCommandCount = 200
+    /// 一个视频最多留下的卡片数，按时间先后取前这么多张，其余跳过。
+    ///
+    /// 卡片图在主线程绘制、整组常驻，不计入弹幕纹理的字节上限；实测一个视频最多十几张，调大放宽异常数据下的
+    /// 内存与主线程开销。
+    static let maximumCardCount = 30
+    /// 票数、参与人数的上限；超出视为数据异常，跳过这一条。
+    ///
+    /// 远端数值不能在相加或换算时溢出。
+    private static let maximumCount = 1_000_000_000
     /// 单条 `extra` JSON 的字节上限，超出跳过这一条；实测不到 1 KB。
     private static let maximumExtraByteCount = 16 * 1_024
     /// 正文、评分标题、投票问题与选项的字符数上限，超出跳过这一条。
     private static let maximumTextLength = 256
-    /// 弹幕时间点上限 24 小时，与分段弹幕相同。
-    private static let maximumTimeMilliseconds = 86_400_000
     /// 卡片显示时长的范围（毫秒）与缺失或越界时的默认值；实测 5000～7000。
     private static let displayDurationRange = 1_000...60_000
     private static let defaultDisplayMilliseconds = 5_000
@@ -44,20 +51,28 @@ enum DanmakuCommandDecoder {
         var uploaderEvents: [DanmakuEvent] = []
         var cards: [DanmakuCommandCard] = []
         for element in payload.commandElements {
-            guard let id = identifier(element),
-                element.progressMilliseconds >= 0,
-                element.progressMilliseconds <= maximumTimeMilliseconds
+            guard
+                let id = DanmakuWireValues.identifier(
+                    idString: element.idString,
+                    numericID: element.id
+                ),
+                let time = DanmakuWireValues.seconds(fromMilliseconds: element.progressMilliseconds)
             else {
                 continue
             }
-            let time = Double(element.progressMilliseconds) / 1_000
             switch element.command {
             case "#UP#":
-                if let event = uploaderEvent(id: id, time: time, content: element.content) {
+                if let event = uploaderEvent(
+                    id: idPrefix + id,
+                    time: time,
+                    content: element.content
+                ) {
                     uploaderEvents.append(event)
                 }
             case "#GRADE#", "#VOTE#":
-                if let card = card(id: id, time: time, element: element) {
+                if cards.count < maximumCardCount,
+                    let card = card(id: idPrefix + id, time: time, element: element)
+                {
                     cards.append(card)
                 }
             default:
@@ -65,15 +80,6 @@ enum DanmakuCommandDecoder {
             }
         }
         return DanmakuCommands(uploaderEvents: uploaderEvents, cards: cards)
-    }
-
-    private static func identifier(_ element: Bilikit_Danmaku_CommandElement) -> String? {
-        let raw =
-            element.idString.isEmpty
-            ? (element.id > 0 ? String(element.id) : nil)
-            : element.idString
-        guard let raw, raw.count <= 128 else { return nil }
-        return idPrefix + raw
     }
 
     /// UP 主弹幕按普通滚动弹幕显示：标准字号、白色；接口没有给出颜色与位置。
@@ -133,7 +139,7 @@ enum DanmakuCommandDecoder {
             average.isFinite,
             (0...maximumAverageScore).contains(average),
             let count = extra.count,
-            count >= 0
+            (0...maximumCount).contains(count)
         else {
             return nil
         }
@@ -150,14 +156,17 @@ enum DanmakuCommandDecoder {
             let rawOptions = extra.options,
             voteOptionCountRange.contains(rawOptions.count),
             let total = extra.cnt,
-            total >= 0
+            (0...maximumCount).contains(total)
         else {
             return nil
         }
         var options: [DanmakuVoteOption] = []
         var myOptionIndex: Int?
         for option in rawOptions {
-            guard let text = text(option.desc), let count = option.cnt, count >= 0 else {
+            guard let text = text(option.desc),
+                let count = option.cnt,
+                (0...maximumCount).contains(count)
+            else {
                 return nil
             }
             // `my_vote` 是选项的 idx（从 1 起），0 表示没投过；对不上任何选项时当作没投过。
@@ -187,13 +196,12 @@ enum DanmakuCommandDecoder {
 
     /// 去掉首尾空白；为空或超过长度上限时为 nil。
     private static func text(_ raw: String?) -> String? {
-        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
-            !trimmed.isEmpty,
-            trimmed.count <= maximumTextLength
+        guard let text = raw.flatMap(DanmakuWireValues.trimmedText),
+            text.count <= maximumTextLength
         else {
             return nil
         }
-        return trimmed
+        return text
     }
 }
 

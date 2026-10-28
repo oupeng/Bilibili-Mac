@@ -6,7 +6,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld participants"
+            "value" : "Participants: %lld"
           }
         },
         "ja" : {
@@ -62,7 +62,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Rated %lld stars"
+            "value" : "Your rating: %lld/5"
           }
         },
         "ja" : {

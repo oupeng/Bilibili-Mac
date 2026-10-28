@@ -4,8 +4,9 @@ import CoreText
 
 /// 把一张互动弹幕卡片（评分、投票）画成一张图：半透明黑底圆角、白字，强调色是 B 站粉。
 ///
-/// 由 `DanmakuCommandCardLayers` 在主线程调用；一个视频只有几张卡片，画一次即可。卡片固定尺寸，不随播放区缩放，
-/// 与弹幕字号一致。图标都是 SF Symbol，不读接口给出的远端图片。
+/// 由 `DanmakuCommandCardLayers` 在主线程调用；解码时每个视频最多留 30 张卡片（BiliAPI 的
+/// `DanmakuCommandDecoder.maximumCardCount`），每张画一次。卡片固定宽度，不随播放区缩放，与弹幕字号一致。图标都是 SF Symbol，不读接口给出的远端图片。
+/// 竖向排版只由 `Rows` 算一次：卡片高度与每行的位置出自同一份行高，改行高不会裁字。
 enum DanmakuCommandCardArtwork {
     /// 卡片宽度（point）。
     static let cardWidth: CGFloat = 200
@@ -20,6 +21,12 @@ enum DanmakuCommandCardArtwork {
     static let titleFontSize: CGFloat = 13
     static let footerFontSize: CGFloat = 11
     static let scoreFontSize: CGFloat = 22
+    /// 行与行之间的间距。
+    static let lineSpacing: CGFloat = 6
+    /// 图标与旁边文字的间距。
+    static let iconSpacing: CGFloat = 4
+    /// 类型图标比文字基线低一点，与小号文字视觉对齐。
+    static let headerIconDrop: CGFloat = 1
     static let starSize: CGFloat = 9
     static let starSpacing: CGFloat = 3
     /// 评分卡的星数；平均分按满分 `maximumScore` 换算成星数，四舍五入到整颗。
@@ -27,8 +34,15 @@ enum DanmakuCommandCardArtwork {
     static let maximumScore = 10.0
     static let voteRowHeight: CGFloat = 18
     static let voteRowSpacing: CGFloat = 4
-    static let voteBarOpacity = 0.55
-    static let lineSpacing: CGFloat = 6
+    static let voteBarCornerRadius: CGFloat = 4
+    /// 选项横条底轨与占比填充的不透明度；自己投的选项填充不透明。
+    static let voteTrackOpacity = 0.12
+    static let voteFillOpacity = 0.55
+    /// 选项文字离横条左右边与底边的距离。
+    static let voteTextHorizontalInset: CGFloat = 6
+    static let voteTextBaselineInset: CGFloat = 5
+    /// 选项文字与右侧百分比之间至少留出的间距。
+    static let votePercentSpacing: CGFloat = 6
 
     struct Artwork {
         let image: CGImage
@@ -38,53 +52,77 @@ enum DanmakuCommandCardArtwork {
     static func artwork(for card: DanmakuCommandCard, scale: CGFloat) -> Artwork? {
         switch card.content {
         case .grade(let grade):
-            render(
-                size: CGSize(
-                    width: cardWidth,
-                    height: padding * 2 + headerFontSize + lineSpacing + titleFontSize + lineSpacing
-                        + starSize + lineSpacing + footerFontSize
-                ),
-                scale: scale
-            ) { context, size in
-                drawGrade(grade, in: context, size: size)
+            let rows = Rows.grade
+            return render(height: rows.cardHeight, scale: scale) { context in
+                drawGrade(grade, rows: rows, in: context)
             }
         case .vote(let vote):
-            render(
-                size: CGSize(
-                    width: cardWidth,
-                    height: padding * 2 + headerFontSize + lineSpacing + titleFontSize + lineSpacing
-                        + CGFloat(vote.options.count) * (voteRowHeight + voteRowSpacing)
-                        + footerFontSize
-                ),
-                scale: scale
-            ) { context, size in
-                drawVote(vote, in: context, size: size)
+            let rows = Rows.vote(optionCount: vote.options.count)
+            return render(height: rows.cardHeight, scale: scale) { context in
+                drawVote(vote, rows: rows, in: context)
             }
         }
     }
 
-    /// 评分卡四行：类型、标题、星星、说明；平均分大字靠右，与标题、星星两行并排。
-    private static func drawGrade(_ grade: DanmakuGradeCard, in context: CGContext, size: CGSize) {
-        let top = drawHeader(
+    /// 竖向排版：自上而下每一行的高度与它之后的间距。
+    ///
+    /// 卡片高度与每行底边的位置都由它算出。
+    private struct Rows {
+        let heights: [CGFloat]
+        let spacingsAfter: [CGFloat]
+
+        /// 评分卡四行：类型、标题、星星、说明。
+        static let grade = Rows(
+            heights: [headerFontSize, titleFontSize, starSize, footerFontSize],
+            spacingsAfter: [lineSpacing, lineSpacing, lineSpacing, 0]
+        )
+
+        /// 投票卡：类型、问题、每个选项一行、说明。
+        static func vote(optionCount: Int) -> Rows {
+            Rows(
+                heights: [headerFontSize, titleFontSize]
+                    + Array(repeating: voteRowHeight, count: optionCount) + [footerFontSize],
+                spacingsAfter: [lineSpacing, lineSpacing]
+                    + Array(repeating: voteRowSpacing, count: optionCount) + [0]
+            )
+        }
+
+        var cardHeight: CGFloat {
+            padding * 2 + heights.reduce(0, +) + spacingsAfter.reduce(0, +)
+        }
+
+        /// 第 `index` 行底边的 y（坐标原点在卡片左下角）；文字以它为基线。
+        func bottom(ofRow index: Int) -> CGFloat {
+            var y = cardHeight - padding
+            for row in 0...index {
+                y -= heights[row]
+                if row < index { y -= spacingsAfter[row] }
+            }
+            return y
+        }
+    }
+
+    private static func drawGrade(_ grade: DanmakuGradeCard, rows: Rows, in context: CGContext) {
+        drawHeader(
             "star.fill",
             DanmakuStrings.localized("评分"),
-            in: context,
-            top: size.height - padding
+            baseline: rows.bottom(ofRow: 0),
+            in: context
         )
-        let starsBaseline = padding + footerFontSize + lineSpacing
+        let starsBaseline = rows.bottom(ofRow: 2)
         let score = line(
             String(format: "%.1f", grade.averageScore),
             font(scoreFontSize, .bold),
             NSColor.white
         )
         let scoreWidth = width(score)
-        context.textPosition = CGPoint(x: size.width - padding - scoreWidth, y: starsBaseline)
+        context.textPosition = CGPoint(x: cardWidth - padding - scoreWidth, y: starsBaseline)
         CTLineDraw(score, context)
-        _ = drawTitle(
+        drawTitle(
             grade.title,
-            in: context,
-            top: top,
-            maxWidth: size.width - padding * 3 - scoreWidth
+            baseline: rows.bottom(ofRow: 1),
+            maxWidth: cardWidth - padding * 3 - scoreWidth,
+            in: context
         )
         // 登录且打过分时，星星与说明换成自己的评分；否则星星是平均分换算的星数，说明是参与人数。
         let filled =
@@ -103,35 +141,43 @@ enum DanmakuCommandCardArtwork {
         let footerText =
             grade.myScore.map { DanmakuStrings.localized("已评 \($0) 星") }
             ?? DanmakuStrings.localized("\(grade.participantCount) 人参与")
-        let footer = truncated(
-            footerText,
-            font(footerFontSize),
-            NSColor.white.withAlphaComponent(secondaryTextOpacity),
-            maxWidth: size.width - padding * 2
-        )
-        context.textPosition = CGPoint(x: padding, y: padding)
-        CTLineDraw(footer, context)
+        drawFooter(footerText, baseline: rows.bottom(ofRow: 3), in: context)
     }
 
-    private static func drawVote(_ vote: DanmakuVoteCard, in context: CGContext, size: CGSize) {
-        var top = size.height - padding
-        top = drawHeader("chart.bar.fill", DanmakuStrings.localized("投票"), in: context, top: top)
-        top = drawTitle(vote.question, in: context, top: top, maxWidth: size.width - padding * 2)
-        let total = max(vote.options.reduce(0) { $0 + $1.voteCount }, 1)
+    private static func drawVote(_ vote: DanmakuVoteCard, rows: Rows, in context: CGContext) {
+        drawHeader(
+            "chart.bar.fill",
+            DanmakuStrings.localized("投票"),
+            baseline: rows.bottom(ofRow: 0),
+            in: context
+        )
+        drawTitle(
+            vote.question,
+            baseline: rows.bottom(ofRow: 1),
+            maxWidth: cardWidth - padding * 2,
+            in: context
+        )
+        // 按浮点相加：票数由解码器限了上限，这里再不让远端数值在整数相加时溢出。
+        let total = max(vote.options.reduce(0.0) { $0 + Double($1.voteCount) }, 1)
         for (index, option) in vote.options.enumerated() {
             let isMine = index == vote.myOptionIndex
             let bar = CGRect(
                 x: padding,
-                y: top - voteRowHeight,
-                width: size.width - padding * 2,
+                y: rows.bottom(ofRow: 2 + index),
+                width: cardWidth - padding * 2,
                 height: voteRowHeight
             )
-            fill(bar, radius: 4, color: NSColor.white.withAlphaComponent(0.12), in: context)
-            let fraction = CGFloat(option.voteCount) / CGFloat(total)
+            fill(
+                bar,
+                radius: voteBarCornerRadius,
+                color: NSColor.white.withAlphaComponent(voteTrackOpacity),
+                in: context
+            )
+            let fraction = CGFloat(Double(option.voteCount) / total)
             fill(
                 CGRect(x: bar.minX, y: bar.minY, width: bar.width * fraction, height: bar.height),
-                radius: 4,
-                color: accent.withAlphaComponent(isMine ? 1 : voteBarOpacity),
+                radius: voteBarCornerRadius,
+                color: accent.withAlphaComponent(isMine ? 1 : voteFillOpacity),
                 in: context
             )
             let percent = line(
@@ -140,67 +186,63 @@ enum DanmakuCommandCardArtwork {
                 NSColor.white
             )
             let percentWidth = width(percent)
-            var textX = bar.minX + 6
+            let baseline = bar.minY + voteTextBaselineInset
+            var textX = bar.minX + voteTextHorizontalInset
             if isMine {
                 let checkWidth = symbol(
                     "checkmark",
                     size: starSize,
                     color: .white,
                     in: context,
-                    at: CGPoint(x: textX, y: bar.minY + 5)
+                    at: CGPoint(x: textX, y: baseline)
                 )
-                textX += checkWidth + 4
+                textX += checkWidth + iconSpacing
             }
+            let percentX = bar.maxX - voteTextHorizontalInset - percentWidth
             let text = truncated(
                 option.text,
                 font(footerFontSize, isMine ? .semibold : .regular),
                 NSColor.white,
-                maxWidth: bar.maxX - percentWidth - 12 - textX
+                maxWidth: percentX - votePercentSpacing - textX
             )
-            context.textPosition = CGPoint(x: textX, y: bar.minY + 5)
+            context.textPosition = CGPoint(x: textX, y: baseline)
             CTLineDraw(text, context)
-            context.textPosition = CGPoint(x: bar.maxX - 6 - percentWidth, y: bar.minY + 5)
+            context.textPosition = CGPoint(x: percentX, y: baseline)
             CTLineDraw(percent, context)
-            top -= voteRowHeight + voteRowSpacing
         }
-        let footer = line(
+        drawFooter(
             DanmakuStrings.localized("\(vote.participantCount) 人参与"),
-            font(footerFontSize),
-            NSColor.white.withAlphaComponent(secondaryTextOpacity)
+            baseline: rows.bottom(ofRow: 2 + vote.options.count),
+            in: context
         )
-        context.textPosition = CGPoint(x: padding, y: padding)
-        CTLineDraw(footer, context)
     }
 
-    /// 左上角的图标与类型名，返回下一行的上沿。
+    /// 左上角的图标与类型名。
     private static func drawHeader(
         _ symbolName: String,
         _ title: String,
-        in context: CGContext,
-        top: CGFloat
-    ) -> CGFloat {
-        let baseline = top - headerFontSize
+        baseline: CGFloat,
+        in context: CGContext
+    ) {
         let iconWidth = symbol(
             symbolName,
             size: headerFontSize,
             color: accent,
             in: context,
-            at: CGPoint(x: padding, y: baseline - 1)
+            at: CGPoint(x: padding, y: baseline - headerIconDrop)
         )
         let header = line(title, font(headerFontSize, .semibold), accent)
-        context.textPosition = CGPoint(x: padding + iconWidth + 4, y: baseline)
+        context.textPosition = CGPoint(x: padding + iconWidth + iconSpacing, y: baseline)
         CTLineDraw(header, context)
-        return baseline - lineSpacing
     }
 
-    /// 一行标题（评分标题或投票问题），超长时截断，返回下一行的上沿。
+    /// 一行标题（评分标题或投票问题），超长时截断。
     private static func drawTitle(
         _ title: String,
-        in context: CGContext,
-        top: CGFloat,
-        maxWidth: CGFloat
-    ) -> CGFloat {
-        let baseline = top - titleFontSize
+        baseline: CGFloat,
+        maxWidth: CGFloat,
+        in context: CGContext
+    ) {
         let text = truncated(
             title,
             font(titleFontSize, .semibold),
@@ -209,14 +251,26 @@ enum DanmakuCommandCardArtwork {
         )
         context.textPosition = CGPoint(x: padding, y: baseline)
         CTLineDraw(text, context)
-        return baseline - lineSpacing
+    }
+
+    /// 最后一行的灰色说明，超长时截断。
+    private static func drawFooter(_ text: String, baseline: CGFloat, in context: CGContext) {
+        let footer = truncated(
+            text,
+            font(footerFontSize),
+            NSColor.white.withAlphaComponent(secondaryTextOpacity),
+            maxWidth: cardWidth - padding * 2
+        )
+        context.textPosition = CGPoint(x: padding, y: baseline)
+        CTLineDraw(footer, context)
     }
 
     private static func render(
-        size: CGSize,
+        height: CGFloat,
         scale: CGFloat,
-        draw: (CGContext, CGSize) -> Void
+        draw: (CGContext) -> Void
     ) -> Artwork? {
+        let size = CGSize(width: cardWidth, height: height)
         guard
             let context = CGContext(
                 data: nil,
@@ -237,7 +291,7 @@ enum DanmakuCommandCardArtwork {
             color: NSColor.black.withAlphaComponent(backgroundOpacity),
             in: context
         )
-        draw(context, size)
+        draw(context)
         return context.makeImage().map { Artwork(image: $0, size: size) }
     }
 
