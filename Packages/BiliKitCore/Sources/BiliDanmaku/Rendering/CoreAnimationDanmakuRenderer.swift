@@ -352,8 +352,7 @@ public final class CoreAnimationDanmakuRenderer:
             admittedAtSeconds: placement.admittedAtSeconds,
             beginTime: animation.beginTime,
             duration: request.durationSeconds,
-            backingScale: backingScale,
-            reducesMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            backingScale: backingScale
         )
     }
 

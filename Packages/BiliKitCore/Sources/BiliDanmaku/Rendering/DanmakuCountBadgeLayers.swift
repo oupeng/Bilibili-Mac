@@ -1,10 +1,10 @@
 import AppKit
 import QuartzCore
 
-/// 计数胶囊的 Core Animation 层：半透明黑底胶囊，里面是“×”与逐位数字，条数随媒体时间切换并跳一下。
+/// 计数胶囊的 Core Animation 层：半透明黑底胶囊，里面是“×”与逐位数字，条数随媒体时间直接切换，不带动画。
 ///
 /// 由 `CoreAnimationDanmakuRenderer` 在挂上或更新一条弹幕时调用，胶囊作为子层挂在正文 layer 右侧。子层的局部时间
-/// 就是媒体时间（继承时钟层），所以条数、胶囊宽度与跳动都写成从弹幕自己的时间点开始、`removedOnCompletion` 为
+/// 就是媒体时间（继承时钟层），所以条数、胶囊宽度与显隐都写成从弹幕自己的时间点开始、`removedOnCompletion` 为
 /// false 的关键帧动画：画面是媒体时间的纯函数，暂停、seek 与倍速都由时钟层处理，不随对齐步长刷新。
 ///
 /// 拥有“×”与 0–9 的白色字形图缓存（按字号与 backing scale），在主线程按需生成一次后复用。字形图一共只有几十张
@@ -13,10 +13,6 @@ import QuartzCore
 final class DanmakuCountBadgeLayers {
     /// 胶囊子层的名字；更新或移除时按它找到旧胶囊。
     static let layerName = "danmaku.countBadge"
-    /// 条数增加时胶囊的最大放大倍数。
-    static let pulseScale = 1.25
-    /// 一次跳动的时长（媒体秒）；倍速时随播放一起变快，相邻两条到达比它更近时后一条不再单独跳。
-    static let pulseSeconds = 0.15
 
     private struct GlyphKey: Hashable {
         let fontSize: Double
@@ -28,7 +24,7 @@ final class DanmakuCountBadgeLayers {
     /// 换掉 `layer` 上的旧胶囊；`badge` 为 nil 或条数在弹幕离场前都不会变化时只移除。
     ///
     /// `textWidth` 与 `height` 是正文 layer 的尺寸，胶囊挂在正文右缘之外、纵向居中；`beginTime` 与 `duration` 是
-    /// 弹幕动画的开始时间与时长，关键帧按到达时间在其中的比例排。`reducesMotion` 时不跳。
+    /// 弹幕动画的开始时间与时长，离散关键帧按到达时间在其中的比例排。
     func replaceBadge(
         on layer: CALayer,
         badge: DanmakuCountBadge?,
@@ -37,8 +33,7 @@ final class DanmakuCountBadgeLayers {
         admittedAtSeconds: Double,
         beginTime: CFTimeInterval,
         duration: Double,
-        backingScale: Double,
-        reducesMotion: Bool
+        backingScale: Double
     ) {
         for sublayer in layer.sublayers ?? [] where sublayer.name == Self.layerName {
             sublayer.removeAllAnimations()
@@ -91,13 +86,14 @@ final class DanmakuCountBadgeLayers {
                 geometry: geometry,
                 scale: backingScale
             )
-            // 位数少于这一位时内容留着上一个数字，由胶囊的宽度裁掉。
             var values: [Any] = []
             var keyTimes: [Double] = []
             var shown: Character?
+            var appearsAt: Double?
             for step in steps {
-                let digit = Self.digit(at: slot, of: step.count) ?? shown
-                guard let digit, digit != shown, let image = glyphImages[digit] else { continue }
+                guard let digit = Self.digit(at: slot, of: step.count) else { continue }
+                appearsAt = appearsAt ?? step.fraction
+                guard digit != shown, let image = glyphImages[digit] else { continue }
                 values.append(image)
                 keyTimes.append(values.count == 1 ? 0 : step.fraction)
                 shown = digit
@@ -108,6 +104,16 @@ final class DanmakuCountBadgeLayers {
                 beginTime: beginTime,
                 duration: duration
             )
+            // 位数还不够时这一位不可见，不能只靠胶囊宽度裁掉：它的格子与胶囊右内边距重叠，数字的左半边会露出来。
+            if let appearsAt, appearsAt > firstStep.fraction {
+                digitLayer.opacity = 0
+                add(
+                    discrete(keyPath: "opacity", values: [0, 1], keyTimes: [0, appearsAt]),
+                    to: digitLayer,
+                    beginTime: beginTime,
+                    duration: duration
+                )
+            }
             pill.addSublayer(digitLayer)
         }
 
@@ -131,9 +137,6 @@ final class DanmakuCountBadgeLayers {
             beginTime: beginTime,
             duration: duration
         )
-        if !reducesMotion, let pulse = Self.pulse(steps: steps, duration: duration) {
-            add(pulse, to: pill, beginTime: beginTime, duration: duration)
-        }
         layer.addSublayer(pill)
     }
 
@@ -157,31 +160,6 @@ final class DanmakuCountBadgeLayers {
             }
         }
         return steps
-    }
-
-    /// 每一步开始时从 1 放大到 `pulseScale` 再回到 1；与上一次跳动重叠的步不再单独跳。
-    private static func pulse(
-        steps: [(fraction: Double, count: Int)],
-        duration: Double
-    ) -> CAKeyframeAnimation? {
-        let span = pulseSeconds / duration
-        var values: [Double] = [1]
-        var keyTimes: [Double] = [0]
-        var previousEnd = 0.0
-        for step in steps where step.fraction >= previousEnd {
-            let end = min(step.fraction + span, 1)
-            values += [1, pulseScale, 1]
-            keyTimes += [step.fraction, min(step.fraction + span / 2, 1), end]
-            previousEnd = end
-        }
-        guard values.count > 1 else { return nil }
-        values.append(1)
-        keyTimes.append(1)
-        let animation = CAKeyframeAnimation(keyPath: "transform.scale")
-        animation.values = values
-        animation.keyTimes = keyTimes.map { NSNumber(value: $0) }
-        animation.calculationMode = .linear
-        return animation
     }
 
     /// `count` 的十进制第 `slot` 位（从左数）；位数不够时为 nil。
