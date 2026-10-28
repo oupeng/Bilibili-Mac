@@ -15,6 +15,7 @@ public final class DanmakuControlsViewModel: AccountRevalidationParticipant {
     public private(set) var opacity: DanmakuOpacity
     public private(set) var displayArea: DanmakuDisplayArea
     public private(set) var density: DanmakuDensity
+    public private(set) var mergesDuplicates: Bool
     public private(set) var authenticationRevalidationGeneration = 0
 
     public var canAdjustDensity: Bool {
@@ -31,6 +32,8 @@ public final class DanmakuControlsViewModel: AccountRevalidationParticipant {
     private let saveDisplayArea: @MainActor (DanmakuDisplayArea) -> Void
     @ObservationIgnored
     private let saveDensity: @MainActor (DanmakuDensity) -> Void
+    @ObservationIgnored
+    private let saveMergesDuplicates: @MainActor (Bool) -> Void
 
     public init(
         presentation: any DanmakuSessionControlling,
@@ -38,24 +41,29 @@ public final class DanmakuControlsViewModel: AccountRevalidationParticipant {
         initialOpacity: DanmakuOpacity = .fullyOpaque,
         initialDisplayArea: DanmakuDisplayArea = .default,
         initialDensity: DanmakuDensity = .default,
+        initialMergesDuplicates: Bool = DanmakuDuplicateMerging.defaultIsEnabled,
         saveSpeedLevel: @escaping @MainActor (DanmakuSpeedLevel) -> Void = { _ in },
         saveOpacity: @escaping @MainActor (DanmakuOpacity) -> Void = { _ in },
         saveDisplayArea: @escaping @MainActor (DanmakuDisplayArea) -> Void = { _ in },
-        saveDensity: @escaping @MainActor (DanmakuDensity) -> Void = { _ in }
+        saveDensity: @escaping @MainActor (DanmakuDensity) -> Void = { _ in },
+        saveMergesDuplicates: @escaping @MainActor (Bool) -> Void = { _ in }
     ) {
         self.presentation = presentation
         self.speedLevel = initialSpeedLevel
         self.opacity = initialOpacity
         self.displayArea = initialDisplayArea
         self.density = initialDensity
+        self.mergesDuplicates = initialMergesDuplicates
         self.saveSpeedLevel = saveSpeedLevel
         self.saveOpacity = saveOpacity
         self.saveDisplayArea = saveDisplayArea
         self.saveDensity = saveDensity
+        self.saveMergesDuplicates = saveMergesDuplicates
         presentation.setSpeedLevel(initialSpeedLevel)
         presentation.setOpacity(initialOpacity)
         presentation.setDisplayArea(initialDisplayArea)
         presentation.setDensity(initialDensity)
+        presentation.setMergesDuplicates(initialMergesDuplicates)
         presentation.setAuthenticationInvalidationHandler { [weak self] in
             self?.authenticationRevalidationGeneration &+= 1
         }
@@ -127,6 +135,13 @@ public final class DanmakuControlsViewModel: AccountRevalidationParticipant {
         self.density = density
         presentation.setDensity(density)
         saveDensity(density)
+    }
+
+    public func setMergesDuplicates(_ merges: Bool) {
+        guard mergesDuplicates != merges else { return }
+        mergesDuplicates = merges
+        presentation.setMergesDuplicates(merges)
+        saveMergesDuplicates(merges)
     }
 
     private func applyModeVisibility() {

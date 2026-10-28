@@ -93,6 +93,7 @@ final class RecordingDanmakuPresentation: DanmakuSessionControlling {
     func setOpacity(_ opacity: DanmakuOpacity) {}
     func setDisplayArea(_ displayArea: DanmakuDisplayArea) {}
     func setDensity(_ density: DanmakuDensity) {}
+    func setMergesDuplicates(_ merges: Bool) {}
     func setModeVisibility(scrolling: Bool, top: Bool, bottom: Bool) {}
     func setAuthenticationInvalidationHandler(_ handler: @escaping @MainActor () -> Void) {}
 
@@ -222,6 +223,7 @@ final class DefaultDanmakuPreferencesStore: DanmakuPreferencesStoring {
     func saveOpacity(_ opacity: DanmakuOpacity) {}
     func saveDisplayArea(_ displayArea: DanmakuDisplayArea) {}
     func saveDensity(_ density: DanmakuDensity) {}
+    func saveMergesDuplicates(_ merges: Bool) {}
 }
 
 extension SystemNowPlayingPlaybackConnection {

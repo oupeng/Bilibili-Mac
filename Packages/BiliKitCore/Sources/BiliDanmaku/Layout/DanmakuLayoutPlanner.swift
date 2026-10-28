@@ -116,7 +116,8 @@ enum DanmakuLayoutPlanner {
     /// 从 `seed` 的车道占用开始排一个分段。
     ///
     /// 相邻分段可能重复给出同一条弹幕（同一 ID，时间也可能略有不同）：`excludingIDs` 是上一段的全部 ID，
-    /// 这些弹幕只在上一段显示；同一段里重复的 ID 只取 (时间, ID) 顺序上的第一条。
+    /// 这些弹幕只在上一段显示；同一段里重复的 ID 只取 (时间, ID) 顺序上的第一条。去重之后才合并重复弹幕，
+    /// 合并只看本段，不跨分段。
     static func layout(
         index: Int,
         events: [DanmakuEvent],
@@ -126,9 +127,11 @@ enum DanmakuLayoutPlanner {
         measure: (DanmakuEvent) -> DanmakuTextMetrics?
     ) -> DanmakuSegmentLayout? {
         var seenIDs = excludingIDs
-        let ordered = events.filter(parameters.filter.allows)
+        let unique = events.filter(parameters.filter.allows)
             .sorted(by: DanmakuEvent.precedes)
             .filter { seenIDs.insert($0.id).inserted }
+        let ordered =
+            parameters.filter.mergesDuplicates ? DanmakuDuplicateMerger.merged(unique) : unique
         var allocator = seed
         var placements: [DanmakuLanePlacement] = []
         var maximumDuration = 0.0

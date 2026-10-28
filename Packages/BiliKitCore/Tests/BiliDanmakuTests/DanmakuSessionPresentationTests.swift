@@ -50,7 +50,16 @@ struct DanmakuSessionPresentationTests {
         #expect(sink.enabledChanges == [false])
 
         session.setModeVisibility(scrolling: false, top: true, bottom: true)
-        #expect(sink.filters == [DanmakuFilter(showsScrolling: false)])
+        session.setMergesDuplicates(true)
+        session.setMergesDuplicates(true)
+        session.setModeVisibility(scrolling: true, top: true, bottom: true)
+        #expect(
+            sink.filters == [
+                DanmakuFilter(showsScrolling: false),
+                DanmakuFilter(showsScrolling: false, mergesDuplicates: true),
+                DanmakuFilter(mergesDuplicates: true)
+            ]
+        )
 
         session.stop()
         #expect(sink.stopCount == 1)

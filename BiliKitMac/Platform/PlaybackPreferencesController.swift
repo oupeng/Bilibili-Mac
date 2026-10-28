@@ -116,7 +116,7 @@ final class UserDefaultsPlaybackPreferencesStore:
     }
 }
 
-/// 弹幕显示的设备级偏好：速度档位、透明度、显示区域与密度。
+/// 弹幕显示的设备级偏好：速度档位、透明度、显示区域、密度与是否合并重复弹幕。
 ///
 /// `defaults` 是没有存储值或存储值无效时的回退；持久化范围见 SECURITY-MODEL §6。
 struct DanmakuPreferences: Equatable, Sendable {
@@ -124,13 +124,15 @@ struct DanmakuPreferences: Equatable, Sendable {
         speedLevel: .default,
         opacity: .fullyOpaque,
         displayArea: .default,
-        density: .default
+        density: .default,
+        mergesDuplicates: DanmakuDuplicateMerging.defaultIsEnabled
     )
 
     let speedLevel: DanmakuSpeedLevel
     let opacity: DanmakuOpacity
     let displayArea: DanmakuDisplayArea
     let density: DanmakuDensity
+    let mergesDuplicates: Bool
 }
 
 /// 弹幕偏好的持久化 port：窗口组装弹幕控制模型时读取一次初值，用户每次调整写回一项。
@@ -140,6 +142,7 @@ protocol DanmakuPreferencesStoring: AnyObject, Sendable {
     func saveOpacity(_ opacity: DanmakuOpacity)
     func saveDisplayArea(_ displayArea: DanmakuDisplayArea)
     func saveDensity(_ density: DanmakuDensity)
+    func saveMergesDuplicates(_ merges: Bool)
 }
 
 /// 弹幕偏好的 `UserDefaults` 实现：只保存设备级弹幕显示意图，不保存视频 identity、正文或播放位置。
@@ -155,6 +158,7 @@ final class UserDefaultsDanmakuPreferencesStore:
         static let opacity = "danmaku.opacity"
         static let displayArea = "danmaku.displayArea"
         static let density = "danmaku.density"
+        static let mergesDuplicates = "danmaku.mergesDuplicates"
     }
 
     private let defaults: UserDefaults
@@ -168,7 +172,9 @@ final class UserDefaultsDanmakuPreferencesStore:
             speedLevel: loadSpeedLevel(),
             opacity: loadOpacity(),
             displayArea: loadDisplayArea(),
-            density: loadDensity()
+            density: loadDensity(),
+            mergesDuplicates: defaults.strictBool(forKey: Key.mergesDuplicates)
+                ?? DanmakuPreferences.defaults.mergesDuplicates
         )
     }
 
@@ -186,6 +192,10 @@ final class UserDefaultsDanmakuPreferencesStore:
 
     func saveDensity(_ density: DanmakuDensity) {
         defaults.set(density.rawValue, forKey: Key.density)
+    }
+
+    func saveMergesDuplicates(_ merges: Bool) {
+        defaults.set(merges, forKey: Key.mergesDuplicates)
     }
 
     private func loadSpeedLevel() -> DanmakuSpeedLevel {
