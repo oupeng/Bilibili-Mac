@@ -19,6 +19,10 @@ BiliKit 是非官方第三方客户端，与哔哩哔哩不存在隶属、认可
 安装包经过 Developer ID 签名与 Apple 公证。请使用本仓库提供的下载，避免来源不明的重新打包版本。
 标有 Pre-release 的版本用于测试。
 
+也可以从 [shiinayane/homebrew-tap](https://github.com/shiinayane/homebrew-tap) 用 Homebrew 安装同一个 DMG，
+命令见 README。Homebrew 默认不加载第三方 tap 的 cask，因此安装前要先 `brew trust` 这一个 cask。
+App 自带更新，`brew upgrade` 默认跳过它；`brew uninstall --zap` 会删除 App 容器，但同样不删除 Keychain item。
+
 ## 更新与故障恢复
 
 Sparkle 已接入。应用菜单提供“检查更新…”、自动检查和自动下载并安装设置。

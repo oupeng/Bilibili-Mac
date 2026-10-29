@@ -100,6 +100,14 @@
 
 安装包经 Apple 签名和公证，新版本会在应用内提示。
 
+也可以用 Homebrew 安装：
+
+```sh
+brew tap shiinayane/tap
+brew trust --cask shiinayane/tap/bilikit
+brew install --cask shiinayane/tap/bilikit
+```
+
 需要 Apple Silicon Mac（M 系列芯片）和 macOS 15 或更高版本。Intel Mac 请使用
 [1.0.0](https://github.com/shiinayane/BiliKit-Mac/releases/tag/v1.0.0)，这是最后一个支持 Intel 的版本。
 安装、卸载和更新的细节见[分发说明](DISTRIBUTION.md)。

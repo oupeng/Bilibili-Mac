@@ -100,6 +100,14 @@ One window, one sidebar: Home, Search, Watch Later and each of your favorites fo
 
 The installer is signed and notarized by Apple, and new versions are announced in the app.
 
+You can also install it with Homebrew:
+
+```sh
+brew tap shiinayane/tap
+brew trust --cask shiinayane/tap/bilikit
+brew install --cask shiinayane/tap/bilikit
+```
+
 Requires an Apple Silicon Mac (M-series chip) and macOS 15 or later. On an Intel Mac, use
 [1.0.0](https://github.com/shiinayane/BiliKit-Mac/releases/tag/v1.0.0), the last version that supports Intel.
 For details on installing, uninstalling and updating, see the [distribution notes](DISTRIBUTION.md) (in Chinese).
