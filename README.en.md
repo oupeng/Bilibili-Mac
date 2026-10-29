@@ -47,7 +47,7 @@
 
 ### Light and fast
 
-A native Mac app, not a web page in a wrapper: under 10 MB to download and around 100 MB of memory. Performance-sensitive parts such as video grids, comments and danmaku are drawn with AppKit and Core Animation, and playback runs on the system's AVPlayer.
+A native Mac app, not a web page in a wrapper: under 10 MB to download and a few hundred MB of memory. Performance-sensitive parts such as video grids, comments and danmaku are drawn with AppKit and Core Animation, and playback runs on the system's AVPlayer.
 
 ### A video page built for watching
 
@@ -69,7 +69,7 @@ One window, one sidebar: Home, Search, Watch Later and each of your favorites fo
 |  | Website / official Mac client | BiliKit |
 | --- | --- | --- |
 | Download size | Official client is close to 200 MB | Under 10 MB |
-| Memory use | Official client often exceeds 1 GB | Around 100 MB |
+| Memory use | Official client often exceeds 1 GB | A few hundred MB |
 | Recommendations | Mixed with ads, live streams and pop-ups | Videos only; promoted cards and non-video items are filtered out |
 | After watching a video | Tabs keep piling up and the list you came from is gone | Go back in the same window, with the list right where you left it |
 | Player | Web player | System player: Picture in Picture, full screen, media keys, Control Center |
