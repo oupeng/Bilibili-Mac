@@ -381,6 +381,8 @@ UGC playurl 带 `voice_balance=1` 时返回 loudness 元数据。macOS 27 起 HL
 
 - Developer ID 站外 DMG + 公证，不走 Mac App Store；更新用 Sparkle 完整包 + Cloudflare 静态签名 appcast，
   不自研更新器。
+- Homebrew 只走自有 tap `shiinayane/homebrew-tap`，cask 指向同一个 GitHub Release DMG，由 `release.py publish`
+  在 feed 上线后更新；cask 声明 `auto_updates`，升级仍交给 Sparkle。官方 cask 有知名度门槛，不自行提交。
 - 1.0.0 是最后一个 Universal 版本；此后 Release 主程序只含 `arm64`，Sparkle 官方嵌套组件保留其自带
   架构。不为旧 Intel 用户建立专用 feed。
 - 只维护发布工具链 Xcode 27 一个版本，不保留按编译器版本分叉的代码。CI 在 macOS 27 上跑完整

@@ -118,6 +118,17 @@ class ReleaseSafetyTests(unittest.TestCase):
             with self.subTest(parts=parts), self.assertRaises(ValueError):
                 release.validate_release_item(item(*parts), notes)
 
+    def test_tap_cask_only_moves_forward_to_the_same_dmg(self):
+        def cask(version='1.6.0,14', sha='a' * 64, url=release.CASK_URL):
+            return f'cask "bilikit" do\n  version "{version}"\n  sha256 "{sha}"\n\n  {url}\nend\n'
+        self.assertEqual(release.bump_cask(cask(), '1.7.0', 15, 'b' * 64), cask('1.7.0,15', 'b' * 64))
+        self.assertEqual(release.bump_cask(cask(), '1.6.0', 14, 'a' * 64), cask())
+        for text, version, build, sha in ((cask(), '1.5.0', 13, 'b' * 64), (cask(), '1.6.0', 14, 'b' * 64),
+                                          (cask(), '1.6.1', 14, 'a' * 64), (cask(url='url "https://example.org/x.dmg"'), '1.7.0', 15, 'b' * 64),
+                                          (cask() + '  sha256 "' + 'c' * 64 + '"\n', '1.7.0', 15, 'b' * 64), (cask('1.6.0'), '1.7.0', 15, 'b' * 64)):
+            with self.subTest(text=text, build=build, sha=sha), self.assertRaises(ValueError):
+                release.bump_cask(text, version, build, sha)
+
     def test_dirty_tree_cannot_freeze(self):
         with patch.object(release, 'run', return_value=' M source.swift'), self.assertRaises(ValueError):
             release.source()
