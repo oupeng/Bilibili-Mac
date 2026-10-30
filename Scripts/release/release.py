@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Local Developer ID release. Secrets stay in Keychain; all subprocesses use argv."""
 import argparse
+import base64
 import datetime
 import hashlib
 import importlib.util
@@ -28,6 +29,13 @@ feed = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(feed)
 CONFIG = json.loads((ROOT / 'Updates/cloudflare/release.json').read_text())
 RELEASE_DOCS = ROOT / 'docs/release'
+TAP_REPO = 'shiinayane/homebrew-tap'
+TAP_CASK = 'Casks/bilikit.rb'
+# cask 的 url 由 version 的两段拼出，必须与 prepare 生成的 DMG 文件名同形；不一致说明 tap 被手动改过，停下核对。
+CASK_URL = ('url "https://github.com/' + REPO + '/releases/download/v#{version.csv.first}/'
+            'BiliKit-#{version.csv.first}-#{version.csv.second}-arm64.dmg"')
+CASK_VERSION = re.compile(r'^  version "([^",]+),(\d+)"$', re.M)
+CASK_SHA256 = re.compile(r'^  sha256 "([0-9a-f]{64})"$', re.M)
 
 
 def require(ok, message):
@@ -124,6 +132,41 @@ def releases():
     return json.loads(run('gh', 'api', '--paginate', '--slurp', f'repos/{REPO}/releases?per_page=100'))
 
 
+def bump_cask(text, version, build, sha256):
+    """返回指向本次 DMG 的 cask 文本；已指向本次 DMG 时原样返回，重跑 publish 因此不产生新提交。"""
+    versions = CASK_VERSION.findall(text)
+    checksums = CASK_SHA256.findall(text)
+    require(len(versions) == 1 and len(checksums) == 1 and text.count(CASK_URL) == 1, 'tap cask 结构异常；停止更新')
+    current = int(versions[0][1])
+    # 与 feed 同一规则：tap 只前进，同 build 只能是同一个 DMG。
+    require(current <= build, 'tap 已有更高 build；禁止回退 cask')
+    if current == build:
+        require(versions[0][0] == version and checksums[0] == sha256, 'tap 同 build cask 内容冲突')
+        return text
+    text = CASK_VERSION.sub(f'  version "{version},{build}"', text)
+    return CASK_SHA256.sub(f'  sha256 "{sha256}"', text)
+
+
+def read_tap():
+    remote = json.loads(run('gh', 'api', f'repos/{TAP_REPO}/contents/{TAP_CASK}?ref=main'))
+    return base64.b64decode(remote['content']).decode(), remote['sha']
+
+
+def update_tap(state):
+    """在 feed 复验之后调用：cask 只指向已公开且匿名下载复验过的 DMG。返回 tap 上该文件最新提交。"""
+    dmg = f"BiliKit-{state['version']}-{state['build']}-arm64.dmg"
+    current, blob = read_tap()
+    updated = bump_cask(current, state['version'], state['build'], state['assets'][dmg]['sha256'])
+    if updated != current:
+        # 带上读到的 blob sha：期间 tap 被改过时 GitHub 拒绝写入，不覆盖他人的提交。
+        run('gh', 'api', '-X', 'PUT', f'repos/{TAP_REPO}/contents/{TAP_CASK}',
+            '-f', f"message=chore(bilikit): 更新到 {state['version']} ({state['build']})",
+            '-f', 'content=' + base64.b64encode(updated.encode()).decode(),
+            '-f', 'sha=' + blob, '-f', 'branch=main')
+    require(read_tap()[0] == updated, 'tap cask 与本次发布不一致；核对后重跑 publish')
+    return run('gh', 'api', f'repos/{TAP_REPO}/commits?sha=main&path={TAP_CASK}&per_page=1', '--jq', '.[0].sha')
+
+
 def preflight():
     commit = source()
     v, build = version()
@@ -146,6 +189,10 @@ def preflight():
         feed.validate_feed(old.read_bytes(), CONFIG)
         items = ET.fromstring(old.read_bytes()).findall('channel/item')
         require(build > max([int(i.findtext('s:version', namespaces=feed.NS)) for i in items] or [0]), 'build 必须高于线上全部版本')
+    # 公开后才写 tap；权限、cask 结构与回退在冻结前确认，避免 Release 与 feed 已上线而 tap 落后。
+    # 此时还没有 DMG，占位 SHA 只参与检查，结果丢弃。
+    require(json.loads(run('gh', 'api', f'repos/{TAP_REPO}'))['permissions']['push'], '当前 gh 账号不能写 tap 仓库')
+    bump_cask(read_tap()[0], v, build, '0' * 64)
     return {'commit': commit, 'version': v, 'build': build, 'tag': tag, 'ci': ci_url,
             'created': datetime.datetime.now(datetime.timezone.utc).isoformat()}
 
@@ -432,7 +479,9 @@ def publish(out, acceptance):
     download(FEED, downloads / 'live-appcast.xml')
     require(digest(downloads / 'live-appcast.xml') == digest(out / 'assets/appcast.xml'), '线上 feed 尚未与本次部署一致；检查缓存后复验')
     feed.validate_feed((downloads / 'live-appcast.xml').read_bytes(), CONFIG, downloads)
-    save(out / 'published.json', {'tag': state['tag'], 'commit': state['commit'], 'assets': expected, 'feed_sha256': digest(downloads / 'live-appcast.xml')})
+    tap = update_tap(state)
+    save(out / 'published.json', {'tag': state['tag'], 'commit': state['commit'], 'assets': expected,
+                                  'feed_sha256': digest(downloads / 'live-appcast.xml'), 'tap_commit': tap})
     print(f"发布完成：https://github.com/{REPO}/releases/tag/{state['tag']}")
 
 

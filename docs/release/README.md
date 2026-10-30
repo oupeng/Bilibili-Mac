@@ -29,7 +29,8 @@ python3 Scripts/release/release.py prepare --output /private/tmp/bilikit-release
 ```
 
 - `preflight` 检查工作树、远端 main/CI、版本、线上已签名 feed 的最大 build、重复 tag/Release、
-  Developer ID 与 notary credential。旧同名草稿先人工核对；脚本不删草稿、不移动 tag。
+  Developer ID、notary credential，以及 `gh` 对 `shiinayane/homebrew-tap` 的写权限与 cask 结构。
+  旧同名草稿先人工核对；脚本不删草稿、不移动 tag。
 - `prepare` 依次执行 App Gate、Release archive、Developer ID export、App 公证／staple、DMG 制作／签名／
   公证／staple、架构／entitlement／包内文件核对、Sparkle 官方工具签名 appcast 与校验和。仅完整安装包，
   无 delta；新 feed 只列当前候选。候选 feed 必须内嵌本版本更新日志，并带 Sparkle 按仅 arm64 主程序自动
@@ -92,7 +93,9 @@ python3 Scripts/release/release.py publish --output /private/tmp/bilikit-release
 
 脚本校验提交、main CI、验收裁决、草稿目标与远端 digest 后公开 Release；再匿名下载 DMG 重验
 hash／签名／公证／DMG 内 App，之后才在独立部署副本执行 npm ci、dry-run 与 deploy，最后验证线上
-appcast 字节与签名。顺序保证 feed 不指向不可访问的资产。部署目标、费用与停用边界见
+appcast 字节与签名，随后把 tap 的 `Casks/bilikit.rb` 改到本次版本与 DMG SHA-256 并读回核对。顺序保证
+feed 与 cask 不指向不可访问的资产。cask 只前进：tap 已是更高 build 或同 build 不同 SHA 时停止，已是本次
+内容时不再提交。部署目标、费用与停用边界见
 [`../../Updates/cloudflare/README.md`](../../Updates/cloudflare/README.md)。
 
 ## 停止条件与恢复
@@ -105,4 +108,4 @@ appcast 字节与签名。顺序保证 feed 不指向不可访问的资产。部
 - 公开后网络或部署失败：保留现有 Release，修复后重跑 `publish`。
 - 发布记录与可恢复候选放在 gitignored `docs/_local/release/`；完成后删除本任务的 `work/`、
   `downloads/`、`deployment/`、ZIP 与构建日志，不清理其他任务目录。
-- 发布后核对 GitHub Latest、tag、安装包 hash、线上 feed 与 README 版本说明。
+- 发布后核对 GitHub Latest、tag、安装包 hash、线上 feed、tap cask 与 README 版本说明。
