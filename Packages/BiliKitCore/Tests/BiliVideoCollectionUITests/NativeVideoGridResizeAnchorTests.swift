@@ -5,30 +5,40 @@ import Testing
 @testable import BiliVideoCollectionUI
 
 /// 视口尺寸变化（含侧栏收起、展开动画中的连续变化）前后与其后的原地刷新中，网格的首张可见卡片不变；尺寸变化之后滚进
-/// 近尾阈值仍会请求下一页。
+/// 近尾阈值仍会请求下一页；宽度只变半点（拖分隔条的一步，`dividerDragWidths`）也按新卡片尺寸重排，每一步首行都排满
+/// 当前列数，首张可见卡片也不变。
 ///
 /// 每个测试都在 overlay 与传统滚动条下各跑一遍，结果不取决于运行机器的滚动条设置。
 @Suite(.serialized, .timeLimit(.minutes(1)))
 @MainActor
 struct NativeVideoGridResizeAnchorTests {
     /// 侧栏收起、展开时细节栏的宽度：每步约一帧，跨过 2、3、4 列。
-    private static let sidebarAnimationWidths: [CGFloat] = Array(
+    private nonisolated static let sidebarAnimationWidths: [CGFloat] = Array(
         stride(from: 800, through: 1_120, by: 20)
+    )
+    /// 拖分隔条时细节栏的宽度：每步半点，跨过 overlay 与传统滚动条下各自的 3、4 列分界，以及其间多处卡片宽度取整的
+    /// 分界（如 1063 → 1062.5 时旧卡片一行排不下 3 张）。
+    private nonisolated static let dividerDragWidths: [CGFloat] = Array(
+        stride(from: 1_060, through: 1_090, by: 0.5)
     )
     private nonisolated static let scrollerStyles: [NSScroller.Style] = [.overlay, .legacy]
 
-    @Test(arguments: scrollerStyles)
+    @Test(arguments: scrollerStyles, [sidebarAnimationWidths, dividerDragWidths])
     func continuousWidenThenNarrowKeepsTheFirstVisibleCard(
-        scrollerStyle: NSScroller.Style
+        scrollerStyle: NSScroller.Style,
+        widths: [CGFloat]
     ) async throws {
-        let grid = try await GridHarness(scrollerStyle: scrollerStyle)
+        let grid = try await GridHarness(width: widths[0], scrollerStyle: scrollerStyle)
         grid.scroll(toLogicalOffset: 6_000)
         let original = try #require(grid.firstVisibleCard())
 
-        for width in Self.sidebarAnimationWidths.dropFirst()
-            + Self.sidebarAnimationWidths.reversed().dropFirst()
-        {
+        for width in widths.dropFirst() + widths.reversed().dropFirst() {
             grid.setViewport(width: width)
+            #expect(
+                grid.firstRowCardCount()
+                    == NativeVideoGridGeometry.columnCount(for: grid.viewportWidth),
+                "宽度 \(width) 时首行张数不是当前列数；\(grid.diagnostics)"
+            )
             let card = try #require(grid.card(original.id))
             #expect(
                 abs(card.offsetFromViewportTop - original.offsetFromViewportTop) <= 1,
@@ -88,16 +98,14 @@ struct NativeVideoGridResizeAnchorTests {
         )
     }
 
-    /// 后一组是半点抖动：宽度变化不超过半点时不重排，其间在 layout 之外的追加照常重排。
-    @Test(arguments: scrollerStyles, [(CGFloat(1_120), CGFloat(800)), (800.5, 799.5)])
+    @Test(arguments: scrollerStyles)
     func scrollingIntoTheThresholdAfterResizingLoadsTheNextPage(
-        scrollerStyle: NSScroller.Style,
-        widths: (beforeAppend: CGFloat, afterAppend: CGFloat)
+        scrollerStyle: NSScroller.Style
     ) async throws {
         let grid = try await GridHarness(scrollerStyle: scrollerStyle)
-        grid.setViewport(width: widths.beforeAppend)
+        grid.setViewport(width: 1_120)
         grid.replaceItems(with: grid.ids + (300..<330).map { "BV\($0)" })
-        grid.setViewport(width: widths.afterAppend)
+        grid.setViewport(width: 800)
         let requestsBeforeScrolling = grid.nearEndRequests
 
         grid.scroll(toLogicalOffset: grid.maximumLogicalOffset)

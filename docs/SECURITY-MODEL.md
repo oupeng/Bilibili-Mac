@@ -126,7 +126,8 @@
 - 目前只有稍后再看的加入（`POST /x/v2/history/toview/add`）与移除（`POST /x/v2/history/toview/del`），收藏的归属改动
   （`POST /x/v3/fav/resource/deal`）与夹内移除（`POST /x/v3/fav/resource/batch-del`），以及播放页的点赞
   （`POST /x/web-interface/archive/like`，`like` 只能是 1 或 2）、投币（`POST /x/web-interface/coin/add`，`multiply` 只能是 1
-  或 2、`select_like` 0 或 1）与三连（`POST /x/web-interface/archive/like/triple`，只有 `aid`），首页推荐的「不感兴趣」与撤销
+  或 2、`select_like` 0 或 1）与三连（`POST /x/web-interface/archive/like/triple`，只有 `aid`），播放页侧栏的关注与取消关注（`POST /x/relation/modify`，只收单个 UP 主
+  `fid`（正整数），`act` 只能是 1（关注）或 2（取消），`re_src` 固定为 11；拉黑、悄悄关注、移除粉丝等其他 `act` 一律拒绝），首页推荐的「不感兴趣」与撤销
   （`POST /x/web-interface/feedback/dislike` 与 `.../dislike/cancel`，推荐流的固定字段之外只收单个稿件 `id`、它的 UP 主
   `mid`（正整数）、只含字母数字与 `._-` 且有长度上限的 `track_id`，`reason_id` 只能是 1 或 4；网页对它签 WBI，这里不签）。`toview/del` 的 `aid` 在接口文档里
   可选、带 `viewed=true` 会删除全部已看完的视频；schema 强制要求 `aid` 并拒绝 `viewed`，所以发不出“一次清空”，不得把 `aid`
@@ -221,7 +222,7 @@ Sparkle 更新网络，以及任何 redirect 后的主机。只认精确主机�
 防：观看内容、账号关联数据与远端响应留在磁盘上。
 
 - UserDefaults 保存非内容偏好：播放音量、静音、首选倍速、「播放结束后」；弹幕速度、透明度、显示区域、密度、是否合并重复弹幕；
-  版本化播放线路 route identifier 与响度均一化开关。未知或损坏值回退默认。
+  版本化播放线路 route identifier 与响度均一化开关；浏览态与播放态的侧栏宽度。未知或损坏值回退默认。
 - 本机搜索历史（`SearchHistoryStore`，schema 1）是 UserDefaults 中唯一的内容数据：保存用户提交的
   搜索词原文，只做搜索规则的规范化（去首尾空白、≤ 100 字），因此可能包含用户自己输入的 BV 号或链接；
   最近在前、去重，最多 20 条，没有时间期限。它属于本机而不属于账号：BiliKit 不附加账号标识，未登录也

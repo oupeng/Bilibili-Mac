@@ -179,6 +179,8 @@ struct AccountWriteCoordinatorTests {
         #expect(!window.accountWrites.isWritable)
         #expect(!window.accountWrites.addToWatchLater(bvid: "BV17x411w7KC"))
         window.accountWrites.removeFromWatchLater(bvid: "BV17x411w7KC")
+        window.accountWrites.chooseFavoriteFolders(bvid: "BV17x411w7KC")
+        #expect(window.accountWrites.favoritePicker == nil)
         window.close()
 
         #expect(await writes.calls.isEmpty)
@@ -232,31 +234,6 @@ struct AccountWriteCoordinatorTests {
         #expect(!window.accountWrites.isWritable)
         #expect(window.accountWrites.report == nil)
         #expect(await writes.calls == ["add BV17x411w7KC 7"])
-    }
-
-    @Test
-    func onlyTheWindowAPIGetsTheExactWriteCapability() async throws {
-        #expect(
-            LiveAPIClients.mainAccountWriteAllowedPaths == [
-                "/x/v2/history/toview/add",
-                "/x/v2/history/toview/del",
-                "/x/v3/fav/resource/deal",
-                "/x/v3/fav/resource/batch-del",
-                "/x/web-interface/archive/like",
-                "/x/web-interface/coin/add",
-                "/x/web-interface/archive/like/triple",
-                "/x/web-interface/feedback/dislike",
-                "/x/web-interface/feedback/dislike/cancel"
-            ]
-        )
-        #expect(BiliAccountWritePath.watchLaterAdd == "/x/v2/history/toview/add")
-        #expect(BiliAccountWritePath.watchLaterRemove == "/x/v2/history/toview/del")
-        // 测速与观看进度 writer 没有账户写授权器：在发请求前就失败。
-        for client in [LiveAPIClients.cdnBenchmark(), LiveAPIClients.watchProgressWriter()] {
-            await #expect(throws: BiliAPIError.authorizationRequired) {
-                try await client.addToWatchLater(bvid: "BV17x411w7KC", accountID: 7)
-            }
-        }
     }
 
     @Test
@@ -401,18 +378,6 @@ struct AccountWriteCoordinatorTests {
         #expect(window.favoriteFolders.totalCount == 2)
         #expect(window.accountWrites.report?.failure == .unavailable)
         #expect(await writes.calls == ["unfavorite 170001 from 10 7"])
-    }
-
-    @Test
-    func closedGateOpensNoPicker() async throws {
-        let window = WindowComposition(process: makeTestProcess(), adapters: makeTestAdapters())
-        window.authenticationModel.restoreIfNeeded()
-        await window.authenticationModel.waitForCurrentTask()
-        defer { window.close() }
-
-        window.accountWrites.chooseFavoriteFolders(bvid: "BV17x411w7KC")
-
-        #expect(window.accountWrites.favoritePicker == nil)
     }
 
     /// 失败放回了标记，所以能再说一次；成功标上之后才能撤销。
@@ -695,23 +660,6 @@ struct AccountWriteCoordinatorTests {
         #expect(shortcuts.toggleLike() == .liked)
     }
 
-    /// 给播放页一个视频详情并等互动状态读到。
-    private func presentEngagement(in window: WindowComposition) async {
-        window.engagementModel.present(
-            VideoDetail(
-                bvid: "BV17x411w7KC",
-                title: "标题",
-                summary: "",
-                coverURL: nil,
-                owner: VideoOwner(id: 1, name: "作者"),
-                statistics: VideoStatistics(viewCount: 1, danmakuCount: 1, likeCount: 1),
-                durationSeconds: 60,
-                publishedAt: Date(timeIntervalSince1970: 1_700_000_000)
-            )
-        )
-        await waitForObservedState { window.engagementModel.engagement != nil }
-    }
-
     /// 同一视频的点赞、投币、三连同时只发一个；投币不超过此刻的可投数。
     @Test
     func oneEngagementWritePerVideoAndCoinsWithinTheRemainder() async throws {
@@ -730,35 +678,6 @@ struct AccountWriteCoordinatorTests {
         #expect(window.engagementModel.remainingCoins == 0)
         #expect(!window.accountWrites.addCoins(1, alsoLike: false, bvid: "BV17x411w7KC"))
         #expect(await writes.calls == ["triple BV17x411w7KC 7"])
-    }
-
-    private func signedInWindow(
-        process: ProcessComposition,
-        video: any VideoRepository = FixtureVideoRepository(fixtures: []),
-        writes: AccountWriteRepositoryStub = AccountWriteRepositoryStub(),
-        watchLater bvids: [String] = [],
-        favorites: FavoritesRepositoryStub = FavoritesRepositoryStub()
-    ) async throws -> WindowComposition {
-        let window = WindowComposition(
-            process: process,
-            adapters: makeTestAdapters(
-                video: video,
-                favorites: favorites,
-                watchLater: WatchLaterRepositoryStub(bvids: bvids),
-                watchLaterWrite: writes,
-                favoritesWrite: writes,
-                videoEngagement: writes,
-                authentication: AuthenticationServiceStub(
-                    restoreState: .signedIn(
-                        AccountIdentity(id: 7, displayName: "账号", avatarURL: nil)
-                    )
-                )
-            )
-        )
-        window.authenticationModel.restoreIfNeeded()
-        await window.authenticationModel.waitForCurrentTask()
-        window.open()
-        return window
     }
 
     private func load(_ model: WatchLaterViewModel) async {

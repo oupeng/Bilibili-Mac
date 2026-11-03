@@ -90,10 +90,12 @@ struct AppShellView: View {
                         value: isSidebarContextOpen
                     )
             }
+            // 浏览与播放各自记住用户拖出的宽度；挂在 ZStack 上而不是随进出播放重建的 Group 里。
+            .background(SidebarWidthRestorer(mode: sidebarColumnMode))
             .navigationSplitViewColumnWidth(
-                min: sidebarMinimumWidth,
-                ideal: sidebarIdealWidth,
-                max: sidebarMaximumWidth
+                min: sidebarColumnMode.minimumWidth,
+                ideal: sidebarColumnMode.idealWidth,
+                max: sidebarColumnMode.maximumWidth
             )
         } detail: {
             NavigationStack(path: Bindable(navigationCoordinator).playbackPath) {
@@ -188,14 +190,15 @@ struct AppShellView: View {
         )
     }
 
-    /// 播放页点赞、投币、收藏按钮的写入口：门槛在按钮求值时读取，动作转给窗口的写入协调者。
+    /// 播放页点赞、投币、收藏按钮与侧栏关注按钮的写入口：门槛在按钮求值时读取，动作转给窗口的写入协调者。
     private var engagementActions: VideoEngagementActions {
         let accountWrites = accountWrites
         return VideoEngagementActions(
             isAvailable: { accountWrites.isWritable },
             setLiked: { accountWrites.setLiked($0, bvid: $1) },
             addCoins: { accountWrites.addCoins($0, alsoLike: $1, bvid: $2) },
-            chooseFavoriteFolders: { accountWrites.chooseFavoriteFolders(bvid: $0) }
+            chooseFavoriteFolders: { accountWrites.chooseFavoriteFolders(bvid: $0) },
+            setFollowing: { accountWrites.setFollowing($0, bvid: $1) }
         )
     }
 
@@ -257,6 +260,7 @@ struct AppShellView: View {
     private var playbackSidebar: some View {
         NativePlaybackSidebarView(
             model: videoModel,
+            engagementModel: engagementModel,
             commentsModel: commentsModel,
             commentAssetURLResolver: commentAssetURLResolver,
             commentImagePipeline: imagePipeline,
@@ -292,16 +296,8 @@ struct AppShellView: View {
 
     // 浏览态与播放态共用一列：ideal 只在首次布局生效，切换状态时宽度被夹进新范围，
     // 因此进入播放时侧栏宽度等于播放态最小值；更宽由用户自行拖动。
-    private var sidebarMinimumWidth: CGFloat {
-        navigationCoordinator.currentPlaybackBVID == nil ? 300 : 520
-    }
-
-    private var sidebarIdealWidth: CGFloat {
-        navigationCoordinator.currentPlaybackBVID == nil ? 320 : 520
-    }
-
-    private var sidebarMaximumWidth: CGFloat {
-        navigationCoordinator.currentPlaybackBVID == nil ? 320 : 720
+    private var sidebarColumnMode: SidebarColumnMode {
+        navigationCoordinator.currentPlaybackBVID == nil ? .browsing : .playback
     }
 
     private var commentLinkOpener: CommentLinkOpener {

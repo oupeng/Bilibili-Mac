@@ -2,12 +2,13 @@ import AppKit
 import BiliApplication
 import BiliModels
 import BiliUI
+import BiliVideoCollectionUI
 import SwiftUI
 
 /// 压在侧栏上的 UP 主空间层。
 ///
-/// 原生列表只画头部与已加载的行；加载中、空、失败与登录提示由本视图按 ViewModel 状态叠在头部下方，
-/// 返回按钮始终可点。页码条悬浮在底部，列表为它留出底部空间。
+/// 原生列表只画头部与已加载的行；加载中、空、失败与登录提示由本视图按 ViewModel 状态叠在头部下方。
+/// 返回按钮悬浮在左上角，不随列表滚走；页码条悬浮在底部，列表为它留出底部空间。
 public struct UploaderSpaceSidebarView: View {
     let model: UploaderSpaceViewModel
     let currentBVID: String?
@@ -30,6 +31,8 @@ public struct UploaderSpaceSidebarView: View {
     }
 
     @Environment(\.locale) private var locale
+    @Environment(\.openURL) private var openURL
+    @Environment(\.videoCardAccountWriting) private var accountWriting
     /// 关闭前的最后一帧。
     ///
     /// 关闭时 ViewModel 立即清空，而移除动画还要播一段：保留最后一帧，让滑出去的是原来的列表与
@@ -68,15 +71,18 @@ public struct UploaderSpaceSidebarView: View {
                     content: content,
                     imagePipeline: imagePipeline,
                     actions: UploaderSpaceListActions(
-                        close: model.close,
                         selectOrder: model.setOrder,
-                        selectVideo: onSelect
+                        selectVideo: onSelect,
+                        cardMenu: { [openURL, accountWriting] row in
+                            Self.cardMenu(for: row, openURL: openURL, writing: accountWriting)
+                        }
                     )
                 )
                 .ignoresSafeArea(.container, edges: .top)
             }
             stateOverlay(presentation.overlay)
                 .padding(.top, UploaderSpaceGeometry.stateContentTop)
+            backButton
         }
         .overlay(alignment: .bottom) {
             if let pager = frame?.pager {
@@ -87,6 +93,45 @@ public struct UploaderSpaceSidebarView: View {
                 )
             }
         }
+    }
+
+    /// 悬浮返回按钮，⌘[ 同样返回；叠在列表与状态覆盖层之上，在顶部时落在头部左侧留出的那一格里。
+    private var backButton: some View {
+        FloatingIconButton(
+            "chevron.left",
+            label: VideoDetailFeatureStrings.localized("返回详情"),
+            action: model.close
+        )
+        .keyboardShortcut("[", modifiers: .command)
+        // 它叠在最上层，默认会被读屏排到列表之后；视觉上它在头部最左，读屏也先读它。
+        .accessibilitySortPriority(1)
+        .frame(
+            width: UploaderSpaceGeometry.backButtonSlotWidth,
+            height: UploaderSpaceGeometry.headerHeight
+        )
+        .padding(.leading, UploaderSpaceGeometry.backButtonSlotLeading)
+        .padding(.top, UploaderSpaceGeometry.listTopInset)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// 投稿行的卡片菜单：与相关推荐卡片相同的「添加到稍后再看」「收藏到…」一组加「拷贝链接」「在浏览器中打开」一组，
+    /// 规则在共用的 `NativeVideoCardMenu.video`。
+    ///
+    /// 投稿都可进入播放；BVID 不合法时没有菜单。`openURL` 是从环境取得的系统 `OpenURLAction`，`writing` 是 App 从环境注入的
+    /// 写入口（未登录或复核中时写操作项禁用）。
+    static func cardMenu(
+        for row: UploaderVideoRowPresentation,
+        openURL: OpenURLAction,
+        writing: VideoCardAccountWriting?
+    ) -> NativeVideoCardMenu? {
+        NativeVideoCardMenu.video(
+            videoID: row.bvid,
+            isActivatable: true,
+            webPageURL: BVID.webPageURL(row.bvid),
+            openURL: openURL,
+            writing: writing,
+            watchLater: .add
+        )
     }
 
     /// 空间打开期间按 ViewModel 实时生成；关闭后为 nil。

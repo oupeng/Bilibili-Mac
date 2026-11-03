@@ -200,13 +200,21 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
   表明 SwiftUI `LazyVGrid`/AttributeGraph 是主要滚动成本；卡片 overlay 与文字改为持久 `CALayer`／`CATextLayer`
   后，同样约 20 秒滚动 cycles 下降约 39%，0 hitch。网格只是已加载状态的呈现，loading／empty／failure 在同一个
   Feature 视图里。
+- 集合项的尺寸只由布局给出：所有集合项继承 `NativeLayoutSizedCollectionItem`，对 `preferredLayoutAttributesFitting`
+  原样返回。默认实现在每次排可见项时为整棵条目视图临时建 Auto Layout 引擎量尺寸，而我们的布局不采纳结果；1.6.1
+  评论区滚动的 Time Profiler 里它约占主线程三分之一。
 - 网格提前准备：AppKit 默认只为视野内创建卡片，封面要等卡片露出来才开始加载，所以网格用
   `prepareContent(in:)` 把准备区域扩到视野上下各一屏。`NSCollectionViewPrefetching` 只给出即将进入视野的
   index、不创建卡片，替代不了。
+- 网格用组合布局（`NSCollectionViewCompositionalLayout`），唯一一节按容器宽度由 section provider 给出，卡片尺寸取
+  `VideoCardGridGeometry`，与骨架同源；宽度一变由系统失效重排，卡片尺寸不靠网格同步。不用流式布局加
+  `sizeForItemAt`：它在宽度变化时先按旧卡片尺寸重排，要等网格手动失效才换尺寸，其间按旧尺寸排出少一列的错列。
+  provider 读到的布局环境之外的状态（末行下方留白）变化时仍要手动失效。
 - 网格的视口锚点是用户最后看到的视野首卡：只在滚动或程序定位落定、且排版就是当前视口尺寸时捕获；宽度、
-  高度变化与整体替换都按它恢复，恢复后不重新捕获：连续宽度变化中逐帧重新捕获会让首卡逐行漂移。视口尺寸一变，AppKit 会在网格按新尺寸重排之前先按旧卡片尺寸重排、夹取
-  偏移，这段过渡里的排版与偏移不可信，不捕获锚点、不判断翻页。纯删除（例如稍后再看的乐观移除）删掉锚点卡片时，由
-  旧顺序里它之后第一张仍在的卡片按同一距离接替，视野不跳。
+  高度变化与整体替换都按它恢复，恢复后不重新捕获：连续宽度变化中逐帧重新捕获会让首卡逐行漂移。视口尺寸一变，
+  AppKit 会在网格按锚点恢复之前先按新宽度重排、夹取偏移，这段过渡里的偏移不可信，不捕获锚点、不判断翻页；
+  宽度变化只吸收浮点误差，半点也算（`NativeViewportSize`），否则跨列数分界的那一步不恢复，视野跳一行。
+  纯删除（例如稍后再看的乐观移除）删掉锚点卡片时，由旧顺序里它之后第一张仍在的卡片按同一距离接替，视野不跳。
 - 分页：推荐、热门、搜索、观看历史与稍后再看由 `PagedVideoList` 承担，来源只把远端页适配为“条目 + 下一页
   游标”，去重与条目上限只在那里（集合层的 `NativeVideoCardContents` 另按卡片 ID 兜底）；收藏夹与 UP 主空间按页整体替换，翻页状态是 `PageReplacementPaging`。
 - 已有内容、且条件与解析出的请求不变时，刷新原地进行：网格不卸载，成功后整体替换并回顶，失败保留已显示内容。
@@ -215,8 +223,9 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
   （`NativeVideoGridClipView`）在动画中每次视野移动之后补一次无动画的空批量更新，新视野的卡片立即补齐，进行中的动画
   不受影响。`apply` 返回时排版已是新内容，重配卡片、重排 document、回顶或锚点恢复与翻页判断都在同一轮里做完，不等
   完成回调，没有“新内容、旧偏移”的中间态。
-- 卡片菜单：各来源的网格与相关推荐横排共用一份菜单描述 `NativeVideoCardMenu`，由拥有来源的 Feature 按来源与卡片
-  构造、经 `cardMenu` 注入，不经 App 插槽。右键、Control-点按与读屏「显示菜单」走集合视图基类的同一条右键路径，卡片的
+- 卡片菜单：各来源的网格、相关推荐横排与 UP 主空间的投稿行共用一份菜单描述 `NativeVideoCardMenu`，由拥有来源的
+  Feature 按视频 ID 与能否播放构造、经 `cardMenu` 注入，不经 App 插槽。右键、Control-点按与读屏「显示菜单」走集合视图
+  基类 `NativeVideoCardCollectionView` 的同一条右键路径，集合项只提供视频 ID 与上下文描边（`NativeVideoMenuTargetItem`），
   读屏自定义操作取同一份描述，项、顺序与标题与菜单一致。右键与访达、「音乐」一致，不改选中、不移动键盘选择框。链接项
   只给卡片 ID 是合法 BVID 的可播放卡片，打开只经系统 `OpenURLAction`（见 `SECURITY-MODEL.md` §4）。
 - **UP 主空间列表**：头部与投稿行是同一个 `NSCollectionView` 的原生 item，随列表滚到工具栏下由系统做边缘
@@ -253,6 +262,11 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
   不在画面上另加浮动按钮：它随原生控件显隐、外观原生，全屏时 AVKit 把它收进浮动控制条的「»」→「其他」。浮动按钮要么
   自己计时显隐、与原生控件不同步，要么读 AVKit 的私有视图层级，目前都不采用（发送弹幕的入口另议，见 ROADMAP）。
 - 播放态侧栏替换导航侧栏，不另开右侧 inspector：播放期间导航使用率低，双栏把宽度留给视频。
+- 进出播放时程序不收起、不展开系统侧栏：改 `columnVisibility` 必然整列跳变。浏览态与播放态的列宽范围
+  （`SidebarColumnMode`）不重叠，各自记住用户拖出的宽度：`NavigationSplitView` 没有宽度绑定，系统只在一次运行内记
+  一个宽度、切换状态时按新范围夹取。所以 `SidebarWidthRestoringView` 找到底下的 `NSSplitView`，在系统按新范围改宽度的
+  那次 resize 回调里同步调用 `setPosition`，中间宽度不会被画出来。不采用改 min/max 钉住宽度（放开时被系统打回，
+  再钉会反复振荡），也不自管 `NSSplitViewController`（要重做 `NavigationSplitView` 的工具栏与侧栏行为）。
 
 ### 动线与侧栏上下文层
 
@@ -341,6 +355,11 @@ Keychain，并按新 generation 重启依赖账户的内容。账户变化由来
   动作。投币面板与「收藏到…」在主窗口里，AVKit 独立全屏时 W／E 只提示先退出全屏。网页接口对部分稿件以 -403（账号异常）
   拒绝第三方客户端，补网页统计字段、视频页 Referer 与 B 站下发的 buvid 都没有改善；这时结果胶囊给出「在浏览器中
   打开」（停留更久），改走 App 端接口见 ROADMAP 候选。
+- 关注 UP 主：播放侧栏 UP 主行的关注按钮读同一个 `VideoEngagementModel`，关注状态取自同一次 `archive/relation`（`attention`），
+  随它按账户重读与复核；不另建关注模型，也不用名片里的 `following`：名片按 UP 主沿用（`VideoViewModel`），不随账户重读。
+  粉丝数与投稿数取自名片，只读展示，关注后不在本地增减。意图只带 BVID，协调者从互动状态取 UP 主 mid（自己的视频不发），
+  乐观改动与回滚同点赞；互动状态的快照与回滚是整份的，所以关注与点赞、投币、三连在一个窗口里不同时在途。其他窗口按 mid
+  重读正在显示同一 UP 主视频的互动状态。
 - 结果胶囊挂在顶层页面与播放页上，而不是整个 `NavigationStack` 外：在 `NavigationSplitView` 的 detail 列里，挂在
   `NavigationStack` 上的修饰符实际归根页面所有，压栈后随根页面移除。播放页打开时顶层那份不显示，读屏不会把同一条结果
   通告两次。
