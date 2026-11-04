@@ -13,6 +13,10 @@
   `NonisolatedNonsendingByDefault`（`Scripts/check-project-contract.sh` 固定）。因此 `nonisolated async`
   不继承调用方 actor：bridge 解析、授权器读 Keychain、Range 流、图片解码这类工作在 `@MainActor`
   调用时仍离开主线程。代码在 App 与 Package 之间移动时不改变执行位置。
+- 最低系统低于 SDK 时，编译器会把部分系统 API 编成“新系统调用新符号、旧系统走内联”的弱链接分支；新符号在
+  版本号已到、实际却还没有它的测试版系统上为空地址，一调用就崩溃。Xcode 27.2 SDK 的 `Date` `<=`／`>=` 即如此
+  （macOS 27.2 测试版扫码登录闪退），所以 `Date` 只用 `<`／`>` 比较。发版时 `release.py prepare` 列出主程序的
+  弱链接符号，不在白名单里的就停止，见 `docs/release/README.md`。
 - 用户可见 App、构建产品与 Swift app module 为 `BiliKit`；仓库、Xcode 工程、内部 App target
   和 `BiliKitMacTests` 保留 `BiliKitMac`，与原 BiliKit userscript 仓库区分。
 - Bundle ID `com.shiinayane.BiliKit`；Debug／Release 相同。Keychain access group 固定为
@@ -239,6 +243,18 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
   隐藏工具栏并拦截导航写入）、sheet（失去灯箱观感与点背景关闭），也不采用 Quick Look（要本地文件，违反
   `SECURITY-MODEL.md` §6 不落盘）。
 
+### 加载呈现
+
+- 骨架屏只给形态固定、能照原样画出的内容：各来源的视频卡片网格、相关推荐横排与播放页主区，用于首次加载与
+  整块换掉内容（换来源、排序、夹内翻页）。骨架立即出现：它占住版面，延迟只会先露出空白。
+- 其余加载用系统转圈：形态不一的内容（评论、楼中楼、投稿列表、热搜、收藏夹列表）不画占位行，免得误导条数与
+  长度；追加、刷新、缓冲与评论图片预览也用转圈，封面与头像只显示占位。占满一块区域时用大转圈居中，行内、
+  页脚与胶囊里用小转圈。
+- 转圈（连同旁边的“正在加载…”文字）一律等 `LoadingIndicatorPolicy.presentationDelay` 后仍在加载才露出：
+  SwiftUI 用 `revealsAfterLoadingDelay()`，AppKit 侧栏用 `NativeLoadingReveal`，楼中楼与播放器浮层在各自的
+  状态里计时，都读同一个常量。请求很快时什么都不显示、内容直接出现；露出前后版面不变。例外是接续已经露出的
+  转圈（播放页三段转圈）与露出会改变行高的楼中楼空面板，二者立即显示。
+
 ### 播放页布局
 
 - 主区固定不滚动：视频取剩余空间里最大的 16:9，下方是固定高度的相关推荐横排；真实页面与加载骨架
@@ -439,3 +455,5 @@ UGC playurl 带 `voice_balance=1` 时返回 loudness 元数据。macOS 27 起 HL
 - `*.bilibili.com` 后缀匹配授权；WKWebView 登录；共享 `HTTPCookieStorage` 或 `URLSession.shared`
   作为登录态。
 - 播放中自动换源、后台测速、按测速结果自动改选。
+- 评论加载时不显示任何提示（B 站 App 的做法）：它的评论在另一个标签页，打开时多已加载完；这里评论与播放器
+  同屏，慢请求下空白分不出加载中、无评论还是卡住。延迟露出的转圈在快请求下效果相同（见「加载呈现」）。
