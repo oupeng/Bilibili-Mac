@@ -1,13 +1,13 @@
 <p align="center">
   <img
-    src="Design/AppIcon/v1/Marketing/BiliKit-AppIcon-Default-256.png"
+    src="Design/AppIcon/v2/Marketing/BiliKit-AppIcon-Default-256.png"
     width="136"
     height="136"
     alt="BiliKit App Icon Default"
   >
   &nbsp;&nbsp;
   <img
-    src="Design/AppIcon/v1/Marketing/BiliKit-AppIcon-Dark-256.png"
+    src="Design/AppIcon/v2/Marketing/BiliKit-AppIcon-Dark-256.png"
     width="136"
     height="136"
     alt="BiliKit App Icon Dark"
@@ -52,6 +52,8 @@
 ### 为看视频设计的播放页
 
 简介、评论和相关推荐就在播放器旁边，评论里的时间戳点一下就跳过去。弹幕和画面共用一条时间轴，拖动、暂停、倍速都不会错位。播放结束后可以按分 P 和合集接着播，不会跳去相关推荐；点开 UP 主，可以在侧栏顺着投稿看下去，正在播放的视频不中断。
+
+画质和音质随网速自动调整：4K 及以下用 HEVC，同样画质的码率约为 AVC 的一半。大会员还能看 8K，在能显示 HDR 的屏幕上看 HDR 真彩和杜比视界；接多声道设备时由系统选用杜比音频；在设置里打开“无损音频”，还能听 Hi-Res 无损。
 
 <p align="center">
   <picture>
@@ -143,7 +145,7 @@ sh Scripts/run-quality-gates.sh app
 ```
 
 [架构](docs/ARCHITECTURE.md) · [安全模型](docs/SECURITY-MODEL.md) · [发布流程](docs/release/README.md) ·
-[安全问题报告](SECURITY.md) · [App Icon 源文件](Design/AppIcon/v1/) · [宣传截图](Design/Marketing/v2/)
+[安全问题报告](SECURITY.md) · [App Icon 源文件](Design/AppIcon/v2/) · [宣传截图](Design/Marketing/v2/)
 </details>
 
 ## 许可证与声明

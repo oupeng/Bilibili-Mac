@@ -1,13 +1,13 @@
 <p align="center">
   <img
-    src="Design/AppIcon/v1/Marketing/BiliKit-AppIcon-Default-256.png"
+    src="Design/AppIcon/v2/Marketing/BiliKit-AppIcon-Default-256.png"
     width="136"
     height="136"
     alt="BiliKit App Icon Default"
   >
   &nbsp;&nbsp;
   <img
-    src="Design/AppIcon/v1/Marketing/BiliKit-AppIcon-Dark-256.png"
+    src="Design/AppIcon/v2/Marketing/BiliKit-AppIcon-Dark-256.png"
     width="136"
     height="136"
     alt="BiliKit App Icon Dark"
@@ -52,6 +52,8 @@
 ### 動画を見るための動画ページ
 
 概要、コメント、関連動画はプレーヤーのすぐ横にあり、コメント内のタイムスタンプはクリックするとその位置にジャンプします。弾幕は映像と同じタイムラインで動くので、シーク、一時停止、速度変更でもずれません。再生終了後はエピソードとコレクションに沿って続けて再生でき、関連動画に飛ぶことはありません。投稿者をクリックすると、サイドバーでその投稿を続けて視聴でき、再生中の動画は止まりません。
+
+画質と音質は通信速度に合わせて自動で切り替わります。4K 以下は HEVC で再生し、同じ画質でのビットレートは AVC のおよそ半分です。大会員なら 8K も見られ、HDR に対応したディスプレイで HDR とドルビービジョンを、マルチチャンネルの出力デバイスではシステムが選ぶドルビーオーディオを楽しめます。設定で「ロスレスオーディオ」をオンにすると、ハイレゾロスレスも聴けます。
 
 <p align="center">
   <picture>
@@ -144,7 +146,7 @@ sh Scripts/run-quality-gates.sh app
 
 以下のドキュメントは中国語です：
 [アーキテクチャ](docs/ARCHITECTURE.md) · [セキュリティモデル](docs/SECURITY-MODEL.md) · [リリース手順](docs/release/README.md) ·
-[セキュリティ問題の報告](SECURITY.md) · [App Icon のソース](Design/AppIcon/v1/) · [スクリーンショット](Design/Marketing/v2/)
+[セキュリティ問題の報告](SECURITY.md) · [App Icon のソース](Design/AppIcon/v2/) · [スクリーンショット](Design/Marketing/v2/)
 </details>
 
 ## ライセンスと表記

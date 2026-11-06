@@ -1,8 +1,9 @@
 import BiliNetworking
 import Foundation
 
-/// 只授权用户发起的账户写入（稍后再看的加入与移除、收藏到收藏夹与从收藏夹移除、点赞、投币、三连，以及首页推荐的
-/// 「不感兴趣」与撤销），并在 `BiliAuth` 内绑定账户、注入最小 Cookie 与 CSRF。
+/// 只授权用户发起的网页端账户写入（稍后再看的加入与移除、收藏到收藏夹与从收藏夹移除、关注；点赞、投币与三连走 App 端，
+/// 见 `BiliAppWriteRequestAuthorizer`），
+/// 并在 `BiliAuth` 内绑定账户、注入最小 Cookie 与 CSRF。
 ///
 /// 每个请求必须精确命中：`https://api.bilibili.com`（端口缺省或 443）、POST、无 query／userinfo／fragment、path 同时在
 /// Composition 声明的 allowlist 与本类型封闭的 schema 表里；header 集合固定为 `Accept`、`Content-Type`、`Origin`、
@@ -21,7 +22,7 @@ public struct BiliAccountWriteRequestAuthorizer: HTTPSubjectBoundRequestAuthoriz
         let optionalFields: [String: FieldShape]
         var crossFieldRules: [CrossFieldRule] = []
         let referer: String
-        /// 按 path 列出的凭据 Cookie 白名单；点赞、投币与三连要求的 `buvid3` 不是凭据，不在这里，由 BiliAPI 在授权之后附加。
+        /// 按 path 列出的凭据 Cookie 白名单。
         let cookieNames: [WebCredentialCookieName]
     }
 
@@ -46,7 +47,7 @@ public struct BiliAccountWriteRequestAuthorizer: HTTPSubjectBoundRequestAuthoriz
         }
     }
 
-    /// 字段取值的形状。
+    /// 字段取值的形状；App 端写入的 `BiliAppWriteRequestAuthorizer` 校验 query 时也用它。
     enum FieldShape: Sendable {
         /// 正整数（稿件 aid、收藏夹 id 等），只由 ASCII 数字组成、没有前导零：同一个数只有一种写法，去重与比较按字面进行。
         case positiveInteger
@@ -59,13 +60,9 @@ public struct BiliAccountWriteRequestAuthorizer: HTTPSubjectBoundRequestAuthoriz
         case positiveIntegerList
         /// 单个视频条目 `<aid>:2`：不收逗号分隔的多个条目，也不收视频以外的类型。
         case singleVideoResource
-        /// 推荐流的追踪 ID（`track_id`）：1 到 `maximumTrackingTokenLength` 个 ASCII 字母、数字与 `.`、`_`、`-`。
-        case trackingToken
 
         /// 一次收藏改动最多涉及的收藏夹数：远多于一个账户实际拥有的夹数，超出说明请求构造有误。
         static let maximumListCount = 100
-        /// 追踪 ID 的长度上限：网页实测的推荐流取值远短于它，超出说明取值不是推荐流给的。
-        static let maximumTrackingTokenLength = 200
 
         func accepts(_ value: String) -> Bool {
             switch self {
@@ -79,11 +76,6 @@ public struct BiliAccountWriteRequestAuthorizer: HTTPSubjectBoundRequestAuthoriz
                 Self.isPositiveIntegerList(value)
             case .singleVideoResource:
                 Self.isSingleVideoResource(value)
-            case .trackingToken:
-                (1...Self.maximumTrackingTokenLength).contains(value.count)
-                    && value.allSatisfy {
-                        $0.isASCII && ($0.isLetter || $0.isNumber || "._-".contains($0))
-                    }
             }
         }
 
@@ -126,21 +118,10 @@ public struct BiliAccountWriteRequestAuthorizer: HTTPSubjectBoundRequestAuthoriz
     /// `fav/resource/batch-del` 从一个收藏夹移除一个视频条目（`resources` 只收单个 `<aid>:2`，挡住一次移除多条）。
     /// 网页附带的 `spmid`、`statistics` 等统计字段不发送，schema 也不接受。
     ///
-    /// 点赞、投币与三连各一条，只收单个稿件：点赞 `like` 只能是 1（赞）或 2（取消）；投币 `multiply` 只能是 1 或 2（单个
-    /// 稿件的上限），`select_like` 0 或 1；三连只有 `aid`。网页同样附带的统计字段与 `cross_domain` 不发送。这三个接口
-    /// 要求 Cookie 带 `buvid3`，它不是凭据、不在这里注入，由 BiliAPI 在授权之后附加（见 SECURITY-MODEL §3）。
-    ///
     /// 关注只登记 `relation/modify` 的关注与取消：`fid` 单个 UP 主，`act` 只能是 1（关注）或 2（取消），`re_src` 固定为
     /// 11。同一接口的其他 `act`（悄悄关注、拉黑、移除粉丝等）改动的是另一种关系，一律拒绝；网页附带的 `gaia_source`、
     /// `spmid`、`extend_content` 不发送，schema 也不接受。
-    ///
-    /// 首页推荐的「不感兴趣」与撤销字段完全相同、共用 `recommendationFeedbackSchema`：只收单个稿件与它的 UP 主 `mid`
-    /// （推荐流的普通视频总有 UP 主，0 只会是构造有误），`reason_id` 只能是 1（内容不感兴趣）或 4（不想看此 UP 主），其余
-    /// 是网页固定发送的取值。网页对这两个接口签 WBI，这里不签（多个第三方
-    /// 客户端不签也能用）；实机被拒时再给 schema 加签名 query 维度并封闭校验 `w_rid`／`wts`，不能放宽成接受任意 query。
     static let schemas: [String: Schema] = [
-        "/x/web-interface/feedback/dislike": recommendationFeedbackSchema,
-        "/x/web-interface/feedback/dislike/cancel": recommendationFeedbackSchema,
         "/x/v2/history/toview/add": Schema(
             requiredFields: ["aid": .positiveInteger],
             optionalFields: [:],
@@ -166,28 +147,6 @@ public struct BiliAccountWriteRequestAuthorizer: HTTPSubjectBoundRequestAuthoriz
             referer: "https://www.bilibili.com/",
             cookieNames: [.session]
         ),
-        "/x/web-interface/archive/like": Schema(
-            requiredFields: ["aid": .positiveInteger, "like": .oneOf(["1", "2"])],
-            optionalFields: [:],
-            referer: "https://www.bilibili.com/",
-            cookieNames: [.session]
-        ),
-        "/x/web-interface/coin/add": Schema(
-            requiredFields: [
-                "aid": .positiveInteger,
-                "multiply": .oneOf(["1", "2"]),
-                "select_like": .oneOf(["0", "1"])
-            ],
-            optionalFields: [:],
-            referer: "https://www.bilibili.com/",
-            cookieNames: [.session]
-        ),
-        "/x/web-interface/archive/like/triple": Schema(
-            requiredFields: ["aid": .positiveInteger],
-            optionalFields: [:],
-            referer: "https://www.bilibili.com/",
-            cookieNames: [.session]
-        ),
         "/x/relation/modify": Schema(
             requiredFields: [
                 "fid": .positiveInteger,
@@ -210,25 +169,6 @@ public struct BiliAccountWriteRequestAuthorizer: HTTPSubjectBoundRequestAuthoriz
         )
     ]
 
-    /// 「不感兴趣」与撤销共用的 schema，见 `schemas` 的说明。
-    private static let recommendationFeedbackSchema = Schema(
-        requiredFields: [
-            "app_id": .literal("100"),
-            "platform": .literal("5"),
-            "from_spmid": .literal(""),
-            "spmid": .literal("333.1007.0.0"),
-            "goto": .literal("av"),
-            "id": .positiveInteger,
-            "mid": .positiveInteger,
-            "track_id": .trackingToken,
-            "feedback_page": .literal("1"),
-            "reason_id": .oneOf(["1", "4"])
-        ],
-        optionalFields: [:],
-        referer: "https://www.bilibili.com/",
-        cookieNames: [.session]
-    )
-
     /// 写请求固定的 `Origin`：浏览器跨域 POST 会带它，B 站据此与 Referer 一起判断来源。
     static let origin = "https://www.bilibili.com"
     /// 表单正文上限：最长的收藏改动带两列各至多 `FieldShape.maximumListCount` 个夹 id（写管线不编码逗号，按 19 位 id
@@ -236,17 +176,17 @@ public struct BiliAccountWriteRequestAuthorizer: HTTPSubjectBoundRequestAuthoriz
     private static let maximumBodySize = 4_096
     private typealias Support = WriteRequestAuthorizationSupport
 
-    private let store: any WebCredentialStoring
+    private let store: any AccountCredentialStoring
     private let allowedPaths: Set<String>
 
     /// `allowedPaths` 由 Composition 声明（窗口主 API 的写 allowlist），只有同时在 schema 表里的 path 可授权。
     public init(allowedPaths: Set<String>) {
-        store = KeychainWebCredentialStore()
+        store = KeychainAccountCredentialStore()
         self.allowedPaths = allowedPaths
     }
 
     /// Keychain 边界；`init(allowedPaths:)` 由此接入 Keychain store。
-    init(store: any WebCredentialStoring, allowedPaths: Set<String>) {
+    init(store: any AccountCredentialStoring, allowedPaths: Set<String>) {
         self.store = store
         self.allowedPaths = allowedPaths
     }
@@ -267,7 +207,7 @@ public struct BiliAccountWriteRequestAuthorizer: HTTPSubjectBoundRequestAuthoriz
             throw BiliRequestAuthorizationError.requestNotAllowed
         }
 
-        let credential = try store.loadCredentialForWrite()
+        let credential = try store.loadCredential(isConfirmedSignedOut: { false })
         // 账户绑定：窗口以为的账户与 Keychain 里的凭据不是同一个时不发出写请求，见 SECURITY-MODEL §3。
         guard credential.value(for: .userID) == subject else {
             throw BiliRequestAuthorizationError.accountMismatch

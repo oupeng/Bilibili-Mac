@@ -1,0 +1,14 @@
+/// App 端（`https://app.bilibili.com`）读取的 endpoint path；`BiliAPIClient` 的 endpoint 扩展用它构造请求，App
+/// Composition 用它声明 App 授权器的 allowlist。
+///
+/// 只收录以 `RequestAccess.appRead` 发出的读取；endpoint 与 allowlist 引用同一个常量的理由同 `BiliAccountReadPath`。
+/// 见 SECURITY-MODEL §3。
+public enum BiliAppReadPath {
+    /// 首页推荐。
+    public static let recommendations = "/x/v2/feed/index"
+    /// UP 主空间投稿（`vmid`、`ps`、`order`，翻页另带上一批最后一条的 `param` 作 `aid`）；未登录也能稳定读取，网页的
+    /// WBI 投稿接口匿名时会被间歇风控。
+    public static let uploaderVideos = "/x/v2/space/archive/cursor"
+    /// UP 主空间内搜索投稿（`vmid`、`keyword`、`pn`、`ps`）；按页码翻页，结果按发布时间倒序，未登录也能读取。
+    public static let uploaderVideoSearch = "/x/v2/space/search"
+}

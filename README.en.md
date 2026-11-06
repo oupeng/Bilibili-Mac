@@ -1,13 +1,13 @@
 <p align="center">
   <img
-    src="Design/AppIcon/v1/Marketing/BiliKit-AppIcon-Default-256.png"
+    src="Design/AppIcon/v2/Marketing/BiliKit-AppIcon-Default-256.png"
     width="136"
     height="136"
     alt="BiliKit App Icon Default"
   >
   &nbsp;&nbsp;
   <img
-    src="Design/AppIcon/v1/Marketing/BiliKit-AppIcon-Dark-256.png"
+    src="Design/AppIcon/v2/Marketing/BiliKit-AppIcon-Dark-256.png"
     width="136"
     height="136"
     alt="BiliKit App Icon Dark"
@@ -52,6 +52,8 @@ A native Mac app, not a web page in a wrapper: under 10 MB to download and a few
 ### A video page built for watching
 
 The description, comments and related videos sit right next to the player, and a timestamp in a comment jumps there with one click. Danmaku share the video's timeline, so seeking, pausing and changing speed never put them out of sync. When playback ends, BiliKit can continue through episodes and collections without wandering off into related videos; click an uploader to keep watching through their uploads in the sidebar without interrupting the current video.
+
+Picture and sound adapt to your connection: videos up to 4K play in HEVC at about half the bitrate of AVC for the same quality. Bilibili Premium members also get 8K; HDR and Dolby Vision on displays that support HDR; Dolby audio, chosen by the system, on multichannel output devices; and Hi-Res Lossless once Lossless Audio is turned on in Settings.
 
 <p align="center">
   <picture>
@@ -144,7 +146,7 @@ sh Scripts/run-quality-gates.sh app
 
 The following documents are in Chinese:
 [Architecture](docs/ARCHITECTURE.md) · [Security model](docs/SECURITY-MODEL.md) · [Release process](docs/release/README.md) ·
-[Reporting security issues](SECURITY.md) · [App Icon sources](Design/AppIcon/v1/) · [Screenshots](Design/Marketing/v2/)
+[Reporting security issues](SECURITY.md) · [App Icon sources](Design/AppIcon/v2/) · [Screenshots](Design/Marketing/v2/)
 </details>
 
 ## License and notices

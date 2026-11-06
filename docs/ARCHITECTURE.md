@@ -50,11 +50,11 @@ BiliNetworking 不依赖任何 Bili 模块
 | target | 拥有 | 不得依赖 |
 | --- | --- | --- |
 | `BiliModels` | 跨层稳定实体与值类型 | 任何 Bili 模块、SwiftUI、AppKit、AVFoundation、Network |
-| `BiliApplication` | Use Case 与 port、应用级错误、界面可用的账户投影、窗口账户复核的参与者契约（Feature ViewModel 实现、App 汇总，不是 adapter 实现的 port），以及 Feature 共用的并发原语、列表状态机与有界缓存（`LatestTask`、`AsyncBroadcast`、`PagedVideoList`、`PageReplacementPaging`、`CostBoundedLRUCache`） | 除 `BiliModels` 外的 Bili 模块、UI/播放/网络框架、DTO、Keychain、Cookie |
-| `BiliNetworking` | 无业务语义的 HTTP 与 Range client、`HTTPRequestAuthorizing`、URL 形状策略与 JSON 响应判定 | Bili 模块、`Security`、UI/播放框架 |
+| `BiliApplication` | Use Case 与 port、应用级错误、界面可用的账户投影、窗口账户复核的参与者契约与共用的复核进度（Feature ViewModel 实现、App 汇总，不是 adapter 实现的 port），以及 Feature 共用的并发原语、列表状态机与有界缓存（`LatestTask`、`AsyncBroadcast`、`PagedVideoList`、`PageReplacementPaging`、`CostBoundedLRUCache`） | 除 `BiliModels` 外的 Bili 模块、UI/播放/网络框架、DTO、Keychain、Cookie |
+| `BiliNetworking` | 无业务语义的 HTTP 与 Range client、`HTTPRequestAuthorizing` 与签名请求的 `HTTPSigningRequestAuthorizing`、URL 形状策略、query 的 unreserved 编码与 JSON 响应判定 | Bili 模块、`Security`、UI/播放框架 |
 | `BiliAPI` | endpoint DTO、WBI、解码、protobuf wire、远端错误映射，并实现 Application 仓库 port | `BiliAuth`（只接受注入的授权器） |
-| `BiliAuth` | Web QR 状态机、Cookie envelope、Keychain store、请求授权器，实现 `AuthenticationServicing` | `BiliAPI`、`BiliPlayback`、`BiliDanmaku`、Feature、UI 框架 |
-| `BiliPlayback` | DASH→HLS bridge、loopback server、SIDX、`AVPlayerEngine`、线路偏好与测速、响度均一化 | `BiliAPI`、`BiliAuth` |
+| `BiliAuth` | TV 扫码状态机与 APP 签名、凭据 envelope（Cookie 加 App token）与续期、Keychain store、请求授权器（含 App 端读取与写入），实现 `AuthenticationServicing` | `BiliAPI`、`BiliPlayback`、`BiliDanmaku`、Feature、UI 框架 |
+| `BiliPlayback` | DASH→HLS bridge、loopback server、SIDX、`AVPlayerEngine`、线路偏好与测速 | `BiliAPI`、`BiliAuth` |
 | `BiliDanmaku` | 弹幕会话与分段缓存、车道布局、按媒体时间的 materializer、Core Animation renderer。`Session/`、`Layout/`、`Presentation/` 是纯逻辑，渲染框架只在 `Rendering/` | `BiliAPI`、`BiliAuth`、`BiliNetworking`、`BiliPlayback`、Feature、SwiftUI |
 | `Bili*Feature` | SwiftUI View 与 `@MainActor` ViewModel：Browse（推荐、热门、搜索）、Library（观看历史、稍后再看、收藏夹）、Auth（扫码登录、登出与账户投影的来源）。来源条目到卡片的网格包装在拥有该来源的 Feature | adapter target、其他 Feature、直接 import AppKit/AVKit/AVFoundation |
 | `BiliVideoDetailFeature` | 播放页与侧栏上下文层的 UP 主空间：视频与分 P 意图、续播与链接起播、评论、弹幕设置、空间投稿，以及这些页面的呈现投影与 AppKit 视图（播放侧栏、评论图片预览、相关推荐横排、空间列表）。导航给出的选择意图怎样落到当前视频、失败后由谁重试，以及播放页失败的文案与是否可重试，只在这里 | 同其他 Feature，但可 import AppKit、CoreText（评论排版）与 ImageIO（动图逐帧解码）；不依赖 AVKit/AVFoundation、网络与 adapter；下载、校验、首帧解码、动图门槛与缓存只在 App 管线 |
@@ -110,9 +110,34 @@ session path，提供内存中生成的 master／media playlist，并把 AVPlaye
 - SIDX 成功的候选成为该 representation 的唯一远端来源，后续 init、media 与 Range 不跨来源拼字节；
   正文逐 chunk 流式转发，不整段缓存。上游响应必须通过状态码、`Content-Range` 与长度校验；取消不触发
   备用线路，AVPlayer 断开或下游写入失败都按取消处理。
-- 附加档位失败不拖垮播放：某一档视频 SIDX 读取失败只丢弃该档，某个 AI 配音语言失败就停止后续配音请求；
+- 附加档位失败不拖垮播放：某一档视频 SIDX 读取失败只丢弃该档，原声的某个附加音频版本失败只丢那一组，
+  某个 AI 配音语言失败就停止后续配音请求；
   全部视频档失败、原声音轨失败、凭据失效或会话变化才让播放失败。读取成功之后生成 playlist 出错仍让整次播放失败。
+- 视频编码：每次播放的 SDR 阶梯只用一种编码。按清晰度 ID 比较，HEVC 覆盖 AVC 的全部档位时用 HEVC（8K 等
+  HEVC 独有的档位一并加入），同一份 playurl 的 AVC 阶梯留作回退；否则全用 AVC。HEVC 的 item 在就绪前失败时，
+  engine 在同一次 load 内换 AVC 阶梯重建一次，回退也失败才算播放失败。阶梯不设分辨率上限，依赖 AVPlayer
+  按 player 视图的像素尺寸限制所选分辨率（实测系统行为，文档没有写）。`dash.video` 逐条宽松解码，认不出的
+  档位只丢这一条。
+- HDR：SDR 阶梯是 HEVC 时，master 至多再加一个 HDR 档，按杜比视界（126）、HDR 真彩（125）、HDR Vivid（129）
+  的顺序取第一个能用的；这几个 ID 都不进 SDR 阶梯。
+  AVPlayer 每个 item 只在一个 `VIDEO-RANGE` 内做 ABR，有资格播 HDR 时就选 HDR 且不受视图尺寸限制（实测，与
+  Apple 论坛及 HLS Authoring Spec“每种动态范围给完整阶梯”的要求一致）；B 站 HDR 只有一档，选中后弱网也降不到
+  SDR，所以只在加载时满足全部条件才加入：“HDR 视频”开关开着、`AVPlayer.eligibleForHDRPlayback`、播放器所在
+  屏幕的 EDR 能力大于 1、不在低电量模式、网络不昂贵也不受限。HDR 档的 `VIDEO-RANGE` 取自它的 init：`colr`
+  的 PQ／HLG，或杜比视界 profile 8 基础层（8.4 写 HLG、8.1 写 PQ）加 `SUPPLEMENTAL-CODECS`；有 HDR 档时 SDR
+  档与全部 I-frame 行也写 `VIDEO-RANGE`，要么都写要么都不写。HDR 档缺帧率、SIDX 没有可播分段、init 不是 HDR 或解析失败、
+  时间轴起点与 SDR 档不同时只丢这一档（连同它的 I-frame），在生成字幕 route 之前完成。HEVC 回退到 AVC 时不带 HDR 档。
+  B 站不给 30fps 及以下的 HDR 档，不满足 Authoring Spec 对 HDR 阶梯的要求，这是已知偏离。
+- 音频组：原声的每个版本各成一个 AUDIO group——码率最高的 AAC（默认组）、其余 AAC 档、杜比音频（E-AC-3）、
+  “无损音频”开关开着时的 FLAC。每组成员相同（RFC 8216bis §4.4.6.1.1）：原声取这一组的版本、同名“原声”，
+  配音只有 AAC、在每组引用同一个 URI；每个视频档（含 HDR 档）与每组各写一行 variant，CODECS 与带宽只计这一组。
+  同名的原声在系统菜单里合并成一项，组之间由 AVPlayer 选择（实测）：AAC 档按网速切换；E-AC-3 写声道数后由
+  系统按输出声道选择，2 声道输出不会选中，所以不进菜单、不手动选；FLAC 只有设了
+  `variantPreferences = .scalabilityToLosslessAudio` 才会在带宽足够时选中。附加版本以默认组原声的 SIDX 起点
+  为准，读取失败、SIDX 没有可播分段、读不出声道等音频格式或起点不同时只丢这一组；无损关时不读 FLAC 的 SIDX。
 - 没有 DASH 但有安全单段 `durl` 时走 progressive MP4 route；不支持多段拼接与 FLV。
+- 没有声音的稿件 `dash.audio` 为 null：清单没有音轨，master 只有视频 variant，不声明 AUDIO group，也不请求
+  AI 配音。这时播放时钟由视频渲染推进，item 必须接在 player host 的 `AVPlayerView` 上才会走。
 - 音轨与字幕都写成 master 里的原生 rendition，由系统菜单选择；名称标注按 HLS 媒体特征交给系统本地化，
   原声不写 LANGUAGE（B 站不给可验证的原声语言）。起播总是原声：配音 `AUTOSELECT=NO`，播放器关闭自动媒体
   选择，只按 DEFAULT 起播。系统可能在字幕菜单里插入不在 BiliKit 目录里的翻译轨，没有公开 API 可以关掉。
@@ -219,8 +244,9 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
   AppKit 会在网格按锚点恢复之前先按新宽度重排、夹取偏移，这段过渡里的偏移不可信，不捕获锚点、不判断翻页；
   宽度变化只吸收浮点误差，半点也算（`NativeViewportSize`），否则跨列数分界的那一步不恢复，视野跳一行。
   纯删除（例如稍后再看的乐观移除）删掉锚点卡片时，由旧顺序里它之后第一张仍在的卡片按同一距离接替，视野不跳。
-- 分页：推荐、热门、搜索、观看历史与稍后再看由 `PagedVideoList` 承担，来源只把远端页适配为“条目 + 下一页
-  游标”，去重与条目上限只在那里（集合层的 `NativeVideoCardContents` 另按卡片 ID 兜底）；收藏夹与 UP 主空间按页整体替换，翻页状态是 `PageReplacementPaging`。
+- 分页：推荐、热门、搜索、观看历史、稍后再看与 UP 主空间投稿由 `PagedVideoList` 承担，来源只把远端页适配为“条目 +
+  下一页游标”，去重与条目上限只在那里（集合层的 `NativeVideoCardContents` 另按卡片 ID 兜底）；收藏夹按页整体替换，翻页
+  状态是 `PageReplacementPaging`。
 - 已有内容、且条件与解析出的请求不变时，刷新原地进行：网格不卸载，成功后整体替换并回顶，失败保留已显示内容。
 - 网格的差异动画：内容身份变化、不是严格的尾部追加、已在窗口里排过版、没开「减少动态效果」时，快照带差异动画应用。
   动画进行中 `NSCollectionView` 不为新露出的区域创建卡片（纯原生实测约 250ms、0 张），所以网格的 clip view
@@ -232,8 +258,11 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
   基类 `NativeVideoCardCollectionView` 的同一条右键路径，集合项只提供视频 ID 与上下文描边（`NativeVideoMenuTargetItem`），
   读屏自定义操作取同一份描述，项、顺序与标题与菜单一致。右键与访达、「音乐」一致，不改选中、不移动键盘选择框。链接项
   只给卡片 ID 是合法 BVID 的可播放卡片，打开只经系统 `OpenURLAction`（见 `SECURITY-MODEL.md` §4）。
-- **UP 主空间列表**：头部与投稿行是同一个 `NSCollectionView` 的原生 item，随列表滚到工具栏下由系统做边缘
-  模糊。列表不接收键盘焦点，方向键、空格留给播放器快捷键。
+- **UP 主空间列表**：头部、投稿行与底部加载行是同一个 `NSCollectionView` 的原生 item，随列表滚到工具栏下由系统做边缘
+  模糊。底部加载行进入视野时请求下一批（`NearEndPagination`，每个尾部一次，实时滚动中一次手势一次）；App 端投稿接口
+  只有游标，不能跳页，所以不用页码条。列表不接收键盘焦点，方向键、空格留给播放器快捷键。
+- 空间顶部浮动的一行（返回按钮与空间内搜索框）不随列表滚动；搜索框是 AppKit `NSSearchField`：SwiftUI `.searchable`
+  只能放进窗口工具栏，放不进侧栏的上下文层。只在回车或清空时提交，提交后放下焦点，空格与方向键回到播放器快捷键。
 - 图片由窗口级匿名、有界的 `NativeVideoImagePipeline` 加载（Now Playing 封面另有进程级实例）；cell 离屏、复用
   和 teardown 取消等待者，缓存上界只在 `NativeVideoImageCacheLimits`。
 - 评论图片预览的图片区是 AppKit `NSScrollView`：SwiftUI 没有现成的“触控板双指缩放 + 两指平移 + 回弹”容器。
@@ -329,7 +358,10 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
 
 ### 认证
 
-Web QR 协议没有官方稳定文档，按“fixture 固定的外部观察”处理，未知状态一律失败关闭。秘密只在
+登录用 TV 端扫码：成功正文同时带网页 Cookie 与 App 端 access_token、refresh_token，三者存在同一份凭据里，一起过期、一起删除；
+续期用 refresh_token 换回整份新凭据（Cookie 一并换新），由进程唯一的 `AccountCredentialRenewal` 串行执行，认证服务在恢复确认仍登录
+后调用它、等它结束才发布已登录：启动时只在临近到期时续期，复核时强制续期一次，使只有 token 失效的凭据在复核后的重载里恢复；
+续期失败不改变登录状态。网页接口用 Cookie，App 端接口（首页推荐与它的「不感兴趣」，播放页的点赞、投币、三连，UP 主空间投稿）经 App 授权器带 access_token 并签名，读取在未登录时匿名签名，写入从不匿名。协议没有官方稳定文档，按“fixture 固定的外部观察”处理，未知状态一律失败关闭。秘密只在
 `BiliAuth`；Application 只暴露非秘密认证状态与 `AuthenticationServicing`，二维码图像走 `BiliAuthFeature`
 定义的窄 Presentation port 注入。请求 builder（`RequestAccess` 与请求管线）只在 `BiliAPI` 内部可见，由各域
 endpoint 扩展逐请求选择访问方式，Repository adapter 不自行构造 `RequestAccess`；授权器由 Composition 注入。
@@ -337,7 +369,8 @@ endpoint 扩展逐请求选择访问方式，Repository adapter 不自行构造 
 
 窗口复核：凭据失效只由 ViewModel 记录。参与者实现 `AccountRevalidationParticipant`，发现需要复核的失败时以
 `&+=` 递增 `authenticationRevalidationGeneration`。参与者集合由 `WindowComposition` 构造一次，`AppRootView`
-只比较各参与者的代次，前后不等（不比大小，回绕仍算）就调用一次 `revalidate()`，结束后把结果交给参与者；
+只比较各参与者的代次，前后不等（不比大小，回绕仍算）就调用一次 `revalidate()`，结束后把结果（仍登录、确认未登录或
+没能确认）交给参与者；
 绑定来源的参与者只在该来源是当前来源时收到，不在本页时不在后台读取账户内容。收藏夹列表是侧栏常驻的
 元数据，按窗口级登记，例外地不论当前来源都读取并接收结果。Feature 不直接调用认证服务。用户发起的账户写入由窗口的
 写入协调者作为窗口级参与者，凭据类失败只请求一次复核，同一账户与会话代次里直到下一次写入成功不再请求。
@@ -345,7 +378,8 @@ endpoint 扩展逐请求选择访问方式，Repository adapter 不自行构造 
 内容域的认证失败分四态，由 `ContentApplicationError` 决定是否复核与是否给重试：无凭据是“需要登录”（不给重试）、
 凭据失效触发复核、本地凭据读不到可重试但不复核、风控按受限。观看历史、稍后再看与收藏夹只在窗口已登录时
 显示，所以读取时本地无凭据也复核；复核确认仍登录后，由凭据失效引发的自动重载在下一次加载成功前最多一次
-（`LibraryAccountRevalidation`），挡住“复核 → 重载 → 失效”的循环。
+（`AccountRevalidationProgress`），挡住“复核 → 重载 → 失效”的循环。首页推荐、热门、搜索与 UP 主空间能匿名读取，确认未登录
+同样重载一次停住的失败页：读取先于复核删掉损坏或过期的凭据时账户范围不变，不会经账户变化重启。
 
 多窗口共享一个进程级账户会话协调器：登出、换号或凭据失效时先全局推进 authentication epoch，其他窗口再复核
 Keychain，并按新 generation 重启依赖账户的内容。账户变化由来源自己处理，App 只经来源描述通知；其他窗口换号
@@ -368,9 +402,10 @@ Keychain，并按新 generation 重启依赖账户的内容。账户变化由来
   不可操作（换视频正在加载或失败）时快捷键与按钮一样不响应。点赞乐观改动、失败放回，是否“已在本地改过”在写入成功时判断；
   投币与三连不可撤回，成功后才改状态，并让更早的回滚与在途读取作废，失败时重读一次（服务端可能已部分生效）；三连的收藏
   进默认收藏夹，按收藏写入刷新收藏夹。键盘状态机在 keyUp 判断短按点赞，按住 `longPressDelay` 显示三连进度、`tripleHoldDuration` 时三连，中途松开不
-  动作。投币面板与「收藏到…」在主窗口里，AVKit 独立全屏时 W／E 只提示先退出全屏。网页接口对部分稿件以 -403（账号异常）
-  拒绝第三方客户端，补网页统计字段、视频页 Referer 与 B 站下发的 buvid 都没有改善；这时结果胶囊给出「在浏览器中
-  打开」（停留更久），改走 App 端接口见 ROADMAP 候选。
+  动作。投币面板与「收藏到…」在主窗口里，AVKit 独立全屏时 W／E 只提示先退出全屏。点赞、投币、三连走 App 端接口：
+  网页的这三个接口对部分账号或稿件以 -401／-403 拒绝第三方客户端（补网页统计字段、视频页 Referer 与 B 站下发的 buvid 都
+  没有改善），同一时刻 App 端成功；不采用网页失败后再试 App 端的回退，同一意图只发一次。App 端仍返回 -403 时结果胶囊给出
+  「在浏览器中打开」（停留更久）。互动状态的读取与关注仍走网页。
 - 关注 UP 主：播放侧栏 UP 主行的关注按钮读同一个 `VideoEngagementModel`，关注状态取自同一次 `archive/relation`（`attention`），
   随它按账户重读与复核；不另建关注模型，也不用名片里的 `following`：名片按 UP 主沿用（`VideoViewModel`），不随账户重读。
   粉丝数与投稿数取自名片，只读展示，关注后不在本地增减。意图只带 BVID，协调者从互动状态取 UP 主 mid（自己的视频不发），
@@ -379,8 +414,9 @@ Keychain，并按新 generation 重启依赖账户的内容。账户变化由来
 - 结果胶囊挂在顶层页面与播放页上，而不是整个 `NavigationStack` 外：在 `NavigationSplitView` 的 detail 列里，挂在
   `NavigationStack` 上的修饰符实际归根页面所有，压栈后随根页面移除。播放页打开时顶层那份不显示，读屏不会把同一条结果
   通告两次。
-- 首页推荐的「不感兴趣」：菜单由 Browse 按卡片的推荐流字段（UP 主 mid、`track_id`）构造反馈，标记属于 `BrowseViewModel` 的
-  推荐工作集、跟着卡片走（刷新成功后只留新推荐里仍有的）。协调者先乐观标上或去掉，失败或被取消时凭改动时的工作集身份
+- 首页推荐的「不感兴趣」：反馈走 App 端接口（推荐流来自 App 端，服务端按 access_token 认出是谁的推荐流）。子菜单的原因是
+  卡片自己给出的列表（id 与中文名字原样显示，不本地化，不设固定原因），Browse 按选中的原因构造反馈；卡片没给原因就没有这一项。
+  标记属于 `BrowseViewModel` 的推荐工作集、跟着卡片走（刷新成功后只留新推荐里仍有的）。协调者先乐观标上或去掉，失败或被取消时凭改动时的工作集身份
   放回，工作集换过（换号、`reset`）就不放回，免得把上一账户的反馈标到新推荐上；同一视频的反馈与撤销同时只发一个，撤销
   必须带发出时的同一份反馈。效果不落到其他窗口：各窗口的推荐流本来就各不相同。
 - 乐观移除：稍后再看页与收藏夹页的移除先在本地删掉，失败或被取消时放回原位（稍后再看按 `PagedVideoList` 的并入序号，
@@ -397,20 +433,6 @@ Keychain，并按新 generation 重启依赖账户的内容。账户变化由来
 load 只读一次，只调整视频候选。实验镜像只替换原始 bilivideo URL 的 host，保留签名；缺失时回退
 服务端顺序。测速仅在已登录用户显式点击后运行，样本与路线严格串行、流量有硬上限、结果只存在于当前
 Settings 窗口，从不自动改选。
-
-### 响度均一化（macOS 27 起）
-
-UGC playurl 带 `voice_balance=1` 时返回 loudness 元数据。macOS 27 起 HLS item 的全部音轨混音可以经
-`AVAudioMixInputParametersTrackID.mixID` 设 audio mix 参数；更早系统没有官方接入点，不提供此功能，不依赖
-未文档化行为。默认关闭，新 load 读一次设置。gain 只压低不放大，所以没有峰值余量项与限幅器；元数据缺失、
-音轨无法唯一映射或查询失败时保持 unity，播放不得失败。不自行测量响度。
-
-- gain 是混音 audio mix 上的 volume：只压低时 volume ≤ 1 就能表达。macOS 27 的 HLS item 上实测按 mixID
-  设的 volume 精确生效、切换音轨后保持，播放中换上新 mix 几十毫秒内生效且不断流。
-- 选中音轨变化使 gain 改变时换一个新 mix，从当前 item 时间起用短 volume ramp 过渡；音量曲线定义在 item
-  时间上，锚点之前也设为新 gain，往回 seek 不会回到旧 gain。
-- 不用 `MTAudioProcessingTap`：恒定增益不需要逐帧处理，tap 却要求固定处理格式（多一次重采样）、实时回调
-  与手动内存管理。
 
 ### 分发
 
@@ -452,6 +474,17 @@ UGC playurl 带 `voice_balance=1` 时返回 loudness 元数据。macOS 27 起 HL
 - 弹幕按窗口尺寸布局、resize 后去抖重排并整屏替换：拖动窗口边缘时画面整屏跳变，去抖期间还要为居中、
   贴底与按旧宽度运动写特判；取景框模型让 resize 只移动锚定边。
 - mpv 等第二播放后端；AVPlayer + loopback 能满足当前需求。
+- AV1：AVPlayer 只在带 AV1 硬件解码的 Mac（M3 起）上能播，其他机器整条视频放不了。
+- 同一 master 混入 AVC 与 HEVC：ABR 换档时会在两种编码之间切换；只用一种编码，回退规则也只需一条。
+- HDR 卡顿时自动以 SDR 重建播放项：要判断“卡顿是 HDR 档造成的”、重建会打断播放并丢失缓冲；加载时的条件
+  过滤与“HDR 视频”开关已能避开主要情形。
+- 杜比视界（HLG 基础层）不写 `VIDEO-RANGE` 混进 SDR 阶梯以获得降档：它会受视图尺寸上限约束，常见窗口里根本
+  选不到；HDR 真彩（PQ）不写时 item 直接失败。
+- 杜比音频与无损音频作为菜单里单独的音轨（不同 NAME）：要手动选，选中后系统也不会按输出设备或网速换回；
+  同名分组让 AVPlayer 按输出声道与带宽自动选择，与 Apple Music 的做法一致。
+- 响度均一化：只能压低不能放大（放大需要限幅器），依赖 playurl 的响度元数据（许多较早的视频没有），
+  只在 macOS 27 起有官方接入点；它按“原声只有一条”匹配音轨，音轨按编码与码率分成多组后系统会合并同名选项、
+  换组时不发通知，无法确定当前播放的是哪一组。
 - `*.bilibili.com` 后缀匹配授权；WKWebView 登录；共享 `HTTPCookieStorage` 或 `URLSession.shared`
   作为登录态。
 - 播放中自动换源、后台测速、按测速结果自动改选。

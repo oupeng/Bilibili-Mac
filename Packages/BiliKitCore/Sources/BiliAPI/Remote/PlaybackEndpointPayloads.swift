@@ -6,7 +6,7 @@ import Foundation
 /// playurl（`/x/player/wbi/playurl`）的 `data`，由 `BiliAPIClient` 的播放扩展映射为
 /// `VideoPlayback`。
 ///
-/// 有 DASH 时只读 DASH，不解码 `durl`、`format` 与 `support_formats`；响度、
+/// 有 DASH 时只读 DASH，不解码 `durl`、`format` 与 `support_formats`；
 /// 配音语言与断点字段异常时按缺失处理，不阻断播放。线路测速另用只解码视频轨的
 /// `CDNBenchmarkPlayURLPayload`。
 struct PlayURLPayload: Decodable, Sendable {
@@ -20,7 +20,6 @@ struct PlayURLPayload: Decodable, Sendable {
     let format: String?
     /// 没有 DASH 时 `support_formats` 列出的 MP4 整段清晰度；当前格式是 FLV 时据此换清晰度重取。
     let progressiveMP4Qualities: [Int]
-    let volume: PlaybackVolumePayload?
     let currentLanguage: String?
     let currentProductionType: Int?
     let languageCatalog: AudioLanguageCatalogPayload?
@@ -32,7 +31,6 @@ struct PlayURLPayload: Decodable, Sendable {
         case durl
         case format
         case supportFormats = "support_formats"
-        case volume
         case currentLanguage = "cur_language"
         case currentProductionType = "cur_production_type"
         case languageCatalog = "language"
@@ -62,7 +60,6 @@ struct PlayURLPayload: Decodable, Sendable {
             .filter { Self.progressiveMP4Formats.contains($0.format.lowercased()) }
             .map(\.quality)
             : []
-        volume = try? container.decode(PlaybackVolumePayload.self, forKey: .volume)
         currentLanguage = try? container.decode(
             String.self,
             forKey: .currentLanguage
@@ -187,51 +184,6 @@ struct DURLPayload: Decodable, Sendable {
     }
 }
 
-/// `voice_balance=1` 时返回的响度测量值，映射为 `PlaybackLoudnessMetadata`。
-///
-/// 任一值不在合理范围或门限高于积分响度时整体无效（`model` 为 nil），原音量播放；未测量视频的
-/// `0.001` 占位因此被拒绝；不自行测量响度。
-struct PlaybackVolumePayload: Decodable, Sendable {
-    let measuredIntegrated: Double
-    let measuredLoudnessRange: Double
-    let measuredTruePeak: Double
-    let measuredThreshold: Double
-    let targetIntegrated: Double
-    let targetTruePeak: Double
-
-    private enum CodingKeys: String, CodingKey {
-        case measuredIntegrated = "measured_i"
-        case measuredLoudnessRange = "measured_lra"
-        case measuredTruePeak = "measured_tp"
-        case measuredThreshold = "measured_threshold"
-        case targetIntegrated = "target_i"
-        case targetTruePeak = "target_tp"
-    }
-
-    var model: PlaybackLoudnessMetadata? {
-        guard Self.valid(measuredIntegrated, in: -100...0),
-            Self.valid(measuredLoudnessRange, in: 0...100),
-            Self.valid(measuredTruePeak, in: -100...20),
-            Self.valid(measuredThreshold, in: -100...0),
-            Self.valid(targetIntegrated, in: -70 ... -5),
-            Self.valid(targetTruePeak, in: -20...0),
-            measuredThreshold <= measuredIntegrated
-        else { return nil }
-        return PlaybackLoudnessMetadata(
-            measuredIntegratedLUFS: measuredIntegrated,
-            measuredLoudnessRangeLU: measuredLoudnessRange,
-            measuredTruePeakDBTP: measuredTruePeak,
-            measuredThresholdLUFS: measuredThreshold,
-            targetIntegratedLUFS: targetIntegrated,
-            targetTruePeakDBTP: targetTruePeak
-        )
-    }
-
-    private static func valid(_ value: Double, in range: ClosedRange<Double>) -> Bool {
-        value.isFinite && range.contains(value)
-    }
-}
-
 /// playurl 的 `language`：账户可用的 AI 配音语言目录。
 ///
 /// `validatedMachineGeneratedItems` 要求目录声明支持、1–8 项、全部为机器配音（`production_type` 2）、
@@ -309,10 +261,71 @@ struct AudioLanguageItemPayload: Decodable, Sendable {
     }
 }
 
-/// playurl 的 `dash`：视频与音频 representation 列表，调用方只取其中的 AVC 视频与 AAC 音频。
+/// playurl 的 `dash`：视频、音频 representation 列表，以及杜比音频与无损音频；视频按 `DASHVideoLadder`
+/// 选编码，音频按 `DASHAudioCodec` 分类。
+///
+/// 没有声音的稿件（录屏之类）`audio` 是 `null`。`video` 逐条宽松解码：请求的档位多于能播放的
+/// （8K、HDR、AV1），形状不认识的单条只丢这一条，不让整份响应失败。`dolby`（`audio` 是数组）与
+/// `flac`（`audio` 是单个对象）是原声的附加版本，每一层都可能缺失或为 `null`，任何一层解码失败都按
+/// 没有处理。
 struct DASHPayload: Decodable, Sendable {
     let video: [DASHRepresentationPayload]
+    let audio: [DASHRepresentationPayload]?
+    let dolbyAudio: [DASHRepresentationPayload]
+    let losslessAudio: DASHRepresentationPayload?
+
+    private enum CodingKeys: String, CodingKey {
+        case video
+        case audio
+        case dolby
+        case flac
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        video = try container.decodeLossyElements(
+            DASHRepresentationPayload.self,
+            forKey: .video
+        )
+        audio = try container.decodeIfPresent(
+            [DASHRepresentationPayload].self,
+            forKey: .audio
+        )
+        dolbyAudio =
+            container.decodeLossyIfPresent(DASHDolbyPayload.self, forKey: .dolby)?.audio ?? []
+        losslessAudio =
+            container.decodeLossyIfPresent(DASHFLACPayload.self, forKey: .flac)?.audio
+    }
+}
+
+/// `dash.dolby`：杜比音频（ec-3）representation 数组，逐条宽松解码；`audio` 缺失或为 `null` 时为空。
+private struct DASHDolbyPayload: Decodable, Sendable {
     let audio: [DASHRepresentationPayload]
+
+    private enum CodingKeys: String, CodingKey {
+        case audio
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        audio =
+            (try? container.decodeLossyElements(DASHRepresentationPayload.self, forKey: .audio))
+            ?? []
+    }
+}
+
+/// `dash.flac`：无损音频（FLAC）的单个 representation；`audio` 缺失、为 `null` 或形状不对时为 nil。
+private struct DASHFLACPayload: Decodable, Sendable {
+    let audio: DASHRepresentationPayload?
+
+    private enum CodingKeys: String, CodingKey {
+        case audio
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        audio = container.decodeLossyIfPresent(DASHRepresentationPayload.self, forKey: .audio)
+    }
 }
 
 /// DASH 的一路 representation，映射为 `MediaRepresentation`；snake_case 与 camelCase 字段名都接受。
@@ -330,15 +343,6 @@ struct DASHRepresentationPayload: Decodable, Sendable {
     let baseURL: String
     let backupURLs: [String]
     let segmentBase: DASHSegmentBasePayload
-
-    var isAVCVideo: Bool {
-        mimeType == "video/mp4"
-            && (codecid == 7 || codecs.lowercased().hasPrefix("avc1"))
-    }
-
-    var isAACAudio: Bool {
-        mimeType == "audio/mp4" && codecs.lowercased().hasPrefix("mp4a")
-    }
 
     private enum CodingKeys: String, CodingKey {
         case id

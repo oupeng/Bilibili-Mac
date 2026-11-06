@@ -7,29 +7,17 @@ import Testing
 @testable import BiliAPI
 
 /// 固定 playurl 音轨契约：AI 配音只在带凭据且响应确认制作类型时作为语义音轨加入，
-/// 配音失败保留原声并停止后续配音请求，响度元数据按音轨各自绑定且必须是完整有界的一组。
+/// 配音失败保留原声并停止后续配音请求；没有音轨的稿件映射为只有视频的清单；`dash.dolby`、`dash.flac`
+/// 映射为原声的杜比与无损版本，形状不对时只是没有这个版本。
 struct BiliAPIClientPlaybackAudioTests {
+    /// 录屏之类没有声音的稿件 `dash.audio` 是 `null`：照常映射视频、没有音轨，即使目录里列着配音也不去请求。
     @Test
-    func playURLBindsLoudnessMetadataToEachSemanticTrackResponse() async throws {
-        let originalVolume = loudnessVolume(measuredI: -20, measuredTP: -4)
-        let aiVolume = loudnessVolume(measuredI: -11, measuredTP: -0.5)
+    func playURLWithoutAudioMapsVideoOnlyManifest() async throws {
         let transport = StubTransport(
             responses: [
                 try semanticAudioResponse(
-                    audioPath: "original-audio.m4s",
-                    languageCatalog: machineGeneratedEnglishAndJapaneseCatalog,
-                    volume: originalVolume
-                ),
-                try semanticAudioResponse(
-                    audioPath: "ai-en-audio.m4s",
-                    currentLanguage: "en",
-                    currentProductionType: 2,
-                    volume: aiVolume
-                ),
-                try semanticAudioResponse(
-                    audioPath: "ai-ja-audio.m4s",
-                    currentLanguage: "ja",
-                    currentProductionType: 2
+                    audioPath: nil,
+                    languageCatalog: machineGeneratedEnglishCatalog
                 )
             ],
             answersWBINavOnce: true
@@ -45,71 +33,79 @@ struct BiliAPIClientPlaybackAudioTests {
         )
 
         let manifest = try #require(playback.dashManifest)
-        #expect(manifest.audioTracks.count == 3)
-        let original = manifest.audioTracks[0]
-        let englishAI = manifest.audioTracks[1]
-        let japaneseAI = manifest.audioTracks[2]
-        #expect(original.loudnessMetadata?.measuredIntegratedLUFS == -20)
-        #expect(englishAI.loudnessMetadata?.measuredIntegratedLUFS == -11)
-        #expect(japaneseAI.loudnessMetadata == nil)
-        #expect(original.loudnessMetadata != englishAI.loudnessMetadata)
-        let requests = playURLRequests(transport)
-        #expect(requests.count == 3)
-        #expect(
-            requests.allSatisfy { request in
-                URLComponents(
-                    url: request.url,
-                    resolvingAgainstBaseURL: false
-                )?.queryItems?.contains(
-                    URLQueryItem(name: "voice_balance", value: "1")
-                ) == true
-            }
-        )
+        #expect(manifest.videoRepresentations.map(\.id) == [32])
+        #expect(manifest.audioTracks.isEmpty)
+        #expect(playURLRequests(transport).count == 1)
     }
 
-    @Test(
-        arguments: [
-            (
-                #"{"measured_i":-20,"measured_lra":3,"measured_tp":-4,"measured_threshold":-30,"target_i":-14,"target_tp":-1}"#,
-                -20.0
-            ),
-            (
-                #"{"measured_i":-20,"measured_lra":3,"measured_tp":-4,"measured_threshold":-30,"target_i":-14}"#,
-                nil
-            ),
-            (
-                #"{"measured_i":null,"measured_lra":3,"measured_tp":-4,"measured_threshold":-30,"target_i":-14,"target_tp":-1}"#,
-                nil
-            ),
-            (
-                #"{"measured_i":"bad","measured_lra":3,"measured_tp":-4,"measured_threshold":-30,"target_i":-14,"target_tp":-1}"#,
-                nil
-            ),
-            (
-                #"{"measured_i":-200,"measured_lra":3,"measured_tp":-4,"measured_threshold":-30,"target_i":-14,"target_tp":-1}"#,
-                nil
-            ),
-            (
-                #"{"measured_i":1e400,"measured_lra":3,"measured_tp":-4,"measured_threshold":-30,"target_i":-14,"target_tp":-1}"#,
-                nil
-            ),
-            // B 站未测量响度的视频：四个测量值都是 0.001 占位。
-            (
-                #"{"measured_i":0.001,"measured_lra":0.001,"measured_tp":0.001,"measured_threshold":0.001,"target_offset":0.001,"target_i":-14,"target_tp":-1}"#,
-                nil
-            )
-        ] as [(String, Double?)]
-    )
-    func loudnessPayloadRequiresACompleteFiniteBoundedGroup(
-        _ source: String,
-        expectedIntegratedLUFS: Double?
-    ) {
-        let payload = try? JSONDecoder().decode(
-            PlaybackVolumePayload.self,
-            from: Data(source.utf8)
-        )
+    enum AdditionalAudioShape: CaseIterable, Sendable {
+        case present
+        case nullAudio
+        case malformed
 
-        #expect(payload?.model?.measuredIntegratedLUFS == expectedIntegratedLUFS)
+        var dash: [String: Any] {
+            switch self {
+            case .present:
+                [
+                    "dolby": [
+                        "type": 2,
+                        "audio": [
+                            audioRepresentationPayload(
+                                id: 30_250,
+                                codecs: "ec-3",
+                                path: "dolby.m4s"
+                            )
+                        ]
+                    ],
+                    "flac": [
+                        "display": true,
+                        "audio": audioRepresentationPayload(
+                            id: 30_251,
+                            codecs: "fLaC",
+                            path: "flac.m4s"
+                        )
+                    ]
+                ]
+            case .nullAudio:
+                [
+                    "dolby": ["type": 0, "audio": NSNull()],
+                    "flac": ["display": false, "audio": NSNull()]
+                ]
+            case .malformed:
+                [
+                    "dolby": [
+                        "audio": [
+                            audioRepresentationPayload(
+                                id: 30_250,
+                                codecs: "mp4a.40.2",
+                                path: "aac.m4s"
+                            )
+                        ]
+                    ],
+                    "flac": "unexpected"
+                ]
+            }
+        }
+    }
+
+    @Test(arguments: AdditionalAudioShape.allCases)
+    func dolbyAndFLACMapToOriginalVersionsOnlyWhenWellFormed(
+        _ shape: AdditionalAudioShape
+    ) async throws {
+        let transport = StubTransport(
+            responses: [
+                try semanticAudioResponse(audioPath: "audio.m4s", additionalDash: shape.dash)
+            ],
+            answersWBINavOnce: true
+        )
+        let client = BiliAPIClient(transport: transport, requestAuthorizer: StubAuthorizer())
+
+        let playback = try await client.playback(for: "BV1FixtureA1", cid: 900_001)
+
+        let original = try #require(playback.dashManifest?.audioTracks.first)
+        #expect(original.representations.map(\.id) == [30_280])
+        #expect(original.dolbyRepresentation?.id == (shape == .present ? 30_250 : nil))
+        #expect(original.losslessRepresentation?.id == (shape == .present ? 30_251 : nil))
     }
 
     @Test
@@ -369,22 +365,6 @@ struct BiliAPIClientPlaybackAudioTests {
                 ["lang": "en", "title": "English（AI）", "production_type": 2],
                 ["lang": "ja", "title": "日本語（AI）", "production_type": 2]
             ]
-        ]
-    }
-
-    private func loudnessVolume(
-        measuredI: Double,
-        measuredTP: Double
-    ) -> [String: Any] {
-        [
-            "measured_i": measuredI,
-            "measured_lra": 3,
-            "measured_tp": measuredTP,
-            "measured_threshold": measuredI - 10,
-            "target_i": -14,
-            "target_tp": -1,
-            "target_offset": 99,
-            "multi_scene_args": "ignored"
         ]
     }
 }

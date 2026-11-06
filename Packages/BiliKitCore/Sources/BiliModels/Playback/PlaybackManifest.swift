@@ -44,35 +44,6 @@ public enum MediaKind: String, Sendable, Equatable {
     case audio
 }
 
-/// 服务端对一条语义音轨给出的静态 BS.1770 响度测量与目标。
-///
-/// 这里不保存 endpoint 专属的 offset 或场景参数；所有值在 API 解码边界完整校验，播放策略只再防住
-/// 自己用到的值。
-public struct PlaybackLoudnessMetadata: Sendable, Equatable {
-    public let measuredIntegratedLUFS: Double
-    public let measuredLoudnessRangeLU: Double
-    public let measuredTruePeakDBTP: Double
-    public let measuredThresholdLUFS: Double
-    public let targetIntegratedLUFS: Double
-    public let targetTruePeakDBTP: Double
-
-    public init(
-        measuredIntegratedLUFS: Double,
-        measuredLoudnessRangeLU: Double,
-        measuredTruePeakDBTP: Double,
-        measuredThresholdLUFS: Double,
-        targetIntegratedLUFS: Double,
-        targetTruePeakDBTP: Double
-    ) {
-        self.measuredIntegratedLUFS = measuredIntegratedLUFS
-        self.measuredLoudnessRangeLU = measuredLoudnessRangeLU
-        self.measuredTruePeakDBTP = measuredTruePeakDBTP
-        self.measuredThresholdLUFS = measuredThresholdLUFS
-        self.targetIntegratedLUFS = targetIntegratedLUFS
-        self.targetTruePeakDBTP = targetTruePeakDBTP
-    }
-}
-
 /// 视频表示的尺寸与帧率；构造时拒绝非正宽高和非有限或非正的帧率，帧率缺失时为 nil。
 ///
 /// BiliAPI 映射时视频表示必须带合法属性，否则整份媒体数据无效。
@@ -152,9 +123,10 @@ public struct MediaRepresentation: Sendable, Equatable {
     }
 }
 
-/// 用户可选择的一条语义音轨；`representations` 是同一声音内容的媒体候选，而不是独立音轨。
+/// 用户可选择的一条语义音轨；`representations` 是同一声音内容的 AAC 码率候选，而不是独立音轨。
 ///
-/// 候选保持 playurl 返回的顺序，不代表码率高低；BiliPlayback 加载时每轨只取码率最高的一条。
+/// 候选保持 playurl 返回的顺序，不代表码率高低。BiliPlayback 加载时每轨取码率最高的一条；原声另把
+/// 其余 AAC 档、杜比音频与（开了“无损音频”时）无损版本作为附加音频组交给 ABR（见 ARCHITECTURE）。
 public struct PlaybackAudioTrack: Sendable, Equatable, Identifiable {
     /// 音轨来源：`original` 为原声，`machineGenerated` 为 AI 配音。
     ///
@@ -171,8 +143,11 @@ public struct PlaybackAudioTrack: Sendable, Equatable, Identifiable {
     public let role: Role
     public let isDefault: Bool
     public let isAutoselect: Bool
-    public let loudnessMetadata: PlaybackLoudnessMetadata?
     public let representations: [MediaRepresentation]
+    /// 同一声音内容的杜比音频（E-AC-3）版本；只有原声可能有。
+    public let dolbyRepresentation: MediaRepresentation?
+    /// 同一声音内容的无损（FLAC）版本；只有原声可能有。
+    public let losslessRepresentation: MediaRepresentation?
 
     public init(
         id: String,
@@ -181,8 +156,9 @@ public struct PlaybackAudioTrack: Sendable, Equatable, Identifiable {
         role: Role,
         isDefault: Bool,
         isAutoselect: Bool,
-        loudnessMetadata: PlaybackLoudnessMetadata? = nil,
-        representations: [MediaRepresentation]
+        representations: [MediaRepresentation],
+        dolbyRepresentation: MediaRepresentation? = nil,
+        losslessRepresentation: MediaRepresentation? = nil
     ) {
         self.id = id
         self.displayName = displayName
@@ -190,8 +166,16 @@ public struct PlaybackAudioTrack: Sendable, Equatable, Identifiable {
         self.role = role
         self.isDefault = isDefault
         self.isAutoselect = isAutoselect
-        self.loudnessMetadata = loudnessMetadata
         self.representations = representations
+        self.dolbyRepresentation = dolbyRepresentation
+        self.losslessRepresentation = losslessRepresentation
+    }
+
+    /// 这条音轨的任一版本（AAC 候选、杜比或无损）是否就是 `representation`。
+    public func offers(_ representation: MediaRepresentation) -> Bool {
+        representations.contains(representation)
+            || dolbyRepresentation == representation
+            || losslessRepresentation == representation
     }
 
     /// 默认原声音轨的显示名；AI 配音的显示名不得与它重复。
@@ -203,7 +187,8 @@ public struct PlaybackAudioTrack: Sendable, Equatable, Identifiable {
     /// 语言，写成 HLS 时省略 LANGUAGE，系统菜单的名字来自播放桥提供的本地化显示名。
     public static func original(
         representations: [MediaRepresentation],
-        loudnessMetadata: PlaybackLoudnessMetadata?
+        dolby: MediaRepresentation? = nil,
+        lossless: MediaRepresentation? = nil
     ) -> PlaybackAudioTrack {
         PlaybackAudioTrack(
             id: "original",
@@ -211,8 +196,9 @@ public struct PlaybackAudioTrack: Sendable, Equatable, Identifiable {
             role: .original,
             isDefault: true,
             isAutoselect: true,
-            loudnessMetadata: loudnessMetadata,
-            representations: representations
+            representations: representations,
+            dolbyRepresentation: dolby,
+            losslessRepresentation: lossless
         )
     }
 }
@@ -220,17 +206,27 @@ public struct PlaybackAudioTrack: Sendable, Equatable, Identifiable {
 /// DASH 播放所需的视频表示与语义音轨，由 `BiliAPIClient` 的 playurl 映射组装，`DASHToHLSBridge`
 /// 消费。
 ///
-/// BiliAPI 只保留 AVC 视频与 AAC 音频，两者都非空才组装；首条音轨是默认原声，已认证时可追加 AI
-/// 配音音轨。
+/// 视频阶梯只用一种编码（HEVC 或 AVC，规则见 BiliAPI 的 `DASHVideoLadder`），非空才组装；音轨的码率
+/// 候选只有 AAC，有音轨时首条是默认原声（可带杜比与无损版本），已认证时可追加 AI 配音音轨。没有声音的
+/// 稿件 `audioTracks` 为空，只播视频。
 public struct PlaybackManifest: Sendable, Equatable {
     public let videoRepresentations: [MediaRepresentation]
+    /// 主阶梯起播失败时 BiliPlayback 换用的同一份 playurl 的 AVC 阶梯，只换一次；主阶梯已是 AVC 时为空。
+    public let fallbackVideoRepresentations: [MediaRepresentation]
+    /// 可加入主阶梯的 HDR 档（杜比视界在前），只在主阶梯是 HEVC 时非空；BiliPlayback 按设置与环境
+    /// 决定是否加入，最多加入一档。
+    public let hdrVideoCandidates: [MediaRepresentation]
     public let audioTracks: [PlaybackAudioTrack]
 
     public init(
         videoRepresentations: [MediaRepresentation],
+        fallbackVideoRepresentations: [MediaRepresentation] = [],
+        hdrVideoCandidates: [MediaRepresentation] = [],
         audioTracks: [PlaybackAudioTrack]
     ) {
         self.videoRepresentations = videoRepresentations
+        self.fallbackVideoRepresentations = fallbackVideoRepresentations
+        self.hdrVideoCandidates = hdrVideoCandidates
         self.audioTracks = audioTracks
     }
 }

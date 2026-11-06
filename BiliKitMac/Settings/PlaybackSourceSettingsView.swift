@@ -4,7 +4,7 @@ import BiliUI
 import Foundation
 import SwiftUI
 
-/// 设置窗口的表单：响度均一化（只在支持的系统上显示）、新播放优先线路与线路测速参考。
+/// 设置窗口的表单：HDR 视频与无损音频开关、新播放优先线路与线路测速参考。
 ///
 /// 只绑定进程级 `AppSettingsModel`；窗口消失时调用 `closeSettings()` 取消测速并丢弃结果。
 struct PlaybackSourceSettingsView: View {
@@ -14,19 +14,22 @@ struct PlaybackSourceSettingsView: View {
 
     var body: some View {
         Form {
-            if LoudnessNormalizationPolicy.isSupported {
-                Section("音频") {
-                    Toggle(
-                        "响度均一化",
-                        isOn: loudnessNormalizationEnabled
-                    )
-                    Text("将较响的视频压低到统一响度，较安静的视频保持原样；开启后整体会变小，可调高音量补偿。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    Text("只影响下一次新播放，当前播放不会改变或重建。缺少响度信息时保持原始响度。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+            Section("视频") {
+                Toggle("HDR 视频", isOn: $model.hdrVideoEnabled)
+                Text(
+                    "窗口所在的屏幕能显示 HDR 时，有 HDR 真彩或杜比视界的视频以 HDR 播放。低电量模式或使用蜂窝数据、个人热点等受限网络时不使用 HDR。改动只影响之后新开始的播放。"
+                )
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            }
+
+            Section("音频") {
+                Toggle("无损音频", isOn: $model.losslessAudioEnabled)
+                Text(
+                    "有 Hi-Res 无损音频的视频在网速足够时播放无损版本，流量明显增加。杜比音频由系统按输出设备自动选择。改动只影响之后新开始的播放。"
+                )
+                .font(.footnote)
+                .foregroundStyle(.secondary)
             }
 
             Section("播放线路") {
@@ -114,13 +117,6 @@ struct PlaybackSourceSettingsView: View {
 
     private var selection: Binding<PlaybackSourceSelection> {
         Binding(get: { model.selection }, set: { model.selection = $0 })
-    }
-
-    private var loudnessNormalizationEnabled: Binding<Bool> {
-        Binding(
-            get: { model.loudnessNormalizationEnabled },
-            set: { model.loudnessNormalizationEnabled = $0 }
-        )
     }
 
     private var benchmarkSampleCount: Binding<Int> {

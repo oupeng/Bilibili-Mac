@@ -57,7 +57,7 @@ SCOPES = {
         "BiliAPI 只依赖 Application/Models/Networking；SwiftProtobuf 只允许出现在这里",
     ),
     f"{SOURCES}/BiliAuth": (
-        {"BiliModels", "BiliApplication", "BiliNetworking", "Security", "CoreGraphics", "CoreImage"},
+        {"BiliModels", "BiliApplication", "BiliNetworking", "Security", "CoreGraphics", "CoreImage", "CryptoKit"},
         "BiliAuth 不能依赖 API、Playback 或界面框架",
     ),
     f"{SOURCES}/BiliPlayback": (
@@ -161,6 +161,8 @@ EXTRA_ALLOWED = {
     "BiliKitMac/Platform/NativeVideoImageLoadingPorts.swift": {"BiliDanmaku", "BiliVideoCollectionUI"},
     "BiliKitMac/Platform/NativeVideoImagePipeline.swift": {"BiliNetworking"},
     "BiliKitMac/Platform/PlaybackPreferencesController.swift": {"AVFoundation"},
+    # 加载时按网络是否昂贵或受限决定能否加入 HDR 档（NWPathMonitor）。
+    "BiliKitMac/Platform/PlaybackHDREnvironment.swift": {"Network"},
     # 播放器动作菜单的「拷贝链接」与卡片菜单共用 BiliVideoCollectionUI 的剪贴板写法（VideoLinkPasteboard）。
     "BiliKitMac/Platform/PlayerActionMenu.swift": {"BiliVideoCollectionUI"},
     "BiliKitMac/Platform/PlayerHostView.swift": {"AVKit", "BiliDanmaku", "BiliPlayback", "BiliVideoCollectionUI"},

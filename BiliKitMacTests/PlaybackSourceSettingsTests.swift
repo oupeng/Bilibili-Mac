@@ -8,7 +8,9 @@ import Testing
 
 @testable import BiliKit
 
-/// 手动线路与响度开关持久化、损坏时回退默认，测速结果只用于排序展示、从不改动手动选择。
+/// 手动线路与 HDR、无损音频开关持久化、损坏时回退默认（开关缺失或损坏时 HDR 按开、无损按关）、已移除的
+/// 响度开关残留被清掉，
+/// 测速结果只用于排序展示、从不改动手动选择。
 ///
 /// 测速只在所有窗口都已登录时进行；取消、登出与 owner 释放都停止测速，失败只映射为不可识别的状态。
 @Suite(.timeLimit(.minutes(1)))
@@ -28,41 +30,41 @@ struct PlaybackSourceSettingsTests {
     }
 
     @Test @MainActor
-    func storeRestoresTheSavedRecordAndDefaultsLoudnessOff() {
+    func storeRestoresTheSavedRecord() {
         withIsolatedDefaults { defaults in
             let store = UserDefaultsPlaybackSourcePreferenceStore(defaults: defaults)
             #expect(store.load() == .defaults)
-            #expect(!store.load().loudnessNormalizationEnabled)
 
             let saved = PlaybackSourcePreferenceRecord(
                 selection: .huaweiMainland,
-                loudnessNormalizationEnabled: true
+                hdrVideoEnabled: false,
+                losslessAudioEnabled: true
             )
             store.save(saved)
             #expect(store.load() == saved)
         }
     }
 
-    /// schema 或线路损坏、类型错写时整条记录回退默认；只有响度开关损坏时保留线路、响度回退关闭。
+    /// schema 或线路损坏、类型错写时只有线路回退默认，两个开关照常读出已存的值。
     @Test(
         arguments: [
-            ("playbackSourcePreference.selection", "unknown", false),
-            ("playbackSourcePreference.selection", 1, false),
-            ("playbackSourcePreference.schema", 99, false),
-            ("playbackSourcePreference.schema", "1", false),
-            ("playbackSourcePreference.schema", true, false),
-            ("playbackSourcePreference.schema", 1.9, false),
-            ("playback.loudnessAttenuation.enabled", "damaged", true)
-        ] as [(String, any Sendable, Bool)]
+            ("playbackSourcePreference.selection", "unknown"),
+            ("playbackSourcePreference.selection", 1),
+            ("playbackSourcePreference.schema", 99),
+            ("playbackSourcePreference.schema", "1"),
+            ("playbackSourcePreference.schema", true),
+            ("playbackSourcePreference.schema", 1.9)
+        ] as [(String, any Sendable)]
     )
     @MainActor
-    func storeFallsBackOnDamagedValues(key: String, damaged: any Sendable, keepsSelection: Bool) {
+    func damagedRouteFallsBackWithoutResettingToggles(key: String, damaged: any Sendable) {
         withIsolatedDefaults { defaults in
             let store = UserDefaultsPlaybackSourcePreferenceStore(defaults: defaults)
             store.save(
                 PlaybackSourcePreferenceRecord(
                     selection: .huaweiMainland,
-                    loudnessNormalizationEnabled: true
+                    hdrVideoEnabled: false,
+                    losslessAudioEnabled: true
                 )
             )
             // 先移除再写：已存的 schema 是整数 1，UserDefaults 视 `true` 与它相等而不覆盖。
@@ -71,9 +73,51 @@ struct PlaybackSourceSettingsTests {
 
             #expect(
                 store.load()
-                    == (keepsSelection
-                        ? PlaybackSourcePreferenceRecord(selection: .huaweiMainland)
-                        : .defaults)
+                    == PlaybackSourcePreferenceRecord(
+                        selection: PlaybackSourcePreferenceRecord.defaults.selection,
+                        hdrVideoEnabled: false,
+                        losslessAudioEnabled: true
+                    )
+            )
+        }
+    }
+
+    /// 两个开关各自独立读取：缺失或类型错写时取默认（HDR 开、无损关）。损坏值选的是宽松读取会读成与默认
+    /// 相反的值（HDR 的 "false"／0、无损的 "1"／1），只有严格按布尔读取才回到默认。
+    @Test(
+        arguments: [(nil, nil), ("false", "1"), (0, 1)] as [((any Sendable)?, (any Sendable)?)]
+    )
+    @MainActor
+    func togglesFallBackToTheirDefaultsWhenMissingOrDamaged(
+        hdrDamaged: (any Sendable)?,
+        losslessDamaged: (any Sendable)?
+    ) {
+        withIsolatedDefaults { defaults in
+            let store = UserDefaultsPlaybackSourcePreferenceStore(defaults: defaults)
+            store.save(
+                PlaybackSourcePreferenceRecord(
+                    selection: .serverAkamai,
+                    hdrVideoEnabled: false,
+                    losslessAudioEnabled: true
+                )
+            )
+            for (key, damaged) in [
+                ("playback.hdrVideo.enabled", hdrDamaged),
+                ("playback.losslessAudio.enabled", losslessDamaged)
+            ] {
+                defaults.removeObject(forKey: key)
+                if let damaged {
+                    defaults.set(damaged, forKey: key)
+                }
+            }
+
+            #expect(
+                store.load()
+                    == PlaybackSourcePreferenceRecord(
+                        selection: .serverAkamai,
+                        hdrVideoEnabled: true,
+                        losslessAudioEnabled: false
+                    )
             )
         }
     }
@@ -91,23 +135,36 @@ struct PlaybackSourceSettingsTests {
         #expect(text.contains("1,234.5 Mbps"))
     }
 
-    /// 旧版实验开关（可放大、仅 macOS 26）含义不同：升级后不沿用，需要用户重新开启，残留会被清掉。
-    @Test @MainActor
-    func legacyExperimentalLoudnessSettingIsNotCarriedOver() {
+    /// 响度均一化已移除：先后两版开关的残留在读取时清掉，不影响线路选择。
+    @Test(arguments: [
+        "playback.loudnessNormalization.enabled",
+        "playback.loudnessAttenuation.enabled"
+    ])
+    @MainActor
+    func retiredLoudnessSettingsAreRemovedOnLoad(key: String) {
         withIsolatedDefaults { defaults in
             let store = UserDefaultsPlaybackSourcePreferenceStore(defaults: defaults)
-            store.save(PlaybackSourcePreferenceRecord(selection: .serverAkamai))
-            defaults.set(true, forKey: "playback.loudnessNormalization.enabled")
+            let saved = PlaybackSourcePreferenceRecord(
+                selection: .serverAkamai,
+                hdrVideoEnabled: true,
+                losslessAudioEnabled: false
+            )
+            store.save(saved)
+            defaults.set(true, forKey: key)
 
-            #expect(!store.load().loudnessNormalizationEnabled)
-            #expect(defaults.object(forKey: "playback.loudnessNormalization.enabled") == nil)
+            #expect(store.load() == saved)
+            #expect(defaults.object(forKey: key) == nil)
         }
     }
 
     @Test @MainActor
     func benchmarkResultNeverChangesManualSelection() async throws {
         let store = MemoryPlaybackSourcePreferenceStore(
-            record: PlaybackSourcePreferenceRecord(selection: .alibabaMainland)
+            record: PlaybackSourcePreferenceRecord(
+                selection: .alibabaMainland,
+                hdrVideoEnabled: true,
+                losslessAudioEnabled: false
+            )
         )
         let model = makeSettingsModel(
             store: store,
@@ -273,7 +330,11 @@ struct PlaybackSourceSettingsTests {
         let cancellation = TestEventCounter()
         let invocation = TestEventCounter()
         let store = MemoryPlaybackSourcePreferenceStore(
-            record: PlaybackSourcePreferenceRecord(selection: .serverAkamai)
+            record: PlaybackSourcePreferenceRecord(
+                selection: .serverAkamai,
+                hdrVideoEnabled: true,
+                losslessAudioEnabled: false
+            )
         )
         let model = makeSettingsModel(
             store: store,

@@ -5,7 +5,7 @@ import Testing
 @testable import BiliAuth
 
 /// 账户写入授权器只放行 schema 表里精确形状的 POST，绑定预期账户，只注入 `SESSDATA` 与表单 csrf；收藏移除一次只收
-/// 一个视频条目；「不感兴趣」只收网页的两个原因与有界的追踪 ID；关注只收单个 UP 主的关注与取消。
+/// 一个视频条目；关注只收单个 UP 主的关注与取消。
 @Suite(.timeLimit(.minutes(1)))
 struct BiliAccountWriteRequestAuthorizerTests {
     private static let addPath = "/x/v2/history/toview/add"
@@ -15,15 +15,7 @@ struct BiliAccountWriteRequestAuthorizerTests {
     private static let favoriteDealBody =
         "rid=170001&type=2&add_media_ids=11,12&del_media_ids=&platform=web"
     private static let favoriteRemoveBody = "resources=170001:2&media_id=11&platform=web"
-    private static let likePath = "/x/web-interface/archive/like"
-    private static let coinPath = "/x/web-interface/coin/add"
-    private static let triplePath = "/x/web-interface/archive/like/triple"
     private static let followPath = "/x/relation/modify"
-    private static let dislikePath = "/x/web-interface/feedback/dislike"
-    private static let dislikeCancelPath = "/x/web-interface/feedback/dislike/cancel"
-    private static let dislikeBody =
-        "app_id=100&platform=5&from_spmid=&spmid=333.1007.0.0&goto=av&id=170001&mid=7"
-        + "&track_id=web_rcmd.Track-1_2&feedback_page=1&reason_id=1"
     private static let accountID = "42"
 
     @Test(arguments: [
@@ -49,18 +41,8 @@ struct BiliAccountWriteRequestAuthorizerTests {
     }
 
     @Test(arguments: [
-        (likePath, "aid=170001&like=1"),
-        (likePath, "aid=170001&like=2"),
-        (coinPath, "aid=170001&multiply=1&select_like=0"),
-        (coinPath, "aid=170001&multiply=2&select_like=1"),
-        (triplePath, "aid=170001"),
         (followPath, "fid=7&act=1&re_src=11"),
         (followPath, "fid=7&act=2&re_src=11"),
-        (dislikePath, dislikeBody),
-        (
-            dislikeCancelPath,
-            dislikeBody.replacingOccurrences(of: "reason_id=1", with: "reason_id=4")
-        ),
         (favoriteDealPath, favoriteDealBody),
         (favoriteDealPath, "rid=170001&type=2&add_media_ids=&del_media_ids=13&platform=web"),
         (favoriteRemovePath, favoriteRemoveBody)
@@ -110,21 +92,8 @@ struct BiliAccountWriteRequestAuthorizerTests {
         }
     }
 
-    /// 点赞、投币、三连与关注只收单个稿件或 UP 主与固定取值：投币不超过 2 枚，关注只能关注或取消，网页的统计字段与
-    /// `cross_domain` 都不收。
+    /// 关注只收单个 UP 主与固定取值：只能关注或取消，网页的统计字段都不收。
     @Test(arguments: [
-        (likePath, "aid=170001&like=0"),
-        (likePath, "aid=170001&like=3"),
-        (likePath, "aid=170001"),
-        (likePath, "aid=170001,170002&like=1"),
-        (likePath, "aid=170001&like=1&spmid=333.788.0.0"),
-        (coinPath, "aid=170001&multiply=3&select_like=0"),
-        (coinPath, "aid=170001&multiply=0&select_like=0"),
-        (coinPath, "aid=170001&multiply=1"),
-        (coinPath, "aid=170001&multiply=1&select_like=2"),
-        (coinPath, "aid=170001&multiply=1&select_like=0&cross_domain=true"),
-        (triplePath, "aid=170001&ga=1"),
-        (triplePath, "bvid=BV17x411w7KC"),
         // 同一接口的拉黑（5）、移出黑名单（6）、移除粉丝（7）与悄悄关注（3、4）改动的是另一种关系。
         (followPath, "fid=7&act=5&re_src=11"),
         (followPath, "fid=7&act=3&re_src=11"),
@@ -135,42 +104,12 @@ struct BiliAccountWriteRequestAuthorizerTests {
         (followPath, "fid=7&act=1&re_src=14"),
         (followPath, "fid=7&act=1&re_src=11&gaia_source=web_main")
     ])
-    func rejectsEngagementBodiesOutsideTheSchema(path: String, body: String) async throws {
+    func rejectsFollowBodiesOutsideTheSchema(path: String, body: String) async throws {
         let authorizer = try makeAuthorizer()
 
         await #expect(throws: BiliRequestAuthorizationError.requestNotAllowed) {
             try await authorizer.authorize(
                 try writeRequest(path: path, body: body),
-                boundTo: Self.accountID
-            )
-        }
-    }
-
-    /// 「不感兴趣」只收网页首页的两个原因、单个稿件、正的 UP 主 ID 与只含字母数字和 `._-` 的追踪 ID（有长度上限）；
-    /// 固定字段不能改，多余字段不收。
-    @Test(arguments: [
-        dislikeBody.replacingOccurrences(of: "reason_id=1", with: "reason_id=2"),
-        dislikeBody.replacingOccurrences(of: "&reason_id=1", with: ""),
-        dislikeBody.replacingOccurrences(of: "mid=7", with: "mid=0"),
-        dislikeBody.replacingOccurrences(of: "mid=7", with: "mid=-1"),
-        dislikeBody.replacingOccurrences(of: "id=170001", with: "id=0"),
-        dislikeBody.replacingOccurrences(of: "goto=av", with: "goto=bangumi"),
-        dislikeBody.replacingOccurrences(of: "app_id=100", with: "app_id=101"),
-        dislikeBody.replacingOccurrences(of: "web_rcmd.Track-1_2", with: ""),
-        dislikeBody.replacingOccurrences(of: "web_rcmd.Track-1_2", with: "a%2Fb"),
-        dislikeBody.replacingOccurrences(of: "web_rcmd.Track-1_2", with: "a+b"),
-        dislikeBody.replacingOccurrences(
-            of: "web_rcmd.Track-1_2",
-            with: String(repeating: "a", count: 201)
-        ),
-        dislikeBody + "&w_rid=0123456789abcdef"
-    ])
-    func rejectsDislikeBodiesOutsideTheSchema(body: String) async throws {
-        let authorizer = try makeAuthorizer()
-
-        await #expect(throws: BiliRequestAuthorizationError.requestNotAllowed) {
-            try await authorizer.authorize(
-                try writeRequest(path: Self.dislikePath, body: body),
                 boundTo: Self.accountID
             )
         }
@@ -377,7 +316,7 @@ struct BiliAccountWriteRequestAuthorizerTests {
     /// 凭据属于另一个账户时按凭据失效拒绝，但不删除：那可能是另一窗口刚登录的账户。
     @Test
     func rejectsCredentialOfAnotherAccountWithoutDeletingIt() async throws {
-        let store = MemoryWebCredentialStore(credential: try makeFixtureCredential(userID: "7"))
+        let store = MemoryAccountCredentialStore(credential: try makeFixtureCredential(userID: "7"))
         let authorizer = BiliAccountWriteRequestAuthorizer(
             store: store,
             allowedPaths: Set(BiliAccountWriteRequestAuthorizer.schemas.keys)
@@ -399,15 +338,15 @@ struct BiliAccountWriteRequestAuthorizerTests {
     @Test
     func missingCorruptOrExpiredCredentialCannotAuthorize() async throws {
         let missing = BiliAccountWriteRequestAuthorizer(
-            store: MemoryWebCredentialStore(),
+            store: MemoryAccountCredentialStore(),
             allowedPaths: [Self.addPath]
         )
         await #expect(throws: BiliRequestAuthorizationError.missingCredential) {
             try await missing.authorize(try writeRequest(path: Self.addPath), boundTo: "42")
         }
 
-        let corruptStore = MemoryWebCredentialStore(
-            loadError: WebCredentialStoreError.corruptCredential
+        let corruptStore = MemoryAccountCredentialStore(
+            loadError: AccountCredentialStoreError.corruptCredential
         )
         let corrupt = BiliAccountWriteRequestAuthorizer(
             store: corruptStore,
@@ -418,7 +357,7 @@ struct BiliAccountWriteRequestAuthorizerTests {
         }
         #expect(corruptStore.deleteCount == 1)
 
-        let expiredStore = MemoryWebCredentialStore(
+        let expiredStore = MemoryAccountCredentialStore(
             credential: try makeFixtureCredential(expiresAt: .distantPast, userID: "42")
         )
         let expired = BiliAccountWriteRequestAuthorizer(
@@ -435,7 +374,7 @@ struct BiliAccountWriteRequestAuthorizerTests {
     @Test
     func unavailableKeychainFailsClosed() async throws {
         let authorizer = BiliAccountWriteRequestAuthorizer(
-            store: MemoryWebCredentialStore(loadError: StubAuthError.storeUnavailable),
+            store: MemoryAccountCredentialStore(loadError: StubAuthError.storeUnavailable),
             allowedPaths: [Self.addPath]
         )
 
@@ -448,7 +387,7 @@ struct BiliAccountWriteRequestAuthorizerTests {
         allowedPaths: Set<String> = Set(BiliAccountWriteRequestAuthorizer.schemas.keys)
     ) throws -> BiliAccountWriteRequestAuthorizer {
         BiliAccountWriteRequestAuthorizer(
-            store: MemoryWebCredentialStore(
+            store: MemoryAccountCredentialStore(
                 credential: try makeFixtureCredential(userID: Self.accountID)
             ),
             allowedPaths: allowedPaths

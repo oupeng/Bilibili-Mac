@@ -841,30 +841,30 @@
         }
       }
     },
-    "该视频在当前服务授权范围内没有 AVPlayer 可用的 AVC/AAC 轨道。" : {
+    "该视频在当前服务授权范围内没有 AVPlayer 可用的 AVC/HEVC/AAC 轨道。" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This video has no AVC/AAC tracks that AVPlayer can use with the current service authorization."
+            "value" : "This video has no AVC/HEVC/AAC tracks that AVPlayer can use with the current service authorization."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "現在のサービス権限では、AVPlayerで使用できるAVC/AACトラックがありません。"
+            "value" : "現在のサービス権限では、AVPlayerで使用できるAVC/HEVC/AACトラックがありません。"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "该视频在当前服务授权范围内没有 AVPlayer 可用的 AVC/AAC 轨道。"
+            "value" : "该视频在当前服务授权范围内没有 AVPlayer 可用的 AVC/HEVC/AAC 轨道。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "在目前的服務授權範圍內，這部影片沒有 AVPlayer 可用的 AVC/AAC 媒體軌。"
+            "value" : "在目前的服務授權範圍內，這部影片沒有 AVPlayer 可用的 AVC/HEVC/AAC 媒體軌。"
           }
         }
       }
@@ -2321,62 +2321,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "不感興趣"
-          }
-        }
-      }
-    },
-    "内容不感兴趣" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Not Interested in This Content"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このコンテンツに興味なし"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "内容不感兴趣"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "內容不感興趣"
-          }
-        }
-      }
-    },
-    "不想看此 UP 主" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Don’t Recommend This Creator"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このクリエイターをおすすめしない"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "不想看此 UP 主"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "不想看此 UP 主"
           }
         }
       }

@@ -134,7 +134,7 @@ struct FeedRepositoryStub: FeedRepository {
         guard let recommendations else { throw ContentApplicationError.unavailable }
         return RecommendationPage(
             videos: recommendations,
-            continuation: continuation ?? RecommendationContinuation(freshIndex: 1),
+            continuation: continuation,
             nextContinuation: nil
         )
     }
@@ -278,11 +278,11 @@ actor AccountWriteRepositoryStub: WatchLaterWriteRepository, FavoritesWriteRepos
     }
 
     func dislike(_ feedback: RecommendationFeedback, accountID: Int64) async throws {
-        try await record("dislike \(feedback.target.bvid) \(feedback.reason) \(accountID)")
+        try await record("dislike \(feedback.target.bvid) \(feedback.reason.id) \(accountID)")
     }
 
     func cancelDislike(_ feedback: RecommendationFeedback, accountID: Int64) async throws {
-        try await record("undislike \(feedback.target.bvid) \(feedback.reason) \(accountID)")
+        try await record("undislike \(feedback.target.bvid) \(feedback.reason.id) \(accountID)")
     }
 
     func waitForCallCount(_ target: Int) async {
@@ -585,8 +585,16 @@ struct UnavailableUploaderVideoRepository: UploaderVideoRepository {
     func uploaderVideos(
         ownerID: Int64,
         order: UploaderVideoOrder,
-        page: Int
-    ) async throws -> UploaderVideoPage {
+        after cursor: UploaderVideoCursor?
+    ) async throws -> UploaderVideoBatch {
+        throw ContentApplicationError.unavailable
+    }
+
+    func searchUploaderVideos(
+        ownerID: Int64,
+        keyword: String,
+        after cursor: UploaderVideoCursor?
+    ) async throws -> UploaderVideoBatch {
         throw ContentApplicationError.unavailable
     }
 }

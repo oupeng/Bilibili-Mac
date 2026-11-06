@@ -21,16 +21,19 @@ var machineGeneratedEnglishCatalog: [String: Any] {
     ]
 }
 
-/// 一个视频轨、一个音轨的 DASH playurl 响应；可附带语言目录、当前语言与制作类型、响度元数据。
+/// 一个视频轨、一个音轨的 DASH playurl 响应；可附带语言目录、当前语言与制作类型。
+///
+/// `audioPath` 为 nil 时 `dash.audio` 是 `null`，即没有音轨的稿件；`additionalDash` 原样并入 `dash`
+/// （`dolby`、`flac` 等）。
 func semanticAudioResponse(
-    audioPath: String,
+    audioPath: String?,
     languageCatalog: [String: Any]? = nil,
     currentLanguage: String? = nil,
     currentProductionType: Int? = nil,
-    volume: [String: Any]? = nil
+    additionalDash: [String: Any] = [:]
 ) throws -> HTTPResponse {
     var data: [String: Any] = [
-        "dash": [
+        "dash": additionalDash.merging([
             "video": [
                 [
                     "id": 32,
@@ -49,23 +52,25 @@ func semanticAudioResponse(
                     ]
                 ]
             ],
-            "audio": [
+            "audio": audioPath.map { audioPath -> Any in
                 [
-                    "id": 30_280,
-                    "codecid": 0,
-                    "codecs": "mp4a.40.2",
-                    "mime_type": "audio/mp4",
-                    "bandwidth": 192_000,
-                    "base_url":
-                        "https://media.fixture.bilivideo.com/\(audioPath)",
-                    "backup_url": [],
-                    "segment_base": [
-                        "initialization": "0-99",
-                        "index_range": "100-199"
+                    [
+                        "id": 30_280,
+                        "codecid": 0,
+                        "codecs": "mp4a.40.2",
+                        "mime_type": "audio/mp4",
+                        "bandwidth": 192_000,
+                        "base_url":
+                            "https://media.fixture.bilivideo.com/\(audioPath)",
+                        "backup_url": [],
+                        "segment_base": [
+                            "initialization": "0-99",
+                            "index_range": "100-199"
+                        ]
                     ]
                 ]
-            ]
-        ]
+            } ?? NSNull()
+        ]) { $1 }
     ]
     if let languageCatalog {
         data["language"] = languageCatalog
@@ -75,9 +80,6 @@ func semanticAudioResponse(
     }
     if let currentProductionType {
         data["cur_production_type"] = currentProductionType
-    }
-    if let volume {
-        data["volume"] = volume
     }
     return HTTPResponse(
         statusCode: 200,
@@ -95,4 +97,21 @@ extension VideoPlayback {
         guard case .dash(let manifest) = media else { return nil }
         return manifest
     }
+}
+
+/// 一条音频 representation 的 playurl 形状。
+func audioRepresentationPayload(id: Int, codecs: String, path: String) -> [String: Any] {
+    [
+        "id": id,
+        "codecid": 0,
+        "codecs": codecs,
+        "mime_type": "audio/mp4",
+        "bandwidth": 1_000_000,
+        "base_url": "https://media.fixture.bilivideo.com/\(path)",
+        "backup_url": [],
+        "segment_base": [
+            "initialization": "0-99",
+            "index_range": "100-199"
+        ]
+    ]
 }
