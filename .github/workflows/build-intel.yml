@@ -99,136 +99,81 @@ jobs:
           EOF
           python3 generate_icons.py
 
-      - name: Apply All Patches (v1.5.0 Compatible, Auto-Fix Code, TeamID & Keychain)
+      - name: Apply All Patches (v1.7.0 TV Login, Keychain Fix & Auto-Fix)
         run: |
           cat << 'EOF' > patch_all.py
           import os, re, subprocess
 
-          # 1. 自动写入 WebCredentialStore.swift 双保险持久化，抵御 Sync Fork 覆盖
+          # 1. 核心修复：彻底解决 Keychain 权限拦截与“登录未完成”弹窗
           cred_file = "Packages/BiliKitCore/Sources/BiliAuth/Credential/WebCredentialStore.swift"
           if os.path.exists(cred_file):
-              fixed_store_code = """import Foundation
-          import Security
+              with open(cred_file, "r", encoding="utf-8") as f:
+                  code = f.read()
 
-          protocol WebCredentialStoring: Sendable {
-              func load() throws -> WebCredential?
-              func save(_ credential: WebCredential) throws
-              func delete() throws
-          }
+              # (a) 清除所有 Data Protection Keychain 强制标记（恢复传统登录钥匙串与系统弹窗）
+              code = re.sub(r'[\'"]?kSecUseDataProtectionKeychain[\'"]?\s*(?:as\s*String)?\s*:\s*(?:true|kCFBooleanTrue)\s*,?', '', code)
+              code = re.sub(r'\w+\[\s*kSecUseDataProtectionKeychain\s*(?:as\s*String)?\s*\]\s*=\s*(?:true|kCFBooleanTrue)\s*;?', '', code)
 
-          enum WebCredentialStoreError: Error, Sendable, Equatable {
-              case corruptCredential
-              case interactionNotAllowed
-              case unavailable
-              case operationFailed(OSStatus)
-          }
+              # (b) 清除 Access Groups 限制
+              code = re.sub(r'[\'"]?kSecAttrAccessGroup[\'"]?\s*(?:as\s*String)?\s*:\s*[^,\n\}]+,?', '', code)
+              code = re.sub(r'\w+\[\s*kSecAttrAccessGroup\s*(?:as\s*String)?\s*\]\s*=\s*[^;\n]+;?', '', code)
 
-          struct KeychainWebCredentialStore: WebCredentialStoring, Sendable {
-              static let productionService = "com.shiinayane.BiliKitMac.web-auth"
-              static let productionAccount = "web-credential"
-              private static let fallbackKey = "bili_kit_web_credential_local_backup"
+              # (c) 降级为无需设备绑定的 AfterFirstUnlock
+              code = code.replace("kSecAttrAccessibleWhenUnlockedThisDeviceOnly", "kSecAttrAccessibleAfterFirstUnlock")
 
-              private let service: String
-              private let account: String
-              private let operations: any KeychainOperating
+              # (d) 彻底消除阻断登录的 throw WebCredentialStoreError.unavailable 与 .interactionNotAllowed
+              # 当系统钥匙串因签名或权限报错时，将其直接转为平滑成功（return），由本地 UserDefaults 兜底
+              code = re.sub(r'throw\s+WebCredentialStoreError\.(?:unavailable|interactionNotAllowed)', 'return', code)
 
-              init(
-                  service: String = Self.productionService,
-                  account: String = Self.productionAccount,
-                  operations: any KeychainOperating = SystemKeychainOperations()
-              ) {
-                  self.service = service
-                  self.account = account
-                  self.operations = operations
-              }
-
-              func load() throws -> WebCredential? {
-                  var query = baseQuery
-                  query[kSecReturnData as String] = true
-                  query[kSecMatchLimit as String] = kSecMatchLimitOne
-
-                  let (status, data) = operations.copyMatching(query)
-                  if status == errSecSuccess, let data {
-                      if let cred = try? WebCredentialCodec.decode(data) {
-                          return cred
-                      }
+              # (e) 在 load() 失败处注入 UserDefaults 本地兜底读取
+              fallback_load_snippet = """
+                  if let fallbackData = UserDefaults.standard.data(forKey: "bili_kit_web_credential_local_backup"),
+                     let fallbackCred = try? WebCredentialCodec.decode(fallbackData) {
+                      return fallbackCred
                   }
-                  if let fallbackData = UserDefaults.standard.data(forKey: Self.fallbackKey) {
-                      if let cred = try? WebCredentialCodec.decode(fallbackData) {
-                          return cred
-                      }
+              """
+              if "UserDefaults.standard.data(forKey: \"bili_kit_web_credential_local_backup\")" not in code:
+                  # 在 load 函数的 return nil 前插入 fallback 读取
+                  code = re.sub(r'(\n\s*return\s+nil\s*\n\s*\})', f'\n{fallback_load_snippet}\\1', code, count=1)
+
+              # (f) 在 save() 编码完成后立即注入 UserDefaults 本地备份
+              save_backup_snippet = """
+                  if let backupData = try? WebCredentialCodec.encode(credential) {
+                      UserDefaults.standard.set(backupData, forKey: "bili_kit_web_credential_local_backup")
                   }
-                  if status == errSecItemNotFound { return nil }
-                  return nil
-              }
+              """
+              if "UserDefaults.standard.set(backupData, forKey: \"bili_kit_web_credential_local_backup\")" not in code:
+                  code = re.sub(r'(func\s+save\s*\([^)]*\)[^{]*\{)', f'\\1\n{save_backup_snippet}', code, count=1)
 
-              func save(_ credential: WebCredential) throws {
-                  let encoded: Data
-                  do {
-                      encoded = try WebCredentialCodec.encode(credential)
-                  } catch {
-                      throw WebCredentialStoreError.corruptCredential
-                  }
-                  UserDefaults.standard.set(encoded, forKey: Self.fallbackKey)
+              # (g) 在 delete() 中同步清理本地备份
+              delete_snippet = """
+                  UserDefaults.standard.removeObject(forKey: "bili_kit_web_credential_local_backup")
+              """
+              if "UserDefaults.standard.removeObject(forKey: \"bili_kit_web_credential_local_backup\")" not in code:
+                  code = re.sub(r'(func\s+delete\s*\([^)]*\)[^{]*\{)', f'\\1\n{delete_snippet}', code, count=1)
 
-                  var attributes = baseQuery
-                  attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-                  attributes[kSecAttrLabel as String] = "BiliKit Web 登录凭据"
-                  attributes[kSecValueData as String] = encoded
-
-                  let addStatus = operations.add(attributes)
-                  if addStatus == errSecDuplicateItem {
-                      let update: [String: Any] = [
-                          kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
-                          kSecAttrLabel as String: "BiliKit Web 登录凭据",
-                          kSecValueData as String: encoded
-                      ]
-                      _ = operations.update(query: baseQuery, attributes: update)
-                  }
-              }
-
-              func delete() throws {
-                  UserDefaults.standard.removeObject(forKey: Self.fallbackKey)
-                  _ = operations.delete(baseQuery)
-              }
-
-              private var baseQuery: [String: Any] {
-                  [
-                      kSecClass as String: kSecClassGenericPassword,
-                      kSecAttrService as String: service,
-                      kSecAttrAccount as String: account
-                  ]
-              }
-          }
-
-          protocol KeychainOperating: Sendable {
-              func copyMatching(_ query: [String: Any]) -> (OSStatus, Data?)
-              func add(_ attributes: [String: Any]) -> OSStatus
-              func update(query: [String: Any], attributes: [String: Any]) -> OSStatus
-              func delete(_ query: [String: Any]) -> OSStatus
-          }
-
-          struct SystemKeychainOperations: KeychainOperating, Sendable {
-              func copyMatching(_ query: [String: Any]) -> (OSStatus, Data?) {
-                  var result: CFTypeRef?
-                  let status = SecItemCopyMatching(query as CFDictionary, &result)
-                  return (status, result as? Data)
-              }
-              func add(_ attributes: [String: Any]) -> OSStatus {
-                  SecItemAdd(attributes as CFDictionary, nil)
-              }
-              func update(query: [String: Any], attributes: [String: Any]) -> OSStatus {
-                  SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
-              }
-              func delete(_ query: [String: Any]) -> OSStatus {
-                  SecItemDelete(query as CFDictionary)
-              }
-          }
-          """
               with open(cred_file, "w", encoding="utf-8") as f:
-                  f.write(fixed_store_code)
+                  f.write(code)
+              print("Successfully patched WebCredentialStore.swift with robust Keychain bypass & UserDefaults backup!")
 
-          # 2. 消除 -warnings-as-errors 冲突
+          # 2. 全项目清理 kSecUseDataProtectionKeychain 与 kSecAttrAccessGroup
+          for root, dirs, files in os.walk("."):
+              for file in files:
+                  if file.endswith(".swift"):
+                      path = os.path.join(root, file)
+                      try:
+                          with open(path, "r", encoding="utf-8") as f:
+                              c = f.read()
+                          c2 = re.sub(r'[\'"]?kSecUseDataProtectionKeychain[\'"]?\s*(?:as\s*String)?\s*:\s*(?:true|kCFBooleanTrue)\s*,?', '', c)
+                          c2 = re.sub(r'[\'"]?kSecAttrAccessGroup[\'"]?\s*(?:as\s*String)?\s*:\s*[^,\n\}]+,?', '', c2)
+                          c2 = c2.replace("kSecAttrAccessibleWhenUnlockedThisDeviceOnly", "kSecAttrAccessibleAfterFirstUnlock")
+                          if c != c2:
+                              with open(path, "w", encoding="utf-8") as f:
+                                  f.write(c2)
+                      except Exception:
+                          pass
+
+          # 3. 消除 -warnings-as-errors 冲突
           for root, dirs, files in os.walk("."):
               for file in files:
                   if file.endswith((".swift", ".pbxproj", ".xcconfig")):
@@ -243,7 +188,7 @@ jobs:
                       except Exception:
                           pass
 
-          # 3. 修复 URLSessionRangeTransport.swift 循环引用
+          # 4. 修复 URLSessionRangeTransport.swift 循环引用
           target_file = "Packages/BiliKitCore/Sources/BiliNetworking/Range/URLSessionRangeTransport.swift"
           if os.path.exists(target_file):
               with open(target_file, "r", encoding="utf-8") as f:
@@ -256,7 +201,7 @@ jobs:
                   with open(target_file, "w", encoding="utf-8") as f:
                       f.write(content)
 
-          # 4. 修复 NSColor.quinaryLabelColor 重命名
+          # 5. 修复 NSColor.quinaryLabelColor 重命名
           for root, dirs, files in os.walk("."):
               for file in files:
                   if file.endswith(".swift"):
@@ -271,26 +216,23 @@ jobs:
                       except Exception:
                           pass
 
-          # 5. 【核心修复 v1.5.0】：彻底解决 LoudnessAudioMix.swift 中 .rawValue 与 TrackID 冲突
+          # 6. 向下兼容 LoudnessAudioMix.swift（若存在）
           mix_file = "Packages/BiliKitCore/Sources/BiliPlayback/Audio/LoudnessAudioMix.swift"
           if os.path.exists(mix_file):
               with open(mix_file, "r", encoding="utf-8") as f:
                   m_code = f.read()
-              # 注入 rawValue 兼容扩展，确保无论调用方是否访问 .rawValue 均完全合法
               shim = """import CoreMedia
           extension CMPersistentTrackID {
               var rawValue: CMPersistentTrackID { self }
           }
           """
-              # 整体清理 AVAudioMixInputParametersTrackID 及其链式调用
               m_code = re.sub(r'AVAudioMixInputParametersTrackID(?:\.[a-zA-Z0-9_\(\)]+)*', 'kCMPersistentTrackID_Invalid', m_code)
               m_code = re.sub(r'kCMPersistentTrackID_Invalid(?:\.[a-zA-Z0-9_\(\)]+)+', 'kCMPersistentTrackID_Invalid', m_code)
               m_code = shim + "\n" + m_code
               with open(mix_file, "w", encoding="utf-8") as f:
                   f.write(m_code)
-              print("Patched LoudnessAudioMix.swift with rawValue extension and trackID shim!")
 
-          # 6. 【核心修复】：向下兼容 LoudnessProcessingTap.swift
+          # 7. 向下兼容 LoudnessProcessingTap.swift（若存在）
           loudness_file = "Packages/BiliKitCore/Sources/BiliPlayback/Audio/LoudnessProcessingTap.swift"
           if os.path.exists(loudness_file):
               try:
@@ -324,23 +266,6 @@ jobs:
           """
               with open(loudness_file, "w", encoding="utf-8") as f:
                   f.write(stub_loudness)
-              print("Patched LoudnessProcessingTap.swift successfully!")
-
-          # 7. 移除 App Sandbox 与 Keychain Access Groups（防止钥匙串拦截）
-          for root, dirs, files in os.walk("."):
-              for file in files:
-                  if file.endswith(".entitlements"):
-                      path = os.path.join(root, file)
-                      try:
-                          with open(path, "r", encoding="utf-8") as f:
-                              ent = f.read()
-                          ent = re.sub(r"<key>com.apple.security.app-sandbox</key>\s*<true/>", "<key>com.apple.security.app-sandbox</key><false/>", ent)
-                          ent = re.sub(r"<key>keychain-access-groups</key>\s*<array>.*?</array>", "", ent, flags=re.DOTALL)
-                          with open(path, "w", encoding="utf-8") as f:
-                              f.write(ent)
-                          print(f"Patched entitlements: {path}")
-                      except Exception:
-                          pass
 
           # 8. 禁用 Sparkle 自动更新检查
           for root, dirs, files in os.walk("."):
@@ -359,7 +284,7 @@ jobs:
                       except Exception:
                           pass
 
-          # 9. 注入带有 AppKit 引用且符合 Swift 6 并发安全的主题切换器
+          # 9. 注入符合 Swift 6 并发安全的主题切换器
           app_file = "BiliKitMac/App/BiliKitMacApp.swift"
           if os.path.exists(app_file):
               with open(app_file, "r", encoding="utf-8") as f:
@@ -471,13 +396,24 @@ jobs:
           echo "=== 架构验证 ==="
           lipo -info "$APP_PATH/Contents/MacOS/"*
 
-          # 5. 重新签名并打包
-          ENT_FILE=$(find . -name "*.entitlements" | head -n 1)
-          if [ -n "$ENT_FILE" ]; then
-              codesign --force --deep --sign - --entitlements "$ENT_FILE" "$APP_PATH"
-          else
-              codesign --force --deep --sign - "$APP_PATH"
-          fi
+          # 5. 生成专为 Ad-hoc 免证书签名的干净 Entitlements（无沙盒、全网络通行、不设 Access Group）
+          cat << 'EOF' > adhoc.entitlements
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>com.apple.security.app-sandbox</key>
+              <false/>
+              <key>com.apple.security.network.client</key>
+              <true/>
+              <key>com.apple.security.network.server</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+
+          echo "Signing with clean adhoc.entitlements..."
+          codesign --force --deep --sign - --entitlements adhoc.entitlements "$APP_PATH"
 
           ditto -c -k --keepParent "$APP_PATH" BiliKit-macOS26-Intel.zip
 
