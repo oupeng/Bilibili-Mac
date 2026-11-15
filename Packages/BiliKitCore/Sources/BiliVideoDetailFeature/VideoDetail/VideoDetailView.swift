@@ -5,11 +5,16 @@ import BiliVideoCollectionUI
 import Foundation
 import SwiftUI
 
-/// 已有详情时的播放页主区：播放器、相关推荐横排，以及工具栏标题、副标题、点赞投币收藏一组与弹幕按钮。
+/// 已有详情时的播放页主区：播放器、相关推荐横排，以及工具栏标题、副标题和两组按钮：点赞投币收藏一组，
+/// 发送弹幕与弹幕设置一组。
+///
+/// macOS 26 起相邻的工具栏项会并进同一块玻璃，两组之间用固定宽度的 `ToolbarSpacer` 断开；更早的系统每项各自独立，
+/// 不需要分隔。
 struct VideoDetailView<PlayerContent: View>: View {
     @Environment(\.locale) private var locale
     let context: VideoContext
     let danmakuModel: DanmakuControlsViewModel
+    let danmakuComposer: DanmakuComposerModel?
     let engagementModel: VideoEngagementModel
     let relatedVideoState: RelatedVideoState
     let onSelectRelatedVideo: (String) -> Void
@@ -34,6 +39,14 @@ struct VideoDetailView<PlayerContent: View>: View {
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 VideoEngagementControls(model: engagementModel)
+            }
+            if #available(macOS 26.0, *) {
+                ToolbarSpacer(.fixed, placement: .primaryAction)
+            }
+            if let danmakuComposer {
+                ToolbarItem(placement: .primaryAction) {
+                    DanmakuPostButton(composer: danmakuComposer)
+                }
             }
             ToolbarItem(placement: .primaryAction) {
                 DanmakuControlsView(model: danmakuModel)

@@ -2,6 +2,7 @@ import BiliApplication
 import BiliAuthFeature
 import BiliBrowseFeature
 import BiliLibraryFeature
+import BiliModels
 import BiliVideoDetailFeature
 import SwiftUI
 
@@ -10,7 +11,7 @@ import SwiftUI
 ///
 /// 拥有本窗口的全部模型（浏览、视频、评论、弹幕、认证、稍后再看与稍后再看会话、观看历史、收藏夹列表与夹内页面、UP 主空间、热搜与
 /// 联想、搜索会话）、账户写入的协调者与效果路由、导航协调、
-/// 来源描述与复核参与者、播放器视图、窗口图片管线、评论短链解析、评论图片预览面板与图片保存、Now Playing 与观看进度的连接，以及
+/// 来源描述与复核参与者、播放器视图、窗口图片管线、来源网格的保活、评论短链解析、评论图片预览面板与图片保存、Now Playing 与观看进度的连接，以及
 /// 经 `WindowAdapters` 拿到的具体实现。只引用进程级对象（账户会话、设置、Now Playing 控制器、搜索历史），不创建
 /// 也不关闭它们。视频、弹幕模型与播放器视图必须共享 adapter 里同一个播放器；分别重建会让画面、时间线与弹幕指向
 /// 不同的播放项目。
@@ -40,6 +41,10 @@ final class WindowComposition {
     let accountWrites: AccountWriteCoordinator
     /// 播放页点赞、投币、收藏按钮的状态；窗口级复核参与者，账户只取写入门槛的账户。
     let engagementModel: VideoEngagementModel
+    /// 播放器上发送弹幕的输入胶囊；发送经 `accountWrites`，关窗时 reset。
+    let danmakuComposer: DanmakuComposerModel
+    /// 评论区底部输入框与评论行上的赞、踩；写入经 `accountWrites`，关窗时 reset。
+    let commentWrite: PlaybackCommentWriteModel
     let trendingSearchModel: TrendingSearchViewModel
     let searchSuggestionSource: SearchSuggestionSource
     /// 搜索来源的草稿、筛选与已提交的条件；关窗时由搜索来源的描述 reset。
@@ -62,6 +67,12 @@ final class WindowComposition {
     /// 窗口内所有封面、头像与评论图片共用的匿名有界图片管线。
     let imagePipeline: NativeVideoImagePipeline
     private let imagePipelineOwner = NativeVideoImagePipelineOwner(cacheLimits: .window)
+    /// 各来源网格的保活，保活容器交给 `AppShellView` 构造各来源的网格依赖；关窗时在关闭图片管线之前丢弃。
+    let gridRetainerOwner = NativeVideoGridRetainerOwner()
+    /// 进出播放页的转场；锚点由 `AppShellView` 的 detail 列登记，只弱引用视图，关窗不需要清理。
+    let pageTransitions: NavigationPageTransitions
+    /// 窗口常驻的播放器宿主；关窗时在关闭播放之后拆除。
+    private let playerHostOwner = PlayerHostOwner()
     private let systemNowPlayingCoordinator: SystemNowPlayingWindowCoordinator
     private let watchProgressConnection: WatchProgressWindowConnection
     private let adapters: WindowAdapters
@@ -92,11 +103,23 @@ final class WindowComposition {
             useCase: UploaderVideoUseCase(repository: adapters.uploaderVideoRepository),
             profileUseCase: UploaderProfileUseCase(repository: adapters.uploaderProfileRepository)
         )
+        let pageTransitions = NavigationPageTransitions()
         let navigationCoordinator = AppNavigationCoordinator(
             startPlayback: { videoModel.select($0) },
             stopPlayback: {
                 videoModel.reset()
                 danmakuModel.reset()
+            },
+            pausePlayback: {
+                [playback = adapters.playback, currentTimeline = adapters.currentTimeline] in
+                // 播放器上的 item 是这次请求呈现的那一项时才有画面可留；还在加载时 pause 是空操作，拦不住
+                // 加载完成后的自动起播。
+                guard videoModel.isPresenting(currentTimeline()) else { return false }
+                playback.pause()
+                return true
+            },
+            transitionPage: { [pageTransitions] direction, change, completion in
+                pageTransitions.perform(direction, change: change, completion: completion)
             },
             uploaderSpace: uploaderSpace
         )
@@ -113,6 +136,7 @@ final class WindowComposition {
             useCase: TrendingSearchUseCase(repository: adapters.trendingSearchRepository)
         )
         self.navigationCoordinator = navigationCoordinator
+        self.pageTransitions = pageTransitions
         self.browseModel = browseModel
         self.videoModel = videoModel
         self.commentsModel = commentsModel
@@ -179,6 +203,8 @@ final class WindowComposition {
             recommendationFeedback: RecommendationFeedbackUseCase(
                 repository: adapters.recommendationFeedbackRepository
             ),
+            danmakuPost: DanmakuPostUseCase(repository: adapters.danmakuPostRepository),
+            commentWrite: CommentWriteUseCase(repository: adapters.commentWriteRepository),
             browseModel: browseModel,
             writableAccount: writableAccount,
             publish: { delivery, appliedLocally in
@@ -187,6 +213,31 @@ final class WindowComposition {
             }
         )
         self.accountWrites = accountWrites
+        // 发出成功的弹幕交给同一个弹幕会话上屏；发送时刻取同一个播放器的时间线。
+        let danmakuComposer = DanmakuComposerModel(
+            presentation: adapters.danmakuPresentation,
+            timeline: adapters.currentTimeline,
+            canPost: { accountWrites.isWritable },
+            post: { request, completion in
+                accountWrites.postDanmaku(request, completion: completion)
+            }
+        )
+        self.danmakuComposer = danmakuComposer
+        commentWrite = PlaybackCommentWriteModel(
+            comments: commentsModel,
+            canWrite: { accountWrites.isWritable },
+            uploaderID: { subject in
+                videoModel.presentedContext.flatMap { context in
+                    context.detail.aid == subject.oid ? context.detail.owner.id : nil
+                }
+            },
+            post: { request, completion in
+                accountWrites.postComment(request, completion: completion)
+            },
+            react: { operation, rollback in
+                accountWrites.setCommentReaction(operation, rollback: rollback)
+            }
+        )
         self.trendingSearchModel = trendingSearchModel
         searchSuggestionSource = SearchSuggestionSource(
             useCase: SearchSuggestionUseCase(repository: adapters.searchSuggestionRepository)
@@ -233,10 +284,12 @@ final class WindowComposition {
                     navigationCoordinator.openPlayback(bvid)
                 },
                 canWriteAccount: { accountWrites.isWritable },
+                danmakuComposer: danmakuComposer,
                 addToWatchLater: { bvid in accountWrites.addToWatchLater(bvid: bvid) },
                 continuePlayback: { [navigationCoordinator] bvid, preferredCID in
                     navigationCoordinator.continuePlayback(bvid, preferredCID: preferredCID)
-                }
+                },
+                playerHost: playerHostOwner
             )
         )
         commentAssetURLResolver = adapters.commentAssetURLResolver
@@ -269,9 +322,10 @@ final class WindowComposition {
 
     /// 关窗；不可逆，重复调用不再动作。
     ///
-    /// 按顺序：先从进程级测速注销本窗口；再关闭播放（停止播放器、字幕与弹幕）并恢复新窗口的来源；各来源
-    /// 丢弃内容；取消认证临时任务与评论；取消在途账户写入并从写入效果集线器注销；取消短链解析；关闭评论图片预览（挂在它上面
-    /// 的保存面板按取消结束）再取消图片保存；停止观看进度与 Now Playing；关闭图片管线；最后
+    /// 按顺序：先从进程级测速注销本窗口；再关闭播放（停止播放器、字幕与弹幕）并恢复新窗口的来源；拆除常驻的播放器
+    /// 宿主（断开 player、释放弹幕 surface），放在关闭播放之后，停止播放换掉 item 时宿主仍在观察，弹幕按换 item 的同一
+    /// 路径清屏，拆除只剩解绑与断开；各来源丢弃内容；取消认证临时任务与评论；取消在途账户写入（含弹幕）、清空弹幕输入胶囊并从写入效果集线器注销；取消短链解析；关闭评论图片预览（挂在它上面
+    /// 的保存面板按取消结束）再取消图片保存；停止观看进度与 Now Playing；丢弃保活的网格；关闭图片管线；最后
     /// 由 adapter 取消弹幕的内存压力监听、停止播放偏好的持久化、注销窗口 API 的会话并失效短链 session（只在打开过
     /// 之后）。模型与连接先停下自己的任务，再拆掉它们依赖的 adapter。
     func close() {
@@ -279,11 +333,14 @@ final class WindowComposition {
         isClosed = true
         process.settings.removeAuthenticationOwner(benchmarkAuthenticationOwnerID)
         navigationCoordinator.resetForWindowClosure()
+        playerHostOwner.close()
         sources.resetForWindowClosure()
         authenticationModel.cancelTransientWork()
         commentsModel.reset()
         accountWrites.close()
         engagementModel.reset()
+        danmakuComposer.reset()
+        commentWrite.reset()
         if let accountWriteEffectRegistration {
             process.accountWriteEffects.unregister(accountWriteEffectRegistration)
         }
@@ -292,6 +349,7 @@ final class WindowComposition {
         commentImageSaver.cancel()
         watchProgressConnection.stop()
         systemNowPlayingCoordinator.close()
+        gridRetainerOwner.close()
         imagePipelineOwner.shutdown()
         if isOpen {
             adapters.close()

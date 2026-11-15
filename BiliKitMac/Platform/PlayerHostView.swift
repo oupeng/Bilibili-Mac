@@ -9,8 +9,8 @@ import SwiftUI
 
 /// 把唯一 `AVPlayer` 宿主与弹幕 overlay 组合为稳定的播放 surface。
 ///
-/// 响应式页面可以重排这个 View，但不应创建第二个 player host；AppKit host 的销毁会
-/// 主动断开 player 并释放弹幕 surface ownership。
+/// 响应式页面可以重排这个 View，但不应创建第二个 player host：AppKit 宿主归窗口的 `PlayerHostOwner`，这个 View
+/// 卸载时宿主只被摘下，关窗时才断开 player 并释放弹幕 surface ownership。
 struct PlayerHostView: View {
     @State private var previewEndedNotice: String?
     let player: SeekTrackingPlayer
@@ -25,6 +25,8 @@ struct PlayerHostView: View {
     let toggleDanmaku: (() -> Bool)?
     let toggleSubtitles: (() async -> NativeSubtitleToggleResult)?
     let engagementShortcuts: PlayerEngagementShortcuts?
+    /// 回车呼出的发送弹幕输入胶囊；为 nil 时回车不响应。
+    let danmakuComposer: DanmakuComposerModel?
     /// 点击弹幕关联视频卡片时在应用内打开该视频（参数是 BV 号）；为 nil 时卡片不接点击。
     let openDanmakuLinkedVideo: ((String) -> Void)?
     let actionMenu: PlayerActionMenuActions
@@ -32,6 +34,8 @@ struct PlayerHostView: View {
     let timelineUpdates: (() -> AsyncStream<PlaybackTimelineSnapshot>)?
     /// 登记宿主视图，供加载时按播放器所在屏幕判断 HDR。
     let hdrEnvironment: PlaybackHDREnvironment
+    /// 窗口常驻的宿主；见 `PlayerHostOwner`。
+    let hostOwner: PlayerHostOwner
 
     init(
         player: SeekTrackingPlayer,
@@ -46,11 +50,13 @@ struct PlayerHostView: View {
         toggleDanmaku: (() -> Bool)? = nil,
         toggleSubtitles: (() async -> NativeSubtitleToggleResult)? = nil,
         engagementShortcuts: PlayerEngagementShortcuts? = nil,
+        danmakuComposer: DanmakuComposerModel? = nil,
         openDanmakuLinkedVideo: ((String) -> Void)? = nil,
         actionMenu: PlayerActionMenuActions,
         playbackEnd: PlayerPlaybackEndActions,
         timelineUpdates: (() -> AsyncStream<PlaybackTimelineSnapshot>)? = nil,
-        hdrEnvironment: PlaybackHDREnvironment
+        hdrEnvironment: PlaybackHDREnvironment,
+        hostOwner: PlayerHostOwner
     ) {
         self.player = player
         self.danmakuRenderer = danmakuRenderer
@@ -64,11 +70,13 @@ struct PlayerHostView: View {
         self.toggleDanmaku = toggleDanmaku
         self.toggleSubtitles = toggleSubtitles
         self.engagementShortcuts = engagementShortcuts
+        self.danmakuComposer = danmakuComposer
         self.openDanmakuLinkedVideo = openDanmakuLinkedVideo
         self.actionMenu = actionMenu
         self.playbackEnd = playbackEnd
         self.timelineUpdates = timelineUpdates
         self.hdrEnvironment = hdrEnvironment
+        self.hostOwner = hostOwner
     }
 
     var body: some View {
@@ -88,11 +96,13 @@ struct PlayerHostView: View {
             toggleDanmaku: toggleDanmaku,
             toggleSubtitles: toggleSubtitles,
             engagementShortcuts: engagementShortcuts,
+            danmakuComposer: danmakuComposer,
             openDanmakuLinkedVideo: openDanmakuLinkedVideo,
             actionMenu: actionMenu,
             playbackEnd: playbackEnd,
             focusIdentity: videoModel?.presentedBVID,
-            hdrEnvironment: hdrEnvironment
+            hdrEnvironment: hdrEnvironment,
+            hostOwner: hostOwner
         )
         .task(id: previewProjectionIdentity) {
             previewEndedNotice = nil
@@ -140,114 +150,6 @@ struct PlayerHostView: View {
     }
 }
 
-private struct AVPlayerContainerView: NSViewRepresentable {
-    let player: SeekTrackingPlayer
-    let renderer: CoreAnimationDanmakuRenderer
-    let controller: DanmakuPresentationController
-    let blocksNativePlaybackInteraction: Bool
-    let resumeNotice: PlaybackResumeNotice?
-    let previewEndedNotice: String?
-    let restartFromBeginning: () -> Void
-    let beginMomentaryPlaybackRate: ((Float) -> UUID?)?
-    let endMomentaryPlaybackRate: ((UUID) -> Void)?
-    let seekByTransportOffset: ((Double) -> Bool)?
-    let adjustVolume: ((Float) -> Float)?
-    let togglePlayback: (() -> Bool?)?
-    let toggleDanmaku: (() -> Bool)?
-    let toggleSubtitles: (() async -> NativeSubtitleToggleResult)?
-    let engagementShortcuts: PlayerEngagementShortcuts?
-    let openDanmakuLinkedVideo: ((String) -> Void)?
-    let actionMenu: PlayerActionMenuActions
-    let playbackEnd: PlayerPlaybackEndActions
-    let focusIdentity: String?
-    let hdrEnvironment: PlaybackHDREnvironment
-
-    func makeNSView(context: Context) -> NativePlayerHostView {
-        let view = NativePlayerHostView(
-            renderer: renderer,
-            controller: controller,
-            beginMomentaryPlaybackRate: beginMomentaryPlaybackRate,
-            endMomentaryPlaybackRate: endMomentaryPlaybackRate,
-            seekByTransportOffset: seekByTransportOffset,
-            adjustVolume: adjustVolume,
-            togglePlayback: togglePlayback,
-            toggleDanmaku: toggleDanmaku,
-            toggleSubtitles: toggleSubtitles
-        )
-        view.engagementShortcuts = engagementShortcuts
-        view.danmakuOverlay.openLinkedVideo = openDanmakuLinkedVideo
-        view.setActionMenu(actionMenu, openURL: context.environment.openURL)
-        view.startPlaybackEndObservation(playbackEnd)
-        view.attachPlayer(player)
-        view.setPlaybackPreparationBlocked(blocksNativePlaybackInteraction)
-        view.showsFullScreenToggleButton = true
-        view.allowsPictureInPicturePlayback = true
-        view.setResumeNotice(
-            resumeNotice,
-            restartFromBeginning: restartFromBeginning
-        )
-        view.setPreviewEndedNotice(previewEndedNotice)
-        view.requestInitialKeyboardFocus(for: focusIdentity)
-        hdrEnvironment.playerView = view
-        return view
-    }
-
-    /// 给了确定的宽高就直接采用：播放器总是铺满布局给它的区域，不需要 SwiftUI 量它的固有尺寸。
-    ///
-    /// 不实现时，SwiftUI 每次布局都经 Auto Layout 量一遍 `AVPlayerView` 连同原生控制条的整棵约束；控制条的剩余
-    /// 时间每变一次（播放每秒一次、倍速更频繁、拖进度条时连续）都让固有尺寸失效，主线程跟着重量一遍。宽或高未定
-    /// 的询问（理想尺寸）返回 nil，沿用系统的测量。
-    func sizeThatFits(
-        _ proposal: ProposedViewSize,
-        nsView: NativePlayerHostView,
-        context: Context
-    ) -> CGSize? {
-        guard let width = proposal.width, let height = proposal.height else { return nil }
-        return CGSize(width: width, height: height)
-    }
-
-    func updateNSView(_ view: NativePlayerHostView, context: Context) {
-        view.setPlaybackPreparationBlocked(blocksNativePlaybackInteraction)
-        view.requestMomentaryPlaybackRate = beginMomentaryPlaybackRate
-        view.finishMomentaryPlaybackRate = endMomentaryPlaybackRate
-        view.seekByTransportOffset = seekByTransportOffset
-        view.adjustVolume = adjustVolume
-        view.togglePlayback = togglePlayback
-        view.toggleDanmaku = toggleDanmaku
-        view.toggleSubtitles = toggleSubtitles
-        view.engagementShortcuts = engagementShortcuts
-        view.danmakuOverlay.openLinkedVideo = openDanmakuLinkedVideo
-        view.setActionMenu(actionMenu, openURL: context.environment.openURL)
-        view.setResumeNotice(
-            resumeNotice,
-            restartFromBeginning: restartFromBeginning
-        )
-        view.setPreviewEndedNotice(previewEndedNotice)
-        view.requestInitialKeyboardFocus(for: focusIdentity)
-        if view.player !== player {
-            view.cancelMomentaryPlaybackRate()
-            view.attachPlayer(player)
-        }
-    }
-
-    /// 在 SwiftUI 销毁宿主时先撤销弹幕 surface，再断开 AVPlayer，避免旧 host 继续呈现。
-    static func dismantleNSView(
-        _ view: NativePlayerHostView,
-        coordinator: ()
-    ) {
-        view.setResumeNotice(nil, restartFromBeginning: {})
-        view.setPreviewEndedNotice(nil)
-        view.stopPlaybackEndObservation()
-        view.danmakuOverlay.detachSurface()
-        view.danmakuOverlay.bind(to: nil)
-        view.stopObservingFocusLoss()
-        view.stopObservingPlayerItemChanges()
-        view.stopKeyboardMonitoring()
-        view.cancelMomentaryPlaybackRate()
-        view.player = nil
-    }
-}
-
 /// 唯一的播放器 AppKit 宿主：`AVPlayerView` 子类，在 content overlay 上挂弹幕层与 SwiftUI
 /// 提示浮层。
 ///
@@ -256,9 +158,9 @@ private struct AVPlayerContainerView: NSViewRepresentable {
 /// controller（本地 key monitor）、浮层模型、player 的三个 KVO 观察与在途 seek 通知观察、当前 item 的
 /// 两个 KVO 观察与时间跳转观察，以及失焦通知观察；不拥有 player、弹幕 renderer 与弹幕 controller，它们由
 /// 窗口组装持有。
-/// 拆除由 `AVPlayerContainerView.dismantleNSView` 按顺序进行：清除提示、停止播完的处理、撤销弹幕 surface、
-/// 解开弹幕时钟与 item timebase 的绑定、停止失焦与 player 观察、停止键盘监听、结束临时倍速，最后断开
-/// player。`currentItem` 变化时先让弹幕 overlay 换绑时钟（见 `DanmakuOverlayView.bind(to:)`）。
+/// 宿主随窗口常驻（owner 是 `PlayerHostOwner`）：播放页挂上与摘下时由 `AVPlayerContainerView` 调用
+/// `mountInPage(playbackEnd:)` 与 `unmountFromPage()`，只开关逐页的观察与提示，player 与弹幕绑定不动；拆除经
+/// `tearDown()`，见它的说明。`currentItem` 变化时先让弹幕 overlay 换绑时钟（见 `DanmakuOverlayView.bind(to:)`）。
 /// `momentaryRatePressID` 记录当前临时倍速对应的按压，结束回调按它比对，旧按压迟到的结束不影响新的
 /// 临时倍速。
 @MainActor
@@ -293,6 +195,14 @@ final class NativePlayerHostView: AVPlayerView {
     var toggleSubtitles: (() async -> NativeSubtitleToggleResult)?
     /// Q／W／E 与长按 Q 的意图；没有时这几个键只被吞掉、不提示。
     var engagementShortcuts: PlayerEngagementShortcuts?
+    /// 发送弹幕的输入胶囊，画在浮层里（`PlayerOverlayModel.danmakuComposer`）。
+    var danmakuComposer: DanmakuComposerModel? {
+        get { overlayModel.danmakuComposer }
+        set {
+            guard overlayModel.danmakuComposer !== newValue else { return }
+            overlayModel.danmakuComposer = newValue
+        }
+    }
 
     init(
         renderer: CoreAnimationDanmakuRenderer,
@@ -336,12 +246,15 @@ final class NativePlayerHostView: AVPlayerView {
         // 浮层与 content overlay 等大；不按窗口安全区缩进，否则播放器滚到工具栏下或全屏时提示位置
         // 与“从头播放”的点击区域会偏移。
         overlayHostingView.safeAreaRegions = []
-        overlayHostingView.interactiveFrame = { [overlayModel] in
-            overlayModel.interactiveFrame
+        overlayHostingView.interactiveFrames = { [overlayModel] in
+            overlayModel.interactiveFrames
         }
         keyboardShortcuts.feedbackPresenter = overlayModel
         actionMenu.presentFeedback = { [overlayModel] feedback in
             overlayModel.showFeedback(.action(feedback))
+        }
+        actionMenu.openDanmakuComposer = { [overlayModel] in
+            overlayModel.danmakuComposer?.present()
         }
         actionPopUpButtonMenu = actionMenu.menu
         keyboardShortcuts.onKeyboardMomentaryRateBegan = {
@@ -388,6 +301,9 @@ final class NativePlayerHostView: AVPlayerView {
         keyboardShortcuts.onChooseFavoriteFolders = { [weak self] in
             guard let self else { return nil }
             return self.engagementShortcuts?.chooseFavoriteFolders(self.isPresentingFullScreen)
+        }
+        keyboardShortcuts.onOpenDanmakuComposer = { [overlayModel] in
+            overlayModel.danmakuComposer?.present()
         }
         installDanmakuOverlayIfNeeded()
     }
@@ -456,13 +372,13 @@ final class NativePlayerHostView: AVPlayerView {
     }
 
     /// 宿主创建时开始按「播放结束后」处理播完，拆除时停止；提示显示在播放器浮层上。
-    func startPlaybackEndObservation(_ actions: PlayerPlaybackEndActions) {
+    private func startPlaybackEndObservation(_ actions: PlayerPlaybackEndActions) {
         playbackEndObserver.start(actions) { [overlayModel] feedback in
             overlayModel.showFeedback(.action(feedback))
         }
     }
 
-    func stopPlaybackEndObservation() {
+    private func stopPlaybackEndObservation() {
         playbackEndObserver.stop()
     }
 
@@ -521,6 +437,49 @@ final class NativePlayerHostView: AVPlayerView {
         lastInitialFocusIdentity = identity
         // 评论图片预览在自己的子窗口面板里，这里只改播放窗口的第一响应者，不影响已打开的预览。
         window.makeFirstResponder(self)
+    }
+
+    /// 拆除宿主：常驻宿主由 `PlayerHostOwner.close()` 在关窗时调用一次，关窗后迟到挂载的不留住宿主由
+    /// `AVPlayerContainerView` 在卸载时调用。
+    ///
+    /// 按顺序：清除提示、停止播完的处理、撤销弹幕 surface、解开弹幕时钟与 item timebase 的绑定、停止失焦与 player
+    /// 观察、停止键盘监听、结束临时倍速，最后断开 player，避免宿主继续呈现。
+    func tearDown() {
+        setResumeNotice(nil, restartFromBeginning: {})
+        setPreviewEndedNotice(nil)
+        stopPlaybackEndObservation()
+        danmakuOverlay.detachSurface()
+        danmakuOverlay.bind(to: nil)
+        stopObservingFocusLoss()
+        stopObservingPlayerItemChanges()
+        stopKeyboardMonitoring()
+        cancelMomentaryPlaybackRate()
+        player = nil
+    }
+
+    /// 播放页挂上宿主时调用，在宿主进入窗口之前：开始这一页的播完观察与键盘监听，丢掉上一页留下的提示，并清空初始
+    /// 焦点记录。
+    ///
+    /// 逐页的状态不随宿主常驻：清空焦点记录后，再次进入同一个视频时 `requestInitialKeyboardFocus` 照样把键盘焦点交给
+    /// 播放器；上一页没消失的提示不会出现在新一页上。新容器可能先于旧容器卸载就把宿主取走，旧容器之后找不到宿主、
+    /// 不会调用 `unmountFromPage()`，所以这里先停掉上一页的播完观察再重新开始。键盘监听在弹幕层装上之前没有锚点
+    /// 窗口，不处理按键。
+    func mountInPage(playbackEnd: PlayerPlaybackEndActions) {
+        lastInitialFocusIdentity = nil
+        pendingInitialFocusIdentity = nil
+        overlayModel.clearFeedback()
+        stopPlaybackEndObservation()
+        startPlaybackEndObservation(playbackEnd)
+        keyboardShortcuts.startMonitoring()
+    }
+
+    /// 播放页卸载、宿主被摘下时调用：停止播完观察（连同在途的处理，迟到的连播与提示不再落到这一页）与键盘监听。
+    ///
+    /// player、弹幕绑定与 item 观察都保留，被换掉的页面带着画面离开；失焦观察与临时倍速在离开窗口时
+    /// （`viewWillMove(toWindow:)`）收掉。
+    func unmountFromPage() {
+        stopPlaybackEndObservation()
+        stopKeyboardMonitoring()
     }
 
     func cancelMomentaryPlaybackRate() {
@@ -650,39 +609,21 @@ final class NativePlayerHostView: AVPlayerView {
         contentOverlayView.addSubview(danmakuOverlay)
         // 快捷键以弹幕层所在窗口为准：AVKit detached 全屏只携带 content overlay，弹幕层随之移动。
         keyboardShortcuts.anchorView = danmakuOverlay
-        keyboardShortcuts.startMonitoring()
         overlayHostingView.translatesAutoresizingMaskIntoConstraints = false
         contentOverlayView.addSubview(
             overlayHostingView,
             positioned: .above,
             relativeTo: danmakuOverlay
         )
-        NSLayoutConstraint.activate([
-            overlayHostingView.leadingAnchor.constraint(
-                equalTo: contentOverlayView.leadingAnchor
-            ),
-            overlayHostingView.trailingAnchor.constraint(
-                equalTo: contentOverlayView.trailingAnchor
-            ),
-            overlayHostingView.topAnchor.constraint(
-                equalTo: contentOverlayView.topAnchor
-            ),
-            overlayHostingView.bottomAnchor.constraint(
-                equalTo: contentOverlayView.bottomAnchor
-            ),
-            danmakuOverlay.leadingAnchor.constraint(
-                equalTo: contentOverlayView.leadingAnchor
-            ),
-            danmakuOverlay.trailingAnchor.constraint(
-                equalTo: contentOverlayView.trailingAnchor
-            ),
-            danmakuOverlay.topAnchor.constraint(
-                equalTo: contentOverlayView.topAnchor
-            ),
-            danmakuOverlay.bottomAnchor.constraint(
-                equalTo: contentOverlayView.bottomAnchor
-            )
-        ])
+        // 弹幕层与浮层都与 content overlay 等大。
+        for view in [danmakuOverlay, overlayHostingView] as [NSView] {
+            NSLayoutConstraint.activate([
+                view.leadingAnchor.constraint(equalTo: contentOverlayView.leadingAnchor),
+                view.trailingAnchor.constraint(equalTo: contentOverlayView.trailingAnchor),
+                view.topAnchor.constraint(equalTo: contentOverlayView.topAnchor),
+                view.bottomAnchor.constraint(equalTo: contentOverlayView.bottomAnchor)
+            ])
+        }
     }
 
     private func beginMomentaryPlaybackRate(
@@ -754,7 +695,7 @@ final class NativePlayerHostView: AVPlayerView {
         focusLossObservers.removeAll()
     }
 
-    func stopKeyboardMonitoring() {
+    private func stopKeyboardMonitoring() {
         keyboardShortcuts.cancelInputSession()
         keyboardShortcuts.stopMonitoring()
     }

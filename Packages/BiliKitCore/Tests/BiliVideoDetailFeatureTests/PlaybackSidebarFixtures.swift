@@ -42,7 +42,7 @@ extension PlaybackSidebarFixtures {
     func presentation(bvid: String) -> NativePlaybackSidebarPresentation {
         presentation(
             bvid: bvid,
-            comments: NativePlaybackCommentsPresentation(model: nil)
+            comments: NativePlaybackCommentsPresentation(model: nil, canWrite: false)
         )
     }
 
@@ -65,7 +65,7 @@ extension PlaybackSidebarFixtures {
                 summaryLinks: context.detail.summaryLinks,
                 selection: selectionProjection(context: context),
                 comments: comments,
-                timestampLimitSeconds: nil
+                timestampLimits: nil
             ),
             overlay: .none
         )
@@ -89,8 +89,16 @@ extension PlaybackSidebarFixtures {
     func commentItemIDs(
         _ comments: NativePlaybackCommentsPresentation
     ) -> [NativePlaybackSidebarItemID] {
+        sidebarPresentation(comments: comments).sections.first { $0.id == .comments }?.items ?? []
+    }
+
+    /// 当前视频的侧栏呈现，评论区换成给定的评论呈现。
+    @MainActor
+    func sidebarPresentation(
+        comments: NativePlaybackCommentsPresentation
+    ) -> NativePlaybackSidebarPresentation {
         let base = presentation(bvid: "BVCurrent")
-        guard let content = base.content else { return [] }
+        guard let content = base.content else { return base }
         return NativePlaybackSidebarPresentation(
             content: NativePlaybackSidebarContent(
                 bvid: content.bvid,
@@ -99,10 +107,10 @@ extension PlaybackSidebarFixtures {
                 summaryLinks: content.summaryLinks,
                 selection: content.selection,
                 comments: comments,
-                timestampLimitSeconds: nil
+                timestampLimits: nil
             ),
             overlay: .none
-        ).sections.first { $0.id == .comments }?.items ?? []
+        )
     }
 
     func commentThread(
@@ -251,7 +259,8 @@ extension PlaybackSidebarFixtures {
             onCloseDialog: onCloseDialog,
             onOpenLink: { _ in },
             onOpenPictures: onOpenPictures,
-            onOpenAuthorSpace: onOpenAuthorSpace
+            onOpenAuthorSpace: onOpenAuthorSpace,
+            rowActions: nil
         )
         item.view.layoutSubtreeIfNeeded()
     }

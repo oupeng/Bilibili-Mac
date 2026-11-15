@@ -5,13 +5,15 @@ import BiliVideoDetailFeature
 import Observation
 
 /// 一个窗口里用户发起的账户写入的 owner：卡片菜单（含首页推荐的「不感兴趣」）、读屏操作、⌘⌫、「收藏到…」面板、
-/// 播放页的点赞、投币、三连按钮与快捷键，以及播放侧栏的关注按钮发出的意图都交给它。
+/// 播放页的点赞、投币、三连按钮与快捷键、播放侧栏的关注按钮、播放器输入胶囊发出的弹幕，以及评论区的发评论与赞踩
+/// （`AccountWriteCoordinator+Comments`）都交给它。
 ///
 /// 拥有每个在途写入的 Task（同一改动同时只有一个）、正在显示的「收藏到…」面板（`favoritePicker`，同时只有一个；归属的
 /// 读取 Task 归面板模型）、写入结果胶囊显示的最新结果与它的消失计时，以及窗口复核的参与者代次。不拥有门槛的判断
 /// （`writableAccount` 由 `WindowComposition` 按窗口账户算出）、写请求本身（`WatchLaterWriteUseCase`、
-/// `FavoritesWriteUseCase`、`VideoEngagementUseCase`、`RecommendationFeedbackUseCase`）、列表与互动状态（乐观改动与回滚在
-/// `WatchLaterViewModel`、`FavoriteFolderViewModel`、`VideoEngagementModel`、`BrowseViewModel`），也不直接刷新其他视图（效果交给本窗口的
+/// `FavoritesWriteUseCase`、`VideoEngagementUseCase`、`RecommendationFeedbackUseCase`、`DanmakuPostUseCase`、`CommentWriteUseCase`）、
+/// 列表与互动状态（乐观改动与回滚在 `WatchLaterViewModel`、`FavoriteFolderViewModel`、`VideoEngagementModel`、`BrowseViewModel`，
+/// 评论的在 `PlaybackCommentsViewModel`，由评论写入模型把回滚交来），也不直接刷新其他视图（效果交给本窗口的
 /// `AccountWriteEffectRouter`，并经进程级集线器转给其他窗口）。
 ///
 /// 每次执行都重新核对：卡片 ID 必须是合法 BVID、窗口此刻满足写入门槛，否则不发请求（菜单项可能是在门槛变化前构造的）。
@@ -52,12 +54,17 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
     @ObservationIgnored private let engagement: VideoEngagementUseCase
     @ObservationIgnored private let engagementModel: VideoEngagementModel
     @ObservationIgnored private let recommendationFeedback: RecommendationFeedbackUseCase
+    @ObservationIgnored private let danmakuPost: DanmakuPostUseCase
+    /// 评论表态与发评论；入口在 `AccountWriteCoordinator+Comments`。
+    @ObservationIgnored let commentWrite: CommentWriteUseCase
     @ObservationIgnored private let browseModel: BrowseViewModel
     @ObservationIgnored private let writableAccount: @MainActor () -> WritableAccount?
     @ObservationIgnored private let publish:
         @MainActor (AccountWriteEffectDelivery, _ appliedLocally: Bool) -> Void
     /// 在途写入，按改动去重；完成、失败或取消时移除。
-    @ObservationIgnored private var inFlight: [AccountWriteChange: Task<Void, Never>] = [:]
+    ///
+    /// 模块内可读，供本类型在其他文件的扩展（`+Comments`）判断某类写入是否在途；只由 `run` 写入。
+    @ObservationIgnored private(set) var inFlight: [AccountWriteChange: Task<Void, Never>] = [:]
     @ObservationIgnored private var reportDismissal: Task<Void, Never>?
     /// 因凭据类失败请求过复核时的账户与会话代次；此后还没有写入成功。
     ///
@@ -78,6 +85,8 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
         engagement: VideoEngagementUseCase,
         engagementModel: VideoEngagementModel,
         recommendationFeedback: RecommendationFeedbackUseCase,
+        danmakuPost: DanmakuPostUseCase,
+        commentWrite: CommentWriteUseCase,
         browseModel: BrowseViewModel,
         writableAccount: @escaping @MainActor () -> WritableAccount?,
         publish: @escaping @MainActor (AccountWriteEffectDelivery, _ appliedLocally: Bool) -> Void
@@ -90,6 +99,8 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
         self.engagement = engagement
         self.engagementModel = engagementModel
         self.recommendationFeedback = recommendationFeedback
+        self.danmakuPost = danmakuPost
+        self.commentWrite = commentWrite
         self.browseModel = browseModel
         self.writableAccount = writableAccount
         self.publish = publish
@@ -264,7 +275,8 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
                 true
             case .watchLaterAdded, .watchLaterRemoved, .favoriteMembershipChanged,
                 .removedFromFavoriteFolder, .recommendationDisliked,
-                .recommendationDislikeCancelled:
+                .recommendationDislikeCancelled, .danmakuPosted, .commentReactionChanged,
+                .commentPosted:
                 false
             }
         }
@@ -276,7 +288,8 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
         case .likeChanged, .coinsAdded, .tripled, .followChanged:
             true
         case .watchLaterAdded, .watchLaterRemoved, .favoriteMembershipChanged,
-            .removedFromFavoriteFolder, .recommendationDisliked, .recommendationDislikeCancelled:
+            .removedFromFavoriteFolder, .recommendationDisliked, .recommendationDislikeCancelled,
+            .danmakuPosted, .commentReactionChanged, .commentPosted:
             false
         }
     }
@@ -331,10 +344,45 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
                 .recommendationDislikeCancelled(let feedback):
                 feedback.target == target
             case .watchLaterAdded, .watchLaterRemoved, .favoriteMembershipChanged,
-                .removedFromFavoriteFolder, .likeChanged, .coinsAdded, .tripled, .followChanged:
+                .removedFromFavoriteFolder, .likeChanged, .coinsAdded, .tripled, .followChanged,
+                .danmakuPosted, .commentReactionChanged, .commentPosted:
                 false
             }
         }
+    }
+
+    /// 发一条弹幕；返回是否发出：BVID 不合法、没有写入账户，或本窗口已有一条弹幕在途时不发。
+    ///
+    /// 结局交给 `completion`（输入胶囊据此上屏或在胶囊下方说明），不进写入结果胶囊：全屏时看不到窗口底部的胶囊，窗口下
+    /// 两处同时说明又重复；也不产生跨视图效果。同一窗口同时只有一条在途，不按正文区分，免得连按回车发出两条。
+    @discardableResult
+    func postDanmaku(
+        _ request: DanmakuPostRequest,
+        completion: @escaping @MainActor (DanmakuPostOutcome) -> Void
+    ) -> Bool {
+        guard let target = VideoWriteTarget(bvid: request.identity.bvid),
+            let account = currentAccount(),
+            !inFlight.keys.contains(where: Self.isDanmakuPost)
+        else { return false }
+        run(
+            .danmakuPosted(target),
+            account: account,
+            write: { [danmakuPost] in
+                try await danmakuPost.post(request, accountID: account.accountID)
+            },
+            finished: { outcome in
+                switch outcome {
+                case .succeeded(let receipt): completion(.posted(receipt))
+                case .failed(let error): completion(.failed(error))
+                case .cancelled: completion(.cancelled)
+                }
+            }
+        )
+        return true
+    }
+
+    private static func isDanmakuPost(_ change: AccountWriteChange) -> Bool {
+        if case .danmakuPosted = change { true } else { false }
     }
 
     /// 打开这个视频的「收藏到…」面板并读取归属。
@@ -434,12 +482,17 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
         report = nil
     }
 
-    private func currentAccount() -> WritableAccount? {
+    /// 此刻的写入账户；窗口已关闭或不满足门槛时为 nil。
+    ///
+    /// 每个写入入口在发出前都用它重新核对，包括本类型其他文件里的扩展。
+    func currentAccount() -> WritableAccount? {
         guard !isClosed else { return nil }
         return writableAccount()
     }
 
     /// `appliedLocally` 在写入成功时求值：本窗口的视图此刻是否已经是写入后的样子。
+    ///
+    /// 结果进写入结果胶囊，成功的效果交给效果路由与其他窗口；写入没有成功（失败或被取消）时先 `rollback`。
     private func start(
         _ change: AccountWriteChange,
         account: WritableAccount,
@@ -447,61 +500,68 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
         rollback: @escaping @MainActor () -> Void = {},
         write: @escaping @MainActor () async throws -> AccountWriteEffect
     ) {
-        guard inFlight[change] == nil else { return }
-        inFlight[change] = Task { [weak self] in
-            do {
-                let effect = try await write()
-                self?.finish(
-                    change,
-                    effect: effect,
-                    account: account,
-                    appliedLocally: appliedLocally
+        run(change, account: account, write: write) { [weak self] outcome in
+            switch outcome {
+            case .succeeded(let effect):
+                // 按服务端确认的改动说明结果：投币附带的点赞没有成立时不说“并点赞”。
+                self?.show(AccountWriteReport(change: effect.change, failure: nil))
+                self?.publish(
+                    AccountWriteEffectDelivery(
+                        effect: effect,
+                        sessionGeneration: account.sessionGeneration
+                    ),
+                    appliedLocally()
                 )
-            } catch is CancellationError {
-                // 关窗，或认证会话在请求途中切换（API 按取消结束）：不显示结果，只回滚本地的乐观改动。
+            case .failed(let error):
                 rollback()
-                self?.inFlight[change] = nil
-            } catch {
+                self?.show(AccountWriteReport(change: change, failure: error))
+            case .cancelled:
                 rollback()
-                self?.fail(
-                    change,
-                    error: error as? AccountWriteError ?? .unavailable,
-                    account: account
-                )
             }
         }
     }
 
-    private func finish(
-        _ change: AccountWriteChange,
-        effect: AccountWriteEffect,
-        account: WritableAccount,
-        appliedLocally: @MainActor () -> Bool
-    ) {
-        inFlight[change] = nil
-        guard !isClosed else { return }
-        revalidationRequestedFor = nil
-        // 按服务端确认的改动说明结果：投币附带的点赞没有成立时不说“并点赞”。
-        show(AccountWriteReport(change: effect.change, failure: nil))
-        publish(
-            AccountWriteEffectDelivery(
-                effect: effect,
-                sessionGeneration: account.sessionGeneration
-            ),
-            appliedLocally()
-        )
+    /// 一次写入的结局，交给发起方的处理。
+    enum Outcome<Value> {
+        case succeeded(Value)
+        case failed(AccountWriteError)
+        /// 被取消（关窗、认证会话在请求途中切换时 API 按取消结束），或失败时窗口已关闭：不说明结果。
+        case cancelled
     }
 
-    private func fail(
+    /// 所有写入共用的在途登记：同一改动同时只有一个；结束时移除登记，凭据类失败按节流请求复核，写入成功清除节流。
+    ///
+    /// 窗口关闭后成功的写入不交给 `finished`（视图已不在），失败的按 `cancelled` 交出，发起方照常回滚本地改动。只由本类型
+    /// 与它在其他文件里的扩展调用，调用方先用 `currentAccount()` 拿到账户；不要绕过它自建 Task，否则关窗取消与复核节流管不到。
+    func run<Value>(
         _ change: AccountWriteChange,
-        error: AccountWriteError,
-        account: WritableAccount
+        account: WritableAccount,
+        write: @escaping @MainActor () async throws -> Value,
+        finished: @escaping @MainActor (Outcome<Value>) -> Void
     ) {
-        inFlight[change] = nil
-        guard !isClosed else { return }
-        show(AccountWriteReport(change: change, failure: error))
-        if error.requiresAccountRevalidation {
-            requestRevalidation(for: account)
+        guard inFlight[change] == nil else { return }
+        inFlight[change] = Task { [weak self] in
+            do {
+                let value = try await write()
+                self?.inFlight[change] = nil
+                guard let self, !self.isClosed else { return }
+                self.revalidationRequestedFor = nil
+                finished(.succeeded(value))
+            } catch is CancellationError {
+                self?.inFlight[change] = nil
+                finished(.cancelled)
+            } catch {
+                self?.inFlight[change] = nil
+                guard let self, !self.isClosed else {
+                    finished(.cancelled)
+                    return
+                }
+                let error = error as? AccountWriteError ?? .unavailable
+                if error.requiresAccountRevalidation {
+                    self.requestRevalidation(for: account)
+                }
+                finished(.failed(error))
+            }
         }
     }
 
@@ -512,7 +572,8 @@ final class AccountWriteCoordinator: AccountRevalidationParticipant {
         authenticationRevalidationGeneration &+= 1
     }
 
-    private func show(_ report: AccountWriteReport) {
+    /// 在写入结果胶囊里显示一条结果并重新计时；只由本类型与它在其他文件里的扩展调用。
+    func show(_ report: AccountWriteReport) {
         self.report = report
         reportSequence &+= 1
         let sequence = reportSequence

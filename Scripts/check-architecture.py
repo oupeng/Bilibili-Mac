@@ -153,6 +153,8 @@ EXTRA_ALLOWED = {
     # 卡片的取封面 port（DanmakuCoverImageLoading）。
     "BiliKitMac/Composition/WatchProgressWindowConnection.swift": {"BiliVideoCollectionUI"},
     "BiliKitMac/Platform/AccountAvatarImage.swift": {"BiliVideoCollectionUI"},
+    # 播放器宿主的 SwiftUI representable：配置 AVPlayerView 子类（AVKit），接收弹幕 renderer 与 controller、播放引擎的字幕切换结果。
+    "BiliKitMac/Platform/AVPlayerContainerView.swift": {"AVKit", "BiliDanmaku", "BiliPlayback"},
     "BiliKitMac/Platform/AppUpdater.swift": {"Sparkle"},
     # 弹幕 overlay 按播放 item 换绑时钟，并把 renderer 的 layer 挂在时钟层下；时钟层由 item timebase 的
     # 通知在后台队列上驱动，弹幕动画随它运行。
@@ -160,6 +162,9 @@ EXTRA_ALLOWED = {
     "BiliKitMac/Platform/DanmakuTimebaseClock.swift": {"CoreMedia", "QuartzCore"},
     "BiliKitMac/Platform/NativeVideoImageLoadingPorts.swift": {"BiliDanmaku", "BiliVideoCollectionUI"},
     "BiliKitMac/Platform/NativeVideoImagePipeline.swift": {"BiliNetworking"},
+    # 窗口网格保活的 owner 持有 BiliVideoCollectionUI 的保活容器，并在内存压力与关窗时调用它；WindowComposition 持有
+    # 这个 owner，AppShellView 只拿到其中的保活容器。
+    "BiliKitMac/Platform/NativeVideoGridRetainerOwner.swift": {"BiliVideoCollectionUI"},
     "BiliKitMac/Platform/PlaybackPreferencesController.swift": {"AVFoundation"},
     # 加载时按网络是否昂贵或受限决定能否加入 HDR 档（NWPathMonitor）。
     "BiliKitMac/Platform/PlaybackHDREnvironment.swift": {"Network"},

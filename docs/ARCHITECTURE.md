@@ -19,9 +19,15 @@
   弱链接符号，不在白名单里的就停止，见 `docs/release/README.md`。
 - 用户可见 App、构建产品与 Swift app module 为 `BiliKit`；仓库、Xcode 工程、内部 App target
   和 `BiliKitMacTests` 保留 `BiliKitMac`，与原 BiliKit userscript 仓库区分。
-- Bundle ID `com.shiinayane.BiliKit`；Debug／Release 相同。Keychain access group 固定为
-  `$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)`，更换 Team 或 Bundle ID 等于换一个
-  Keychain 范围，旧登录态不迁移，也不得扩大 access group 去读取。
+- App 身份按渠道而不按 Debug／Release 区分，只在 `Configuration/BiliKit-Channel.xcconfig` 派生。正式渠道是
+  Bundle ID `com.shiinayane.BiliKit`、显示名 BiliKit、`AppIcon`、正式 feed，只由 `release.py` 的 archive 传
+  `BILIKIT_CHANNEL=Production` 得到，archive 后立即核对；其余构建（本机 Debug 与 Release、Gate、CI）都是
+  开发渠道：`com.shiinayane.BiliKit.dev`、BiliKit Dev、`AppIcon-Dev`、无 feed，渠道值缺失或拼错也回落到开发渠道。
+  开发版因此与安装版分开偏好域、沙盒容器和 Keychain 范围，不检查更新。不采用按 Build Configuration 区分：
+  本机实测常把 Run 切到 Release，那样的包会和正式版无法区分。`PRODUCT_NAME`、模块名与 `CFBundleName`（菜单栏 App 菜单）
+  两个渠道都是 `BiliKit`，进程按 Bundle ID 定位（`open -b`），不按名字。
+- Keychain access group 固定为 `$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)`，更换 Team 或 Bundle ID
+  等于换一个 Keychain 范围，旧登录态不迁移，也不得扩大 access group 去读取。
 - 强调色是资源目录的 `AccentColor`（B 站粉调深，让上面的白字仍可读），界面只经系统强调色（`controlAccentColor`／`Color.accentColor`）取用；
   用户在系统设置里选了具体主题颜色时以系统为准。
 
@@ -92,12 +98,12 @@ BiliNetworking 不依赖任何 Bili 模块
   唯一的观看进度 writer、窗口间的账户写入效果集线器 `AccountWriteEffectHub`、设置与线路测速、系统 Now Playing、
   本机搜索历史与更新器。生产 `BiliAPIClient` 只由 `LiveAPIClients` 构造，各授权器的 allowlist 也只在那里声明。
 - 窗口级 `WindowComposition`（每个窗口一份，由 `AppRootView` 在视图身份首次出现时构造一次）：全部模型、
-  账户写入的协调者与效果路由、导航协调、来源描述与复核参与者、播放器视图、窗口图片管线。它只引用进程级对象，不替它们创建或关闭。
+  账户写入的协调者与效果路由、导航协调、来源描述与复核参与者、播放器视图、窗口图片管线、来源网格的保活。它只引用进程级对象，不替它们创建或关闭。
   具体实现只经 `WindowAdapters` 进入，生产由 `WindowAdapters.live(process:)` 一处构造，测试换成替身后走同一条
   组装路径。
 - 窗口出现时先把当前账户范围同步为观看进度的上报权限，再 `open()`（同时把本窗口的写入效果路由登记进集线器）。窗口消失时 `close()`（不可逆）按序：
-  从进程级测速注销本窗口 → 关闭播放并恢复新窗口的来源 → 各来源丢弃内容 → 取消认证临时任务与评论 → 取消在途账户写入并从集线器注销 → 取消短链
-  解析 → 关闭评论图片预览（挂在上面的保存面板按取消结束）→ 取消图片保存 → 停止观看进度与 Now Playing → 关闭图片管线 → adapter 取消内存压力监听、停止偏好持久化、
+  从进程级测速注销本窗口 → 关闭播放并恢复新窗口的来源 → 拆除常驻的播放器宿主 → 各来源丢弃内容 → 取消认证临时任务与评论 → 取消在途账户写入并从集线器注销 → 取消短链
+  解析 → 关闭评论图片预览（挂在上面的保存面板按取消结束）→ 取消图片保存 → 停止观看进度与 Now Playing → 丢弃保活的网格 → 关闭图片管线 → adapter 取消内存压力监听、停止偏好持久化、
   注销会话并失效短链 session。adapter 这一步只在窗口打开过之后执行。
 
 ### 播放：DASH→HLS loopback bridge
@@ -108,33 +114,51 @@ BiliNetworking 不依赖任何 Bili 模块
 session path，提供内存中生成的 master／media playlist，并把 AVPlayer 的 Range 转发到 CDN。
 
 - SIDX 成功的候选成为该 representation 的唯一远端来源，后续 init、media 与 Range 不跨来源拼字节；
-  正文逐 chunk 流式转发，不整段缓存。上游响应必须通过状态码、`Content-Range` 与长度校验；取消不触发
+  正文逐 chunk 流式转发，不整段缓存。唯一改写字节的地方是全景声组的 init（见下面的音频组），它也只读自
+  同一来源。上游响应必须通过状态码、`Content-Range` 与长度校验；取消不触发
   备用线路，AVPlayer 断开或下游写入失败都按取消处理。
 - 附加档位失败不拖垮播放：某一档视频 SIDX 读取失败只丢弃该档，原声的某个附加音频版本失败只丢那一组，
   某个 AI 配音语言失败就停止后续配音请求；
   全部视频档失败、原声音轨失败、凭据失效或会话变化才让播放失败。读取成功之后生成 playlist 出错仍让整次播放失败。
+  代价是附加档被丢掉时没有任何提示，也不写诊断（日志规则见 SECURITY-MODEL §8）：过滤条件写错时附加格式
+  会一直悄悄缺席，测试与日常播放都看不出来（例如只认杜比视界 profile 8 时，B 站的 profile 5 档永远不会出现）。
+  改附加档的过滤条件时，要用真实 B 站样本的形状写测试，并在 App 里确认这一档确实被选中。
 - 视频编码：每次播放的 SDR 阶梯只用一种编码。按清晰度 ID 比较，HEVC 覆盖 AVC 的全部档位时用 HEVC（8K 等
   HEVC 独有的档位一并加入），同一份 playurl 的 AVC 阶梯留作回退；否则全用 AVC。HEVC 的 item 在就绪前失败时，
   engine 在同一次 load 内换 AVC 阶梯重建一次，回退也失败才算播放失败。阶梯不设分辨率上限，依赖 AVPlayer
   按 player 视图的像素尺寸限制所选分辨率（实测系统行为，文档没有写）。`dash.video` 逐条宽松解码，认不出的
   档位只丢这一条。
-- HDR：SDR 阶梯是 HEVC 时，master 至多再加一个 HDR 档，按杜比视界（126）、HDR 真彩（125）、HDR Vivid（129）
-  的顺序取第一个能用的；这几个 ID 都不进 SDR 阶梯。
+- HDR：SDR 阶梯是 HEVC 时，master 至多再加一个 HDR 档，按杜比视界（126）、HDR 真彩（125）的顺序取第一个
+  能用的；这几个 ID 都不进 SDR 阶梯。HDR Vivid（129）不用，也不进 SDR 阶梯：请求它要在 fnval 里带 16384 位，
+  Web playurl 对此一律返回 -400（游客与登录态相同，实测）。
   AVPlayer 每个 item 只在一个 `VIDEO-RANGE` 内做 ABR，有资格播 HDR 时就选 HDR 且不受视图尺寸限制（实测，与
   Apple 论坛及 HLS Authoring Spec“每种动态范围给完整阶梯”的要求一致）；B 站 HDR 只有一档，选中后弱网也降不到
   SDR，所以只在加载时满足全部条件才加入：“HDR 视频”开关开着、`AVPlayer.eligibleForHDRPlayback`、播放器所在
   屏幕的 EDR 能力大于 1、不在低电量模式、网络不昂贵也不受限。HDR 档的 `VIDEO-RANGE` 取自它的 init：`colr`
-  的 PQ／HLG，或杜比视界 profile 8 基础层（8.4 写 HLG、8.1 写 PQ）加 `SUPPLEMENTAL-CODECS`；有 HDR 档时 SDR
+  的 PQ／HLG，或杜比视界 profile 8 基础层（8.4 写 HLG、8.1 写 PQ）加 `SUPPLEMENTAL-CODECS`，或 `dvh1` 的
+  杜比视界 profile 5（没有基础层，按 Authoring Spec 写 `CODECS="dvh1.05.LL"` 与 PQ、不写 `SUPPLEMENTAL-CODECS`，
+  playurl 的编码与 init 不符时丢弃，master 的 `CODECS` 照抄 playurl）；有 HDR 档时 SDR
   档与全部 I-frame 行也写 `VIDEO-RANGE`，要么都写要么都不写。HDR 档缺帧率、SIDX 没有可播分段、init 不是 HDR 或解析失败、
   时间轴起点与 SDR 档不同时只丢这一档（连同它的 I-frame），在生成字幕 route 之前完成。HEVC 回退到 AVC 时不带 HDR 档。
+  B 站杜比视界 profile 5 稿件的 HEVC SDR 档在 AVPlayer 里画面偏绿（实测），这类稿件只有杜比视界档颜色正确。
   B 站不给 30fps 及以下的 HDR 档，不满足 Authoring Spec 对 HDR 阶梯的要求，这是已知偏离。
 - 音频组：原声的每个版本各成一个 AUDIO group——码率最高的 AAC（默认组）、其余 AAC 档、杜比音频（E-AC-3）、
   “无损音频”开关开着时的 FLAC。每组成员相同（RFC 8216bis §4.4.6.1.1）：原声取这一组的版本、同名“原声”，
   配音只有 AAC、在每组引用同一个 URI；每个视频档（含 HDR 档）与每组各写一行 variant，CODECS 与带宽只计这一组。
-  同名的原声在系统菜单里合并成一项，组之间由 AVPlayer 选择（实测）：AAC 档按网速切换；E-AC-3 写声道数后由
-  系统按输出声道选择，2 声道输出不会选中，所以不进菜单、不手动选；FLAC 只有设了
-  `variantPreferences = .scalabilityToLosslessAudio` 才会在带宽足够时选中。附加版本以默认组原声的 SIDX 起点
-  为准，读取失败、SIDX 没有可播分段、读不出声道等音频格式或起点不同时只丢这一组；无损关时不读 FLAC 的 SIDX。
+  同名的原声在系统菜单里合并成一项，组之间由 AVPlayer 选择（实测）：AAC 档按网速切换；E-AC-3 写声道数后，
+  内置扬声器与 AirPods 都在起播约 2 秒后从 AAC 切到杜比组，所以不进菜单、不手动选；FLAC
+  只有设了 `variantPreferences = .scalabilityToLosslessAudio` 才会在带宽足够时选中。
+  附加版本的 SIDX 起点等于视频或默认组原声之一即可：较早稿件的 AAC 各档都比视频晚约 83 ms 起播，杜比却
+  与视频同从 0 开始（实测）。只认 AAC 会丢掉杜比组，只认视频又会丢掉其余 AAC 组。读取失败、SIDX 没有可播分段、
+  读不出声道等音频格式或起点两者都不等时只丢这一组；AI 配音与原声同组，仍以默认组原声的起点为准。无损关时
+  不读 FLAC 的 SIDX。
+  全景声（`dash.dolby.type == 2`）：B 站 init 的 `dec3` 缺 JOC 扩展字节，码流本身却带 JOC；系统只按 init 的
+  这两个字节决定是否按全景声渲染（实测：缺它们时控制中心显示“多声道”，补上后显示“杜比全景声”）。bridge 读
+  音频格式时顺带在内存里补上 `flag_ec3_extension_type_a = 1` 与 `complexity_index_type_a = 16`，`dec3` 与各级
+  祖先 box 长度加 2，由 loopback 作为这一组的 `EXT-X-MAP` 提供，分段仍按区间转发 CDN；master 按 Apple HLS
+  Authoring Spec 写 `CODECS="ec-3"`、`CHANNELS="16/JOC"`。只改与实测形状相同的 init（唯一 `ec-3`、5 字节
+  `dec3`、一个独立子流且没有依赖子流、32 位 box 长度），结果须恰好多 2 字节并能重新解析；其他形状不改，
+  按普通杜比音频发布。`EXT-X-MAP` 与 `/JOC` 只由同一份改写结果决定。
 - 没有 DASH 但有安全单段 `durl` 时走 progressive MP4 route；不支持多段拼接与 FLV。
 - 没有声音的稿件 `dash.audio` 为 null：清单没有音轨，master 只有视频 variant，不声明 AUDIO group，也不请求
   AI 配音。这时播放时钟由视频渲染推进，item 必须接在 player host 的 `AVPlayerView` 上才会走。
@@ -178,7 +202,8 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
 
 ### 弹幕
 
-- 分段是 protobuf。`BiliAPI` 以 exact 1.38.1 依赖 SwiftProtobuf，`.proto` 自行编写，用同版本 `protoc-gen-swift`
+- 分段是 protobuf。`BiliAPI` 以 exact 1.38.1 依赖 SwiftProtobuf，`.proto` 自行编写，在 `Packages/BiliKitCore` 下
+  运行 `buf generate`（`buf.yaml`／`buf.gen.yaml`，调用 PATH 上同版本的本地 `protoc-gen-swift`，buf 不校验插件版本）
   显式生成并提交 `.pb.swift`，不挂 build plugin：手写 wire reader 要长期自维护 varint、未知字段和恶意长度边界，成本高于约 1.8 MiB 的体积。
   wire 类型解码后立即映射为 `BiliModels.DanmakuEvent`。
 - 系统内存压力的监听由窗口 adapter（`WindowAdapters.live`）持有，与图片管线共用 `SystemMemoryPressureObserver`，
@@ -216,6 +241,10 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
   穿透给 AVKit。点击在应用内打开该视频，走窗口导航的 `openPlayback`，与评论里不带时间的视频链接同一条路。封面经
   BiliDanmaku 的取图 port 由窗口的图片管线加载，到达后只换卡片的封面子层，不重画卡片图；窗口组装播放器时把
   管线交给 renderer，因为构造窗口 adapter 时管线还不存在。
+- 自己发的弹幕：发出成功后由输入胶囊交给弹幕会话（`DanmakuSessionControlling.presentOwnDanmaku`），按时间并入已缓存的分段，
+  与 UP 主弹幕一样不参与重复合并；分段重新读到时服务端那份同 ID 的换成本地这一条，所以只显示一次、始终带边框（画在纹理
+  已有的留白里，不改尺寸，测量与车道布局不变）。只在会话内存里，换视频时随会话清空。不强行挤进已满的车道：取景框依赖的
+  前缀稳定不为它破例，车道满时它与普通弹幕一样可能不上屏。
 - 大会员彩色弹幕的外观按官方贴图的结论内置，不下载分段给的贴图，官方更换贴图时不会跟随。高赞弹幕的赞图标
   同样内置（SF Symbol），与文字一起栅格化进同一张纹理，是测量与纹理缓存 key 的一部分。
 
@@ -248,6 +277,16 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
   下一页游标”，去重与条目上限只在那里（集合层的 `NativeVideoCardContents` 另按卡片 ID 兜底）；收藏夹按页整体替换，翻页
   状态是 `PageReplacementPaging`。
 - 已有内容、且条件与解析出的请求不变时，刷新原地进行：网格不卸载，成功后整体替换并回顶，失败保留已显示内容。
+- 来源网格由窗口保活：切换来源与进出播放页时 SwiftUI 会拆掉根页面，网格的 Coordinator（连同滚动视图、集合视图、
+  滚动位置与锚点）由窗口的 `NativeVideoGridRetainer` 每个来源留住一个，同一来源、同一内容身份再次出现时交回同一个
+  滚动视图，不重建、不重排位置。内容身份给按内容重建视图的来源用：收藏夹换夹时 Feature 整块重建，新夹不沿用旧夹的
+  位置、锚点与图。同一来源同时出现两个实例（过渡中）时留下新的，旧的拆除时照常 `reset()`。
+- 集合视图离开窗口会回收全部卡片，挂回后卡片要重新配置，而窗口图片缓存可能已被别的来源挤掉、又没有磁盘缓存，
+  卡片会先闪占位再重新下载；所以保活的网格离开窗口之前收走卡片正显示的封面与头像（`NativeVideoGridHeldImages`），
+  挂回后先从这里取。摘下期间不记录滚动、不判断翻页：离开窗口时自动 contentInsets 会变、bounds 可能被夹取。
+- 账户变化与关窗时丢弃全部保活的网格（关窗在关闭图片管线之前），系统内存压力时只释放留住的图。不采用让各来源
+  根页面常驻层级、只隐藏不选中的页面：隐藏的 AppKit 视图仍占着 cursor rect、tracking area 与读屏树，
+  NavigationSplitView 的工具栏与标题也要逐页另行仲裁。
 - 网格的差异动画：内容身份变化、不是严格的尾部追加、已在窗口里排过版、没开「减少动态效果」时，快照带差异动画应用。
   动画进行中 `NSCollectionView` 不为新露出的区域创建卡片（纯原生实测约 250ms、0 张），所以网格的 clip view
   （`NativeVideoGridClipView`）在动画中每次视野移动之后补一次无动画的空批量更新，新视野的卡片立即补齐，进行中的动画
@@ -264,7 +303,8 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
 - 空间顶部浮动的一行（返回按钮与空间内搜索框）不随列表滚动；搜索框是 AppKit `NSSearchField`：SwiftUI `.searchable`
   只能放进窗口工具栏，放不进侧栏的上下文层。只在回车或清空时提交，提交后放下焦点，空格与方向键回到播放器快捷键。
 - 图片由窗口级匿名、有界的 `NativeVideoImagePipeline` 加载（Now Playing 封面另有进程级实例）；cell 离屏、复用
-  和 teardown 取消等待者，缓存上界只在 `NativeVideoImageCacheLimits`。
+  和 teardown 取消等待者，缓存上界只在 `NativeVideoImageCacheLimits`。缓存之外只有卡片自己正显示的图，以及保活的
+  网格摘下时替卡片留住的那一份（每个网格以它实例化的卡片数为界）。
 - 评论图片预览的图片区是 AppKit `NSScrollView`：SwiftUI 没有现成的“触控板双指缩放 + 两指平移 + 回弹”容器。
 - 评论图片预览由铺满父窗口的子窗口面板承载，父窗口是被点开的格子所在的窗口（AVKit detached 全屏时仍是主窗口）。
   面板是自己的 key window，而播放器快捷键只截获播放窗口的事件，Esc、←→ 与 ⌘S 直接交给预览；导航、侧栏与工具栏
@@ -292,10 +332,26 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
   动画从初始 frame 移到最终位置，看起来像“飞入”。
 - 横排用 `NSScrollView.automaticallyAdjustsContentInsets` 延伸到侧栏下。不用 SwiftUI 纵向 `ScrollView` 承载
   详情：它延伸进安全区后不再向内容传递横向安全区，只能靠测量 frame 模拟。
-- 播放页压在 NavigationStack 根之上。macOS 没有给压栈页面设底色的接口（`ContainerBackgroundPlacement.navigation`
-  在 macOS 不可用），页面本身透明，播放页必须自铺不透明窗口背景并延伸到工具栏与侧栏下。压栈不带动画：放进
-  `withAnimation` 时 SwiftUI 会把根页面留在下面继续绘制，来源网格白白占着视图层级与绘制，播放页背景有缺口时还会透出；
-  不带动画时根页面随即移除，出栈后重建。
+- 右侧不用 NavigationStack，`AppShellView` 的 detail 视图按 coordinator 只渲染当前页（来源根页或播放页），工具栏
+  「返回」由 App 自绘，根页时整个工具栏项不放。detail 视图必须是独立的 View：写在 `NavigationSplitView` 的 detail
+  闭包里时，闭包内读到的 Observable 状态不会让 detail 列刷新。进入播放页时来源根页随即移除，回来时重建（来源网格由窗口
+  保活原样挂回）。macOS 没有给页面设底色的接口（`ContainerBackgroundPlacement.navigation` 在 macOS 不可用），页面
+  本身透明，播放页自铺不透明窗口背景并延伸到工具栏与侧栏下。这样工具栏「返回」、结果胶囊与转场锚点都在 detail 这一层
+  挂一次，不随换页重建；用 NavigationStack 时挂在它上面的修饰符归根页面所有、压栈后随根页面移除，这些都得每个页面各挂
+  一份，系统返回按钮还要逐页隐藏。
+- 进出播放页的转场（`NavigationPageTransitions`）用 Core Animation 的 `CATransition`，挂在 `NavigationSplitView` 两栏的
+  图层上：主区推移（进入从右、返回从左），侧栏淡入淡出，「减少动态效果」时都淡入淡出；随后在同一次提交里无动画地换页。
+  新旧两个状态由系统合成层截取，视频画面与玻璃材质都在，真实视图不参与动画；截取依赖 SwiftUI 在当前隐式事务提交之前
+  落地换页，这个时序没有文档保证（见 `NavigationPageTransitions`）。工具栏不在两栏里，转场开始时就换成新页面的。只有
+  进入播放页与「返回」转场；同类替换、换来源、登出与关窗不转场。不采用 SwiftUI 自带转场：`PlaybackDetailLayout` 为防新建的 AppKit 视图“飞入”而关掉的
+  事务动画会连整页位移一起关掉，AppKit 列表不随 SwiftUI 位移，`geometryGroup()`／`clipped()` 会打乱横排与网格依赖的
+  自动内容边距，`.animation(_:value:)` 在 detail 列里不触发；也不采用自己拍快照（`cacheDisplay` 拍不到图层内容，
+  `CALayer.render` 把侧栏的玻璃材质画成白板）。
+- 返回时旧页面要带着当前画面离开，所以：播放器宿主随窗口常驻（`PlayerHostOwner`），页面卸载只把它摘下，关窗才拆除；
+  「返回」先暂停，转场结束后才停止播放，期间又进入播放页、换来源、登出或关窗都提前完成这次停止（代次见
+  `AppNavigationCoordinator`）。停止播放与拆宿主都会立即清空画面，任何一个落在换页的同一次提交里，旧页面的视频区都会
+  先变黑。延后只为留住画面：还在加载、没有画面可留时返回立即停止（暂停拦不住加载完成后的自动起播）；延后期间播放
+  已离开播放页，播完的自动连播不再生效，宿主摘下时也停掉了播完观察。
 - AVKit 没有公开进入／退出全屏的方法，`enterFullScreen:`／`exitFullScreen:` 是唯一允许使用的私有 AVKit 接口：
   调用前确认响应，系统移除后 F 键静默无效；是否全屏由公开的 `AVPlayerViewDelegate` 回调记录。
 - 加载转圈分三段衔接：详情未到时是骨架上的转圈；已有详情而 player 还没挂上 item 时由播放器浮层画同款转圈；
@@ -320,8 +376,8 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
   离开停用、账户变化、关窗清理都遍历 `AppSources`；根视图构造与 Browse 激活仍是 `AppTab` 上的穷尽 switch。
 - 侧栏按 `AppSourceGroup` 分段；「收藏夹」组由一个来源为每个收藏夹提供一行，选择值 `AppSidebarSelection`
   让每行带不同的 tag。
-- 右侧栈深最多 1：来源页之上最多一层播放页，换视频只替换当前视频。与首页、热门平级的来源进导航侧栏；
-  围绕当前视频的浏览（UP 主空间）作为侧栏上下文层，不新增右侧压栈层级。
+- 右侧最多两级：来源页，或它之上的一层播放页，换视频只替换当前视频。与首页、热门平级的来源进导航侧栏；
+  围绕当前视频的浏览（UP 主空间）作为侧栏上下文层，不在右侧多加一级。
 - 侧栏 = 底层（导航或播放详情）+ 可选的上下文层。上下文层打开时底层保留状态，但必须真正隐藏：AppKit 底层
   设 `isHidden`，只设 SwiftUI 透明度与 hit testing 管不到 cursor rect 和 tracking area。进出动画只作用于
   上下文层，否则底层集合视图的布局变化也会被做成动画。
@@ -361,7 +417,7 @@ layer 挂在时钟层下，由 item timebase 直接驱动；哪些弹幕在屏�
 登录用 TV 端扫码：成功正文同时带网页 Cookie 与 App 端 access_token、refresh_token，三者存在同一份凭据里，一起过期、一起删除；
 续期用 refresh_token 换回整份新凭据（Cookie 一并换新），由进程唯一的 `AccountCredentialRenewal` 串行执行，认证服务在恢复确认仍登录
 后调用它、等它结束才发布已登录：启动时只在临近到期时续期，复核时强制续期一次，使只有 token 失效的凭据在复核后的重载里恢复；
-续期失败不改变登录状态。网页接口用 Cookie，App 端接口（首页推荐与它的「不感兴趣」，播放页的点赞、投币、三连，UP 主空间投稿）经 App 授权器带 access_token 并签名，读取在未登录时匿名签名，写入从不匿名。协议没有官方稳定文档，按“fixture 固定的外部观察”处理，未知状态一律失败关闭。秘密只在
+续期失败不改变登录状态。网页接口用 Cookie，App 端接口（首页推荐与它的「不感兴趣」，播放页的点赞、投币、三连，UP 主空间投稿，发评论）经 App 授权器带 access_token 并签名，读取在未登录时匿名签名，写入从不匿名。协议没有官方稳定文档，按“fixture 固定的外部观察”处理，未知状态一律失败关闭。秘密只在
 `BiliAuth`；Application 只暴露非秘密认证状态与 `AuthenticationServicing`，二维码图像走 `BiliAuthFeature`
 定义的窄 Presentation port 注入。请求 builder（`RequestAccess` 与请求管线）只在 `BiliAPI` 内部可见，由各域
 endpoint 扩展逐请求选择访问方式，Repository adapter 不自行构造 `RequestAccess`；授权器由 Composition 注入。
@@ -388,7 +444,7 @@ Keychain，并按新 generation 重启依赖账户的内容。账户变化由来
 ### 账户写入
 
 - 链路：卡片菜单、读屏操作与 ⌘⌫ 只转发意图（BVID，收藏夹页的移除是收藏夹与条目 av 号）→ App
-  `Navigation/AccountWriteCoordinator`（每窗口一个，拥有在途写入的 Task、「收藏到…」面板、结果胶囊的最新结果与复核代次）→ BiliApplication 的写 use case → BiliAPI 的 adapter 与 `BiliAPIClient+AccountWrite`
+  `Navigation/AccountWriteCoordinator`（每窗口一个，拥有在途写入的 Task（含发送弹幕与评论写入）、「收藏到…」面板、结果胶囊的最新结果与复核代次）→ BiliApplication 的写 use case → BiliAPI 的 adapter 与 `BiliAPIClient+AccountWrite`
   （表单编码、固定 header、状态 envelope 与 -101／-111 映射只在共用的写管线，heartbeat 也走它）→ 账户写授权器（见
   `SECURITY-MODEL.md` §3）。只有窗口主 API 有写授权器。
 - 门槛由 App 算出后经 SwiftUI 环境注入卡片菜单（BiliUI `VideoCardAccountWriting`），与收藏夹列表读取同一规则，不满足时菜单项
@@ -411,9 +467,27 @@ Keychain，并按新 generation 重启依赖账户的内容。账户变化由来
   粉丝数与投稿数取自名片，只读展示，关注后不在本地增减。意图只带 BVID，协调者从互动状态取 UP 主 mid（自己的视频不发），
   乐观改动与回滚同点赞；互动状态的快照与回滚是整份的，所以关注与点赞、投币、三连在一个窗口里不同时在途。其他窗口按 mid
   重读正在显示同一 UP 主视频的互动状态。
-- 结果胶囊挂在顶层页面与播放页上，而不是整个 `NavigationStack` 外：在 `NavigationSplitView` 的 detail 列里，挂在
-  `NavigationStack` 上的修饰符实际归根页面所有，压栈后随根页面移除。播放页打开时顶层那份不显示，读屏不会把同一条结果
-  通告两次。
+- 发送弹幕：播放器 content overlay 里的输入胶囊（BiliVideoDetailFeature 的 `DanmakuComposerModel`，每窗口一个、关窗时 reset；
+  视图在 App `Platform/`）由回车、播放器动作菜单与播放页工具栏呼出，窗口与 AVKit 独立全屏同一套，不做读取 AVKit 私有视图
+  层级的悬浮按钮。请求交给同一个协调者（`postDanmaku`），窗口里同时只有一条在途、关窗取消、凭据类失败按同一节流复核；
+  结局交回胶囊，不进结果胶囊（全屏看不到窗口底部的胶囊，窗口下两处说明又重复）：失败在胶囊下方说明，成功在播放器顶部
+  提示并通告（弹幕关着或车道已满时画面上看不到那一条），措辞取自结果胶囊的同一套文案。成功不产生跨视图效果。换视频与离开
+  播放页时收起胶囊，草稿不会发到另一个视频上。样式选项是胶囊上方同一浮层里的一行，不用 popover：popover 是另一个窗口，会让输入框失去第一响应者，
+  播放器快捷键随之接管按键。
+- 评论的发表与赞踩：写入状态在 BiliVideoDetailFeature 的 `PlaybackCommentWriteModel`（每窗口一个、关窗时 reset，持有草稿、回复对象、
+  展开状态与失败说明），请求交给同一个协调者（`AccountWriteCoordinator+Comments`）：窗口里同时只有一条评论在发、同一条评论同时
+  只有一次表态在途（赞与踩互斥，两次请求到达服务端的先后不可知），关窗取消、凭据类失败按同一节流复核。表态先在
+  `PlaybackCommentsViewModel` 里乐观改动同一条评论的每一处出现（根评论、预览、当前页、对话），失败或被取消时放回，换对象、换排序、
+  重载（`rootGeneration`）或评论已不是改动后的样子时丢弃回滚；失败进结果胶囊，成功不提示。发评论的结局交回输入卡片，不进结果
+  胶囊；服务端给回的那条按列表的同一映射插入，解不出时只是不插入，不报失败（否则用户会重发一条已发出的评论）。点赞数与表态不进
+  行的 `revision`（正文渲染作用域与行高缓存键），单独的 `reactionRevision` 让这一行就地重新配置，点赞不重新渲染正文。发评论走 App
+  端接口、赞踩走网页，理由见 `SECURITY-MODEL.md` §3。
+- 评论入口是叠在播放侧栏底部的 SwiftUI 浮层：收起时是右下角一枚玻璃圆钮，展开时同一块玻璃改尺寸与圆角长成卡片（内容淡入淡出、
+  按形状裁剪）。不采用两个视图加 `glassEffectID` 的变形：实测在 macOS 上它不论隐式动画、`withAnimation` 还是声明 matched-geometry
+  过渡都直接跳到终态。「返回顶部」是侧栏滚动视图里的 AppKit 按钮，叠在入口上方：入口里一个 `Animatable` 视图按同一条动画曲线逐帧
+  报告看起来的高度，`NativePlaybackComposerClearance` 直接改按钮的 frame（逐帧写 SwiftUI 状态会在渲染中再触发更新）；列表末尾按入口的
+  布局高度留白，展开、收起各变一次。按键与焦点沿用输入胶囊的规则：输入框永不禁用，收起前先同步放下第一响应者，不按失焦收起。
+- 结果胶囊只挂在 detail 视图上一处，来源页与播放页互相替换时它都在，读屏不会把同一条结果通告两次。
 - 首页推荐的「不感兴趣」：反馈走 App 端接口（推荐流来自 App 端，服务端按 access_token 认出是谁的推荐流）。子菜单的原因是
   卡片自己给出的列表（id 与中文名字原样显示，不本地化，不设固定原因），Browse 按选中的原因构造反馈；卡片没给原因就没有这一项。
   标记属于 `BrowseViewModel` 的推荐工作集、跟着卡片走（刷新成功后只留新推荐里仍有的）。协调者先乐观标上或去掉，失败或被取消时凭改动时的工作集身份

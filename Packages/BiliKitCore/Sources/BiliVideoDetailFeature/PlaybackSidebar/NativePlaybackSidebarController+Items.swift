@@ -90,7 +90,14 @@ extension NativePlaybackSidebarController {
                 ? nil
                 : { [weak self] author in
                     self?.releasingFocus { $0.actions.openCommentAuthorSpace?(author) }
-                }
+                },
+            rowActions: actions.reactToComment.map { react in
+                NativePlaybackCommentRowActions(
+                    availability: thread.writeAvailability,
+                    react: react,
+                    reply: { [weak self] in self?.actions.replyToComment?($0) }
+                )
+            }
         )
     }
 
@@ -120,7 +127,7 @@ extension NativePlaybackSidebarController {
             item.configure(
                 summary: content.summary,
                 links: content.summaryLinks,
-                timestampLimitSeconds: content.timestampLimitSeconds,
+                timestampLimits: content.timestampLimits,
                 expanded: summaryExpanded,
                 onToggle: { [weak self] in self?.toggleSummary() },
                 onOpenLink: { [weak self] target in

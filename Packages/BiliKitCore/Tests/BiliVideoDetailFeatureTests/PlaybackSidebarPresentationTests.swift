@@ -132,7 +132,7 @@ struct PlaybackSidebarPresentationTests: PlaybackSidebarFixtures {
                 summaryLinks: content.summaryLinks,
                 selection: content.selection,
                 comments: content.comments,
-                timestampLimitSeconds: nil
+                timestampLimits: nil
             ),
             overlay: .none
         )
@@ -226,8 +226,8 @@ struct PlaybackSidebarPresentationTests: PlaybackSidebarFixtures {
         )
     }
 
-    /// 切换分 P 后可跳转上限变化：只有含时间戳链接的简介与评论重新配置，链接随之更新；行高不变，更新方式与
-    /// 正文修改相同；简介链接本身变化照常重载简介。
+    /// 切换分 P 后可跳转上限变化（换到等长的分 P 也算，`N#` 前缀的时间戳随之变化）：只有含时间戳链接的简介
+    /// 与评论重新配置，链接随之更新；行高不变，更新方式与正文修改相同；简介链接本身变化照常重载简介。
     @Test
     @MainActor
     func timestampLimitChangeReconfiguresOnlyRowsWithTimestamps() async throws {
@@ -245,7 +245,8 @@ struct PlaybackSidebarPresentationTests: PlaybackSidebarFixtures {
         )
         let base = try #require(presentation(bvid: "BVCurrent", comments: comments).content)
         func limited(
-            _ seconds: Int?,
+            _ seconds: Int,
+            selectedPageNumber: Int = 1,
             summaryLinks: [CommentLink]
         ) -> NativePlaybackSidebarPresentation {
             NativePlaybackSidebarPresentation(
@@ -256,7 +257,10 @@ struct PlaybackSidebarPresentationTests: PlaybackSidebarFixtures {
                     summaryLinks: summaryLinks,
                     selection: base.selection,
                     comments: base.comments,
-                    timestampLimitSeconds: seconds
+                    timestampLimits: TimestampSeekLimits(
+                        selectedPageNumber: selectedPageNumber,
+                        limitsByPageNumber: [1: seconds, 2: seconds]
+                    )
                 ),
                 overlay: .none
             )
@@ -271,6 +275,10 @@ struct PlaybackSidebarPresentationTests: PlaybackSidebarFixtures {
 
         #expect(changed == [.summary(bvid: "BVCurrent"), timedThread])
         #expect(limited(120, summaryLinks: [timestamp]).changedItemIDs(comparedTo: short).isEmpty)
+        #expect(
+            limited(120, selectedPageNumber: 2, summaryLinks: [timestamp])
+                .changedItemIDs(comparedTo: short) == [.summary(bvid: "BVCurrent"), timedThread]
+        )
         #expect(
             limited(600, summaryLinks: [])
                 .changedItemIDs(comparedTo: limited(120, summaryLinks: []))
@@ -317,6 +325,35 @@ struct PlaybackSidebarPresentationTests: PlaybackSidebarFixtures {
         )
     }
 
+    /// 点赞数与赞踩不进 `revision`（正文渲染作用域与行高缓存键），只进 `reactionRevision`；这一楼仍算变化、会被重新配置。
+    @Test
+    @MainActor
+    func reactionChangeRefreshesTheRowWithoutChangingItsContentRevision() async throws {
+        let subject = CommentSubjectIdentity.video(aid: 700_001)
+        let thread = commentThread(id: 1, message: "正文")
+        var reacted = thread
+        guard case .available(var details) = reacted.root.payload else {
+            Issue.record("评论应可见")
+            return
+        }
+        details.likeCount += 1
+        details.viewerReaction = .liked
+        reacted.root.payload = .available(details)
+
+        let original = await commentsPresentation(subject: subject, threads: [thread])
+        let changed = await commentsPresentation(subject: subject, threads: [reacted])
+        let before = try #require(original.threads.first)
+        let after = try #require(changed.threads.first)
+
+        #expect(after.revision == before.revision)
+        #expect(after.reactionRevision != before.reactionRevision)
+        #expect(
+            sidebarPresentation(comments: changed)
+                .changedItemIDs(comparedTo: sidebarPresentation(comments: original))
+                == [.commentThread(subject: subject, rootID: thread.id)]
+        )
+    }
+
     @Test
     @MainActor
     func commentRevisionTracksRenderedVerificationLinksAndPictures() {
@@ -340,17 +377,20 @@ struct PlaybackSidebarPresentationTests: PlaybackSidebarFixtures {
         let plain = NativePlaybackCommentThreadPresentation(
             subject: subject,
             thread: commentThread(id: 1, message: message, author: plainAuthor),
-            replyState: nil
+            replyState: nil,
+            writeAvailability: .unavailable
         )
         let verified = NativePlaybackCommentThreadPresentation(
             subject: subject,
             thread: commentThread(id: 1, message: message, author: verifiedAuthor),
-            replyState: nil
+            replyState: nil,
+            writeAvailability: .unavailable
         )
         let avatar = NativePlaybackCommentThreadPresentation(
             subject: subject,
             thread: commentThread(id: 1, message: message, author: avatarAuthor),
-            replyState: nil
+            replyState: nil,
+            writeAvailability: .unavailable
         )
         let linked = NativePlaybackCommentThreadPresentation(
             subject: subject,
@@ -365,7 +405,8 @@ struct PlaybackSidebarPresentationTests: PlaybackSidebarFixtures {
                 ],
                 author: verifiedAuthor
             ),
-            replyState: nil
+            replyState: nil,
+            writeAvailability: .unavailable
         )
         let pictured = NativePlaybackCommentThreadPresentation(
             subject: subject,
@@ -381,7 +422,8 @@ struct PlaybackSidebarPresentationTests: PlaybackSidebarFixtures {
                 pictures: [CommentImage(asset: fixtureAssetReference())],
                 author: verifiedAuthor
             ),
-            replyState: nil
+            replyState: nil,
+            writeAvailability: .unavailable
         )
 
         #expect(plain.revision != avatar.revision)

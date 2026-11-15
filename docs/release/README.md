@@ -15,7 +15,7 @@ Developer ID、`BiliKit-Notary` 与 Sparkle EdDSA key。GitHub Actions 只跑 ma
   两个渠道的更新日志因此逐字一致，Release 页只额外提供安装与系统要求。
 - 提交、PR、合并和正式发布需当前任务授权；历史授权不延续。
 - 先合并源码，等待同一提交的 main push CI 三个环境成功，再冻结干净的最新 main。
-- 工具：完整版 Xcode、Python 3、gh、Node **22.22.3**；DMG 工具固定 create-dmg **8.1.0** 及依赖锁，原生
+- 工具：完整版 Xcode、Python 3、gh、Node **22.23.4**；DMG 工具固定 create-dmg **8.1.0** 及依赖锁，原生
   macos-alias 与 Node ABI 必须一致。Finder 布局保持 660×400、160pt 图标和 Applications 链接。
 - `gh` 与 Wrangler 在发布机登录；凭据不写入参数、仓库或聊天。
 - 每次检查最终签名身份、profile 允许范围、有效期与精确 Keychain entitlement；wildcard profile 的
@@ -45,6 +45,8 @@ python3 Scripts/release/release.py prepare --output /private/tmp/bilikit-release
 
 候选必须满足，任一不满足即停止：
 
+- Archive 以 `BILIKIT_CHANNEL=Production` 构建，App 是正式渠道身份（Bundle ID、显示名 BiliKit、`AppIcon`、正式 feed），
+  archive 后、export 前即核对；工程默认的开发渠道见 [`../ARCHITECTURE.md`](../ARCHITECTURE.md)「平台与命名」。
 - Archive 为 macOS App Archive，Products 只有预期 App；App 主程序仅 `arm64`，嵌套 Mach-O 均含 `arm64`。
 - App 主程序的弱链接符号都在 [`Scripts/release/weak-imports.txt`](../../Scripts/release/weak-imports.txt) 白名单内；
   多出的符号在版本号已到、实际还没有它的测试版系统上为空地址，会让 App 一调用就崩溃。

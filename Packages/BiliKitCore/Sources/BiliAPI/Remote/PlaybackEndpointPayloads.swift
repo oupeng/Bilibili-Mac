@@ -10,10 +10,16 @@ import Foundation
 /// 配音语言与断点字段异常时按缺失处理，不阻断播放。线路测速另用只解码视频轨的
 /// `CDNBenchmarkPlayURLPayload`。
 struct PlayURLPayload: Decodable, Sendable {
-    /// 没有 DASH 时 AVPlayer 能直接播放的单段 durl 格式。
+    /// durl 的 `format` 是否为 AVPlayer 能直接播放的 MP4 整段。
     ///
-    /// `mp4` 与 `hdmp4`（较早视频的 720P 整段）都是 MP4 容器；`flv*` AVPlayer 不支持。
-    static let progressiveMP4Formats: Set<String> = ["mp4", "hdmp4"]
+    /// `mp4` 开头的格式（`mp4`、只有 720P 转码的稿件返回的 `mp4720`）与 `hdmp4`（较早视频的 720P 整段）
+    /// 都是 MP4 容器；`flv*` 与 `hdflv2` AVPlayer 不支持。按前缀而不是逐个列举，是因为服务端把清晰度
+    /// 拼进格式名，漏掉一个就会把能播放的稿件报成不支持的容器。容器判断与 FLV 重取时挑 MP4 清晰度都只经
+    /// 这里，两处不会对同一格式给出不同结论。
+    static func isProgressiveMP4(format: String) -> Bool {
+        let format = format.lowercased()
+        return format.hasPrefix("mp4") || format == "hdmp4"
+    }
 
     let dash: DASHPayload?
     let durl: DURLPayloadSelection?
@@ -57,7 +63,7 @@ struct PlayURLPayload: Decodable, Sendable {
                 forKey: .supportFormats
             )) ?? [])
             .compactMap(\.value)
-            .filter { Self.progressiveMP4Formats.contains($0.format.lowercased()) }
+            .filter { Self.isProgressiveMP4(format: $0.format) }
             .map(\.quality)
             : []
         currentLanguage = try? container.decode(
@@ -77,7 +83,7 @@ struct PlayURLPayload: Decodable, Sendable {
     }
 
     var hasProgressiveMP4Format: Bool {
-        format.map { Self.progressiveMP4Formats.contains($0.lowercased()) } ?? false
+        format.map(Self.isProgressiveMP4(format:)) ?? false
     }
 
     /// 上次播放的分 P 与位置（毫秒）；调用方只在请求实际带凭据发出时采用。
@@ -269,9 +275,14 @@ struct AudioLanguageItemPayload: Decodable, Sendable {
 /// `flac`（`audio` 是单个对象）是原声的附加版本，每一层都可能缺失或为 `null`，任何一层解码失败都按
 /// 没有处理。
 struct DASHPayload: Decodable, Sendable {
+    /// `dash.dolby.type` 表示杜比全景声的取值。
+    private static let atmosDolbyType = 2
+
     let video: [DASHRepresentationPayload]
     let audio: [DASHRepresentationPayload]?
     let dolbyAudio: [DASHRepresentationPayload]
+    /// `dash.dolby.type == 2`：杜比音频是全景声。
+    let dolbyAudioIsAtmos: Bool
     let losslessAudio: DASHRepresentationPayload?
 
     private enum CodingKeys: String, CodingKey {
@@ -291,23 +302,29 @@ struct DASHPayload: Decodable, Sendable {
             [DASHRepresentationPayload].self,
             forKey: .audio
         )
-        dolbyAudio =
-            container.decodeLossyIfPresent(DASHDolbyPayload.self, forKey: .dolby)?.audio ?? []
+        let dolby = container.decodeLossyIfPresent(DASHDolbyPayload.self, forKey: .dolby)
+        dolbyAudio = dolby?.audio ?? []
+        dolbyAudioIsAtmos = dolby?.type == Self.atmosDolbyType
         losslessAudio =
             container.decodeLossyIfPresent(DASHFLACPayload.self, forKey: .flac)?.audio
     }
 }
 
 /// `dash.dolby`：杜比音频（ec-3）representation 数组，逐条宽松解码；`audio` 缺失或为 `null` 时为空。
+///
+/// `type` 是杜比音频的种类（1 普通杜比音效、2 全景声）；缺失或形状不对时为 nil，按不是全景声处理。
 private struct DASHDolbyPayload: Decodable, Sendable {
+    let type: Int?
     let audio: [DASHRepresentationPayload]
 
     private enum CodingKeys: String, CodingKey {
+        case type
         case audio
     }
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try? container.decodeIfPresent(Int.self, forKey: .type)
         audio =
             (try? container.decodeLossyElements(DASHRepresentationPayload.self, forKey: .audio))
             ?? []
@@ -444,19 +461,25 @@ struct DASHRepresentationPayload: Decodable, Sendable {
 
 /// DASH 的 `SegmentBase`：init 与 SIDX 的字节区间文本（`起-止`，闭区间），映射为 `SegmentBase`；
 /// 形状或区间不合法时失败。
+///
+/// playurl 同时给两种写法（实测）：`segment_base` 里是 `initialization`／`index_range`，`SegmentBase`
+/// 里是 `Initialization`／`indexRange`。
 struct DASHSegmentBasePayload: Decodable, Sendable {
     let initialization: String
     let indexRange: String
 
     private enum CodingKeys: String, CodingKey {
         case initialization
+        case initializationCapitalized = "Initialization"
         case indexRange = "index_range"
         case indexRangeCamel = "indexRange"
     }
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        initialization = try container.decode(String.self, forKey: .initialization)
+        initialization =
+            try container.decodeIfPresent(String.self, forKey: .initialization)
+            ?? container.decode(String.self, forKey: .initializationCapitalized)
         indexRange =
             try container.decodeIfPresent(String.self, forKey: .indexRange)
             ?? container.decode(String.self, forKey: .indexRangeCamel)

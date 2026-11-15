@@ -216,7 +216,8 @@ struct PlaybackSidebarCommentRowTests: PlaybackSidebarFixtures {
                 pictures: pictures,
                 pictureCount: 3
             ),
-            replyState: nil
+            replyState: nil,
+            writeAvailability: .unavailable
         )
         let item = NativePlaybackCommentThreadItem()
         var openedGallery: NativePlaybackCommentPictureGallery?
@@ -261,7 +262,8 @@ struct PlaybackSidebarCommentRowTests: PlaybackSidebarFixtures {
                 ],
                 pictureCount: 3
             ),
-            replyState: nil
+            replyState: nil,
+            writeAvailability: .unavailable
         )
         configureThreadItem(item, with: replacementRow)
         focusWindow.makeFirstResponder(fallbackResponder)
@@ -316,7 +318,7 @@ struct PlaybackSidebarCommentRowTests: PlaybackSidebarFixtures {
         sex: CommentAuthorSex,
         isVIP: Bool
     ) throws {
-        let expectedColor = isVIP ? NSColor.systemPink : NSColor.labelColor
+        let expectedColor = isVIP ? NSColor.systemPink : NSColor.secondaryLabelColor
         let author = CommentAuthor(
             id: CommentAuthorID(rawValue: "author-\(id)"),
             name: "昵称\(id)",
@@ -326,7 +328,8 @@ struct PlaybackSidebarCommentRowTests: PlaybackSidebarFixtures {
         let row = NativePlaybackCommentThreadPresentation(
             subject: .video(aid: 700_001),
             thread: commentThread(id: Int64(id), message: "正文", author: author),
-            replyState: nil
+            replyState: nil,
+            writeAvailability: .unavailable
         )
         let item = NativePlaybackCommentThreadItem()
         configureThreadItem(item, with: row)
@@ -361,7 +364,8 @@ struct PlaybackSidebarCommentRowTests: PlaybackSidebarFixtures {
                 ],
                 author: rootAuthor
             ),
-            replyState: nil
+            replyState: nil,
+            writeAvailability: .unavailable
         )
         var opened: [CommentAuthorID] = []
         let item = NativePlaybackCommentThreadItem()
@@ -455,7 +459,8 @@ struct PlaybackSidebarCommentRowTests: PlaybackSidebarFixtures {
                 replyCount: replyCount,
                 preview: previews
             ),
-            replyState: nil
+            replyState: nil,
+            writeAvailability: .unavailable
         )
         let item = NativePlaybackCommentThreadItem()
         configureThreadItem(item, with: row)

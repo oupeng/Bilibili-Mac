@@ -35,6 +35,8 @@ struct AppRootView: View {
             videoModel: videoModel,
             commentsModel: commentsModel,
             danmakuModel: danmakuModel,
+            danmakuComposer: window.danmakuComposer,
+            commentWrite: window.commentWrite,
             authenticationModel: authenticationModel,
             watchLaterModel: window.watchLaterModel,
             watchLaterSession: window.watchLaterSession,
@@ -52,6 +54,8 @@ struct AppRootView: View {
             commentImagePreview: window.commentImagePreview,
             seekPlayback: window.seekPlayback,
             imagePipeline: window.imagePipeline,
+            gridRetainer: window.gridRetainerOwner.retainer,
+            pageTransitions: window.pageTransitions,
             accountWrites: window.accountWrites,
             engagementModel: window.engagementModel,
             isAuthenticationPresented: $isAuthenticationPresented

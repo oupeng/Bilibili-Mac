@@ -40,10 +40,10 @@ final class NativePlaybackCommentTextRenderer {
 
     private let imagePipeline: any VideoDetailImageLoading
     private let resolveURL: CommentAssetURLResolver
-    /// 正文时间戳可跳转的上限（不含），超出或为 nil 时时间戳按普通文字显示。
+    /// 正文时间戳能跳到哪里；目标分 P 跳不到或为 nil 时时间戳按普通文字显示。
     ///
     /// 链接只改颜色、不改行高，所以测量不依赖它。
-    var timestampLimitSeconds: Int?
+    var timestampLimits: TimestampSeekLimits?
     private struct UnavailableAssetKey: Hashable {
         let scope: NativePlaybackCommentTextScope
         let reference: CommentAssetReference
@@ -90,19 +90,16 @@ final class NativePlaybackCommentTextRenderer {
         _ content: CommentContent,
         scope: NativePlaybackCommentTextScope
     ) -> RenderedText {
-        let font = NSFont.preferredFont(forTextStyle: .body)
+        let font = NativePlaybackCommentRowGeometry.bodyFont
+        let baseAttributes = NativePlaybackCommentRowGeometry.bodyAttributes
         let attributed = NSMutableAttributedString(
             string: content.message,
-            attributes: [
-                .font: font,
-                .foregroundColor: NSColor.labelColor,
-                .paragraphStyle: NativePlaybackSidebarTextLayout.paragraphStyle
-            ]
+            attributes: baseAttributes
         )
         let (linkTargets, appliedLinks) = NativePlaybackTextLinks.apply(
             content.links,
             to: attributed,
-            timestampLimitSeconds: timestampLimitSeconds
+            timestampLimits: timestampLimits
         )
 
         // 表情与带标题或图标的链接都要替换原文；从后往前替换，前面的位置不受影响，重叠的跳过。
@@ -151,6 +148,14 @@ final class NativePlaybackCommentTextRenderer {
             guard let replaced else { continue }
             attributed.replaceCharacters(in: range, with: replaced)
             replacedFrom = range.location
+        }
+        // TextKit 取段首字符的段落样式；替换进来的表情附件不带属性，段首是表情时这一段会丢掉最小行高与换行方式。
+        if let paragraphStyle = baseAttributes[.paragraphStyle] {
+            attributed.addAttribute(
+                .paragraphStyle,
+                value: paragraphStyle,
+                range: NSRange(location: 0, length: attributed.length)
+            )
         }
 
         return RenderedText(
