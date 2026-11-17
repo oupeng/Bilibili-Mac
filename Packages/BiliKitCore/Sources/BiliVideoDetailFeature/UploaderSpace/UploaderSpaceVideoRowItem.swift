@@ -21,7 +21,7 @@ final class UploaderSpaceVideoRowItem: NativeLayoutSizedCollectionItem,
     private var hasCoverImage = false
 
     /// 此刻显示的投稿 BVID；复用时清空，菜单与读屏操作执行前按它核对。
-    private(set) var representedVideoID: String?
+    private(set) var representedCardID: String?
 
     override func loadView() {
         view = rowView
@@ -35,7 +35,7 @@ final class UploaderSpaceVideoRowItem: NativeLayoutSizedCollectionItem,
         onSelect: @escaping (String) -> Void,
         hoverChanged: @escaping (UploaderSpaceVideoRowItem, Bool) -> Void
     ) {
-        representedVideoID = row.bvid
+        representedCardID = row.bvid
         rowView.configure(row: row, isCurrent: isCurrent)
         rowView.onActivate = { onSelect(row.bvid) }
         rowView.onHoverChange = { [weak self] isHovered in
@@ -73,7 +73,7 @@ final class UploaderSpaceVideoRowItem: NativeLayoutSizedCollectionItem,
 
     override func prepareForReuse() {
         invalidateImageRequests()
-        representedVideoID = nil
+        representedCardID = nil
         loadedCoverURL = nil
         hasCoverImage = false
         rowView.reset()
@@ -164,11 +164,16 @@ final class UploaderSpaceVideoRowView: NSView {
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.cell?.truncatesLastVisibleLine = true
 
-        playingIcon.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: nil)
-        playingIcon.contentTintColor = .controlAccentColor
+        playingIcon.image = NSImage(
+            systemSymbolName: NativeNowPlayingAppearance.symbolName,
+            accessibilityDescription: nil
+        )
+        playingIcon.contentTintColor = NativeNowPlayingAppearance.markerColor
         playingIcon.symbolConfiguration = .init(textStyle: .caption1, scale: .small)
-        playingLabel.font = NSFont.preferredFont(forTextStyle: .caption1).withWeight(.semibold)
-        playingLabel.textColor = .controlAccentColor
+        playingLabel.font = NativeNowPlayingAppearance.markerFont(
+            for: .preferredFont(forTextStyle: .caption1)
+        )
+        playingLabel.textColor = NativeNowPlayingAppearance.markerColor
 
         collaborationLabel.font = .preferredFont(forTextStyle: .caption2)
         collaborationLabel.textColor = .secondaryLabelColor
@@ -422,14 +427,13 @@ final class UploaderSpaceVideoRowView: NSView {
     }
 
     private func refreshAppearance(animated: Bool) {
+        NativeNowPlayingAppearance.applyFill(
+            isCurrent,
+            to: currentHighlightLayer,
+            appearance: effectiveAppearance
+        )
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        currentHighlightLayer.backgroundColor =
-            isCurrent
-            ? NSColor.controlAccentColor.withAlphaComponent(
-                UploaderSpaceGeometry.currentRowFillOpacity
-            ).cgColor(for: effectiveAppearance)
-            : nil
         collaborationLabel.layer?.borderColor =
             NSColor.secondaryLabelColor.cgColor(for: effectiveAppearance)
         CATransaction.commit()
@@ -444,11 +448,5 @@ final class UploaderSpaceVideoRowView: NSView {
             appearance: effectiveAppearance,
             animated: animated
         )
-    }
-}
-
-extension NSFont {
-    fileprivate func withWeight(_ weight: NSFont.Weight) -> NSFont {
-        NSFont.systemFont(ofSize: pointSize, weight: weight)
     }
 }

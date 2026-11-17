@@ -14,7 +14,9 @@ extension NativePlaybackSidebarController {
             imagePipeline: imagePipeline,
             onOpenSpace: actions.openUploaderSpace == nil
                 ? nil : { [weak self] in self?.releasingFocus { $0.actions.openUploaderSpace?() } },
-            onSetFollowing: { [weak self] in self?.actions.setFollowing?($0) }
+            onSetFollowing: { [weak self] in self?.actions.setFollowing?($0) },
+            onShowFollowingMenu: actions.showFollowingMenu == nil
+                ? nil : { [weak self] in self?.actions.showFollowingMenu?($0) }
         )
     }
 
@@ -144,9 +146,6 @@ extension NativePlaybackSidebarController {
             else { return nil }
             item.configure(
                 projection: content.selection,
-                browsedSectionID: browsedSectionID,
-                onSelectSection: { [weak self] in self?.browseSection($0) },
-                onSelectEpisode: { [weak self] in self?.actions.selectEpisode($0) },
                 onSelectPage: { [weak self] cid in
                     guard self?.presentation.content?.bvid == content.bvid else { return }
                     self?.actions.selectPage(content.bvid, cid)

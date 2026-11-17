@@ -2,12 +2,20 @@ import BiliVideoDetailFeature
 
 @testable import BiliKit
 
-/// 导航协调器的测试构造：转场默认同步换页并立即完成（与生产里找不到分栏时的退路一致），暂停与停止由调用方记录。
+/// 导航协调器的测试构造：转场默认同步换页并立即完成（与生产里找不到分栏时的退路一致），播放默认有画面且在播放；
+/// 开始、暂停、继续与停止由调用方记录。
 @MainActor
 func makeNavigationCoordinator(
     startPlayback: @escaping (PlaybackSelectionIntent) -> Void = { _ in },
     stopPlayback: @escaping () -> Void = {},
     pausePlayback: @escaping () -> Bool = { true },
+    isPlaying: @escaping () -> Bool = { true },
+    resumePlayback: @escaping () -> Void = {},
+    presentedPosition: @escaping () -> Double? = { nil },
+    resumePoint: @escaping () -> PlaybackSelectionIntent? = { nil },
+    recentlyWatchedEntry:
+        @escaping (PlaybackSelectionIntent) -> RecentlyWatchedVideo? = { _ in nil },
+    isPictureInPictureActive: @escaping () -> Bool = { false },
     transitionPage:
         @escaping (
             AppPageTransition, _ change: () -> Void, _ completion: @escaping () -> Void
@@ -15,13 +23,26 @@ func makeNavigationCoordinator(
             change()
             completion()
         },
-    uploaderSpace: UploaderSpaceViewModel = makeUploaderSpace()
+    transitionSidebarContext:
+        @escaping (AppPageTransition, _ change: () -> Void) -> Void = { _, change in change() },
+    uploaderSpace: UploaderSpaceViewModel = makeUploaderSpace(),
+    uploaderSpacePage: UploaderSpaceViewModel = makeUploaderSpace()
 ) -> AppNavigationCoordinator {
     AppNavigationCoordinator(
-        startPlayback: startPlayback,
-        stopPlayback: stopPlayback,
-        pausePlayback: pausePlayback,
+        playback: AppPlaybackSession(
+            start: startPlayback,
+            stop: stopPlayback,
+            pauseKeepingPicture: pausePlayback,
+            isPlaying: isPlaying,
+            resume: resumePlayback,
+            presentedPosition: presentedPosition,
+            resumePoint: resumePoint,
+            recentlyWatchedEntry: recentlyWatchedEntry,
+            isPictureInPictureActive: isPictureInPictureActive
+        ),
         transitionPage: transitionPage,
-        uploaderSpace: uploaderSpace
+        transitionSidebarContext: transitionSidebarContext,
+        uploaderSpace: uploaderSpace,
+        uploaderSpacePage: uploaderSpacePage
     )
 }

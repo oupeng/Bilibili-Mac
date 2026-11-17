@@ -160,7 +160,7 @@ struct NativeVideoGridRetentionTests {
 
     /// 实例化的卡片都已显示封面。
     private static func showsCovers(_ collectionView: NSCollectionView) -> Bool {
-        let cards = collectionView.visibleVideoCards
+        let cards = collectionView.visibleCardItems
         return !cards.isEmpty && cards.allSatisfy { !$0.displayedImages.isEmpty }
     }
 
@@ -216,6 +216,7 @@ struct NativeVideoGridRetentionTests {
             accessibilityLabel: "网格",
             tailState: GridHarness.tailState(1),
             bottomInset: 0,
+            decorations: .none,
             scrollResetRequestID: 0,
             acknowledgedScrollResetRequestID: 0,
             imagePipeline: StubCardImageLoader(),

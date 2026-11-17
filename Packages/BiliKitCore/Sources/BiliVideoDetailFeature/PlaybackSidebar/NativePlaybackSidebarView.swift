@@ -10,6 +10,7 @@ import SwiftUI
 /// 读 `engagementModel`，点按经环境里的 `VideoEngagementActions` 交给 App 的写入协调者。
 public struct NativePlaybackSidebarView: View {
     @Environment(\.videoEngagementActions) private var engagementActions
+    @Environment(\.uploaderFollowingMenu) private var followingMenu
     let model: VideoViewModel
     let engagementModel: VideoEngagementModel
     let commentsModel: PlaybackCommentsViewModel?
@@ -67,7 +68,6 @@ public struct NativePlaybackSidebarView: View {
             isObscured: isObscured,
             composerClearance: composerClearance,
             actions: NativePlaybackSidebarActions(
-                selectEpisode: selectEpisode,
                 selectPage: selectPage,
                 retryPages: retryPages,
                 selectCommentSort: { commentsModel?.selectSort($0) },
@@ -96,6 +96,14 @@ public struct NativePlaybackSidebarView: View {
                 setFollowing: { [engagementActions] isFollowing in
                     guard let bvid = model.presentedContext?.detail.bvid else { return }
                     engagementActions?.setFollowing(isFollowing, bvid)
+                },
+                showFollowingMenu: followingMenu.map { menu in
+                    { [engagementActions] button in
+                        guard let detail = model.presentedContext?.detail else { return }
+                        menu.popUp(mid: detail.owner.id, below: button) {
+                            engagementActions?.setFollowing(false, detail.bvid)
+                        }
+                    }
                 },
                 reactToComment: commentWrite.map { write in
                     { write.toggle($1, on: $0) }
@@ -127,6 +135,12 @@ public struct NativePlaybackSidebarView: View {
         }
         .onChange(of: commentsModel?.subject) { commentWrite?.subjectDidChange() }
         .navigationTitle(VideoDetailFeatureStrings.localized("观看辅助"))
+        // UP 主已关注时预读关系，「已关注」菜单弹出时就有状态。
+        .task(id: engagementModel.isFollowingUploader == true ? engagementModel.uploaderID : nil) {
+            guard engagementModel.isFollowingUploader == true, let mid = engagementModel.uploaderID
+            else { return }
+            followingMenu?.prefetch(mid)
+        }
     }
 
     /// 评论作者与正文 @ 用户进入空间的同一入口。
@@ -200,23 +214,7 @@ public struct NativePlaybackSidebarView: View {
     private func selectionProjection(
         _ context: VideoContext
     ) -> PlaybackSelectionProjection {
-        let episodes = context.detail.collection?.sections.flatMap(\.episodes) ?? []
-        let pagesByEpisode = Dictionary(
-            uniqueKeysWithValues: episodes.compactMap { episode in
-                model.collectionEpisodePages(for: episode.id).map {
-                    (episode.id, $0)
-                }
-            }
-        )
-        return PlaybackSelectionProjection(
-            context: context,
-            selectedEpisodeID: model.selectedCollectionEpisode,
-            requestedBVID: model.requestedSelectionBVID,
-            requestedCID: model.requestedPreferredCID,
-            presentedIdentity: model.presentedPlaybackIdentity,
-            pageStates: model.collectionEpisodePageStates,
-            pagesByEpisode: pagesByEpisode
-        )
+        model.selectionProjection(for: context)
     }
 
     private func retry() {
@@ -227,26 +225,13 @@ public struct NativePlaybackSidebarView: View {
         }
     }
 
-    private func selectEpisode(_ identity: VideoCollectionEpisodeIdentity) {
-        guard
-            let episode = model.presentedContext?.detail.collection?.sections
-                .flatMap(\.episodes)
-                .first(where: { $0.id == identity })
-        else { return }
-        model.selectCollectionEpisode(episode) { bvid, preferredCID in
-            onSelectPlayback(bvid, preferredCID)
-        }
-    }
-
     private func selectPage(_ bvid: String, _ cid: Int64) {
         onSelectPlayback(bvid, cid)
     }
 
     private func retryPages() {
         guard let identity = model.selectedCollectionEpisode,
-            let episode = model.presentedContext?.detail.collection?.sections
-                .flatMap(\.episodes)
-                .first(where: { $0.id == identity })
+            let episode = model.presentedCollectionEpisode(identity)
         else { return }
         model.retryCollectionEpisodePages(episode)
     }
@@ -286,9 +271,9 @@ final class NativePlaybackComposerClearance {
 
 /// 侧栏条目可以触发的全部动作：由 `NativePlaybackSidebarView` 接到 ViewModel 或 App 回调，控制器只转发。
 ///
-/// 两个空间入口为 nil 时不显示对应入口；`setFollowing` 收到关注按钮点按后的目标状态。
+/// 两个空间入口为 nil 时不显示对应入口；`setFollowing` 收到关注按钮点按后的目标状态，`showFollowingMenu` 在已关注时
+/// 取而代之、弹出「已关注」菜单。
 struct NativePlaybackSidebarActions {
-    let selectEpisode: (VideoCollectionEpisodeIdentity) -> Void
     let selectPage: (String, Int64) -> Void
     let retryPages: () -> Void
     let selectCommentSort: (CommentSort) -> Void
@@ -306,6 +291,8 @@ struct NativePlaybackSidebarActions {
     var openUploaderSpace: (() -> Void)? = nil
     var openCommentAuthorSpace: ((CommentAuthor) -> Void)? = nil
     var setFollowing: ((Bool) -> Void)? = nil
+    /// 已关注时点关注按钮：在交出的按钮下方弹出「已关注」菜单；nil 时点按照旧交出取消关注。
+    var showFollowingMenu: ((NSView) -> Void)? = nil
     /// 评论行上的赞或踩（参数是点的那一个，已是它时取消）；nil 时不提供评论写入。
     var reactToComment: ((CommentID, CommentReaction) -> Void)? = nil
     /// 评论行上的「回复」：底部输入框改为回复这条评论。

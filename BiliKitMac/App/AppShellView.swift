@@ -9,8 +9,8 @@ import SwiftUI
 
 /// 描述窗口的原生 NavigationSplitView 外壳，并保留来源状态与滚动位置。
 ///
-/// 右侧只渲染当前页（`AppDetailColumn`），工具栏「返回」经 coordinator 关闭播放，使播放停止与视觉导航保持同一事实
-/// 来源；SwiftUI `body` 与普通样式 modifier 不承担资源生命周期。
+/// 右侧只渲染历史栈顶（`AppDetailColumn`），工具栏「返回｜回到来源根页」经 coordinator 改变历史，使播放停止与视觉导航
+/// 保持同一事实来源；SwiftUI `body` 与普通样式 modifier 不承担资源生命周期。
 struct AppShellView: View {
     @Environment(\.openURL) private var openURL
     let navigationCoordinator: AppNavigationCoordinator
@@ -19,6 +19,8 @@ struct AppShellView: View {
     let videoModel: VideoViewModel
     let commentsModel: PlaybackCommentsViewModel
     let danmakuModel: DanmakuControlsViewModel
+    /// 播放页的分段章节；呈现的分 P 由播放页选择，停止播放时由窗口组装 reset。
+    let chapterModel: VideoChapterModel
     let danmakuComposer: DanmakuComposerModel
     let commentWrite: PlaybackCommentWriteModel
     let authenticationModel: AuthenticationViewModel
@@ -27,6 +29,8 @@ struct AppShellView: View {
     let historyModel: WatchHistoryViewModel
     let favoriteFolderList: FavoriteFolderListModel
     let favoriteFolders: FavoriteFolderViewModel
+    let followGroupList: FollowGroupListModel
+    let followSession: FollowListSession
     let trendingSearchModel: TrendingSearchViewModel
     let searchSession: VideoSearchSession
     let searchHistory: SearchHistoryStore
@@ -41,7 +45,7 @@ struct AppShellView: View {
     let imagePipeline: NativeVideoImagePipeline
     /// 各来源网格的保活，按 `AppTab` 留住；账户变化时由本视图丢弃，关窗由窗口组装丢弃。
     let gridRetainer: NativeVideoGridRetainer
-    /// 进出播放页的转场；detail 列把自己登记为它的锚点。
+    /// 右侧换页的转场；detail 列把自己登记为它的锚点。
     let pageTransitions: NavigationPageTransitions
     /// 窗口的账户写入：经环境交给各来源的卡片菜单，结果胶囊盖在主区底部。
     let accountWrites: AccountWriteCoordinator
@@ -50,11 +54,14 @@ struct AppShellView: View {
     @Binding var isAuthenticationPresented: Bool
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var gridScroll = SourceGridScrollStates()
+    /// 整页空间页网格的滚动位置；换空间项、换排序或搜索时回顶。
+    @State private var spaceGridScroll = SourceGridScrollState()
     /// 侧栏「收藏夹」组是否展开；只在窗口内存里，默认展开。
     ///
     /// 放在这里而不是侧栏里：进入、退出播放时导航侧栏会重建。
     @State private var isFavoritesExpanded = true
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// 侧栏「关注」组是否展开；同收藏夹组。
+    @State private var isFollowsExpanded = true
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -72,6 +79,10 @@ struct AppShellView: View {
                             selection: sidebarSelection,
                             favoriteFolderList: favoriteFolderList,
                             isFavoritesExpanded: $isFavoritesExpanded,
+                            followGroupList: followGroupList,
+                            isFollowsExpanded: $isFollowsExpanded,
+                            // 点当前来源的行回到它的根页；已在根页时 `goHome` 不动作。
+                            onReselect: navigationCoordinator.goHome,
                             accountScope: historyAccountScope,
                             accountState: authenticationModel.accountPresentationState,
                             imagePipeline: imagePipeline,
@@ -86,15 +97,9 @@ struct AppShellView: View {
                 .allowsHitTesting(!isSidebarContextOpen)
                 .accessibilityHidden(isSidebarContextOpen)
 
-                // 只给上下文层自己的插入／移除加动画；底层立即隐藏，不参与这次 transaction，
-                // 否则底层的 AppKit 集合视图会把布局变化也做成动画而跳动。
-                ZStack { sidebarContextLayer }
-                    .animation(
-                        reduceMotion
-                            ? nil
-                            : .snappy(duration: UploaderSpaceGeometry.layerTransitionDuration),
-                        value: isSidebarContextOpen
-                    )
+                // 进出动画由侧栏图层上的 `push` 转场负责（`NavigationPageTransitions.performSidebarContext`），
+                // 这里不加 SwiftUI 动画。
+                sidebarContextLayer
             }
             // 浏览与播放各自记住用户拖出的宽度；挂在 ZStack 上而不是随进出播放重建的 Group 里。
             .background(SidebarWidthRestorer(mode: sidebarColumnMode))
@@ -108,25 +113,26 @@ struct AppShellView: View {
                 navigationCoordinator: navigationCoordinator,
                 accountWrites: accountWrites,
                 pageTransitions: pageTransitions,
+                rootTitle: sources[navigationCoordinator.selectedTab].title,
                 root: { selectedSourceRoot },
-                playback: {
-                    PlaybackDestinationView(
-                        model: videoModel,
-                        danmakuModel: danmakuModel,
-                        danmakuComposer: danmakuComposer,
-                        engagementModel: engagementModel,
-                        playerContent: playerContent,
-                        imagePipeline: imagePipeline,
-                        onRetry: retryPlayback,
-                        onSelectRelatedVideo: navigationCoordinator.openPlayback
-                    )
-                }
+                playback: { playbackDestination },
+                space: { spacePage }
             )
         }
         // 来源网格、相关推荐横排与它们的卡片菜单都在这棵树里；写入口只转发意图，门槛与请求在 `AccountWriteCoordinator`。
         .environment(\.videoCardAccountWriting, accountWriting)
         .environment(\.videoEngagementActions, engagementActions)
+        .environment(\.uploaderFollowingMenu, followingMenu)
         .navigationSplitViewStyle(.balanced)
+        .focusedSceneValue(
+            \.appNavigation,
+            AppNavigationMenuTarget(
+                coordinator: navigationCoordinator,
+                rootTitle: sources[navigationCoordinator.selectedTab].title,
+                canNavigateBack: navigationCoordinator.canNavigateBack,
+                canGoHome: navigationCoordinator.canGoBack
+            )
+        )
         .frame(minWidth: 760, minHeight: 560)
         .sheet(isPresented: $isAuthenticationPresented) {
             AuthenticationView(model: authenticationModel)
@@ -139,8 +145,17 @@ struct AppShellView: View {
                 onConfirm: accountWrites.confirmFavoritePicker
             )
         }
+        .sheet(item: followGroupPicker) { picker in
+            FollowGroupPickerView(
+                model: picker,
+                onCancel: accountWrites.dismissFollowGroupPicker,
+                onRetry: accountWrites.retryFollowGroupPicker,
+                onConfirm: accountWrites.confirmFollowGroupPicker
+            )
+        }
         .onChange(of: accountWrites.currentWritableAccount) {
-            // 登出、换号、其他窗口换号待复核：属于旧账户的「收藏到…」面板立即关闭，播放页按新账户重读互动状态。
+            // 登出、换号、其他窗口换号待复核：属于旧账户的「收藏到…」与「设置分组…」面板立即关闭、关系存储丢弃上一账户的
+            // 关系，播放页按新账户重读互动状态。
             accountWrites.writableAccountDidChange()
             engagementModel.present(videoModel.presentedContext?.detail)
         }
@@ -158,12 +173,18 @@ struct AppShellView: View {
             else {
                 return
             }
-            // 账户变化会替换每个来源的内容（Browse 丢弃全部工作集，稍后再看、观看历史与收藏夹随账户重载），所有网格都
+            // 账户变化会替换每个来源的内容（Browse 丢弃全部工作集，稍后再看、观看历史、关注与收藏夹随账户重载），所有网格都
             // 回到顶部；留住的网格还持有旧账户的卡片，一并丢弃。
             gridRetainer.discardAll()
             for tab in AppTab.allCases {
                 scrollToTop(tab)
             }
+        }
+        .onChange(of: navigationCoordinator.liveSpaceEntryID) { _, entryID in
+            // 挂在外壳上而不是空间页上：空间项总在换页的同一次更新里换掉，空间页那时还没挂上。新的一项不沿用上一项的
+            // 滚动位置；空间页已关闭（占用它的那一项不在历史里了）时它的网格不会再挂回，不留在保活里。
+            spaceGridScroll = SourceGridScrollState()
+            if entryID == nil { gridRetainer.discard(key: Self.spaceGridRetentionKey) }
         }
         .onChange(of: navigationCoordinator.currentPlaybackBVID) {
             previousBVID,
@@ -183,7 +204,23 @@ struct AppShellView: View {
             chooseFavoriteFolders: { accountWrites.chooseFavoriteFolders(bvid: $0) },
             removeFromFavoriteFolder: { accountWrites.removeFromFavoriteFolder($0) },
             dislikeRecommendation: { accountWrites.dislikeRecommendation($0) },
-            cancelRecommendationDislike: { accountWrites.cancelRecommendationDislike($0) }
+            cancelRecommendationDislike: { accountWrites.cancelRecommendationDislike($0) },
+            followSpecialState: { accountWrites.followRelations.specialState(of: $0) },
+            setFollowSpecial: { accountWrites.setFollowSpecial($1, mid: $0) },
+            chooseFollowGroups: { accountWrites.chooseFollowGroups(mid: $0) },
+            unfollow: { accountWrites.unfollow(mid: $0) }
+        )
+    }
+
+    /// 空间页头部与播放页侧栏「已关注」菜单的写入口：状态取窗口的关系存储，动作转给窗口的写入协调者。
+    private var followingMenu: UploaderFollowingMenu {
+        let accountWrites = accountWrites
+        return UploaderFollowingMenu(
+            isSpecial: { accountWrites.followRelations.specialState(of: $0) },
+            isWritable: { accountWrites.isWritable },
+            prefetch: { accountWrites.followRelations.prefetch($0) },
+            setSpecial: { _ = accountWrites.setFollowSpecial($0, mid: $1) },
+            chooseGroups: { accountWrites.chooseFollowGroups(mid: $0) }
         )
     }
 
@@ -206,6 +243,17 @@ struct AppShellView: View {
             get: { accountWrites.favoritePicker },
             set: { picker in
                 if picker == nil { accountWrites.dismissFavoritePicker() }
+            }
+        )
+    }
+
+    /// 「设置分组…」面板的呈现：同「收藏到…」。
+    private var followGroupPicker: Binding<FollowGroupPickerModel?> {
+        let accountWrites = accountWrites
+        return Binding(
+            get: { accountWrites.followGroupPicker },
+            set: { picker in
+                if picker == nil { accountWrites.dismissFollowGroupPicker() }
             }
         )
     }
@@ -235,6 +283,41 @@ struct AppShellView: View {
             uniqueKeysWithValues: sources.ordered.map { ($0.id, $0.refreshGeneration()) }
         )
     }
+
+    /// 整页空间页：内容归协调器的整页空间模型；网格保活按占用它的空间项区分，换项、换排序或搜索时回顶。
+    private var spacePage: some View {
+        let page = navigationCoordinator.uploaderSpacePage
+        return UploaderSpacePageView(
+            model: page,
+            imagePipeline: imagePipeline,
+            gridHost: NativeVideoGridHostContext(
+                scrollOffsetY: $spaceGridScroll.offsetY,
+                scrollReset: $spaceGridScroll.reset,
+                imageLoader: imagePipeline,
+                retention: NativeVideoGridRetention(
+                    retainer: gridRetainer,
+                    key: Self.spaceGridRetentionKey,
+                    contentIdentity: navigationCoordinator.liveSpaceEntryID
+                )
+            ),
+            follow: page.followButton(isWritable: accountWrites.isWritable),
+            onToggleFollow: {
+                accountWrites.setFollowing(!(page.viewerFollows ?? false), onSpacePage: page)
+            },
+            onUnfollow: { accountWrites.setFollowing(false, onSpacePage: page) },
+            onSelect: navigationCoordinator.openPlayback
+        )
+        .historyPageBackground()
+        .onChange(of: page.order) { spaceGridScroll.reset.request() }
+        .onChange(of: page.searchKeyword) { spaceGridScroll.reset.request() }
+        .onChange(of: page.owner == nil) { _, isClosed in
+            if isClosed { navigationCoordinator.restoreTopSpaceIfClosed() }
+        }
+    }
+
+    /// 整页空间页的网格在窗口保活里只占一个位置：内容身份是空间项，新的一项出现时旧的那份被替换，最多留一个；空间页
+    /// 关闭时丢弃。
+    private static let spaceGridRetentionKey = "uploaderSpacePage"
 
     /// 某个来源网格的窗口级依赖：本视图持有的滚动位置与回顶请求，加上窗口图片管线。
     private func gridHost(_ tab: AppTab) -> NativeVideoGridHostContext {
@@ -278,6 +361,29 @@ struct AppShellView: View {
         .ignoresSafeArea(.container, edges: .top)
     }
 
+    private var playbackDestination: PlaybackDestinationView {
+        PlaybackDestinationView(
+            model: videoModel,
+            danmakuModel: danmakuModel,
+            chapterModel: chapterModel,
+            danmakuComposer: danmakuComposer,
+            engagementModel: engagementModel,
+            playerContent: playerContent,
+            imagePipeline: imagePipeline,
+            onRetry: retryPlayback,
+            onSelectRelatedVideo: navigationCoordinator.openPlayback,
+            onSelectPlayback: navigationCoordinator.openPlayback(_:preferredCID:),
+            recentlyWatched: { navigationCoordinator.recentlyWatched },
+            onSelectRecentlyWatched: navigationCoordinator.openPlayback,
+            onSeek: seekPlayback
+        )
+    }
+
+    private func openFullSpaceFromPreview() {
+        guard let owner = navigationCoordinator.uploaderSpace.owner else { return }
+        navigationCoordinator.openUploaderSpacePage(owner: owner)
+    }
+
     private var isSidebarContextOpen: Bool {
         navigationCoordinator.isSidebarContextOpen
     }
@@ -289,10 +395,9 @@ struct AppShellView: View {
                 model: navigationCoordinator.uploaderSpace,
                 currentBVID: navigationCoordinator.currentPlaybackBVID,
                 imagePipeline: imagePipeline,
-                onSelect: navigationCoordinator.openPlaybackFromSidebarContext
-            )
-            .transition(
-                reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity)
+                onSelect: navigationCoordinator.openPlaybackFromSidebarContext,
+                onOpenFullSpace: openFullSpaceFromPreview,
+                onClose: navigationCoordinator.dismissSidebarContext
             )
         }
     }
@@ -380,6 +485,18 @@ struct AppShellView: View {
                     isAuthenticationPresented = true
                 }
             )
+        case .follows:
+            FollowsTabRoot(
+                title: sources[.follows].title,
+                session: followSession,
+                groupList: followGroupList,
+                accountState: authenticationModel.accountPresentationState,
+                gridHost: gridHost(.follows),
+                onSelect: navigationCoordinator.openUploaderSpacePage,
+                onPresentAuthentication: {
+                    isAuthenticationPresented = true
+                }
+            )
         case .favorites:
             FavoritesTabRoot(
                 title: sources[.favorites].title,
@@ -414,84 +531,51 @@ private struct SourceGridScrollStates {
 private struct PlaybackDestinationView: View {
     let model: VideoViewModel
     let danmakuModel: DanmakuControlsViewModel
+    let chapterModel: VideoChapterModel
     let danmakuComposer: DanmakuComposerModel
     let engagementModel: VideoEngagementModel
     let playerContent: AnyView
     let imagePipeline: NativeVideoImagePipeline
     let onRetry: () -> Void
     let onSelectRelatedVideo: (String) -> Void
+    let onSelectPlayback: (String, Int64?) -> Void
+    /// 在本视图的 body 里读，让「刚才看过」的变化只刷新播放页（见 ARCHITECTURE「播放页」对 detail 观察的要求）。
+    let recentlyWatched: () -> [RecentlyWatchedVideo]
+    let onSelectRecentlyWatched: (PlaybackSelectionIntent) -> Void
+    let onSeek: @MainActor (String, Int) -> Void
 
     var body: some View {
         VideoPlaybackView(
             model: model,
             danmakuModel: danmakuModel,
+            chapterModel: chapterModel,
             danmakuComposer: danmakuComposer,
             engagementModel: engagementModel,
             onRetry: onRetry,
             onSelectRelatedVideo: onSelectRelatedVideo,
-            relatedImageLoader: imagePipeline
+            onSelectPlayback: onSelectPlayback,
+            recentlyWatched: recentlyWatched(),
+            onSelectRecentlyWatched: onSelectRecentlyWatched,
+            relatedImageLoader: imagePipeline,
+            onSeek: onSeek
         ) {
             playerContent
         }
-        // macOS 没有给页面设底色的接口，页面本身透明，所以自铺不透明窗口背景，并延伸到工具栏与侧栏下方
-        // （见 ARCHITECTURE「播放页布局」）。
-        .background {
-            Color(nsColor: .windowBackgroundColor)
-                .ignoresSafeArea()
-        }
+        .historyPageBackground()
         .navigationTitle("播放")
         .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
     }
 }
 
-/// 右侧只渲染当前页：来源根页或播放页，二者不同时存在。
-///
-/// 必须是独立的 View 结构体并在自己的 `body` 里读 coordinator：写在 `NavigationSplitView` 的 detail 闭包里时，
-/// 闭包内读到的 Observable 状态不会让 detail 列刷新。写入结果胶囊与工具栏「返回」只挂在这一层：胶囊不随页面替换而
-/// 消失或重复（读屏不会把同一条结果通告两次）；「返回」只在播放页出现，根页时整个工具栏项不放。两页放在 `ZStack`
-/// 而不是 `Group` 里：`Group` 把修饰符分发给每个分支，换页时挂在这一层的视图会随分支重建。
-private struct AppDetailColumn<Root: View, Playback: View>: View {
-    let navigationCoordinator: AppNavigationCoordinator
-    let accountWrites: AccountWriteCoordinator
-    let pageTransitions: NavigationPageTransitions
-    @ViewBuilder let root: () -> Root
-    @ViewBuilder let playback: () -> Playback
-
-    var body: some View {
-        ZStack {
-            if navigationCoordinator.currentPlaybackBVID == nil {
-                root()
-            } else {
-                playback()
-            }
+extension View {
+    /// 历史页（播放页、整页空间页）的不透明窗口底色，延伸到工具栏与侧栏下方。
+    ///
+    /// macOS 没有给页面设底色的接口，页面本身透明，所以自铺。换页转场让移动的历史页叠在不动的那一页上滑，也靠这层
+    /// 不透明；新增历史页类型都要铺它（见 ARCHITECTURE「播放页布局」）。
+    fileprivate func historyPageBackground() -> some View {
+        background {
+            Color(nsColor: .windowBackgroundColor)
+                .ignoresSafeArea()
         }
-        .background {
-            NavigationPageTransitionAnchor(transitions: pageTransitions)
-        }
-        .overlay(alignment: .bottom) {
-            AccountWriteStatusOverlay(accountWrites: accountWrites)
-        }
-        .toolbar {
-            if navigationCoordinator.currentPlaybackBVID != nil {
-                ToolbarItem(placement: .navigation) {
-                    Button(action: navigationCoordinator.goBack) {
-                        Label("返回", systemImage: "chevron.backward")
-                    }
-                    .help(Text("返回"))
-                }
-            }
-        }
-    }
-}
-
-/// 写入结果胶囊的宿主：单独成一个 View，只有它读取协调者的结果，结果变化时不让整个外壳重新求值。
-private struct AccountWriteStatusOverlay: View {
-    let accountWrites: AccountWriteCoordinator
-
-    var body: some View {
-        AccountWriteStatusCapsule(
-            report: accountWrites.report,
-            sequence: accountWrites.reportSequence
-        )
     }
 }

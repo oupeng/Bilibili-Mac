@@ -35,6 +35,7 @@ struct AppRootView: View {
             videoModel: videoModel,
             commentsModel: commentsModel,
             danmakuModel: danmakuModel,
+            chapterModel: window.chapterModel,
             danmakuComposer: window.danmakuComposer,
             commentWrite: window.commentWrite,
             authenticationModel: authenticationModel,
@@ -43,6 +44,8 @@ struct AppRootView: View {
             historyModel: historyModel,
             favoriteFolderList: window.favoriteFolderList,
             favoriteFolders: window.favoriteFolders,
+            followGroupList: window.followGroupList,
+            followSession: window.followSession,
             trendingSearchModel: window.trendingSearchModel,
             searchSession: window.searchSession,
             searchHistory: window.process.searchHistory,
@@ -214,7 +217,7 @@ struct AppRootView: View {
     }
 
     private var commentActivationAID: Int64? {
-        guard let currentBVID = navigationCoordinator.currentPlaybackBVID,
+        guard let currentBVID = navigationCoordinator.livePlaybackBVID,
             let videoIdentity = videoModel.presentedVideoIdentity,
             videoIdentity.bvid == currentBVID
         else { return nil }
@@ -230,7 +233,7 @@ struct AppRootView: View {
             .popular
         case .search:
             window.searchSession.browseActivation
-        case .watchLater, .history, .favorites:
+        case .watchLater, .history, .follows, .favorites:
             .inactive
         }
     }

@@ -299,6 +299,7 @@ func makeVideoDetail(
     bvid: String = "BVCurrent",
     title: String = "当前视频",
     summary: String = "说明",
+    coverURL: URL? = nil,
     owner: VideoOwner = VideoOwner(id: 1, name: "作者"),
     statistics: VideoStatistics = VideoStatistics(viewCount: 1, danmakuCount: 1, likeCount: 1),
     durationSeconds: Int? = nil,
@@ -310,7 +311,7 @@ func makeVideoDetail(
         bvid: bvid,
         title: title,
         summary: summary,
-        coverURL: nil,
+        coverURL: coverURL,
         owner: owner,
         statistics: statistics,
         durationSeconds: durationSeconds ?? pages.map(\.durationSeconds).max() ?? 0,
@@ -402,38 +403,6 @@ struct ContentFixtures: Sendable {
     }
 }
 
-/// 本 target 唯一的 UploaderProfileRepository 替身：`immediate` 为 nil 时每个请求挂起到测试按序号放行。
-actor ProfileRepositoryStub: UploaderProfileRepository {
-    private let immediate: Result<UploaderProfile, ContentApplicationError>?
-    private var held: [CheckedContinuation<UploaderProfile, Never>?] = []
-    private var requestWaiters = CountWaiters()
-    private(set) var callCount = 0
-
-    init(immediate: Result<UploaderProfile, ContentApplicationError>? = nil) {
-        self.immediate = immediate
-    }
-
-    func uploaderProfile(for ownerID: Int64) async throws -> UploaderProfile {
-        callCount += 1
-        if let immediate { return try immediate.get() }
-        return await withCheckedContinuation { continuation in
-            held.append(continuation)
-            requestWaiters.resume(reaching: held.count)
-        }
-    }
-
-    func waitForRequestCount(_ count: Int) async {
-        await withCheckedContinuation {
-            requestWaiters.add($0, until: count, current: held.count)
-        }
-    }
-
-    func releaseRequest(_ index: Int, profile: UploaderProfile) {
-        held[index]?.resume(returning: profile)
-        held[index] = nil
-    }
-}
-
 /// RelatedVideoRepository 的唯一替身：按序消费 `responses`，用尽后挂起到测试按序号放行。
 actor RelatedRepositoryStub: RelatedVideoRepository {
     private var responses: [Result<[RelatedVideo], ContentApplicationError>]
@@ -494,7 +463,11 @@ extension VideoCardAccountWriting {
         chooseFavoriteFolders: { _ in },
         removeFromFavoriteFolder: { _ in },
         dislikeRecommendation: { _ in },
-        cancelRecommendationDislike: { _ in }
+        cancelRecommendationDislike: { _ in },
+        followSpecialState: { _ in nil },
+        setFollowSpecial: { _, _ in },
+        chooseFollowGroups: { _ in },
+        unfollow: { _ in }
     )
 }
 
@@ -619,6 +592,8 @@ final class PlayerStub: PlaybackControlling {
         replayedIdentities.append(identity)
         return replaySucceeds
     }
+
+    func play() {}
 
     func pause() {}
 

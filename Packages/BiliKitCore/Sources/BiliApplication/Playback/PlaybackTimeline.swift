@@ -85,7 +85,7 @@ public enum PlaybackTimelineState: Sendable, Equatable {
 
 /// 平台无关的媒体时间事实。
 ///
-/// `discontinuityGeneration` 在换项、seek 或时间跳变时前进；需要识别 seek 的消费者（Now Playing）用它，
+/// `discontinuityGeneration` 在换项、seek 或时间跳变时前进；需要识别 seek 的消费者（Now Playing、章节提示）用它，
 /// 不能只比较秒数。弹幕不识别 seek，只按位置是否离开上次对齐后的一个步长对齐（见 docs/ARCHITECTURE.md
 /// 「弹幕」）。
 public struct PlaybackTimelineSnapshot: Sendable, Equatable {
@@ -158,7 +158,7 @@ public struct PlaybackTimelineSnapshot: Sendable, Equatable {
     }
 }
 
-/// 播放器之外各消费方（弹幕、观看进度、播放器浮层与 Now Playing）共用的播放时钟。
+/// 播放器之外各消费方（弹幕、观看进度、播放器浮层、播放页章节与 Now Playing）共用的播放时钟。
 ///
 /// 实现是 BiliPlayback 的 `AVPlayerEngine`，见 docs/ARCHITECTURE.md「媒体时间轴」。
 /// 新订阅者应先得到当前快照；消费者不自建计时器。需要识别 seek 的消费者用 `discontinuityGeneration`
@@ -175,8 +175,9 @@ public protocol PlaybackTimelineProviding: AnyObject {
 
 /// Feature 可驱动的最小播放命令边界；具体 AVPlayer 和 bridge 生命周期留在 adapter。
 ///
-/// 实现是 BiliPlayback 的 `AVPlayerEngine`，调用方是播放页的 `VideoViewModel`。`beginPlayback`、
-/// `restartFromBeginning` 与 `replayFromBeginning` 在实现里与当前 item 的 identity、intent 比对，已过期的意图被拒绝。
+/// 实现是 BiliPlayback 的 `AVPlayerEngine`，调用方是播放页的 `VideoViewModel`，以及 App 的窗口组装（导航在播放页被盖住时
+/// 暂停、回来时继续）。`beginPlayback`、`restartFromBeginning` 与 `replayFromBeginning` 在实现里与当前 item 的 identity、
+/// intent 比对，已过期的意图被拒绝。
 @MainActor
 public protocol PlaybackControlling: AnyObject {
     /// 只发布 adapter 已按当前 item token／generation 验证过的终态失败。每次调用得到独立订阅，
@@ -206,6 +207,8 @@ public protocol PlaybackControlling: AnyObject {
         identity: PlaybackItemIdentity,
         intent: PlaybackLoadIntent
     ) async -> Bool
+    /// 继续播放当前 item；没有 item 时不动作。
+    func play()
     func pause()
     func stop()
 }

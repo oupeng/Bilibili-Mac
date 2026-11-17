@@ -17,6 +17,8 @@ package enum NativeVideoCardFooterTrailingStyle: Equatable, Sendable {
     case plain
     /// 品牌色描边胶囊，排在页脚最前（首页推荐理由），页脚文字随后。
     case brandOutlinedCapsule
+    /// 正在播放标记：强调色加粗文字与图标，规则在 `NativeNowPlayingAppearance`。
+    case nowPlaying
 }
 
 /// 卡片能否进入播放：由调用方按业务判断给出，renderer 只按它呈现与拦截激活。
@@ -31,7 +33,7 @@ package enum NativeVideoCardAvailability: Equatable, Sendable {
 ///
 /// Feature 的网格与横排包装（Browse、Library 与 VideoDetail）负责图片缩略地址、
 /// 数字／日期／进度格式化与读屏文案；renderer 不读取 endpoint model，也不推断任何业务状态。
-package struct NativeVideoCardPresentation: Equatable, Sendable {
+package struct NativeVideoCardPresentation: NativeGridCardPresentation {
     package let id: String
     package let title: String
     package let coverURL: URL?
@@ -47,6 +49,8 @@ package struct NativeVideoCardPresentation: Equatable, Sendable {
     package let accessibilityLabel: String
     package let accessibilityHelp: String?
     package let availability: NativeVideoCardAvailability
+    /// 正在播放时的标记文字（调用方已本地化）；非 nil 时卡片画正在播放底色，页脚尾部换成这个标记。
+    package let nowPlayingText: String?
 
     /// 可进入播放；网格的激活入口与卡片的读屏按下都只看它。
     package var isActivatable: Bool { availability == .available }
@@ -65,7 +69,8 @@ package struct NativeVideoCardPresentation: Equatable, Sendable {
         footerTrailingStyle: NativeVideoCardFooterTrailingStyle = .plain,
         accessibilityLabel: String,
         accessibilityHelp: String? = nil,
-        availability: NativeVideoCardAvailability = .available
+        availability: NativeVideoCardAvailability = .available,
+        nowPlayingText: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -82,10 +87,11 @@ package struct NativeVideoCardPresentation: Equatable, Sendable {
         self.accessibilityLabel = accessibilityLabel
         self.accessibilityHelp = accessibilityHelp
         self.availability = availability
+        self.nowPlayingText = nowPlayingText
     }
 }
 
-/// 复用卡片的身份：视频 ID 加卡片自己的配置代次，异步取图回来时据此判断卡片是否已改配。
+/// 复用卡片的身份：卡片 ID 加卡片自己的配置代次，异步取图回来时据此判断卡片是否已改配。
 struct NativeVideoReuseIdentity: Equatable {
     let itemID: String
     let generation: UInt64

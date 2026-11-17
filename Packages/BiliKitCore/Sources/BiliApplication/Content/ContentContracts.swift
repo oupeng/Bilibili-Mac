@@ -74,6 +74,13 @@ public protocol VideoRepository: Sendable {
     func playback(for bvid: String, cid: Int64) async throws -> VideoPlayback
 }
 
+/// 某个分 P 的分段章节的只读 port：有凭据时按账户读取，本地无凭据时匿名请求。
+///
+/// 没有章节时是空列表。
+public protocol VideoChapterRepository: Sendable {
+    func chapters(for identity: PlaybackItemIdentity) async throws -> [VideoChapter]
+}
+
 /// 当前视频相关推荐的只读 port：有凭据时按账户读取，本地无凭据时匿名请求同一 endpoint。
 public protocol RelatedVideoRepository: Sendable {
     func relatedVideos(to bvid: String) async throws -> [RelatedVideo]
@@ -107,7 +114,9 @@ public protocol UploaderVideoRepository: Sendable {
     ) async throws -> UploaderVideoBatch
 }
 
-/// 播放页只读 UP 主名片（签名与大会员状态）所需的独立 port；具体账户读取策略由 adapter 隐藏。
+/// UP 主名片（签名、大会员状态、粉丝与投稿数）与观看者关注状态的只读 port；具体账户读取策略由 adapter 隐藏。
+///
+/// 实现是 BiliAPI 的 `BiliContentRepository`，只经 `UploaderProfileUseCase` 调用；观看者关注状态的含义见 `UploaderCard`。
 public protocol UploaderProfileRepository: Sendable {
-    func uploaderProfile(for ownerID: Int64) async throws -> UploaderProfile
+    func uploaderCard(for ownerID: Int64) async throws -> UploaderCard
 }

@@ -17,7 +17,7 @@ import Testing
 /// 确认也不在另一个账户下进行；播放页点赞乐观改动、失败放回，反方向的点赞在途时不再发，投币与三连成功后才改状态、三连
 /// 刷新收藏夹；首页推荐的「不感兴趣」与撤销先改卡片标记、失败放回，同一视频的两者同时只发一个，不在推荐里的不发；
 /// 快捷键在未登录、状态未知与全屏时给出提示；加入稍后再看报告是否发出；写入或面板读取的凭据类失败只请求一次复核，直到下一次写入成功；
-/// 弹幕同一窗口同时只有一条在途、结局交回输入胶囊而不进结果胶囊、关窗时按取消结束；关窗后不再接受意图。
+/// 弹幕同一窗口同时只有一条在途、结局交回输入胶囊、成功另作为一条写入结果、关窗时按取消结束；关窗后不再接受意图。
 @Suite(.timeLimit(.minutes(1)))
 @MainActor
 struct AccountWriteCoordinatorTests {
@@ -200,6 +200,10 @@ struct AccountWriteCoordinatorTests {
             favoriteFolderList: window.favoriteFolderList,
             favoriteFolders: window.favoriteFolders,
             engagementModel: window.engagementModel,
+            uploaderSpacePage: makeUploaderSpace(),
+            followRelations: window.followRelations,
+            followGroupList: window.followGroupList,
+            followSession: window.followSession,
             writableAccount: { WritableAccount(accountID: 7, sessionGeneration: 3) }
         )
 
@@ -238,7 +242,7 @@ struct AccountWriteCoordinatorTests {
     }
 
     @Test
-    func pickerConfirmsOnlyTheDifferenceAndRefreshesTheFolderList() async throws {
+    func pickerConfirmsOnlyTheDifferenceAndAdjustsTheFolderCounts() async throws {
         let writes = AccountWriteRepositoryStub()
         let favorites = FavoritesRepositoryStub()
         let window = try await signedInWindow(
@@ -265,8 +269,8 @@ struct AccountWriteCoordinatorTests {
 
         #expect(await writes.calls == ["favorite BV17x411w7KC +[20] -[10] 7"])
         #expect(window.accountWrites.report?.failure == nil)
-        // 面板一次读取归属，成功后侧栏收藏夹在后台重读条数。
-        await favorites.waitForFolderRequestCount(3)
+        // 成功后侧栏条数立刻在本地增减（移出的默认收藏夹本来是 0，不低于 0），不等宽限期后的补读。
+        #expect(window.favoriteFolderList.folders.map(\.mediaCount) == [0, 1])
     }
 
     /// 打开面板后换了账户：面板里的归属属于上一账户，确认时直接丢弃、不发请求；没有改动的确认同样不发请求。
@@ -503,6 +507,7 @@ struct AccountWriteCoordinatorTests {
     ) -> AccountWriteCoordinator {
         let favoritesUseCase = FavoritesUseCase(repository: favorites)
         let engagementUseCase = VideoEngagementUseCase(repository: writes)
+        let follow = FollowWriteDependencies(writableAccount: { session.account })
         return AccountWriteCoordinator(
             watchLater: WatchLaterWriteUseCase(repository: writes),
             watchLaterModel: WatchLaterViewModel(
@@ -525,6 +530,10 @@ struct AccountWriteCoordinatorTests {
             recommendationFeedback: RecommendationFeedbackUseCase(repository: writes),
             danmakuPost: DanmakuPostUseCase(repository: writes),
             commentWrite: CommentWriteUseCase(repository: writes),
+            followRelationWrite: FollowRelationWriteUseCase(repository: writes),
+            followRelations: follow.relations,
+            followSession: follow.session,
+            followGroupList: follow.groupList,
             browseModel: browse,
             writableAccount: { session.account },
             publish: { _, _ in }
@@ -532,7 +541,7 @@ struct AccountWriteCoordinatorTests {
     }
 
     @Test
-    func danmakuPostsOneAtATimeAndReportsOnlyToTheComposer() async throws {
+    func danmakuPostsOneAtATimeAndReportsTheSuccessOnce() async throws {
         let writes = AccountWriteRepositoryStub(holdsWrites: true)
         let window = try await signedInWindow(process: makeTestProcess(), writes: writes)
         defer { window.close() }
@@ -547,7 +556,8 @@ struct AccountWriteCoordinatorTests {
 
         #expect(outcomes.values == [.posted(DanmakuPostReceipt(danmakuID: "dm-1"))])
         #expect(await writes.calls == ["danmaku BV17x411w7KC 好 7"])
-        #expect(window.accountWrites.report == nil)
+        #expect(window.accountWrites.report?.failure == nil)
+        #expect(window.accountWrites.reportSequence == 1)
     }
 
     @Test
@@ -602,7 +612,7 @@ struct AccountWriteCoordinatorTests {
     }
 
     @Test
-    func coinsAndTripleApplyOnSuccessAndTripleRefreshesFavorites() async throws {
+    func coinsAndTripleApplyOnSuccess() async throws {
         let writes = AccountWriteRepositoryStub(
             tripleOutcome: VideoTripleOutcome(
                 isLiked: true,
@@ -640,8 +650,6 @@ struct AccountWriteCoordinatorTests {
                 == VideoEngagementState(isLiked: true, coinCount: 2, isFavorited: true)
         )
         #expect(await writes.calls == ["coin 1 +like BV17x411w7KC 7", "triple BV17x411w7KC 7"])
-        // 三连的收藏进默认收藏夹：侧栏收藏夹在后台重读条数。
-        await favorites.waitForFolderRequestCount(2)
     }
 
     @Test
@@ -685,7 +693,7 @@ struct AccountWriteCoordinatorTests {
         #expect(window.accountWrites.favoritePicker == nil)
         #expect(shortcuts.chooseFavoriteFolders(false) == nil)
         #expect(window.accountWrites.favoritePicker != nil)
-        #expect(shortcuts.toggleLike() == .liked)
+        #expect(shortcuts.toggleLike() == .likeRequested)
     }
 
     /// 同一视频的点赞、投币、三连同时只发一个；投币不超过此刻的可投数。

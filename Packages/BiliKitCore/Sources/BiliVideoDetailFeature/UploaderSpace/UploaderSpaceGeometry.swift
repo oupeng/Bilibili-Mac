@@ -29,8 +29,6 @@ public enum UploaderSpaceGeometry {
     static let rowPadding: CGFloat = 8
     static let rowSpacing: CGFloat = 2
     static let rowCornerRadius: CGFloat = 8
-    /// 正在播放那一行的强调色底色不透明度；比悬停底色明显，指针移开后仍能看出是哪一行。
-    static let currentRowFillOpacity: CGFloat = 0.15
     static let rowHeight: CGFloat = coverHeight + rowPadding * 2
 
     /// 封面右下角的时长角标。
@@ -43,9 +41,6 @@ public enum UploaderSpaceGeometry {
     static let playingIconSpacing: CGFloat = 3
     static let badgeSpacing: CGFloat = 6
     static let badgeToMetadataSpacing: CGFloat = 4
-
-    /// 空间层滑入／滑出侧栏的动画时长。
-    public static let layerTransitionDuration: Double = 0.28
 
     /// 列表底部加载下一批的转圈或失败说明那一行的高度，与说明和重试按钮之间的间距。
     static let footerHeight: CGFloat = 44

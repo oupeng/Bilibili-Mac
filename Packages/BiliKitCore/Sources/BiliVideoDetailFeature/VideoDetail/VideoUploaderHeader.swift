@@ -27,10 +27,60 @@ public struct VideoUploaderFollowContent: Equatable, Sendable {
     }
 }
 
+/// 关注按钮（播放页侧栏的 AppKit 按钮、整页空间页头部的 SwiftUI 按钮）的标题、图标与读屏值，两处共用这一份。
+///
+/// 标题说明现状：「关注」前是加号，「已关注」前是三条横线（点开是菜单）；读屏标签固定为「关注」，值说明是否已关注。
+enum UploaderFollowButtonLabel {
+    static var accessibilityLabel: String { VideoDetailFeatureStrings.localized("关注") }
+
+    static func title(isFollowing: Bool) -> String {
+        isFollowing
+            ? VideoDetailFeatureStrings.localized("已关注")
+            : VideoDetailFeatureStrings.localized("关注")
+    }
+
+    static func systemImage(isFollowing: Bool) -> String {
+        isFollowing ? "line.3.horizontal" : "plus"
+    }
+
+    static func accessibilityValue(isFollowing: Bool) -> String {
+        isFollowing
+            ? VideoDetailFeatureStrings.localized("已关注")
+            : VideoDetailFeatureStrings.localized("未关注")
+    }
+}
+
+/// UP 主头像的显示档：决定请求的缩略尺寸与取图用途。
+///
+/// 两者由同一档给出，不会出现请求大图却按小头像的上限解码（或反过来）。
+public enum VideoUploaderAvatarSize: Equatable, Sendable {
+    /// 播放侧栏 UP 主名片（48pt）。
+    case regular
+    /// 整页空间页头部（72pt）。
+    case large
+
+    var thumbnail: BiliImageThumbnail.Size {
+        switch self {
+        case .regular: .avatar
+        case .large: .largeAvatar
+        }
+    }
+
+    var purpose: VideoDetailImagePurpose {
+        switch self {
+        case .regular: .avatar
+        case .large: .largeAvatar
+        }
+    }
+}
+
 /// 把 UP 主字段规范化为平台 renderer 可直接消费的稳定展示值。
 public struct VideoUploaderHeaderContent: Equatable, Sendable {
     public let name: String
+    /// 头像的请求地址：按 `avatarSize` 取的 B 站图片 CDN 头像缩略图（`BiliImageThumbnail`），不请求原图。
     public let avatarURL: URL?
+    /// 加载 `avatarURL` 时用的取图用途，与请求的缩略尺寸成对。
+    public let avatarPurpose: VideoDetailImagePurpose
     /// 粉丝数与投稿数，计数用 BiliUI 的紧凑格式；名片没给出两者时隐藏。
     public let stats: VideoUploaderLineContent
     public let signature: VideoUploaderLineContent
@@ -44,11 +94,13 @@ public struct VideoUploaderHeaderContent: Equatable, Sendable {
     public init(
         owner: VideoOwner,
         profileState: VideoUploaderProfileState? = nil,
-        follow: VideoUploaderFollowContent? = nil
+        follow: VideoUploaderFollowContent? = nil,
+        avatarSize: VideoUploaderAvatarSize = .regular
     ) {
         let normalizedName = UploaderProfileUseCase.singleLine(owner.name)
         name = normalizedName ?? VideoDetailFeatureStrings.localized("未知 UP 主")
-        avatarURL = owner.avatarURL
+        avatarURL = BiliImageThumbnail.url(owner.avatarURL, size: avatarSize.thumbnail)
+        avatarPurpose = avatarSize.purpose
         self.follow = follow
         switch profileState ?? .loaded(UploaderProfile()) {
         case .loading:

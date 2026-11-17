@@ -20,7 +20,7 @@ enum LiveAPIClients {
 
     static let mainAccountReadAllowedPaths: Set<String> = [
         BiliAccountReadPath.playURL,
-        BiliAccountReadPath.subtitleCatalog,
+        BiliAccountReadPath.playerInfo,
         BiliAccountReadPath.danmakuSegment,
         BiliAccountReadPath.danmakuView,
         BiliAccountReadPath.commentReplies,
@@ -35,7 +35,12 @@ enum LiveAPIClients {
         BiliAccountReadPath.favoriteFolderContent,
         BiliAccountReadPath.popular,
         BiliAccountReadPath.videoSearch,
-        BiliAccountReadPath.videoDetail
+        BiliAccountReadPath.videoDetail,
+        BiliAccountReadPath.followings,
+        BiliAccountReadPath.followingSearch,
+        BiliAccountReadPath.followGroups,
+        BiliAccountReadPath.followGroupMembers,
+        BiliAccountReadPath.relation
     ]
 
     /// 窗口主 API 可发出的用户账户写入；只引用 BiliAPI 的 `BiliAccountWritePath`，授权器另按自己的 schema 表逐条校验。
@@ -45,6 +50,9 @@ enum LiveAPIClients {
         BiliAccountWritePath.favoriteMembershipUpdate,
         BiliAccountWritePath.favoriteFolderEntryRemove,
         BiliAccountWritePath.relationModify,
+        BiliAccountWritePath.followSpecialAdd,
+        BiliAccountWritePath.followSpecialRemove,
+        BiliAccountWritePath.followGroupsAssign,
         BiliAccountWritePath.danmakuPost,
         BiliAccountWritePath.commentLike,
         BiliAccountWritePath.commentDislike

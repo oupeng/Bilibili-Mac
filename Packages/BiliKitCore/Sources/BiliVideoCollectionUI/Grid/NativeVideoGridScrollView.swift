@@ -7,12 +7,14 @@ import AppKit
 /// 比较会分叉，Coordinator 认定尺寸已变、这里却不再回调，网格就一直停在等待排版的状态。`tile()` 也要回调：
 /// 传统滚动条随 document 高度或滚动出现、消失时，AppKit 只重新 tile、不一定再 layout，视口宽度就在 layout 之外变了。
 /// 离开窗口之前回调 `onWillLeaveWindow`：集合视图离开窗口后会回收全部卡片，保活的网格要在这之前收走卡片正显示的图。
-/// 只由 `NativeVideoGridView` 创建；用 AppKit 的理由见 ARCHITECTURE「原生 AppKit 集合视图」。
+/// 只由 `NativeGridView` 创建；用 AppKit 的理由见 ARCHITECTURE「原生 AppKit 集合视图」。
 @MainActor
 final class NativeVideoGridScrollView: NSScrollView {
     var onWillLeaveWindow: (() -> Void)?
     var onViewportLayout: (() -> Void)?
     var onContentInsetsChange: ((NSEdgeInsets, NSEdgeInsets) -> Void)?
+    /// 摆放网格装饰（顶部附加视图与「返回顶部」，见 `NativeVideoGridDecorationHost`）；先于视口回调。
+    var onLayoutDecorations: (() -> Void)?
     private var viewportTracker = NativeScrollViewportTracker()
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
@@ -32,6 +34,7 @@ final class NativeVideoGridScrollView: NSScrollView {
 
     /// insets 先于视口报告：Coordinator 按旧 insets 换算出逻辑偏移后，重排才按新 insets 恢复位置。
     private func reportViewport() {
+        onLayoutDecorations?()
         if let previousInsets = viewportTracker.update(for: self).previousInsets {
             onContentInsetsChange?(previousInsets, contentInsets)
         }
