@@ -104,29 +104,24 @@ jobs:
           cat << 'EOF' > patch_all.py
           import os, re, subprocess
 
-          # 1. 【核心修复 v1.9.2】：修复 PlaybackSourceExpiry 等文件中 currentMediaSelection 的 MainActor 隔离报错
-          for root, dirs, files in os.walk("."):
-              for file in files:
-                  if file.endswith(".swift"):
-                      path = os.path.join(root, file)
-                      try:
-                          with open(path, "r", encoding="utf-8") as f:
-                              content = f.read()
-                          if "currentMediaSelection" in content and "MainActor.assumeIsolated" not in content:
-                              # 将 xx.currentMediaSelection 包裹进 MainActor.assumeIsolated，穿透并发检查
-                              new_content = re.sub(
-                                  r'([a-zA-Z0-9_\.]+)(\??)\.currentMediaSelection',
-                                  r'(MainActor.assumeIsolated { \1\2.currentMediaSelection })',
-                                  content
-                              )
-                              if new_content != content:
-                                  with open(path, "w", encoding="utf-8") as f:
-                                      f.write(new_content)
-                                  print(f"Patched MainActor currentMediaSelection in: {path}")
-                      except Exception as e:
-                          pass
+          # 1. 【核心精准修复 v1.9.2】：仅对 PlaybackSourceExpiry.swift 修复同步上下文下的 currentMediaSelection 隔离
+          # 绝不全仓库修改，避免破坏 NativeSubtitleSelection 等合法异步上下文
+          expiry_file = "Packages/BiliKitCore/Sources/BiliPlayback/Player/PlaybackSourceExpiry.swift"
+          if os.path.exists(expiry_file):
+              with open(expiry_file, "r", encoding="utf-8") as f:
+                  content = f.read()
+              if "currentMediaSelection" in content and "MainActor.assumeIsolated" not in content:
+                  new_content = re.sub(
+                      r'([a-zA-Z0-9_\.]+)(\??)\.currentMediaSelection',
+                      r'(MainActor.assumeIsolated { \1\2.currentMediaSelection })',
+                      content
+                  )
+                  if new_content != content:
+                      with open(expiry_file, "w", encoding="utf-8") as f:
+                          f.write(new_content)
+                      print("Successfully patched PlaybackSourceExpiry.swift with MainActor.assumeIsolated!")
 
-          # 2. 全局降级 SWIFT_STRICT_CONCURRENCY（防止 Swift 6 并发检查误判）
+          # 2. 全局降级 SWIFT_STRICT_CONCURRENCY（防止 Swift 6 并发检查误判打断构建）
           for root, dirs, files in os.walk("."):
               for file in files:
                   if file.endswith((".pbxproj", ".xcconfig")):
@@ -143,7 +138,7 @@ jobs:
                       except Exception:
                           pass
 
-          # 3. 解决 Keychain 权限拦截与“登录未完成”弹窗（平滑支持 TV 凭证与本地 UserDefaults 兜底）
+          # 3. 解决 Keychain 权限拦截与“登录未完成”弹窗（支持 TV 凭据与本地 UserDefaults 兜底）
           cred_file = "Packages/BiliKitCore/Sources/BiliAuth/Credential/WebCredentialStore.swift"
           if os.path.exists(cred_file):
               with open(cred_file, "r", encoding="utf-8") as f:
