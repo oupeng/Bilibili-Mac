@@ -35,6 +35,39 @@ struct PlaybackSidebarCommentRowTests: PlaybackSidebarFixtures {
         #expect(NativeCommentAvatarMark(author: author) == expected)
     }
 
+    /// 复用的评论操作换图标或文字后，宽度与文字框都按新内容给出，与新建的操作一致；换回原内容也一致。
+    ///
+    /// 操作只在内容变化时重新量尺寸，并按文字取进程内缓存；任何一步沿用了旧尺寸，赞数变长时会被截断、变短时留出空白。
+    @Test
+    @MainActor
+    func reusedFooterActionMeasuresItsNewContent() {
+        let font = NSFont.preferredFont(forTextStyle: .callout)
+        func fresh(_ symbol: String?, _ title: String) -> CGFloat {
+            let action = NativePlaybackCommentFooterAction(font: font)
+            action.configure(symbolName: symbol, title: title)
+            return action.contentWidth
+        }
+        let reused = NativePlaybackCommentFooterAction(font: font)
+        reused.frame = NSRect(x: 0, y: 0, width: 200, height: 20)
+        for (symbol, title) in [
+            ("hand.thumbsup", "8"),
+            ("hand.thumbsup", "12.3万"),
+            ("hand.thumbsup.fill", "12.3万"),
+            (nil, "回复"),
+            ("hand.thumbsup", ""),
+            ("hand.thumbsup", "8")
+        ] as [(String?, String)] {
+            reused.configure(symbolName: symbol, title: title)
+            reused.layoutSubtreeIfNeeded()
+            #expect(reused.contentWidth == fresh(symbol, title), "\(symbol ?? "nil") \(title)")
+            let label = reused.subviews.compactMap { $0 as? NSTextField }.first
+            #expect(label?.isHidden == title.isEmpty)
+            if let label, !title.isEmpty {
+                #expect(label.frame.width == ceil(label.fittingSize.width))
+            }
+        }
+    }
+
     /// 评论区已关闭成为终态说明行，其余失败仍是失败状态行。
     @Test
     @MainActor
@@ -275,6 +308,36 @@ struct PlaybackSidebarCommentRowTests: PlaybackSidebarFixtures {
         item.releaseOffscreenResources()
         item.prepareForReuse()
         focusWindow.contentView = NSView()
+    }
+
+    /// 来源标记的胶囊底色按视图当前的外观解析：明暗切换后不沿用第一次绘制时的外观。
+    @Test
+    @MainActor
+    func provenanceBadgeBackgroundFollowsAppearance() throws {
+        let light = try capsuleBackgroundBrightness(in: try #require(NSAppearance(named: .aqua)))
+        let dark = try capsuleBackgroundBrightness(in: try #require(NSAppearance(named: .darkAqua)))
+
+        #expect(light < 0.5)
+        #expect(dark > 0.5)
+    }
+
+    @MainActor
+    private func capsuleBackgroundBrightness(in appearance: NSAppearance) throws -> CGFloat {
+        let view = NativePlaybackCommentProvenanceBadgesView(
+            frame: NSRect(x: 0, y: 0, width: 160, height: 18)
+        )
+        view.appearance = appearance
+        view.configure([.uploaderLiked])
+        let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        // 胶囊左端水平内边距里的一点，只有底色、没有文字。
+        let pixelsPerPoint = CGFloat(bitmap.pixelsWide) / view.bounds.width
+        let color = try #require(
+            bitmap.colorAt(x: Int(4 * pixelsPerPoint), y: bitmap.pixelsHigh / 2)?
+                .usingColorSpace(.sRGB)
+        )
+        #expect(color.alphaComponent > 0)
+        return color.redComponent
     }
 
     @Test

@@ -11,7 +11,8 @@ struct RecommendedTabRoot: View {
     let title: LocalizedStringResource
     let model: BrowseViewModel
     let gridHost: NativeVideoGridHostContext
-    let onSelect: (String) -> Void
+    /// BV 号与列表给的第一个分 P 的 CID（没有时为 nil），后者只用来提前请求播放清单。
+    let onSelect: (String, Int64?) -> Void
 
     var body: some View {
         RecommendedFeedView(
@@ -28,7 +29,8 @@ struct PopularTabRoot: View {
     let title: LocalizedStringResource
     let model: BrowseViewModel
     let gridHost: NativeVideoGridHostContext
-    let onSelect: (String) -> Void
+    /// BV 号与列表给的第一个分 P 的 CID（见 `PopularFeedView`）。
+    let onSelect: (String, Int64?) -> Void
 
     var body: some View {
         PopularFeedView(
@@ -40,9 +42,11 @@ struct PopularTabRoot: View {
     }
 }
 
-/// 搜索来源的 App 接线：起始页、结果呈现与原生网格在 Browse 的 `VideoSearchView`，草稿、筛选与提交在 Browse 的
-/// `VideoSearchSession`；这里转交窗口级网格依赖，用热搜模型、窗口图片管线（实现热搜图标 port）与进程级搜索历史
-/// 构造起始页输入，并宿主绑定会话的工具栏搜索框（AppKit）与排序、筛选控件。
+/// 搜索页的 App 接线，侧栏「搜索」与压栈搜索页共用。
+///
+/// 起始页、结果呈现与原生网格在 Browse 的 `VideoSearchView`，草稿、筛选与提交在 Browse 的 `VideoSearchSession`；
+/// 这里转交窗口级网格依赖，用热搜模型、窗口图片管线（实现热搜图标 port）与进程级搜索历史构造起始页输入，并宿主绑定
+/// 会话的工具栏搜索框（AppKit）与排序、筛选控件。两处只差传进来的会话、Browse 模型与网格依赖，不另写一份搜索页。
 struct SearchTabRoot: View {
     let title: LocalizedStringResource
     @Bindable var session: VideoSearchSession
@@ -119,7 +123,8 @@ struct WatchLaterTabRoot: View {
     @Bindable var session: WatchLaterSession
     let accountState: AccountPresentationState
     let gridHost: NativeVideoGridHostContext
-    let onSelect: (String) -> Void
+    /// BV 号与列表给的第一个分 P 的 CID（没有时为 nil），后者只用来提前请求播放清单。
+    let onSelect: (String, Int64?) -> Void
     let onPresentAuthentication: () -> Void
 
     var body: some View {
@@ -284,7 +289,8 @@ struct HistoryTabRoot: View {
     let model: WatchHistoryViewModel
     let accountState: AccountPresentationState
     let gridHost: NativeVideoGridHostContext
-    let onSelect: (String) -> Void
+    /// BV 号与列表给的第一个分 P 的 CID（没有时为 nil），后者只用来提前请求播放清单。
+    let onSelect: (String, Int64?) -> Void
     let onPresentAuthentication: () -> Void
 
     var body: some View {

@@ -4,10 +4,10 @@ import BiliUI
 import BiliVideoCollectionUI
 import SwiftUI
 
-/// 把视频准备状态连接到弹幕与分段章节的播放 identity 生命周期。
+/// 把视频准备状态连接到弹幕、分段章节与「正在看」人数的播放 identity 生命周期。
 ///
-/// 详情上下文一旦可用就为同一 BVID/CID 选择弹幕与章节；状态回到 idle/loading/failed 时 identity 变为
-/// `nil`，由 `.task(id:)` 完整 reset 弹幕与章节。原生字幕由 AVPlayerEngine 随媒体 load 拥有。
+/// 详情上下文一旦可用就为同一 BVID/CID 选择弹幕、章节与人数；状态回到 idle/loading/failed 时 identity 变为
+/// `nil`，由 `.task(id:)` 完整 reset 这三者。原生字幕由 AVPlayerEngine 随媒体 load 拥有。
 /// 下方横排（相关视频、刚才看过、章节、合集）由本 Feature 直接渲染，App 只注入窗口图片管线（经卡片取图 port）、「刚才看过」
 /// 列表、选择与跳转回调。展示的详情变化时交给
 /// `VideoEngagementModel` 重读互动状态（窗口账户变化由 App 另行交给它）。
@@ -16,10 +16,12 @@ public struct VideoPlaybackView<PlayerContent: View>: View {
     private let model: VideoViewModel
     private let danmakuModel: DanmakuControlsViewModel
     private let chapterModel: VideoChapterModel
+    private let onlineViewerModel: VideoOnlineViewerModel
     private let danmakuComposer: DanmakuComposerModel?
     private let engagementModel: VideoEngagementModel
     private let onRetry: () -> Void
-    private let onSelectRelatedVideo: (String) -> Void
+    /// 选中一条相关推荐：BV 号与相关推荐给的第一个分 P 的 CID（没有时为 nil），后者交给播放页提前请求播放清单。
+    private let onSelectRelatedVideo: (String, Int64?) -> Void
     private let onSelectPlayback: (String, Int64?) -> Void
     private let recentlyWatched: [RecentlyWatchedVideo]
     private let onSelectRecentlyWatched: (PlaybackSelectionIntent) -> Void
@@ -32,10 +34,11 @@ public struct VideoPlaybackView<PlayerContent: View>: View {
         model: VideoViewModel,
         danmakuModel: DanmakuControlsViewModel,
         chapterModel: VideoChapterModel,
+        onlineViewerModel: VideoOnlineViewerModel,
         danmakuComposer: DanmakuComposerModel? = nil,
         engagementModel: VideoEngagementModel,
         onRetry: @escaping () -> Void,
-        onSelectRelatedVideo: @escaping (String) -> Void = { _ in },
+        onSelectRelatedVideo: @escaping (String, Int64?) -> Void = { _, _ in },
         onSelectPlayback: @escaping (String, Int64?) -> Void = { _, _ in },
         recentlyWatched: [RecentlyWatchedVideo] = [],
         onSelectRecentlyWatched: @escaping (PlaybackSelectionIntent) -> Void = { _ in },
@@ -46,6 +49,7 @@ public struct VideoPlaybackView<PlayerContent: View>: View {
         self.model = model
         self.danmakuModel = danmakuModel
         self.chapterModel = chapterModel
+        self.onlineViewerModel = onlineViewerModel
         self.danmakuComposer = danmakuComposer
         self.engagementModel = engagementModel
         self.onRetry = onRetry
@@ -78,10 +82,12 @@ public struct VideoPlaybackView<PlayerContent: View>: View {
             guard let playbackIdentity else {
                 danmakuModel.reset()
                 chapterModel.reset()
+                onlineViewerModel.reset()
                 return
             }
             danmakuModel.selectVideo(playbackIdentity)
             chapterModel.select(playbackIdentity)
+            onlineViewerModel.select(playbackIdentity)
         }
         .onChange(of: currentContext?.detail, initial: true) { _, detail in
             engagementModel.present(detail)
@@ -124,6 +130,14 @@ public struct VideoPlaybackView<PlayerContent: View>: View {
         return projection.showsCollection ? projection : nil
     }
 
+    private func selectRelatedVideo(_ bvid: String) {
+        guard case .loaded(_, let videos) = model.relatedVideoState else {
+            onSelectRelatedVideo(bvid, nil)
+            return
+        }
+        onSelectRelatedVideo(bvid, videos.first(where: { $0.bvid == bvid })?.firstPageCID)
+    }
+
     private func selectCollectionEpisode(_ identity: VideoCollectionEpisodeIdentity) {
         let onSelectPlayback = onSelectPlayback
         guard let episode = model.presentedCollectionEpisode(identity) else { return }
@@ -144,14 +158,21 @@ public struct VideoPlaybackView<PlayerContent: View>: View {
         if let currentContext {
             VideoDetailView(
                 context: currentContext,
+                accessNotice: model.playableVideo?.accessNotice,
                 danmakuModel: danmakuModel,
                 danmakuComposer: danmakuComposer,
                 engagementModel: engagementModel,
                 relatedVideoState: model.relatedVideoState,
-                onSelectRelatedVideo: onSelectRelatedVideo,
+                onSelectRelatedVideo: selectRelatedVideo,
                 onRetryRelatedVideos: model.retryRelatedVideos,
                 collectionShelf: collectionShelfInput(currentContext),
                 chapterShelf: chapterShelfInput(currentContext),
+                onlineViewerText: onlineViewerModel.text(
+                    for: PlaybackItemIdentity(
+                        bvid: currentContext.detail.bvid,
+                        cid: currentContext.selectedPage.cid
+                    )
+                ),
                 // 正在播放的排最前；「返回」回到列表里的视频时它不会从协调器的列表移出，这里去掉重复的那一项。
                 recentlyWatched: [RecentlyWatchedVideo(nowPlaying: currentContext.detail)]
                     + recentlyWatched.filter { $0.id != currentContext.detail.bvid },
@@ -253,15 +274,19 @@ public struct VideoPlaybackView<PlayerContent: View>: View {
     }
 
     private var playbackIdentity: PlaybackItemIdentity? {
+        let context: VideoContext
         switch model.state {
-        case .preparingPlayback(let context), .ready(let context):
-            PlaybackItemIdentity(
-                bvid: context.detail.bvid,
-                cid: context.selectedPage.cid
-            )
+        case .preparingPlayback(let preparing):
+            context = preparing
+        case .ready(let playable):
+            context = playable.context
         case .idle, .loading, .loadingPage, .failed, .failedPage:
-            nil
+            return nil
         }
+        return PlaybackItemIdentity(
+            bvid: context.detail.bvid,
+            cid: context.selectedPage.cid
+        )
     }
 
     private func failureView(_ failure: VideoLoadFailure) -> ContentFailureView {

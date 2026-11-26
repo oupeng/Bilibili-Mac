@@ -6,13 +6,15 @@ import Testing
 @testable import BiliVideoDetailFeature
 
 /// 视频与分 P 的意图隔离：只有最新的 BVID／CID 意图能写回状态或驱动播放器，失败只重试目标分 P，只有凭据失效请求窗口复核。
+///
+/// 分 P 已定时详情一到就呈现页面，播放清单到达之前不算开播；之后取播放清单失败时页面保留但不可操作。
 @Suite(.timeLimit(.minutes(1)))
 struct VideoViewModelIdentityTests {
     @Test(arguments: [
         ContentApplicationError.authenticationInvalid,
         .authenticationRequired,
         .authenticationUnavailable,
-        .requestRestricted
+        .requestRestricted(.httpStatus412)
     ])
     @MainActor
     func onlyInvalidAuthenticationRequestsAppRevalidation(
@@ -43,6 +45,122 @@ struct VideoViewModelIdentityTests {
                     failure: VideoLoadFailure.content(error)
                 )
         )
+    }
+
+    @Test(arguments: [false, true])
+    @MainActor
+    func detailIsPresentedBeforePlaybackOnlyWhenThePartIsDecided(multiPart: Bool) async throws {
+        let fixture = ContentFixtures()
+        let gate = TestGate()
+        let player = PlayerStub()
+        let model = makeVideoViewModel(
+            useCase: VideoUseCase(
+                repository: VideoRepositoryStub(
+                    fixture,
+                    pages: multiPart ? fixture.twoPages : nil,
+                    playback: { _, _ in
+                        await gate.pass()
+                        return fixture.playback
+                    }
+                )
+            ),
+            playback: player
+        )
+
+        model.loadVideo(fixture.bvid)
+        try await gate.waitForEntries()
+
+        if multiPart {
+            #expect(model.state == .loading(bvid: fixture.bvid))
+            #expect(model.presentedContext == nil)
+        } else {
+            #expect(model.state == .preparingPlayback(makeVideoContext(detail: fixture.detail)))
+            #expect(model.presentedContext?.detail.bvid == fixture.bvid)
+        }
+        #expect(model.playableVideo == nil)
+        #expect(model.presentedPlaybackIdentity == nil)
+        #expect(player.loadedPlaybacks.isEmpty)
+
+        await gate.open()
+        await waitUntilSettled(model)
+        #expect(model.playableVideo?.context.detail.bvid == fixture.bvid)
+    }
+
+    /// 取播放清单失败时页面保留但不可操作；重试仍按链接的分 P 序号打开，照常续播。
+    @Test
+    @MainActor
+    func playbackRequestFailureAfterEarlyDetailKeepsTheDetailBlocked() async throws {
+        let fixture = ContentFixtures()
+        let resumed = fixture.playback(
+            resuming: try #require(
+                PlaybackResumeMetadata(
+                    lastPlayedCID: fixture.page.cid,
+                    positionMilliseconds: 42_500
+                )
+            )
+        )
+        let player = PlayerStub()
+        let model = makeVideoViewModel(
+            useCase: VideoUseCase(
+                repository: VideoRepositoryStub(
+                    fixture,
+                    playback: { _, attempt in
+                        guard attempt > 1 else {
+                            throw ContentApplicationError.playbackUnavailable
+                        }
+                        return resumed
+                    }
+                )
+            ),
+            playback: player
+        )
+
+        model.loadVideo(fixture.bvid, preferredPageNumber: 1)
+        await waitUntilSettled(model)
+
+        #expect(
+            model.state == .failed(bvid: fixture.bvid, failure: .content(.playbackUnavailable))
+        )
+        #expect(model.presentedContext?.detail.bvid == fixture.bvid)
+        #expect(model.blocksPresentedContext)
+        #expect(model.operableBVID == nil)
+
+        model.retry()
+        await waitUntilSettled(model)
+
+        #expect(model.playableVideo?.context.detail.bvid == fixture.bvid)
+        #expect(player.loadedStartPositions == [42.5])
+    }
+
+    @Test
+    @MainActor
+    func leavingWhileThePlaybackListLoadsNeverLoadsThePlayer() async throws {
+        let fixture = ContentFixtures()
+        let gate = TestGate()
+        let player = PlayerStub()
+        let model = makeVideoViewModel(
+            useCase: VideoUseCase(
+                repository: VideoRepositoryStub(
+                    fixture,
+                    playback: { _, _ in
+                        await gate.pass()
+                        return fixture.playback
+                    }
+                )
+            ),
+            playback: player
+        )
+
+        let load = SpawnedTasks { model.loadVideo(fixture.bvid) }
+        try await gate.waitForEntries()
+        #expect(model.presentedContext?.detail.bvid == fixture.bvid)
+        model.reset()
+        await gate.open()
+        await load.finished()
+
+        #expect(model.state == .idle)
+        #expect(model.presentedContext == nil)
+        #expect(player.loadedPlaybacks.isEmpty)
     }
 
     @Test
@@ -143,11 +261,11 @@ struct VideoViewModelIdentityTests {
         await slowGate.open()
         await stale.finished()
 
-        guard case .ready(let context) = model.state else {
+        guard case .ready(let playable) = model.state else {
             Issue.record("最新视频未进入就绪状态")
             return
         }
-        #expect(context.detail.bvid == fast.detail.bvid)
+        #expect(playable.context.detail.bvid == fast.detail.bvid)
         #expect(model.presentedContext?.detail.bvid == fast.detail.bvid)
         #expect(player.loadedPlaybacks.count == 1)
         #expect(player.startedIdentities.count == 1)
@@ -343,7 +461,7 @@ struct VideoViewModelIdentityTests {
         await player.waitForLoadCount(3)
 
         await player.publishFailure(
-            PlaybackFailureEvent(identity: firstIdentity, intent: oldIntent)
+            PlaybackFailureEvent(identity: firstIdentity, intent: oldIntent, positionSeconds: 0)
         )
         await player.waitForFailureRequestCount(2)
         guard case .preparingPlayback = model.state else {
@@ -360,6 +478,86 @@ struct VideoViewModelIdentityTests {
         #expect(player.loadedIntents[0] != player.loadedIntents[2])
         #expect(player.startedIdentities.map(\.cid) == [900_001, 900_002, 900_001])
         #expect(player.startedIntents == player.loadedIntents)
+    }
+
+    /// 地址过期的换源只重取当前分 P 的 playurl，把新数据交给播放器；页面全程停在 ready、不停播放器，换源进行中
+    /// 重复的事件不再重取。
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func sourceExpiryRefetchesOnlyThePresentedPageAndStaysReady() async throws {
+        let fixture = ContentFixtures()
+        let repository = VideoRepositoryStub(
+            fixture,
+            pages: fixture.twoPages,
+            playback: { identity, attempt in
+                VideoPlayback(
+                    media: fixture.playback.media,
+                    mediaHeaders: ["Attempt": "\(identity.cid)-\(attempt)"]
+                )
+            }
+        )
+        let player = PlayerStub(holdsRefreshes: true)
+        let model = makeVideoViewModel(
+            useCase: VideoUseCase(repository: repository),
+            playback: player
+        )
+        model.loadVideo(fixture.bvid, preferredCID: 900_002)
+        await waitUntilSettled(model)
+        let identity = try #require(model.presentedPlaybackIdentity)
+        let initialRequestCount = await repository.playbackRequests.count
+
+        player.expireSource(identity, at: 40)
+        await player.waitForRefreshCount(1)
+        guard case .ready = model.state else {
+            Issue.record("换源期间页面离开了 ready")
+            return
+        }
+        player.expireSource(identity, at: 41)
+        await player.waitForSourceExpiryRequestCount(3)
+
+        #expect(await repository.playbackRequests.dropFirst(initialRequestCount) == [identity])
+        #expect(player.refreshedIdentities == [identity])
+        #expect(player.refreshedPlaybacks.map(\.mediaHeaders) == [["Attempt": "900002-2"]])
+        #expect(model.presentedPlaybackIdentity == identity)
+        #expect(player.stopCallCount == 0)
+        player.releaseHeldRefresh()
+    }
+
+    /// 同一 CID 换成新的 load intent（A→B→A）后，旧 intent 迟到的换源事件被丢弃：不重取、不换源、不停播放器。
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func lateSourceExpiryFromAnEarlierIntentIsIgnored() async throws {
+        let fixture = ContentFixtures()
+        let repository = VideoRepositoryStub(fixture, pages: fixture.twoPages)
+        let player = PlayerStub()
+        let model = makeVideoViewModel(
+            useCase: VideoUseCase(repository: repository),
+            playback: player
+        )
+        model.loadVideo(fixture.bvid)
+        await waitUntilSettled(model)
+        let identity = try #require(model.presentedPlaybackIdentity)
+        let oldIntent = try #require(player.loadedIntents.first)
+        model.selectPage(cid: 900_002)
+        await waitUntilSettled(model)
+        model.selectPage(cid: identity.cid)
+        await waitUntilSettled(model)
+        let requestCount = await repository.playbackRequests.count
+        let stopCount = player.stopCallCount
+
+        player.publishSourceExpiry(
+            PlaybackSourceExpiryEvent(identity: identity, intent: oldIntent, positionSeconds: 30)
+        )
+        await player.waitForSourceExpiryRequestCount(2)
+
+        guard case .ready = model.state else {
+            Issue.record("旧 intent 的换源事件改变了页面状态")
+            return
+        }
+        #expect(player.refreshedIdentities.isEmpty)
+        #expect(await repository.playbackRequests.count == requestCount)
+        #expect(player.stopCallCount == stopCount)
+        #expect(model.presentedPlaybackIdentity == identity)
     }
 
     @Test(.timeLimit(.minutes(1)))

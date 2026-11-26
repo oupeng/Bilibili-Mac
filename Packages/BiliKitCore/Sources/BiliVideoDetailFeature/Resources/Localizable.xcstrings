@@ -1,6 +1,34 @@
 {
   "sourceLanguage" : "zh-Hans",
   "strings" : {
+    "%@ 人正在看" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ watching"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@人が視聴中"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 人正在看"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 人正在看"
+          }
+        }
+      }
+    },
     "%lld 个投稿" : {
       "localizations" : {
         "en" : {
@@ -3525,6 +3553,34 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "評論"
+          }
+        }
+      }
+    },
+    "评论刷新失败" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't refresh comments"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コメントを更新できませんでした"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "评论刷新失败"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "評論重新整理失敗"
           }
         }
       }

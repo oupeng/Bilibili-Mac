@@ -16,7 +16,8 @@ public enum ContentApplicationError: Error, Sendable, Equatable {
     case authenticationRequired
     case authenticationInvalid
     case authenticationUnavailable
-    case requestRestricted
+    /// 远端拒绝或拦截了请求；带上观察到的信号，失败文案据此给出短码。
+    case requestRestricted(RequestRestriction)
     /// 内容不存在、已删除或对当前身份不可见；重试不会改变结果。
     case contentUnavailable
     case serviceRejected(code: Int)
@@ -79,6 +80,13 @@ public protocol VideoRepository: Sendable {
 /// 没有章节时是空列表。
 public protocol VideoChapterRepository: Sendable {
     func chapters(for identity: PlaybackItemIdentity) async throws -> [VideoChapter]
+}
+
+/// 某个分 P 的「正在看」人数的只读 port：始终匿名读取。
+///
+/// 人数是服务端格式化好的文本，原样显示；B 站不显示时为 nil。
+public protocol VideoOnlineViewerRepository: Sendable {
+    func onlineViewerText(for identity: PlaybackItemIdentity) async throws -> String?
 }
 
 /// 当前视频相关推荐的只读 port：有凭据时按账户读取，本地无凭据时匿名请求同一 endpoint。
